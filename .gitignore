@@ -1,0 +1,15 @@
+# Unreal Engine
+*.ini
+*.log
+/Build/
+/Binaries/
+/Saved/
+/Intermediate/
+/DerivedDataCache/
+.vscode/
+.vs/
+*.suo
+*.sdf
+*.sln
+*.csproj
+*.user
