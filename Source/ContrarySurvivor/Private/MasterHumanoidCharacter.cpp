@@ -15,6 +15,7 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
 	
 }
 
