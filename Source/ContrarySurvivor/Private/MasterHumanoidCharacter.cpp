@@ -27,7 +27,6 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-    GetCharacterMovement()->MaxWalkSpeed = 300.f;
 }
 
 void AMasterHumanoidCharacter::Tick(float DeltaTime)
@@ -35,10 +34,6 @@ void AMasterHumanoidCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-void AMasterHumanoidCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
-}
 
 void AMasterHumanoidCharacter::Attack()
 {
