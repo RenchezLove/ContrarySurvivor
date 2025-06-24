@@ -5,10 +5,11 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "AMasterInventoryItem.h"
 #include "AArmor.generated.h"
 
 UCLASS(Abstract, Blueprintable)
-class CONTRARYSURVIVOR_API AArmor : public AActor
+class CONTRARYSURVIVOR_API AArmor : public AMasterInventoryItem
 {
 	GENERATED_BODY()
 
@@ -19,10 +20,7 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-    // Mesh to represent armor when it's on the ground
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true"))
-    USkeletalMesh* ArmorMesh_World;
-
+    
     // Mesh to represent armor whet is's equiped
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true"))
     USkeletalMesh* ArmorMesh_Equipped;
