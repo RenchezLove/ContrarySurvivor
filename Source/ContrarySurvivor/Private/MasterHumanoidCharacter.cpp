@@ -3,7 +3,10 @@
 #include "MasterHumanoidCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "ContrarySurvivor/ContrarySurvivor.h" // Исправленный include
+#include "ContrarySurvivor/ContrarySurvivor.h" 
+//#include "InventoryComponent.h" // Comented until i create InventoryComponent
+//#include "Weapon.h"
+
 
 AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 {
@@ -66,7 +69,33 @@ void AMasterHumanoidCharacter::RestoreHealth(float HealAmount)
 
      UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: RestoreHealth! Health = %f"), Health);
 }
+/*
+void AMasterHumanoidCharacter::EquipWeapon(AWeapon* NewWeapon)
+{
+    USkeletalMeshComponent* TorsoMesh = GetTorsoMesh();
 
+    if (CurrentWeapon && TorsoMesh)
+    {
+        if (CurrentWeapon)
+        {
+            CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+        }
+
+        // 4. Установить новое оружие
+        CurrentWeapon = NewWeapon;
+
+        // 5. Присоединить новое оружие к мешу торса
+        if (CurrentWeapon)
+        {
+            CurrentWeapon->AttachToComponent(TorsoMesh, FAttachmentTransformRules::SnapToTargetIncludingScale, "WeaponSocket");
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: CurrentWeapon or TorsoMesh Not exist"));
+    }
+}
+*/
 void AMasterHumanoidCharacter::UpdateCharacterAppearance()
 {
     UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: UpdateCharacterAppearance!"));

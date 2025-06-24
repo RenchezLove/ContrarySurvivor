@@ -4,8 +4,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-//#include "InventoryComponent.h" // Comented until i create InventoryComponent
-//#include "Weapon.h"
+
+class AWeapon;
+class UInventoryComponent;
+
 #include "MasterHumanoidCharacter.generated.h"
 
 UCLASS(Abstract, Blueprintable)
@@ -43,14 +45,29 @@ protected:
 	//UInventoryComponent* Inventory; 
     //Inventory Comented Because i didnt created it yet
 
+	/*
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment") 
+    AWeapon* CurrentWeapon;
+	*/
+
+	UFUNCTION(BlueprintCallable, Category = "Components")
+	FORCEINLINE USkeletalMeshComponent* GetTorsoMesh() const { return TorsoMesh; }
+
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	virtual void Attack(); // virtual UseWeapoon function To atack enemy. Whill be derived in child class
 
     UFUNCTION(BlueprintCallable, Category = "Appearance")
 	void UpdateCharacterAppearance();
 
-	//UFUNCTION(BlueprintCallable, Category = "Equipment")
-    //virtual AWeapon* GetCurrentWeapon() const;
+	/*
+
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+    AWeapon* GetCurrentWeapon() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+    void EquipWeapon(AWeapon* Weapon);
+
+	*/
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
     FORCEINLINE float GetHealth() const { return Health; }
@@ -69,3 +86,4 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 };
+ 
