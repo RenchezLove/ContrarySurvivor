@@ -41,9 +41,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* LegsMesh; 
 
-	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
-	//UInventoryComponent* Inventory; 
-    //Inventory Comented Because i didnt created it yet
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	UInventoryComponent* Inventory; 
+  
 
 	/*
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment") 

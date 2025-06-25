@@ -4,7 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" 
-//#include "InventoryComponent.h" // Comented until i create InventoryComponent
+#include "UInventoryComponent.h" 
 //#include "Weapon.h"
 
 
@@ -25,6 +25,8 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 
     LegsMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LegsMesh"));
     LegsMesh->SetupAttachment(GetMesh());
+
+    Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 }
 
 void AMasterHumanoidCharacter::BeginPlay()
