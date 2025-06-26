@@ -17,14 +17,17 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 
     bIsAttacking = false;
 
-    HeadMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMesh"));
+    HeadMesh = GetMesh();
+
+    /*HeadMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMesh"));
     HeadMesh->SetupAttachment(GetMesh());
+    */
 
     TorsoMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("TorsoMesh"));
-    TorsoMesh->SetupAttachment(GetMesh());
+    TorsoMesh->SetupAttachment(HeadMesh);
 
     LegsMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LegsMesh"));
-    LegsMesh->SetupAttachment(GetMesh());
+    LegsMesh->SetupAttachment(HeadMesh);
 
     Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 }
