@@ -42,11 +42,13 @@ void AMasterHumanoidCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-
+/*
 void AMasterHumanoidCharacter::Attack()
 {
     UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: Attack!"));
 }
+    i don't like this way of Attack realization. Comented for now. I dicided to make this functionality diferently in AI and player classes
+*/
 
 float AMasterHumanoidCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {

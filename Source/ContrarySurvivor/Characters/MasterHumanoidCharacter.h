@@ -48,15 +48,23 @@ protected:
 	/*
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment") 
     AWeapon* CurrentWeapon;
+
+	Comented til i create AWeapon (AWeapon is not created yet)
 	*/
 
 	UFUNCTION(BlueprintCallable, Category = "Components")
 	FORCEINLINE USkeletalMeshComponent* GetTorsoMesh() const { return TorsoMesh; }
 
+	/* 
+	
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	virtual void Attack(); // virtual UseWeapoon function To atack enemy. Whill be derived in child class
 
-    UFUNCTION(BlueprintCallable, Category = "Appearance")
+	i don't like this way of Attack realization. Comented for now. I dicided to make this functionality diferently in AI and player classes
+
+	*/
+    
+	UFUNCTION(BlueprintCallable, Category = "Appearance")
 	void UpdateCharacterAppearance();
 
 	/*
@@ -66,6 +74,8 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
     void EquipWeapon(AWeapon* Weapon);
+
+	Comented til i create AWeapon (AWeapon is not created yet)
 
 	*/
 
