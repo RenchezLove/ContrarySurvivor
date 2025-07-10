@@ -5,7 +5,7 @@
 
 AHeadArmor::AHeadArmor()
 {
-	// No specific initialization for now
+	
 }
 
 void AHeadArmor::BeginPlay()
