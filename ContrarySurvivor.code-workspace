@@ -413,18 +413,18 @@
 			{
 				"label": "ContrarySurvivorEditor Win64 Development Build",
 				"group": "build",
-				"command": "Engine\\Build\\BatchFiles\\Build.bat",
+				"command": "E:\\UnrealEngine\\UE_5.5\\Engine\\Build\\BatchFiles\\Build.bat",
 				"args": [
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\Win64"
 				}
 			},
 			{
