@@ -42,6 +42,45 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
+	//UE_LOG(LogTemp, Warning, TEXT("Move: X=%.2f, Y=%.2f"), MovementVector.X, MovementVector.Y);
+
+    APawn* ControlledPawn = GetPawn();
+    if (!ControlledPawn) return;
+
+    // Получаем камеру
+    APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
+    FRotator CameraRot = CameraManager->GetCameraRotation();
+
+    // Берём только рысканье (yaw) — игнорируем наклон камеры
+    FRotator FlatRot(0.0f, CameraRot.Yaw, 0.0f);
+
+    // Вычисляем экранные оси:
+    // Forward — «вверх» по экрану (не путать с мировым «вперёд»)
+    FVector ScreenForward = FlatRot.Vector();
+    // Right — «вправо» по экрану
+    FVector ScreenRight = FlatRot.RotateVector(FVector::RightVector);
+
+    // Проекция на горизонтальную плоскость (X-Y)
+    ScreenForward.Z = 0.0f;
+    ScreenRight.Z = 0.0f;
+
+    // Нормализуем (обязательно!)
+    ScreenForward = ScreenForward.GetSafeNormal();
+    ScreenRight = ScreenRight.GetSafeNormal();
+
+    // Применяем движение
+    ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);  // W/S — вверх/вниз по экрану
+    ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);     // A/D — влево/вправо по экрану
+	/*
+	DrawDebugDirectionalArrow(GetWorld(), ControlledPawn->GetActorLocation(), 
+    ControlledPawn->GetActorLocation() + ScreenForward * 100.0f, 20.0f, FColor::Blue, false, 5.0f);
+	DrawDebugDirectionalArrow(GetWorld(), ControlledPawn->GetActorLocation(),
+    ControlledPawn->GetActorLocation() + ScreenRight * 100.0f, 20.0f, FColor::Red, false, 5.0f);
+	*/
+
+	
+	/*FVector2D MovementVector = Value.Get<FVector2D>();
+
     // Getting controlling pawn
     APawn* ControlledPawn = GetPawn();
 
@@ -58,6 +97,7 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
         ControlledPawn->AddMovementInput(ForwardDirection, MovementVector.Y);
         ControlledPawn->AddMovementInput(RightDirection, MovementVector.X);
     }
+	*/
 }
 
 void AContrarySurvivorPlayerController::Interact(const FInputActionValue& Value)
