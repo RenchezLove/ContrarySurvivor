@@ -19,6 +19,9 @@ public:
 	// Sets default values for this character's properties
 	AMasterHumanoidCharacter();
 
+	UFUNCTION(BlueprintCallable)
+    void SetSprint(bool bIsSprinting);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -94,6 +97,11 @@ protected:
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
+
+private:
+    float BaseWalkSpeed;
+    float SprintMultiplier = 2.0f;
+    bool IsSprinting;	
 
 };
  

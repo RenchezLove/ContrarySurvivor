@@ -8,7 +8,9 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
 #include "InputAction.h"
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivorPlayerController.generated.h"
+
 
 UCLASS()
 class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerController
@@ -34,7 +36,8 @@ protected:
 	UInputAction* MoveAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
-	TObjectPtr<UInputAction> SprintAction;
+	UInputAction* SprintAction;
+	//TObjectPtr<UInputAction> SprintAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* InteractAction;
@@ -45,7 +48,17 @@ protected:
 	// Movement
 	void Move(const FInputActionValue& Value);
 
+	UFUNCTION()
+    void Sprint(const FInputActionValue& Value);
+
 	// Actions
 	void Interact(const FInputActionValue& Value);
 	void Inventory(const FInputActionValue& Value);
+
+	private:
+    bool IsSprinting = false;
+
 };
+
+
+

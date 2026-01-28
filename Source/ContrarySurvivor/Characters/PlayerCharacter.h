@@ -24,6 +24,7 @@ class CONTRARYSURVIVOR_API APlayerCharacter : public AMasterHumanoidCharacter
 public:
     APlayerCharacter();
 
+
 protected:
 
     // Spring Arm 
@@ -48,4 +49,6 @@ protected:
      * Sets movement parameters
      */
     void SetUpMovement();
+
+
 };

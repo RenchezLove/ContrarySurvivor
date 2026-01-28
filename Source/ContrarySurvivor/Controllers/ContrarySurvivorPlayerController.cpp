@@ -4,6 +4,8 @@
 #include "ContrarySurvivorPlayerController.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
+
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -32,9 +34,18 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Move);
 
+        EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Sprint);
+        EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AContrarySurvivorPlayerController::Sprint);
+
 		// Actions
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Interact);
 		EnhancedInputComponent->BindAction(InventoryAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Inventory);
+
+        if (!SprintAction)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SprintAction is null# Check Blueprint/Header assignment."));
+        return;
+    }
 	}
 }
 
@@ -68,9 +79,14 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
     ScreenForward = ScreenForward.GetSafeNormal();
     ScreenRight = ScreenRight.GetSafeNormal();
 
-    // Применяем движение
-    ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);  // W/S — вверх/вниз по экрану
-    ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);     // A/D — влево/вправо по экрану
+    
+
+    // Применяем движение (по осям, по экрану)
+    ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);
+    ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);
+
+    UE_LOG(LogTemp, Warning, TEXT("MovementVector: X=%.2f, Y=%.2f"), MovementVector.X, MovementVector.Y);
+
 	/*
 	DrawDebugDirectionalArrow(GetWorld(), ControlledPawn->GetActorLocation(), 
     ControlledPawn->GetActorLocation() + ScreenForward * 100.0f, 20.0f, FColor::Blue, false, 5.0f);
@@ -98,6 +114,15 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
         ControlledPawn->AddMovementInput(RightDirection, MovementVector.X);
     }
 	*/
+}
+
+void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
+{
+    APawn* ControlledPawn = GetPawn();
+    if (auto* PlayerCharacter = Cast<AMasterHumanoidCharacter>(ControlledPawn))
+    {
+        PlayerCharacter->SetSprint(Value.Get<bool>());
+    }
 }
 
 void AContrarySurvivorPlayerController::Interact(const FInputActionValue& Value)

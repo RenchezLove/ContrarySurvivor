@@ -35,6 +35,9 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+    // Сохраняем базовую скорость при старте
+    BaseWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 }
 
 void AMasterHumanoidCharacter::Tick(float DeltaTime)
@@ -106,4 +109,15 @@ void AMasterHumanoidCharacter::EquipWeapon(AWeapon* NewWeapon)
 void AMasterHumanoidCharacter::UpdateCharacterAppearance()
 {
     UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: UpdateCharacterAppearance!"));
+}
+
+void AMasterHumanoidCharacter::SetSprint(bool bIsSprinting)
+{
+    IsSprinting = bIsSprinting;
+    
+    // Устанавливаем новую скорость
+    GetCharacterMovement()->MaxWalkSpeed = 
+        IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed;
+        
+    UE_LOG(LogTemp, Warning, TEXT("Sprint state changed to: %s"), IsSprinting ? TEXT("true") : TEXT("false"));
 }
