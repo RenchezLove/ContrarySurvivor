@@ -6,21 +6,18 @@
 		},
 		{
 			"name": "UE5",
-			"path": "C:\\UE_5.5"
+			"path": "E:\\UnrealEngine\\UE_5.5"
 		}
 	],
 	"settings": {
 		"typescript.tsc.autoDetect": "off",
 		"npm.autoDetect": "off",
 		"terminal.integrated.env.windows": {
-			"PATH": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64;${env:PATH}",
-			"DOTNET_ROOT": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64",
-			"DOTNET_HOST_PATH": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64\\dotnet.exe",
+			"PATH": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64;${env:PATH}",
+			"DOTNET_ROOT": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64",
+			"DOTNET_HOST_PATH": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64\\dotnet.exe",
 			"DOTNET_MULTILEVEL_LOOKUP": "0",
 			"DOTNET_ROLL_FORWARD": "LatestMajor"
-		},
-		"files.associations": {
-			"*.rh": "cpp"
 		}
 	},
 	"extensions": {
@@ -40,13 +37,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -57,7 +54,7 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -66,7 +63,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -77,13 +74,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -94,13 +91,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -111,7 +108,7 @@
 					"ContrarySurvivor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -120,7 +117,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -131,13 +128,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -148,13 +145,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -165,7 +162,7 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -174,7 +171,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -185,13 +182,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -202,13 +199,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Test",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -219,7 +216,7 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Test",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -228,7 +225,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -239,13 +236,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Test",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -256,13 +253,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Shipping",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -273,7 +270,7 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Shipping",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -282,7 +279,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -293,13 +290,13 @@
 					"ContrarySurvivor",
 					"Win64",
 					"Shipping",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -310,13 +307,13 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -327,7 +324,7 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -336,7 +333,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -347,13 +344,13 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Debug",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -364,13 +361,13 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -381,7 +378,7 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -390,7 +387,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -401,19 +398,19 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"DebugGame",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"label": "ContrarySurvivorEditor Win64 Development Build",
 				"group": "build",
-				"command": "E:\\UnrealEngine\\UE_5.5\\Engine\\Build\\BatchFiles\\Build.bat",
+				"command": "Engine\\Build\\BatchFiles\\Build.bat",
 				"args": [
 					"ContrarySurvivorEditor",
 					"Win64",
@@ -424,7 +421,7 @@
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\Win64"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -435,7 +432,7 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
@@ -444,7 +441,7 @@
 				],
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -455,13 +452,13 @@
 					"ContrarySurvivorEditor",
 					"Win64",
 					"Development",
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-waitmutex"
 				],
 				"problemMatcher": "$msCompile",
 				"type": "shell",
 				"options": {
-					"cwd": "C:\\UE_5.5"
+					"cwd": "E:\\UnrealEngine\\UE_5.5"
 				}
 			}
 		]
@@ -472,132 +469,132 @@
 			{
 				"name": "Launch ContrarySurvivor (Debug)",
 				"request": "launch",
-				"program": "C:\\UnrealProjects\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Debug.exe",
+				"program": "E:\\ContrarySurvior\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Debug.exe",
 				"preLaunchTask": "ContrarySurvivor Win64 Debug Build",
 				"args": [
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivor (DebugGame)",
 				"request": "launch",
-				"program": "C:\\UnrealProjects\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-DebugGame.exe",
+				"program": "E:\\ContrarySurvior\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-DebugGame.exe",
 				"preLaunchTask": "ContrarySurvivor Win64 DebugGame Build",
 				"args": [
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivor (Development)",
 				"request": "launch",
-				"program": "C:\\UnrealProjects\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame.exe",
+				"program": "E:\\ContrarySurvior\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame.exe",
 				"preLaunchTask": "ContrarySurvivor Win64 Development Build",
 				"args": [
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivor (Test)",
 				"request": "launch",
-				"program": "C:\\UnrealProjects\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Test.exe",
+				"program": "E:\\ContrarySurvior\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Test.exe",
 				"preLaunchTask": "ContrarySurvivor Win64 Test Build",
 				"args": [
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivor (Shipping)",
 				"request": "launch",
-				"program": "C:\\UnrealProjects\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Shipping.exe",
+				"program": "E:\\ContrarySurvior\\ContrarySurvivor\\Binaries\\Win64\\UnrealGame-Win64-Shipping.exe",
 				"preLaunchTask": "ContrarySurvivor Win64 Shipping Build",
 				"args": [
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivorEditor (Debug)",
 				"request": "launch",
-				"program": "C:\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor-Win64-Debug.exe",
+				"program": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor-Win64-Debug.exe",
 				"preLaunchTask": "ContrarySurvivorEditor Win64 Debug Build",
 				"args": [
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject"
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject"
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivorEditor (DebugGame)",
 				"request": "launch",
-				"program": "C:\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor-Win64-DebugGame.exe",
+				"program": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor-Win64-DebugGame.exe",
 				"preLaunchTask": "ContrarySurvivorEditor Win64 DebugGame Build",
 				"args": [
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject"
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject"
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
 				"name": "Launch ContrarySurvivorEditor (Development)",
 				"request": "launch",
-				"program": "C:\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor.exe",
+				"program": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\Win64\\UnrealEditor.exe",
 				"preLaunchTask": "ContrarySurvivorEditor Win64 Development Build",
 				"args": [
-					"C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject"
+					"E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject"
 				],
-				"cwd": "C:\\UE_5.5",
+				"cwd": "E:\\UnrealEngine\\UE_5.5",
 				"stopAtEntry": false,
 				"console": "integratedTerminal",
 				"type": "cppvsdbg",
-				"visualizerFile": "C:\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
+				"visualizerFile": "E:\\UnrealEngine\\UE_5.5\\Engine\\Extras\\VisualStudioDebugging\\Unreal.natvis",
 				"sourceFileMap": {
-					"D:\\build\\++UE5\\Sync": "C:\\UE_5.5"
+					"D:\\build\\++UE5\\Sync": "E:\\UnrealEngine\\UE_5.5"
 				}
 			},
 			{
@@ -605,25 +602,25 @@
 				"type": "coreclr",
 				"request": "launch",
 				"preLaunchTask": "UnrealBuildTool Win64 Development Build",
-				"program": "C:\\UE_5.5\\Engine\\Build\\BatchFiles\\RunUBT.bat",
+				"program": "E:\\UnrealEngine\\UE_5.5\\Engine\\Build\\BatchFiles\\RunUBT.bat",
 				"args": [
 					"-projectfiles",
 					"-vscode",
-					"-project=C:\\UnrealProjects\\ContrarySurvivor\\ContrarySurvivor.uproject",
+					"-project=E:\\ContrarySurvior\\ContrarySurvivor\\ContrarySurvivor.uproject",
 					"-game",
 					"-engine",
 					"-dotnet"
 				],
 				"env": {
-					"PATH": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64;${env:PATH}",
-					"DOTNET_ROOT": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64",
-					"DOTNET_HOST_PATH": "C:\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64\\dotnet.exe",
+					"PATH": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64;${env:PATH}",
+					"DOTNET_ROOT": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64",
+					"DOTNET_HOST_PATH": "E:\\UnrealEngine\\UE_5.5\\Engine\\Binaries\\ThirdParty\\DotNet\\8.0.300\\win-x64\\dotnet.exe",
 					"DOTNET_MULTILEVEL_LOOKUP": "0",
 					"DOTNET_ROLL_FORWARD": "LatestMajor"
 				},
 				"console": "integratedTerminal",
 				"stopAtEntry": false,
-				"cwd": "C:\\UE_5.5"
+				"cwd": "E:\\UnrealEngine\\UE_5.5"
 			}
 		]
 	}
