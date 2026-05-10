@@ -11,7 +11,6 @@
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivorPlayerController.generated.h"
 
-
 UCLASS()
 class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerController
 {
@@ -21,23 +20,21 @@ public:
 	AContrarySurvivorPlayerController();
 
 protected:
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
-
-	// Called to bind functionality to input
 	virtual void SetupInputComponent() override;
 
-	// Input Mapping Context
+	// --- Input Mapping ---
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputMappingContext* DefaultMappingContext;
 
-	// Input Actions
+	// --- Input Actions ---
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveAction;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputAction* SprintAction;
-	//TObjectPtr<UInputAction> SprintAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* InteractAction;
@@ -45,20 +42,43 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* InventoryAction;
 
-	// Movement
+	// Клик/тап — выбор цели или выстрел
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* FireAction;
+
+	// Перезарядка
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* ReloadAction;
+
+	// --- Движение ---
+
 	void Move(const FInputActionValue& Value);
 
 	UFUNCTION()
-    void Sprint(const FInputActionValue& Value);
+	void Sprint(const FInputActionValue& Value);
 
-	// Actions
+	// --- Действия ---
+
 	void Interact(const FInputActionValue& Value);
 	void Inventory(const FInputActionValue& Value);
 
-	private:
-    bool IsSprinting = false;
+	// Нажатие кнопки атаки
+	void Fire(const FInputActionValue& Value);
 
+	// Перезарядка
+	void Reload(const FInputActionValue& Value);
+
+	// Клик/тап по экрану — выбор цели через LineTrace под курсором
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void TrySelectTarget();
+
+private:
+	bool IsSprinting = false;
+
+	// Текущая выбранная цель
+	UPROPERTY()
+	AActor* CurrentTarget;
+
+	// LineTrace под курсором мыши для выбора цели
+	AActor* GetActorUnderCursor();
 };
-
-
-

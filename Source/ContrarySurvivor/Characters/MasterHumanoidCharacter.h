@@ -62,21 +62,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
 	FName WeaponSocketName;
 
+public:
+	virtual void Tick(float DeltaTime) override;
+
 	// --- Функции оружия ---
 
-	// Экипировать оружие
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void EquipWeapon(AMasterWeapon* NewWeapon);
 
-	// Снять оружие
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void UnequipWeapon();
 
-	// Выстрел текущим оружием по цели
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void FireCurrentWeapon(AActor* Target);
 
-	// Перезарядка текущего оружия
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void ReloadCurrentWeapon();
 
@@ -89,10 +88,10 @@ protected:
 	FORCEINLINE AMasterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
-    FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetHealth() const { return Health; }
 
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+	UFUNCTION(BlueprintCallable, Category = "Stats")
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
 	// --- Внешний вид ---
 
@@ -104,11 +103,8 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
-    UFUNCTION(BlueprintCallable, Category = "Stats")
+	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual void RestoreHealth(float HealAmount);
-
-public:	
-	virtual void Tick(float DeltaTime) override;
 
 private:
     float BaseWalkSpeed;

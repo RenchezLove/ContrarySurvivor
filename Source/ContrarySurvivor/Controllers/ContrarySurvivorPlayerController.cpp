@@ -1,51 +1,67 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "ContrarySurvivorPlayerController.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
-
+#include "ARangedWeapon.h"
+#include "Engine/HitResult.h"
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
-	
 	PrimaryActorTick.bCanEverTick = true;
+	CurrentTarget = nullptr;
 }
 
 void AContrarySurvivorPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Enhanced Input: Adding Mapping Context
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
 		Subsystem->AddMappingContext(DefaultMappingContext, 0);
 	}
+
+	// Показываем курсор мыши (нужен для выбора цели кликом)
+	bShowMouseCursor = true;
+	bEnableClickEvents = true;
 }
 
 void AContrarySurvivorPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	// Enhanced Input: Asingn Actions
 	if (UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(InputComponent))
 	{
-		// Moving
+		// Движение
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Move);
 
-        EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Sprint);
-        EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AContrarySurvivorPlayerController::Sprint);
+		// Спринт
+		if (SprintAction)
+		{
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Sprint);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AContrarySurvivorPlayerController::Sprint);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("SprintAction is null. Check Blueprint/Header assignment."));
+		}
 
-		// Actions
+		// Действия
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Interact);
 		EnhancedInputComponent->BindAction(InventoryAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Inventory);
 
-        if (!SprintAction)
-    {
-        UE_LOG(LogTemp, Error, TEXT("SprintAction is null# Check Blueprint/Header assignment."));
-        return;
-    }
+		// Стрельба
+		if (FireAction)
+		{
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Fire);
+		}
+
+		// Перезарядка
+		if (ReloadAction)
+		{
+			EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Reload);
+		}
 	}
 }
 
@@ -53,84 +69,101 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
-	//UE_LOG(LogTemp, Warning, TEXT("Move: X=%.2f, Y=%.2f"), MovementVector.X, MovementVector.Y);
+	APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn) return;
 
-    APawn* ControlledPawn = GetPawn();
-    if (!ControlledPawn) return;
+	APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
+	FRotator CameraRot = CameraManager->GetCameraRotation();
+	FRotator FlatRot(0.0f, CameraRot.Yaw, 0.0f);
 
-    // Получаем камеру
-    APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
-    FRotator CameraRot = CameraManager->GetCameraRotation();
+	FVector ScreenForward = FlatRot.Vector();
+	FVector ScreenRight = FlatRot.RotateVector(FVector::RightVector);
 
-    // Берём только рысканье (yaw) — игнорируем наклон камеры
-    FRotator FlatRot(0.0f, CameraRot.Yaw, 0.0f);
+	ScreenForward.Z = 0.0f;
+	ScreenRight.Z = 0.0f;
+	ScreenForward = ScreenForward.GetSafeNormal();
+	ScreenRight = ScreenRight.GetSafeNormal();
 
-    // Вычисляем экранные оси:
-    // Forward — «вверх» по экрану (не путать с мировым «вперёд»)
-    FVector ScreenForward = FlatRot.Vector();
-    // Right — «вправо» по экрану
-    FVector ScreenRight = FlatRot.RotateVector(FVector::RightVector);
-
-    // Проекция на горизонтальную плоскость (X-Y)
-    ScreenForward.Z = 0.0f;
-    ScreenRight.Z = 0.0f;
-
-    // Нормализуем (обязательно!)
-    ScreenForward = ScreenForward.GetSafeNormal();
-    ScreenRight = ScreenRight.GetSafeNormal();
-
-    
-
-    // Применяем движение (по осям, по экрану)
-    ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);
-    ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);
-
-    UE_LOG(LogTemp, Warning, TEXT("MovementVector: X=%.2f, Y=%.2f"), MovementVector.X, MovementVector.Y);
-
-	/*
-	DrawDebugDirectionalArrow(GetWorld(), ControlledPawn->GetActorLocation(), 
-    ControlledPawn->GetActorLocation() + ScreenForward * 100.0f, 20.0f, FColor::Blue, false, 5.0f);
-	DrawDebugDirectionalArrow(GetWorld(), ControlledPawn->GetActorLocation(),
-    ControlledPawn->GetActorLocation() + ScreenRight * 100.0f, 20.0f, FColor::Red, false, 5.0f);
-	*/
-
-	
-	/*FVector2D MovementVector = Value.Get<FVector2D>();
-
-    // Getting controlling pawn
-    APawn* ControlledPawn = GetPawn();
-
-    if (ControlledPawn != nullptr) // Check if Pawn exists
-    {
-        // Getting movement directon
-        FVector ForwardDirection = ControlledPawn->GetActorForwardVector();
-        FVector RightDirection = ControlledPawn->GetActorRightVector();
-
-        // Applayng move
-		//FVector Movement = FVector(MovementVector.X, MovementVector.Y, 0.0f);
-        //ControlledPawn->SetActorLocation(ControlledPawn->GetActorLocation() + Movement);
-
-        ControlledPawn->AddMovementInput(ForwardDirection, MovementVector.Y);
-        ControlledPawn->AddMovementInput(RightDirection, MovementVector.X);
-    }
-	*/
+	ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);
+	ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);
 }
 
 void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 {
-    APawn* ControlledPawn = GetPawn();
-    if (auto* PlayerCharacter = Cast<AMasterHumanoidCharacter>(ControlledPawn))
-    {
-        PlayerCharacter->SetSprint(Value.Get<bool>());
-    }
+	APawn* ControlledPawn = GetPawn();
+	if (auto* PlayerChar = Cast<AMasterHumanoidCharacter>(ControlledPawn))
+	{
+		PlayerChar->SetSprint(Value.Get<bool>());
+	}
+}
+
+void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
+{
+	TrySelectTarget();
+
+	AMasterHumanoidCharacter* PlayerChar = Cast<AMasterHumanoidCharacter>(GetPawn());
+	if (!PlayerChar) return;
+
+	if (CurrentTarget)
+	{
+		if (ARangedWeapon* Weapon = Cast<ARangedWeapon>(PlayerChar->GetCurrentWeapon()))
+		{
+			Weapon->SetTarget(CurrentTarget);
+		}
+
+		PlayerChar->FireCurrentWeapon(CurrentTarget);
+	}
+	else
+	{
+		PlayerChar->FireCurrentWeapon(nullptr);
+	}
+}
+
+void AContrarySurvivorPlayerController::Reload(const FInputActionValue& Value)
+{
+	AMasterHumanoidCharacter* PlayerChar = Cast<AMasterHumanoidCharacter>(GetPawn());
+	if (PlayerChar)
+	{
+		PlayerChar->ReloadCurrentWeapon();
+	}
+}
+
+void AContrarySurvivorPlayerController::TrySelectTarget()
+{
+	AActor* HitActor = GetActorUnderCursor();
+
+	if (HitActor)
+	{
+		CurrentTarget = HitActor;
+		UE_LOG(LogTemp, Warning, TEXT("Target selected: %s"), *CurrentTarget->GetName());
+	}
+	else
+	{
+		CurrentTarget = nullptr;
+	}
+}
+
+AActor* AContrarySurvivorPlayerController::GetActorUnderCursor()
+{
+	FHitResult HitResult;
+
+	// LineTrace под позицией курсора мыши
+	bool bHit = GetHitResultUnderCursor(ECC_Pawn, false, HitResult);
+
+	if (bHit && HitResult.GetActor())
+	{
+		return HitResult.GetActor();
+	}
+
+	return nullptr;
 }
 
 void AContrarySurvivorPlayerController::Interact(const FInputActionValue& Value)
 {
-	
+	// TODO: реализовать взаимодействие с предметами и NPC
 }
 
 void AContrarySurvivorPlayerController::Inventory(const FInputActionValue& Value)
 {
-	
+	// TODO: открыть/закрыть инвентарь
 }
