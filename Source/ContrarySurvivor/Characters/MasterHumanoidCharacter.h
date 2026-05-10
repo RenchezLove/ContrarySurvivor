@@ -4,8 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "AMasterWeapon.h"
 
-class AWeapon;
 class UInventoryComponent;
 
 #include "MasterHumanoidCharacter.generated.h"
@@ -16,15 +16,15 @@ class CONTRARYSURVIVOR_API AMasterHumanoidCharacter : public ACharacter
 	GENERATED_BODY()
 
 public:
-	// Sets default values for this character's properties
 	AMasterHumanoidCharacter();
 
 	UFUNCTION(BlueprintCallable)
     void SetSprint(bool bIsSprinting);
 
 protected:
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	// --- Статы ---
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats")
     float Health;
@@ -32,8 +32,12 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
     float MaxHealth;
 
+	// --- Состояние боя ---
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     bool bIsAttacking;
+
+	// --- Меши ---
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* HeadMesh; 
@@ -44,49 +48,58 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* LegsMesh; 
 
+	// --- Компоненты ---
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
-	UInventoryComponent* Inventory; 
-  
+	UInventoryComponent* Inventory;
 
-	/*
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment") 
-    AWeapon* CurrentWeapon;
+	// --- Оружие ---
 
-	Comented til i create AWeapon (AWeapon is not created yet)
-	*/
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment")
+	AMasterWeapon* CurrentWeapon;
+
+	// Сокет на TorsoMesh к которому крепится оружие
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+	FName WeaponSocketName;
+
+	// --- Функции оружия ---
+
+	// Экипировать оружие
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void EquipWeapon(AMasterWeapon* NewWeapon);
+
+	// Снять оружие
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void UnequipWeapon();
+
+	// Выстрел текущим оружием по цели
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void FireCurrentWeapon(AActor* Target);
+
+	// Перезарядка текущего оружия
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void ReloadCurrentWeapon();
+
+	// --- Геттеры ---
 
 	UFUNCTION(BlueprintCallable, Category = "Components")
 	FORCEINLINE USkeletalMeshComponent* GetTorsoMesh() const { return TorsoMesh; }
 
-	/* 
-	
-	UFUNCTION(BlueprintCallable, Category = "Combat")
-	virtual void Attack(); // virtual UseWeapoon function To atack enemy. Whill be derived in child class
-
-	i don't like this way of Attack realization. Comented for now. I dicided to make this functionality diferently in AI and player classes
-
-	*/
-    
-	UFUNCTION(BlueprintCallable, Category = "Appearance")
-	void UpdateCharacterAppearance();
-
-	/*
-
-	UFUNCTION(BlueprintCallable, Category = "Equipment")
-    AWeapon* GetCurrentWeapon() const;
-
-	UFUNCTION(BlueprintCallable, Category = "Equipment")
-    void EquipWeapon(AWeapon* Weapon);
-
-	Comented til i create AWeapon (AWeapon is not created yet)
-
-	*/
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	FORCEINLINE AMasterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
     FORCEINLINE float GetHealth() const { return Health; }
 
     UFUNCTION(BlueprintCallable, Category = "Stats")
     FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+
+	// --- Внешний вид ---
+
+	UFUNCTION(BlueprintCallable, Category = "Appearance")
+	void UpdateCharacterAppearance();
+
+	// --- Урон и лечение ---
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
@@ -95,13 +108,10 @@ protected:
 	virtual void RestoreHealth(float HealAmount);
 
 public:	
-	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
 private:
     float BaseWalkSpeed;
     float SprintMultiplier = 2.0f;
     bool IsSprinting;	
-
 };
- 

@@ -3,9 +3,8 @@
 #include "MasterHumanoidCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "ContrarySurvivor/ContrarySurvivor.h" 
-#include "UInventoryComponent.h" 
-//#include "Weapon.h"
+#include "ContrarySurvivor/ContrarySurvivor.h"
+#include "UInventoryComponent.h"
 
 
 AMasterHumanoidCharacter::AMasterHumanoidCharacter()
@@ -17,11 +16,10 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 
     bIsAttacking = false;
 
-    HeadMesh = GetMesh();
+    CurrentWeapon = nullptr;
+    WeaponSocketName = FName("WeaponSocket");
 
-    /*HeadMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMesh"));
-    HeadMesh->SetupAttachment(GetMesh());
-    */
+    HeadMesh = GetMesh();
 
     TorsoMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("TorsoMesh"));
     TorsoMesh->SetupAttachment(HeadMesh);
@@ -35,8 +33,6 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-    // Сохраняем базовую скорость при старте
     BaseWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 }
 
@@ -45,13 +41,67 @@ void AMasterHumanoidCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-/*
-void AMasterHumanoidCharacter::Attack()
+void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 {
-    UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: Attack!"));
+    if (!NewWeapon)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: NewWeapon is null"));
+        return;
+    }
+
+    // Снимаем текущее оружие если есть
+    if (CurrentWeapon)
+    {
+        UnequipWeapon();
+    }
+
+    CurrentWeapon = NewWeapon;
+
+    // Крепим оружие к сокету на торсе
+    if (TorsoMesh)
+    {
+        CurrentWeapon->AttachToComponent(TorsoMesh,
+            FAttachmentTransformRules::SnapToTargetIncludingScale,
+            WeaponSocketName);
+    }
+
+    // Устанавливаем владельца оружия
+    CurrentWeapon->SetInstigator(this);
+
+    UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: Equipped %s"), *CurrentWeapon->GetName());
 }
-    i don't like this way of Attack realization. Comented for now. I dicided to make this functionality diferently in AI and player classes
-*/
+
+void AMasterHumanoidCharacter::UnequipWeapon()
+{
+    if (!CurrentWeapon) return;
+
+    CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+    CurrentWeapon = nullptr;
+
+    UE_LOG(LogTemp, Warning, TEXT("UnequipWeapon: Weapon removed"));
+}
+
+void AMasterHumanoidCharacter::FireCurrentWeapon(AActor* Target)
+{
+    if (!CurrentWeapon)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("FireCurrentWeapon: No weapon equipped"));
+        return;
+    }
+
+    CurrentWeapon->Fire(Target);
+}
+
+void AMasterHumanoidCharacter::ReloadCurrentWeapon()
+{
+    if (!CurrentWeapon)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ReloadCurrentWeapon: No weapon equipped"));
+        return;
+    }
+
+    CurrentWeapon->Reload();
+}
 
 float AMasterHumanoidCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
@@ -77,35 +127,9 @@ void AMasterHumanoidCharacter::RestoreHealth(float HealAmount)
     Health += HealAmount;
     Health = FMath::Min(Health, MaxHealth);
 
-     UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: RestoreHealth! Health = %f"), Health);
+    UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: RestoreHealth! Health = %f"), Health);
 }
-/*
-void AMasterHumanoidCharacter::EquipWeapon(AWeapon* NewWeapon)
-{
-    USkeletalMeshComponent* TorsoMesh = GetTorsoMesh();
 
-    if (CurrentWeapon && TorsoMesh)
-    {
-        if (CurrentWeapon)
-        {
-            CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-        }
-
-        // 4. Установить новое оружие
-        CurrentWeapon = NewWeapon;
-
-        // 5. Присоединить новое оружие к мешу торса
-        if (CurrentWeapon)
-        {
-            CurrentWeapon->AttachToComponent(TorsoMesh, FAttachmentTransformRules::SnapToTargetIncludingScale, "WeaponSocket");
-        }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: CurrentWeapon or TorsoMesh Not exist"));
-    }
-}
-*/
 void AMasterHumanoidCharacter::UpdateCharacterAppearance()
 {
     UE_LOG(LogTemp, Warning, TEXT("MasterHumanoidCharacter: UpdateCharacterAppearance!"));
@@ -115,7 +139,6 @@ void AMasterHumanoidCharacter::SetSprint(bool bIsSprinting)
 {
     IsSprinting = bIsSprinting;
     
-    // Устанавливаем новую скорость
     GetCharacterMovement()->MaxWalkSpeed = 
         IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed;
         
