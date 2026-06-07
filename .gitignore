@@ -1,5 +1,7 @@
 # Unreal Engine
 *.ini
+!Config/
+!Config/*.ini
 *.log
 /Build/
 /Binaries/
