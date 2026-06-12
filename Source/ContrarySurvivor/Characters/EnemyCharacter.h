@@ -25,6 +25,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	// ПРАВКА B: связываем модульные части (Torso/Legs) с Head через Leader Pose,
+	// чтобы они следовали позе/анимации Head как единое тело.
+	virtual void PostInitializeComponents() override;
+
 	// Компонент статов (Health/смерть). Источник истины по HP для врага.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	UStatsComponent* Stats;

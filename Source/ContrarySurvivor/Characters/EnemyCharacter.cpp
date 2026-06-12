@@ -14,6 +14,48 @@ AEnemyCharacter::AEnemyCharacter()
 	// Враг управляется AI-контроллером. Конкретный класс назначается в BP/дефолтах
 	// (AEnemyAIController), здесь только включаем авто-поссесс при спавне/размещении.
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	// ПРАВКА A: профиль капсулы Pawn по умолчанию Ignore'ит канал Visibility,
+	// а скелет-меши без коллизии не ловят луч → выстрел ARangedWeapon
+	// (LineTraceSingleByChannel по ECC_Visibility) проходит сквозь врага и не зовёт
+	// TakeDamage. Блокируем Visibility на капсуле, чтобы враг был «простреливаемым»:
+	// луч попадёт в капсулу → HitResult.GetActor()=враг → TakeDamage → UStatsComponent.
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	}
+
+	// ПРАВКА C: стандартное для ACharacter выравнивание меша под капсулу.
+	// BP врага создан заново и не унаследовал дефолтный transform GetMesh
+	// (в отличие от BP игрока) → бандит выглядел перевёрнутым/криво.
+	// -90 по Z ставит ноги на дно капсулы, -90 по Yaw разворачивает меш по +X.
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -90.f), FRotator(0.f, -90.f, 0.f));
+	}
+}
+
+void AEnemyCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// ПРАВКА B: Torso/Legs следуют за позой Head (корневой скелет мастер-базы).
+	// Делаем в PostInitializeComponents (а не в конструкторе): к этому моменту все
+	// компоненты — включая дефолты, заданные в BP врага — сконструированы и
+	// зарегистрированы, и линковка корректно переустанавливается на каждом спавне.
+	// AnimBP на Head назначает unreal-operator в BP (контент-ассет, из C++ не ссылаемся).
+	USkeletalMeshComponent* Head = GetMesh(); // == HeadMesh (базовый конструктор)
+	if (Head)
+	{
+		if (TorsoMesh)
+		{
+			TorsoMesh->SetLeaderPoseComponent(Head);
+		}
+		if (LegsMesh)
+		{
+			LegsMesh->SetLeaderPoseComponent(Head);
+		}
+	}
 }
 
 void AEnemyCharacter::BeginPlay()
