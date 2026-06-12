@@ -19,6 +19,10 @@ class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerCon
 public:
 	AContrarySurvivorPlayerController();
 
+	// Текущая захваченная цель (для HUD/индикатора). Публичный — читается из HUD.
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	AActor* GetCurrentTarget() const { return CurrentTarget; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
@@ -72,10 +76,6 @@ protected:
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void TrySelectTarget();
-
-	// Текущая захваченная цель (для HUD/индикатора).
-	UFUNCTION(BlueprintPure, Category = "Combat")
-	AActor* GetCurrentTarget() const { return CurrentTarget; }
 
 private:
 	bool IsSprinting = false;
