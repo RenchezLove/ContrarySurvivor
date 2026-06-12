@@ -4,6 +4,8 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
+#include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ARangedWeapon.h"
 #include "Engine/HitResult.h"
 
@@ -99,7 +101,15 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
+	// Клик: пробуем (пере)захватить цель под курсором. Если там враг — lock обновится,
+	// иначе сохраняется текущий lock (ADR-017: клик-захват, цель держится).
 	TrySelectTarget();
+
+	// Если захваченная цель умерла/исчезла — снимаем lock.
+	if (!IsValidTarget(CurrentTarget))
+	{
+		CurrentTarget = nullptr;
+	}
 
 	AMasterHumanoidCharacter* PlayerChar = Cast<AMasterHumanoidCharacter>(GetPawn());
 	if (!PlayerChar) return;
@@ -132,15 +142,31 @@ void AContrarySurvivorPlayerController::TrySelectTarget()
 {
 	AActor* HitActor = GetActorUnderCursor();
 
-	if (HitActor)
+	// Захватываем только валидного врага. Клик по пустоте/неврагу НЕ сбрасывает
+	// текущий lock (ADR-017: цель держится до смерти или захвата новой).
+	if (IsValidTarget(HitActor))
 	{
 		CurrentTarget = HitActor;
-		UE_LOG(LogTemp, Warning, TEXT("Target selected: %s"), *CurrentTarget->GetName());
+		UE_LOG(LogTemp, Warning, TEXT("Target locked: %s"), *CurrentTarget->GetName());
 	}
-	else
+}
+
+bool AContrarySurvivorPlayerController::IsValidTarget(AActor* Target) const
+{
+	if (!IsValid(Target))
 	{
-		CurrentTarget = nullptr;
+		return false;
 	}
+
+	// Враг с UStatsComponent: цель валидна, пока враг жив.
+	if (const AEnemyCharacter* Enemy = Cast<AEnemyCharacter>(Target))
+	{
+		const UStatsComponent* TargetStats = Enemy->GetStats();
+		return TargetStats && !TargetStats->IsDead();
+	}
+
+	// Не-враг под курсором целью не считаем (в Фазе 1 стреляем только по врагам).
+	return false;
 }
 
 AActor* AContrarySurvivorPlayerController::GetActorUnderCursor()

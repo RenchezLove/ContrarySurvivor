@@ -68,17 +68,25 @@ protected:
 	// Перезарядка
 	void Reload(const FInputActionValue& Value);
 
-	// Клик/тап по экрану — выбор цели через LineTrace под курсором
+	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
+	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void TrySelectTarget();
+
+	// Текущая захваченная цель (для HUD/индикатора).
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	AActor* GetCurrentTarget() const { return CurrentTarget; }
 
 private:
 	bool IsSprinting = false;
 
-	// Текущая выбранная цель
+	// Текущая захваченная цель (держится до смерти цели или захвата новой).
 	UPROPERTY()
 	AActor* CurrentTarget;
 
 	// LineTrace под курсором мыши для выбора цели
 	AActor* GetActorUnderCursor();
+
+	// Валидна ли цель для захвата/огня (существует и жива).
+	bool IsValidTarget(AActor* Target) const;
 };
