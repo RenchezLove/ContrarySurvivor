@@ -106,6 +106,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual void RestoreHealth(float HealAmount);
 
+	// Вызывается при достижении 0 HP (инлайн-Health база). Минимальная заглушка;
+	// дочерние классы могут переопределить (враг использует UStatsComponent вместо этого).
+	UFUNCTION(BlueprintCallable, Category = "Stats")
+	virtual void HandleDeath();
+
 private:
     float BaseWalkSpeed;
     float SprintMultiplier = 2.0f;
