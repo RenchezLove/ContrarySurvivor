@@ -4,6 +4,8 @@
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -30,19 +32,65 @@ ATraderNPC::ATraderNPC()
 	InteractTrigger->OnComponentBeginOverlap.AddDynamic(this, &ATraderNPC::OnInteractBeginOverlap);
 	InteractTrigger->OnComponentEndOverlap.AddDynamic(this, &ATraderNPC::OnInteractEndOverlap);
 
-	// Плейсхолдер-меш торговца (цилиндр движка), без коллизии (тело не препятствие в MVP).
+	// Плейсхолдер-тело торговца (цилиндр движка), без коллизии (тело не препятствие в MVP).
+	// КРУПНЕЕ и ВЫШЕ прежнего (был стаб ~ниже игрока, тонул в геометрии деревни и терялся):
+	// высокий столб, стоящий примерно от земли (root спавнится на +90 над навмешем).
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	MeshComponent->SetupAttachment(InteractTrigger);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	MeshComponent->SetRelativeScale3D(FVector(0.7f, 0.7f, 1.8f));
-	MeshComponent->SetRelativeLocation(FVector(0.0f, 0.0f, -90.0f));
+	MeshComponent->SetRelativeScale3D(FVector(1.1f, 1.1f, 2.6f)); // цилиндр 100ед -> ~260ед в высоту
+	MeshComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 40.0f)); // низ ~у земли, верх заметно выше игрока
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	if (CylMesh.Succeeded())
 	{
 		MeshComponent->SetStaticMesh(CylMesh.Object);
 	}
 
+	// «Маяк»-шар над телом — яркая макушка для находимости издалека.
+	BeaconComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Beacon"));
+	BeaconComponent->SetupAttachment(InteractTrigger);
+	BeaconComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BeaconComponent->SetRelativeScale3D(FVector(1.4f, 1.4f, 1.4f)); // сфера 100ед -> 140ед диаметр
+	BeaconComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 240.0f)); // над верхушкой тела
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (SphereMesh.Succeeded())
+	{
+		BeaconComponent->SetStaticMesh(SphereMesh.Object);
+	}
+
+	// Базовый материал плейсхолдера: BasicShapeMaterial — у него есть вектор-параметр "Color"
+	// (подтверждено по ассету Engine/Content/BasicShapes/BasicShapeMaterial). В BeginPlay
+	// из него создаётся dynamic instance и заливается ярким цветом.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BaseMat(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (BaseMat.Succeeded())
+	{
+		PlaceholderBaseMaterial = BaseMat.Object;
+	}
+
 	BuildDefaultCatalog();
+}
+
+void ATraderNPC::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Яркий плейсхолдер: dynamic material instance с вектор-параметром "Color" поверх тела и маяка.
+	if (PlaceholderBaseMaterial)
+	{
+		UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(PlaceholderBaseMaterial, this);
+		if (MID)
+		{
+			MID->SetVectorParameterValue(TEXT("Color"), PlaceholderColor);
+			if (MeshComponent)
+			{
+				MeshComponent->SetMaterial(0, MID);
+			}
+			if (BeaconComponent)
+			{
+				BeaconComponent->SetMaterial(0, MID);
+			}
+		}
+	}
 }
 
 void ATraderNPC::BuildDefaultCatalog()

@@ -13,6 +13,7 @@
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
 #include "UInventoryComponent.h"  // рюкзак
 #include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
+#include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -85,6 +86,10 @@ void AContrarySurvivorHUD::DrawHUD()
 			DrawTargetMarker(Enemy);
 		}
 	}
+
+	// --- Маркеры интерактивных NPC (находимость): торговец и т.п. ---
+	// Рисуем до модальных экранов; внутри функция сама пропускает при открытых меню.
+	DrawInteractiveNPCMarkers();
 
 	// --- Статы игрока (GDD §7.7) ---
 	if (PC)
@@ -737,6 +742,135 @@ void AContrarySurvivorHUD::DrawTargetMarker(AActor* TargetActor)
 	DrawLine(CX - TriHalfW, TriTop, CX + TriHalfW, TriTop, C, T); // основание
 	DrawLine(CX - TriHalfW, TriTop, CX, TriBot, C, T);            // левое ребро к кончику
 	DrawLine(CX + TriHalfW, TriTop, CX, TriBot, C, T);            // правое ребро к кончику
+}
+
+// ===========================================================================
+// Маркеры интерактивных NPC (находимость) — торговец, позже староста (Фаза 5)
+// ===========================================================================
+
+void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Canvas)
+	{
+		return;
+	}
+
+	// Поверх модальных экранов (инвентарь/магазин) маркеры не нужны.
+	if (bInventoryOpen || bShopOpen)
+	{
+		return;
+	}
+
+	// DRAFT/perf: для MVP (1 торговец) перебор всех актёров приемлем. Позже — реестр/тег.
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor) || !Actor->Implements<UInteractableNPCInterface>())
+		{
+			continue;
+		}
+
+		const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Actor);
+		const float ZOff = NPC ? NPC->GetNPCMarkerZOffset() : 240.0f;
+		const FString Label = NPC ? NPC->GetNPCMarkerLabel() : FString();
+
+		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label);
+	}
+}
+
+void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label)
+{
+	if (!Canvas)
+	{
+		return;
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+	const FVector2D Center(SX * 0.5f, SY * 0.5f);
+
+	// Project: Z>0 — перед камерой; X,Y — экранные координаты.
+	const FVector Screen = Project(WorldAnchor, false);
+	const bool bBehind = Screen.Z <= 0.0f;
+
+	FVector2D P(Screen.X, Screen.Y);
+	if (bBehind)
+	{
+		// За камерой проекция «вывернута» — зеркалим относительно центра, чтобы стрелка
+		// указывала в верную сторону.
+		P = Center * 2.0f - P;
+	}
+
+	const float Margin = NPCMarkerEdgeMargin;
+	const bool bOnScreen = !bBehind &&
+		P.X >= Margin && P.X <= SX - Margin &&
+		P.Y >= Margin && P.Y <= SY - Margin;
+
+	if (bOnScreen)
+	{
+		DrawNPCIcon(P, Label);
+		return;
+	}
+
+	// За кадром: зажимаем точку к краю экрана по лучу из центра и рисуем стрелку.
+	FVector2D Dir = P - Center;
+	if (Dir.IsNearlyZero())
+	{
+		Dir = FVector2D(0.0f, -1.0f);
+	}
+
+	const float HalfW = SX * 0.5f - Margin;
+	const float HalfH = SY * 0.5f - Margin;
+	const float ScaleX = (FMath::Abs(Dir.X) > KINDA_SMALL_NUMBER) ? HalfW / FMath::Abs(Dir.X) : TNumericLimits<float>::Max();
+	const float ScaleY = (FMath::Abs(Dir.Y) > KINDA_SMALL_NUMBER) ? HalfH / FMath::Abs(Dir.Y) : TNumericLimits<float>::Max();
+	const float Scale = FMath::Min(ScaleX, ScaleY);
+
+	const FVector2D Edge = Center + Dir * Scale;
+	DrawNPCEdgeArrow(Edge, Dir.GetSafeNormal());
+}
+
+void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label)
+{
+	const float CX = ScreenPos.X;
+	const float CY = ScreenPos.Y;
+	const float H = NPCMarkerHalfSize;
+	const float T = NPCMarkerThickness;
+	const FLinearColor C = NPCMarkerColor;
+
+	// Ромб (повёрнутый квадрат) — форма, отличная от углового ретикла врага.
+	DrawLine(CX, CY - H, CX + H, CY, C, T); // верх -> право
+	DrawLine(CX + H, CY, CX, CY + H, C, T); // право -> низ
+	DrawLine(CX, CY + H, CX - H, CY, C, T); // низ -> лево
+	DrawLine(CX - H, CY, CX, CY - H, C, T); // лево -> верх
+
+	// Подпись под ромбом по центру.
+	if (!Label.IsEmpty())
+	{
+		if (UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr)
+		{
+			float TW = 0.0f, TH = 0.0f;
+			GetTextSize(Label, TW, TH, Font);
+			DrawText(Label, C, CX - TW * 0.5f, CY + H + 2.0f, Font);
+		}
+	}
+}
+
+void AContrarySurvivorHUD::DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir)
+{
+	const FLinearColor C = NPCMarkerColor;
+	const float T = NPCMarkerThickness;
+	const float Len = NPCMarkerArrowLen;
+
+	// Стрелка-треугольник: кончик в EdgePos, основание — назад вдоль -Dir.
+	const FVector2D Perp(-Dir.Y, Dir.X);
+	const FVector2D Back = EdgePos - Dir * Len;
+	const FVector2D B1 = Back + Perp * (Len * 0.6f);
+	const FVector2D B2 = Back - Perp * (Len * 0.6f);
+
+	DrawLine(EdgePos.X, EdgePos.Y, B1.X, B1.Y, C, T);
+	DrawLine(EdgePos.X, EdgePos.Y, B2.X, B2.Y, C, T);
+	DrawLine(B1.X, B1.Y, B2.X, B2.Y, C, T);
 }
 
 void AContrarySurvivorHUD::DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats, bool bIsCurrentTarget)

@@ -6,11 +6,14 @@
 #include "GameFramework/Actor.h"
 #include "Templates/SubclassOf.h"
 #include "AConsumableItem.h" // EConsumableType (тип расходника для товара)
+#include "InteractableNPCInterface.h" // HUD-маркер находимости
 #include "TraderNPC.generated.h"
 
 class USphereComponent;
 class UStaticMeshComponent;
 class AMasterInventoryItem;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
 
 // Вид товара в магазине: предмет в рюкзак или пополнение патронов.
 UENUM(BlueprintType)
@@ -71,7 +74,7 @@ struct FShopEntry
  * (immediate-mode экран на AContrarySurvivorHUD). Спавн — кодом (UTraderSpawnSubsystem).
  */
 UCLASS(Blueprintable)
-class CONTRARYSURVIVOR_API ATraderNPC : public AActor
+class CONTRARYSURVIVOR_API ATraderNPC : public AActor, public IInteractableNPCInterface
 {
 	GENERATED_BODY()
 
@@ -84,14 +87,34 @@ public:
 	// Цена выкупа предмета у игрока (DRAFT ~50% от условной цены, по категории).
 	float GetSellValue(const AMasterInventoryItem* Item) const;
 
+	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
+	virtual FString GetNPCMarkerLabel() const override { return TEXT("Trader"); }
+	virtual float GetNPCMarkerZOffset() const override { return 320.0f; }
+
 protected:
+	// Создаёт ЯРКИЙ плейсхолдер-материал (dynamic instance) и применяет к телу/голове,
+	// чтобы торговца было заметно в деревне (placeholder до реального скина).
+	virtual void BeginPlay() override;
 	// Триггер диалоговой зоны: overlap по Pawn (игроку).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
 	USphereComponent* InteractTrigger;
 
-	// Плейсхолдер-меш (без коллизии). Реальный гуманоид/скин — позже (operator/modeler).
+	// Плейсхолдер-меш тела (без коллизии). Реальный гуманоид/скин — позже (operator/modeler).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
 	UStaticMeshComponent* MeshComponent;
+
+	// Яркий «маяк»-шар над телом — заметная макушка, чтобы торговца было видно издалека.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
+	UStaticMeshComponent* BeaconComponent;
+
+	// Базовый материал плейсхолдера (BasicShapeMaterial: имеет вектор-параметр "Color").
+	// Грузится в конструкторе, в BeginPlay из него создаётся dynamic instance с яркой заливкой.
+	UPROPERTY()
+	UMaterialInterface* PlaceholderBaseMaterial = nullptr;
+
+	// Яркий цвет плейсхолдера (DRAFT — заметный, до реального скина).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trader")
+	FLinearColor PlaceholderColor = FLinearColor(1.0f, 0.15f, 0.85f, 1.0f); // ярко-маджента
 
 	// Радиус, в котором доступно взаимодействие (см). DRAFT.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trader")

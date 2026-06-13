@@ -309,12 +309,21 @@ void AContrarySurvivorPlayerController::OnFireReleased(const FInputActionValue& 
 
 void AContrarySurvivorPlayerController::UpdateAutoTarget()
 {
-	// Живой текущий lock (ручной или ранее авто-выбранный) сохраняем — ручной выбор
-	// поверх авто-ближайшего. Если цели нет или она умерла — берём ближайшую живую.
+	// Вариант A (решение Рината).
+	// 1) Если текущая цель умерла/исчезла — снимаем ручной фокус и возвращаемся в авто.
 	if (!IsValidTarget(CurrentTarget))
+	{
+		bManualLock = false;
+		CurrentTarget = nullptr;
+	}
+
+	// 2) Авто-режим (ручного фокуса нет): КАЖДЫЙ тик лочим БЛИЖАЙШУЮ живую цель.
+	//    Появилась ближе — лок динамически перекидывается на неё.
+	if (!bManualLock)
 	{
 		CurrentTarget = FindNearestLivingTarget();
 	}
+	// 3) Ручной фокус (bManualLock && цель жива) — держим текущую, авто НЕ перекидывает.
 }
 
 void AContrarySurvivorPlayerController::OnSwitchWeapon()
@@ -405,13 +414,15 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 		return;
 	}
 
-	// Клик: ручной выбор цели под курсором (переключение лока на другого врага).
-	// Если под курсором валидный враг — lock переключается на него (поверх авто-ближайшего).
+	// Клик/тап = ручной выбор цели (вариант A): тап по врагу -> ручной фокус на нём;
+	// тап по пустому месту -> снять ручной фокус и взять авто-ближайшую. TrySelectTarget
+	// уже выставляет CurrentTarget/bManualLock в обоих случаях.
 	TrySelectTarget();
 
-	// Если цель невалидна (нет/умерла) — берём ближайшую живую (авто-лок).
+	// Страховка: если после выбора цель всё же невалидна — авто-ближайшая.
 	if (!IsValidTarget(CurrentTarget))
 	{
+		bManualLock = false;
 		CurrentTarget = FindNearestLivingTarget();
 	}
 
@@ -442,12 +453,21 @@ void AContrarySurvivorPlayerController::TrySelectTarget()
 {
 	AActor* HitActor = GetActorUnderCursor();
 
-	// Захватываем только валидного врага. Клик по пустоте/неврагу НЕ сбрасывает
-	// текущий lock (ADR-017: цель держится до смерти или захвата новой).
+	// Вариант A (решение Рината):
+	//  - тап по валидному врагу -> РУЧНОЙ фокус именно на нём (держится до смерти/смены);
+	//  - тап по другому врагу    -> сменить ручной фокус на него;
+	//  - тап по ПУСТОМУ месту     -> снять ручной фокус, вернуться в авто-ближайшую.
 	if (IsValidTarget(HitActor))
 	{
 		CurrentTarget = HitActor;
-		UE_LOG(LogTemp, Warning, TEXT("Target locked: %s"), *CurrentTarget->GetName());
+		bManualLock = true;
+		UE_LOG(LogTemp, Warning, TEXT("Manual target locked: %s"), *CurrentTarget->GetName());
+	}
+	else
+	{
+		// Пустое место: снимаем ручной фокус, авто подберёт ближайшую (в UpdateAutoTarget/ниже).
+		bManualLock = false;
+		CurrentTarget = FindNearestLivingTarget();
 	}
 }
 

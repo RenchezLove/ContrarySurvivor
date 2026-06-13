@@ -152,6 +152,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
 	FLinearColor TargetMarkerColor = FLinearColor(1.0f, 0.92f, 0.1f, 1.0f);
 
+	// --- Маркер интерактивных NPC (торговец, позже староста) — находимость ---
+	// Отличается от маркера ВРАГА (жёлтый ретикл): иной цвет (зелёный) и форма (ромб),
+	// + стрелка по краю экрана, если NPC за кадром.
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	FLinearColor NPCMarkerColor = FLinearColor(0.15f, 0.95f, 0.45f, 1.0f); // зелёный (дружественный)
+
+	// Полуразмер ромба маркера на экране (px), когда NPC в кадре.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerHalfSize = 16.0f;
+
+	// Толщина линий маркера/стрелки (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerThickness = 3.0f;
+
+	// Отступ от края экрана для зажатой к краю стрелки (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerEdgeMargin = 56.0f;
+
+	// Длина (px) указывающей стрелки за кадром.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerArrowLen = 22.0f;
+
 	// --- HUD игрока (GDD §7.7) ---
 
 	// Левый верхний угол: отступы и размеры HP-бара игрока.
@@ -216,6 +239,21 @@ private:
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);
+
+	// --- Маркеры интерактивных NPC (находимость) ---
+
+	// Проходит по актёрам с IInteractableNPCInterface и рисует над каждым маркер
+	// (в кадре — ромб + подпись; за кадром — стрелка по краю экрана к нему).
+	void DrawInteractiveNPCMarkers();
+
+	// Рисует маркер одного NPC по мировому якорю: ромб+подпись в кадре либо краевую стрелку.
+	void DrawNPCMarker(const FVector& WorldAnchor, const FString& Label);
+
+	// Ромб-иконка + подпись по экранной точке (NPC в кадре).
+	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label);
+
+	// Краевая стрелка, указывающая в сторону NPC за пределами экрана.
+	void DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir);
 
 	// Рисует контекстную подсказку взаимодействия («E — подобрать» / «E — торговать»)
 	// по центру снизу (BUG3). Текст берётся у контроллера (ближайший интерактив).
