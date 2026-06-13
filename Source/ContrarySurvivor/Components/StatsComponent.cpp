@@ -173,11 +173,22 @@ void UStatsComponent::SetThirst(float NewThirst)
 void UStatsComponent::ConsumeFood()
 {
 	ModifyHunger(FoodRestoreAmount);
+	// DRAFT (Фаза 4): еда дополнительно чуть лечит HP. Heal сам clamp'ит до MaxHealth
+	// и не лечит мёртвых (вернёт 0) — деградация/урон при этом не затрагиваются.
+	if (FoodHealthRestoreAmount > 0.0f)
+	{
+		Heal(FoodHealthRestoreAmount);
+	}
 }
 
 void UStatsComponent::DrinkWater()
 {
 	ModifyThirst(WaterRestoreAmount);
+	// DRAFT (Фаза 4): вода дополнительно чуть лечит HP (clamp до MaxHealth, не лечит мёртвых).
+	if (WaterHealthRestoreAmount > 0.0f)
+	{
+		Heal(WaterHealthRestoreAmount);
+	}
 }
 
 void UStatsComponent::AddMoney(float Amount)
@@ -255,6 +266,14 @@ void UStatsComponent::StartSurvivalTimers()
 	{
 		TM.SetTimer(ThirstHealthTimer, this, &UStatsComponent::TickThirstHealthDrain, ThirstHealthDrainInterval, true);
 	}
+
+	// DRAFT (Фаза 4): авто-реген HP при сытости. Таймер тикает наравне с деградацией;
+	// фактический реген применяется только при выполнении условий (см. TickHealthRegen).
+	// Привязан к тем же владельцам, что и деградация (игрок) — у врага survival выкл, реген не стартует.
+	if (bEnableHealthRegen && HealthRegenInterval > 0.0f)
+	{
+		TM.SetTimer(HealthRegenTimer, this, &UStatsComponent::TickHealthRegen, HealthRegenInterval, true);
+	}
 }
 
 void UStatsComponent::StopSurvivalTimers()
@@ -269,6 +288,7 @@ void UStatsComponent::StopSurvivalTimers()
 	TM.ClearTimer(HungerDrainTimer);
 	TM.ClearTimer(HungerHealthTimer);
 	TM.ClearTimer(ThirstHealthTimer);
+	TM.ClearTimer(HealthRegenTimer);
 }
 
 void UStatsComponent::TickThirstDrain()
@@ -304,6 +324,22 @@ void UStatsComponent::TickThirstHealthDrain()
 	if (!bIsDead && Thirst <= CriticalThreshold)
 	{
 		ApplyDamage(CriticalHealthDrainStep);
+	}
+}
+
+void UStatsComponent::TickHealthRegen()
+{
+	// DRAFT (Фаза 4): медленный авто-реген HP при сытости.
+	// Условия (логически независимы от деградации, которая всегда тикает отдельно):
+	//   жив, HP < MaxHealth, сыт (Hunger >= порога) И не испытывает жажды (Thirst >= порога).
+	// При падении сытости ниже порога реген просто перестаёт применяться (таймер продолжает тикать).
+	if (bIsDead || Health >= MaxHealth)
+	{
+		return;
+	}
+	if (Hunger >= RegenHungerThreshold && Thirst >= RegenThirstThreshold)
+	{
+		Heal(HealthRegenAmount);
 	}
 }
 

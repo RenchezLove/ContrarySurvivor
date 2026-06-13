@@ -143,6 +143,36 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
 	float WaterRestoreAmount = 40.0f;
 
+	// DRAFT (запрос Рината, Фаза 4): еда дополнительно чуть лечит HP (clamp до MaxHealth).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float FoodHealthRestoreAmount = 5.0f;
+
+	// DRAFT (запрос Рината, Фаза 4): вода дополнительно чуть лечит HP (clamp до MaxHealth).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float WaterHealthRestoreAmount = 3.0f;
+
+	// --- Авто-реген HP при сытости (DRAFT, запрос Рината, Фаза 4) ---
+
+	// Включать ли авто-реген HP (только для игрока; для врага — выкл, как и деградация).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
+	bool bEnableHealthRegen = true;
+
+	// DRAFT: реген идёт, только если Hunger >= этого порога.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
+	float RegenHungerThreshold = 80.0f;
+
+	// DRAFT: реген идёт, только если Thirst >= этого порога.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
+	float RegenThirstThreshold = 80.0f;
+
+	// DRAFT: сколько HP восстанавливается за один тик регена.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
+	float HealthRegenAmount = 2.0f;
+
+	// DRAFT: период тика авто-регена HP, c (укладывается в «1-3 пункта за 30-50 c»).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
+	float HealthRegenInterval = 40.0f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Movement")
 	float MoveSpeed = 600.0f;
 
@@ -282,6 +312,8 @@ private:
 	FTimerHandle HungerDrainTimer;
 	FTimerHandle HungerHealthTimer;
 	FTimerHandle ThirstHealthTimer;
+	// Авто-реген HP при сытости (DRAFT, Фаза 4). Логически независим от деградации.
+	FTimerHandle HealthRegenTimer;
 
 	// Запуск/останов таймеров деградации.
 	void StartSurvivalTimers();
@@ -292,4 +324,6 @@ private:
 	void TickHungerDrain();
 	void TickHungerHealthDrain();
 	void TickThirstHealthDrain();
+	// Колбэк авто-регена HP: лечит, только если сыт И не испытывает жажды И HP < Max И жив.
+	void TickHealthRegen();
 };
