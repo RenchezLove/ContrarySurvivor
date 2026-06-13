@@ -25,10 +25,13 @@ AWolfCharacter::AWolfCharacter()
 	AIControllerClass = AWolfAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
-	// Капсула должна блокировать Visibility, чтобы LineTrace дальнобоя игрока (ECC_Visibility)
+	// Капсула: переопределяем дефолт ACharacter (r34/hh88 — под гуманоида) на размеры
+	// квадрупеда (DRAFT, см. WolfCapsule* в .h). InitCapsuleSize гарантирует hh>=radius.
+	// Также блокируем Visibility, чтобы LineTrace дальнобоя игрока (ECC_Visibility)
 	// попадал по волку (та же причина, что в фиксе боя бандита, Фаза 2).
 	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
 	{
+		Capsule->InitCapsuleSize(WolfCapsuleRadius, WolfCapsuleHalfHeight);
 		Capsule->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	}
 
@@ -40,10 +43,11 @@ AWolfCharacter::AWolfCharacter()
 		{
 			MeshComp->SetSkeletalMeshAsset(WolfMeshAsset.Object);
 		}
-		// Стандартное для ACharacter выравнивание меша под капсулу: -90 по Z ставит на дно
-		// капсулы, -90 по Yaw разворачивает по +X. DRAFT-трансформ — точная подгонка под
-		// импортированную ориентацию SK_Wolf на стороне unreal-operator при необходимости.
-		MeshComp->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -90.f), FRotator(0.f, -90.f, 0.f));
+		// Выравнивание меша под капсулу: Z = -(half-height) ставит лапы на дно капсулы
+		// (после re-import волк ориентирован как гуманоид: forward=-Y, up=+Z, лапы на Z0).
+		// Yaw -90 разворачивает по +X (волк смотрит вперёд) — ВЕРНО, не менять. Pitch/Roll 0.
+		// Z вычисляем от реального half-height капсулы, а не магической константой.
+		MeshComp->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -WolfCapsuleHalfHeight), FRotator(0.f, -90.f, 0.f));
 		// Меш не несёт коллизию — её держит капсула.
 		MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}

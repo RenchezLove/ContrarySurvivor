@@ -79,6 +79,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death")
 	float CorpseLifeSpan = 5.0f;
 
+	// --- Капсула коллизии волка (квадрупед). DRAFT ---
+	// Дефолт ACharacter (r34/hh88) рассчитан на стоящего ГУМАНОИДА — для волка он
+	// слишком высокий (меш «парит»). Задаём размеры под квадрупеда: half-height ~ половина
+	// высоты в холке (~75-80 см → hh40), radius ~ полширины корпуса. Значения чистовые
+	// подберём по факту в редакторе; меш садится на дно капсулы (RelativeLocation.Z = -hh).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision")
+	float WolfCapsuleHalfHeight = 40.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision")
+	float WolfCapsuleRadius = 28.0f;
+
 	UFUNCTION()
 	void HandleDeath();
 
