@@ -196,6 +196,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
 	FLinearColor InvDropColor = FLinearColor(0.5f, 0.12f, 0.12f, 1.0f);    // кнопка [X] выброса
 
+	// --- Контекстная подсказка взаимодействия (E) — BUG3 ---
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	FLinearColor InteractPromptBgColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.65f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	FLinearColor InteractPromptTextColor = FLinearColor(1.0f, 0.95f, 0.5f, 1.0f);
+
 private:
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
@@ -208,6 +216,10 @@ private:
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);
+
+	// Рисует контекстную подсказку взаимодействия («E — подобрать» / «E — торговать»)
+	// по центру снизу (BUG3). Текст берётся у контроллера (ближайший интерактив).
+	void DrawInteractPrompt(const FString& Text);
 
 	// --- Экран инвентаря (immediate-mode) ---
 

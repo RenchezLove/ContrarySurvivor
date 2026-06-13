@@ -13,6 +13,16 @@
 
 class UStatsComponent;
 class ATraderNPC;
+class APickup;
+
+// Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
+// E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> открыть магазин.
+enum class EInteractKind : uint8
+{
+	None,
+	Pickup,
+	Trader
+};
 
 UCLASS()
 class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerController
@@ -35,6 +45,14 @@ public:
 	// Закрыть магазин (кнопка Close в UI / уход от торговца): вернуть режим ввода в Game.
 	UFUNCTION(BlueprintCallable, Category = "Shop")
 	void CloseShop();
+
+	// --- Контекстная подсказка взаимодействия (E) — для HUD ---
+
+	// Есть ли рядом интерактив (пикап/торговец), по которому E что-то сделает.
+	bool HasInteractPrompt() const;
+
+	// Текст подсказки («E — подобрать» / «E — торговать») для отрисовки на HUD.
+	FString GetInteractPromptText() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -104,10 +122,17 @@ protected:
 	UFUNCTION()
 	void OnToggleInventory();
 
-	// Взаимодействие (LEGACY ActionMapping "Interact", клавиша E). Если рядом торговец —
-	// открыть/закрыть экран магазина (immediate-mode HUD) + переключить режим ввода.
+	// Взаимодействие (LEGACY ActionMapping "Interact", клавиша E). Контекстно: если открыт
+	// магазин — закрыть; иначе действовать по ближайшему интерактиву (пикап -> подобрать,
+	// торговец -> открыть магазин). Выбор ближайшего обновляется в Tick (UpdateNearbyInteractable).
 	UFUNCTION()
 	void OnInteract();
+
+	// Открывает магазин конкретного торговца (вынесено из OnInteract): HUD + режим ввода UI.
+	void OpenShop(ATraderNPC* Trader);
+
+	// Сбрасывает флаг «UI-клик уже обработан» при отпускании кнопки огня (BUG1: edge-клик).
+	void OnFireReleased(const FInputActionValue& Value);
 
 	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
@@ -128,6 +153,26 @@ private:
 	// Ближайший торговец (выставляется его overlap-триггером). null — торговца рядом нет.
 	UPROPERTY()
 	ATraderNPC* NearbyTrader = nullptr;
+
+	// --- Контекстный interact по E (BUG3) ---
+
+	// Ближайший интерактив (пикап/торговец), пересчитывается в Tick. Действие по E — над ним.
+	UPROPERTY()
+	AActor* CurrentInteractActor = nullptr;
+
+	EInteractKind CurrentInteractKind = EInteractKind::None;
+
+	// Радиус (см), в котором пикап предлагается к подбору по E. Для торговца берётся его
+	// собственный overlap-триггер (NearbyTrader). DRAFT-тюнинг.
+	UPROPERTY(EditAnywhere, Category = "Interact")
+	float InteractRange = 300.0f;
+
+	// Пересчитывает ближайший интерактив (пикап/торговец) для подсказки и действия по E.
+	void UpdateNearbyInteractable();
+
+	// BUG1 (edge-клик UI): true пока зажат клик, по которому уже выполнено одно UI-действие.
+	// Сбрасывается на отпускании огня (OnFireReleased) и при открытии/закрытии модальных экранов.
+	bool bUIClickConsumed = false;
 
 	// Текущая захваченная цель (держится до смерти цели или захвата новой).
 	UPROPERTY()

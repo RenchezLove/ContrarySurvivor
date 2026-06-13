@@ -76,6 +76,14 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float DeathItemLossPercent = 0.25f;
 
+    // Куда падает выброшенный из рюкзака предмет (мировой пикап): вперёд от игрока и вниз
+    // к ногам (см). DRAFT-тюнинг (BUG3: выброс = пикап, а не Destroy).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+    float DropForwardOffset = 120.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+    float DropDownOffset = 80.0f;
+
     // УСТАРЕЛО (Фаза 1): инлайн-поля голода/жажды. Источник истины теперь Stats.
     // Оставлены, чтобы не ломать возможные ссылки BP; не используются логикой.
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats|Deprecated")

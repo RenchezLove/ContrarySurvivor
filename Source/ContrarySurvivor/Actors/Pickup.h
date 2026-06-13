@@ -10,14 +10,16 @@
 class USphereComponent;
 class UStaticMeshComponent;
 class AMasterInventoryItem;
+class APlayerCharacter;
 
 /**
  * Подбираемый лут (Фаза 4, экономика — GDD §7.8: «враги дают деньги/изношенное оружие»).
  *
  * Один актор-пикап может нести ДЕНЬГИ (MoneyAmount) и/или ПРЕДМЕТ (CarriedItem). Подбор —
- * по overlap пешки игрока (APlayerCharacter): деньги уходят в UStatsComponent, предмет — в
- * рюкзак (UInventoryComponent), затем пикап уничтожается. Editor-независимо: не Pawn и не
- * несёт UStatsComponent, поэтому НИКОГДА не попадает под авто-лок/таргетинг игрока.
+ * по КЛАВИШЕ E (контекстный interact, Фаза 4): контроллер находит ближайший пикап и зовёт
+ * Collect() — деньги уходят в UStatsComponent, предмет — в рюкзак (UInventoryComponent), затем
+ * пикап уничтожается. Авто-подбор по overlap УБРАН (был нестабилен — BUG2). Editor-независимо:
+ * не Pawn и не несёт UStatsComponent, поэтому НИКОГДА не попадает под авто-лок/таргетинг игрока.
  *
  * Дроп с врага: статический хелпер DropLoot (вызывается из HandleDeath бандита/волка).
  */
@@ -32,6 +34,15 @@ public:
 	// Инициализирует лут пикапа (вызывается сразу после спавна). Money — сумма денег,
 	// CarriedItem — предмет (уже заспавненный, скрытый, без коллизии) либо nullptr.
 	void InitLoot(float Money, AMasterInventoryItem* InCarriedItem);
+
+	// Подбор по КЛАВИШЕ E (контекстный interact, Фаза 4 — решение Рината/game-lead): надёжно
+	// начисляет деньги (UStatsComponent) и кладёт предмет в рюкзак (UInventoryComponent), затем
+	// уничтожает пикап. Возвращает true ТОЛЬКО если весь имеющийся лут реально начислен — иначе
+	// пикап остаётся на земле (повторная попытка), а не «исчезает без начисления» (фикс BUG2).
+	bool Collect(APlayerCharacter* Player);
+
+	// Есть ли в пикапе что подбирать (для контекстной подсказки на HUD).
+	bool HasLoot() const;
 
 	// Создаёт лут на земле: при необходимости спавнит предмет (по ItemDropChance) и пикап,
 	// который несёт MoneyAmount + предмет. Удобный путь для дропа с врага одной строкой.
@@ -51,10 +62,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
 	UStaticMeshComponent* MeshComponent;
 
-	// Радиус подбора (см). DRAFT.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
-	float PickupRadius = 90.0f;
-
 	// Сумма денег в пикапе (0 = нет денег).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
 	float MoneyAmount = 0.0f;
@@ -62,10 +69,6 @@ protected:
 	// Предмет, который пикап отдаёт в рюкзак при подборе (nullptr = только деньги).
 	UPROPERTY()
 	AMasterInventoryItem* CarriedItem = nullptr;
-
-	UFUNCTION()
-	void OnPickupBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 private:
 	// true, если лут уже подобран игроком (чтобы EndPlay не уничтожил отданный предмет).

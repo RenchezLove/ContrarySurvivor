@@ -106,6 +106,52 @@ void AContrarySurvivorHUD::DrawHUD()
 			}
 		}
 	}
+
+	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец (BUG3) ---
+	// Только когда модальные экраны закрыты (иначе перекрывает панель).
+	if (!bInventoryOpen && !bShopOpen)
+	{
+		if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+		{
+			if (CSPC->HasInteractPrompt())
+			{
+				DrawInteractPrompt(CSPC->GetInteractPromptText());
+			}
+		}
+	}
+}
+
+void AContrarySurvivorHUD::DrawInteractPrompt(const FString& Text)
+{
+	if (Text.IsEmpty() || !Canvas)
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Размер текста для центрирования и фоновой плашки.
+	float TextW = 0.0f, TextH = 0.0f;
+	GetTextSize(Text, TextW, TextH, Font);
+
+	const float PadX = 14.0f;
+	const float PadY = 8.0f;
+	const float BoxW = TextW + PadX * 2.0f;
+	const float BoxH = TextH + PadY * 2.0f;
+
+	// Низ-центр экрана (над тач-зоной/над краем).
+	const float BoxX = (SX - BoxW) * 0.5f;
+	const float BoxY = SY * 0.82f;
+
+	DrawRect(InteractPromptBgColor, BoxX, BoxY, BoxW, BoxH);
+	DrawText(Text, InteractPromptTextColor, BoxX + PadX, BoxY + PadY, Font);
 }
 
 // ===========================================================================

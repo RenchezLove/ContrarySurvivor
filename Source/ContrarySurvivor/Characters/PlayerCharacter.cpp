@@ -22,6 +22,7 @@
 #include "AConsumableItem.h"
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
+#include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -307,10 +308,40 @@ void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
     }
 
     Inventory->RemoveItem(Item);
-    UE_LOG(LogTemp, Log, TEXT("Inv: dropped %s"), *Item->GetName());
 
-    // MVP: без выпадения лут-мешка на землю — просто уничтожаем actor предмета.
-    Item->Destroy();
+    // BUG3-фикс (решение Рината/game-lead): выброс = заспавнить предмет МИРОВЫМ пикапом
+    // у ног игрока (НЕ Destroy). Подобрать обратно можно клавишей E. Предмет остаётся
+    // скрытым/без коллизии и переносится пикапом как данные (его визуал — меш пикапа).
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        Item->Destroy(); // нет мира — фолбэк, не оставляем висящий предмет
+        return;
+    }
+
+    Item->SetActorHiddenInGame(true);
+    Item->SetActorEnableCollision(false);
+
+    // Чуть впереди игрока и ниже (примерно к ногам), чтобы мешок был виден.
+    const FVector DropLoc = GetActorLocation()
+        + GetActorForwardVector() * DropForwardOffset
+        + FVector(0.0f, 0.0f, -DropDownOffset);
+
+    FActorSpawnParameters Sp;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    APickup* Dropped = World->SpawnActor<APickup>(APickup::StaticClass(), DropLoc, FRotator::ZeroRotator, Sp);
+    if (Dropped)
+    {
+        Dropped->InitLoot(0.0f, Item);
+        UE_LOG(LogTemp, Log, TEXT("Inv: dropped %s as world pickup at %s"), *Item->GetName(), *DropLoc.ToString());
+    }
+    else
+    {
+        // Пикап не заспавнился — не оставляем висящий предмет.
+        Item->Destroy();
+        UE_LOG(LogTemp, Warning, TEXT("Inv: drop failed to spawn pickup for %s (destroyed item)"), *Item->GetName());
+    }
 }
 
 void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)

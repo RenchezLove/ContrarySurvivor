@@ -15,15 +15,13 @@ APickup::APickup()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// Триггер подбора — корень. Overlap только по Pawn (игрок), без блокировки движения.
+	// Корень-сфера (маркер позиции лута). Подбор теперь по клавише E (контроллер ищет
+	// ближайший пикап и зовёт Collect), а не по overlap — поэтому коллизию/оверлапы гасим.
 	PickupTrigger = CreateDefaultSubobject<USphereComponent>(TEXT("PickupTrigger"));
 	SetRootComponent(PickupTrigger);
-	PickupTrigger->InitSphereRadius(PickupRadius);
-	PickupTrigger->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	PickupTrigger->SetCollisionResponseToAllChannels(ECR_Ignore);
-	PickupTrigger->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-	PickupTrigger->SetGenerateOverlapEvents(true);
-	PickupTrigger->OnComponentBeginOverlap.AddDynamic(this, &APickup::OnPickupBeginOverlap);
+	PickupTrigger->InitSphereRadius(40.0f);
+	PickupTrigger->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PickupTrigger->SetGenerateOverlapEvents(false);
 
 	// Плейсхолдер-визуал (без коллизии). Меш мелкий, чтобы читался как «лут на земле».
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
@@ -43,38 +41,52 @@ void APickup::InitLoot(float Money, AMasterInventoryItem* InCarriedItem)
 	CarriedItem = InCarriedItem;
 }
 
-void APickup::OnPickupBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+bool APickup::HasLoot() const
 {
-	APlayerCharacter* Player = Cast<APlayerCharacter>(OtherActor);
-	if (!Player)
+	return MoneyAmount > 0.0f || IsValid(CarriedItem);
+}
+
+bool APickup::Collect(APlayerCharacter* Player)
+{
+	if (!IsValid(Player))
 	{
-		return; // лут подбирает только игрок
+		return false;
 	}
 
-	// Деньги -> в статы.
-	if (MoneyAmount > 0.0f)
+	UStatsComponent* Stats = Player->GetStats();
+	UInventoryComponent* Inv = Player->GetInventory();
+
+	// Деньги -> в статы. Считаем «начислено», только если реально добавили (или денег нет).
+	bool bMoneyDone = (MoneyAmount <= 0.0f);
+	if (MoneyAmount > 0.0f && Stats)
 	{
-		if (UStatsComponent* Stats = Player->GetStats())
-		{
-			Stats->AddMoney(MoneyAmount);
-			UE_LOG(LogTemp, Log, TEXT("Pickup: +%.0f money"), MoneyAmount);
-		}
+		Stats->AddMoney(MoneyAmount);
+		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': +%.0f money"), *GetName(), MoneyAmount);
+		bMoneyDone = true;
 	}
 
 	// Предмет -> в рюкзак (предмет уже скрыт/без коллизии, как тестовые предметы).
-	if (IsValid(CarriedItem))
+	bool bItemDone = !IsValid(CarriedItem);
+	if (IsValid(CarriedItem) && Inv)
 	{
-		if (UInventoryComponent* Inv = Player->GetInventory())
-		{
-			Inv->AddItem(CarriedItem);
-			UE_LOG(LogTemp, Log, TEXT("Pickup: looted item %s"), *CarriedItem->GetName());
-			CarriedItem = nullptr; // передан игроку, EndPlay его не уничтожит
-		}
+		Inv->AddItem(CarriedItem);
+		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted item %s"), *GetName(), *CarriedItem->GetName());
+		CarriedItem = nullptr; // передан игроку, EndPlay его не уничтожит
+		bItemDone = true;
+	}
+
+	// BUG2-фикс: НЕ уничтожаем пикап, если что-то из лута не удалось начислить — иначе деньги/
+	// предмет «терялись». Пикап остаётся на земле; игрок может нажать E ещё раз.
+	if (!bMoneyDone || !bItemDone)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': collect partial (money %s, item %s) — kept on ground"),
+			*GetName(), bMoneyDone ? TEXT("ok") : TEXT("FAIL"), bItemDone ? TEXT("ok") : TEXT("FAIL"));
+		return false;
 	}
 
 	bCollected = true;
 	Destroy();
+	return true;
 }
 
 void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)

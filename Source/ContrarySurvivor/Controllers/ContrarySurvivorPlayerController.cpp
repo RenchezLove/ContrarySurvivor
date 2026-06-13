@@ -12,6 +12,7 @@
 #include "EngineUtils.h" // TActorIterator
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
+#include "ContrarySurvivor/Actors/Pickup.h"
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -61,6 +62,9 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		if (FireAction)
 		{
 			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Fire);
+			// BUG1: отпускание клика сбрасывает edge-флаг UI (один клик = одно UI-действие).
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &AContrarySurvivorPlayerController::OnFireReleased);
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled, this, &AContrarySurvivorPlayerController::OnFireReleased);
 		}
 
 		// Перезарядка
@@ -112,35 +116,65 @@ void AContrarySurvivorPlayerController::OnInteract()
 		return;
 	}
 
-	if (!NearbyTrader)
+	// Открытый магазин закрываем тем же E.
+	if (bShopOpen)
 	{
-		UE_LOG(LogTemp, Log, TEXT("Interact: no trader nearby"));
+		CloseShop();
 		return;
 	}
 
-	bShopOpen = !bShopOpen;
+	// Контекстный interact (решение Рината/game-lead): действуем по БЛИЖАЙШЕМУ интерактиву,
+	// выбранному в Tick (UpdateNearbyInteractable). Пикап -> подобрать, торговец -> магазин.
+	switch (CurrentInteractKind)
+	{
+		case EInteractKind::Pickup:
+		{
+			APickup* Pickup = Cast<APickup>(CurrentInteractActor);
+			APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+			if (Pickup && PlayerChar)
+			{
+				const bool bOk = Pickup->Collect(PlayerChar);
+				UE_LOG(LogTemp, Log, TEXT("Interact: pickup collect %s"), bOk ? TEXT("OK") : TEXT("FAIL"));
+			}
+			// Ближайший интерактив пересчитается в следующем Tick.
+			break;
+		}
+		case EInteractKind::Trader:
+		{
+			if (ATraderNPC* Trader = Cast<ATraderNPC>(CurrentInteractActor))
+			{
+				OpenShop(Trader);
+			}
+			break;
+		}
+		default:
+			UE_LOG(LogTemp, Log, TEXT("Interact: nothing nearby"));
+			break;
+	}
+}
+
+void AContrarySurvivorPlayerController::OpenShop(ATraderNPC* Trader)
+{
+	if (!Trader || bShopOpen)
+	{
+		return;
+	}
+
+	bShopOpen = true;
+	bUIClickConsumed = false; // свежее состояние edge-клика для нового экрана
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
-		CSHUD->SetShopOpen(bShopOpen, bShopOpen ? NearbyTrader : nullptr);
+		CSHUD->SetShopOpen(true, Trader);
 	}
 
-	// Режим ввода: открыто -> GameAndUI (курсор для кликов магазина), закрыто -> GameOnly.
-	if (bShopOpen)
-	{
-		FInputModeGameAndUI Mode;
-		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		Mode.SetHideCursorDuringCapture(false);
-		SetInputMode(Mode);
-		bShowMouseCursor = true;
-	}
-	else
-	{
-		SetInputMode(FInputModeGameOnly());
-		bShowMouseCursor = true;
-	}
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
 
-	UE_LOG(LogTemp, Log, TEXT("Shop %s"), bShopOpen ? TEXT("OPEN") : TEXT("CLOSED"));
+	UE_LOG(LogTemp, Log, TEXT("Shop OPEN (trader %s)"), *Trader->GetName());
 }
 
 void AContrarySurvivorPlayerController::CloseShop()
@@ -150,6 +184,7 @@ void AContrarySurvivorPlayerController::CloseShop()
 		return;
 	}
 	bShopOpen = false;
+	bUIClickConsumed = false;
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
@@ -164,6 +199,7 @@ void AContrarySurvivorPlayerController::CloseShop()
 void AContrarySurvivorPlayerController::OnToggleInventory()
 {
 	bInventoryOpen = !bInventoryOpen;
+	bUIClickConsumed = false; // свежее состояние edge-клика на смене экрана (BUG1)
 
 	// Синхронизируем экран инвентаря на HUD (immediate-mode отрисовка).
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
@@ -196,6 +232,79 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 
 	// Поддерживаем авто-лок на ближайшей живой цели (по умолчанию и после смерти текущей).
 	UpdateAutoTarget();
+
+	// Поддерживаем ближайший контекстный интерактив (E): пикап/торговец (BUG3).
+	UpdateNearbyInteractable();
+}
+
+void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
+{
+	CurrentInteractActor = nullptr;
+	CurrentInteractKind = EInteractKind::None;
+
+	// Пока открыт модальный экран — подсказку не предлагаем.
+	if (bInventoryOpen || bShopOpen)
+	{
+		return;
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		return;
+	}
+
+	const FVector Loc = ControlledPawn->GetActorLocation();
+	float BestDistSq = TNumericLimits<float>::Max();
+
+	// Торговец: проксимити уже задана его overlap-триггером (NearbyTrader).
+	if (IsValid(NearbyTrader))
+	{
+		BestDistSq = FVector::DistSquared(Loc, NearbyTrader->GetActorLocation());
+		CurrentInteractActor = NearbyTrader;
+		CurrentInteractKind = EInteractKind::Trader;
+	}
+
+	// Пикапы: ближайший непустой пикап в InteractRange. Если ближе торговца — он и выигрывает.
+	const float RangeSq = InteractRange * InteractRange;
+	for (TActorIterator<APickup> It(World); It; ++It)
+	{
+		APickup* Pickup = *It;
+		if (!IsValid(Pickup) || !Pickup->HasLoot())
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(Loc, Pickup->GetActorLocation());
+		if (DistSq <= RangeSq && DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			CurrentInteractActor = Pickup;
+			CurrentInteractKind = EInteractKind::Pickup;
+		}
+	}
+}
+
+bool AContrarySurvivorPlayerController::HasInteractPrompt() const
+{
+	return CurrentInteractKind != EInteractKind::None && IsValid(CurrentInteractActor);
+}
+
+FString AContrarySurvivorPlayerController::GetInteractPromptText() const
+{
+	switch (CurrentInteractKind)
+	{
+		case EInteractKind::Pickup: return TEXT("E — подобрать");
+		case EInteractKind::Trader: return TEXT("E — торговать");
+		default:                    return FString();
+	}
+}
+
+void AContrarySurvivorPlayerController::OnFireReleased(const FInputActionValue& Value)
+{
+	// BUG1: клик отпущен — следующий клик снова считается новым UI-действием.
+	bUIClickConsumed = false;
 }
 
 void AContrarySurvivorPlayerController::UpdateAutoTarget()
@@ -257,29 +366,40 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
 	// Если открыт инвентарь — клик уходит в UI инвентаря (надеть/снять/использовать/выбросить),
-	// НЕ в стрельбу/таргетинг. Editor-независимый hit-test по зонам HUD.
+	// НЕ в стрельбу/таргетинг. BUG1: обрабатываем как EDGE — одно действие на нажатие. Пока кнопка
+	// зажата (Triggered летит каждый кадр), повторно НЕ реагируем; флаг снимается на отпускании.
+	// Это убирает «прокликивание» всего списка из-за reflow после использования предмета.
 	if (bInventoryOpen)
 	{
-		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		if (!bUIClickConsumed)
 		{
-			float MX = 0.0f, MY = 0.0f;
-			if (GetMousePosition(MX, MY))
+			bUIClickConsumed = true;
+			if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 			{
-				CSHUD->HandleInventoryClick(FVector2D(MX, MY));
+				float MX = 0.0f, MY = 0.0f;
+				if (GetMousePosition(MX, MY))
+				{
+					CSHUD->HandleInventoryClick(FVector2D(MX, MY));
+				}
 			}
 		}
 		return;
 	}
 
 	// Если открыт магазин — клик уходит в UI магазина (купить/продать/закрыть), не в стрельбу.
+	// Та же EDGE-схема (BUG1): один клик = одна покупка/продажа, без авто-повтора при зажатии.
 	if (bShopOpen)
 	{
-		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		if (!bUIClickConsumed)
 		{
-			float MX = 0.0f, MY = 0.0f;
-			if (GetMousePosition(MX, MY))
+			bUIClickConsumed = true;
+			if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 			{
-				CSHUD->HandleShopClick(FVector2D(MX, MY));
+				float MX = 0.0f, MY = 0.0f;
+				if (GetMousePosition(MX, MY))
+				{
+					CSHUD->HandleShopClick(FVector2D(MX, MY));
+				}
 			}
 		}
 		return;
