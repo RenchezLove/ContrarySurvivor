@@ -51,6 +51,13 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
     float PlayerMaxHealth = 100.0f;
 
+    // Стартовые деньги НОВОГО персонажа (GDD §7.6 = 50). Применяются в BeginPlay (новый игрок)
+    // через Stats->InitMoney — детерминированно, независимо от дефолта компонента/оверрайда в BP.
+    // НЕ перетирают загруженный сейв: загрузка идёт только при смерти/у костра (LoadGame ->
+    // RestoreState), а BeginPlay сейв не загружает.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
+    float StartingMoney = 50.0f;
+
     // Доля MaxHealth, до которой восстанавливается HP при респауне (решение game-lead:
     // респаун = полный HP). 1.0 -> Health = MaxHealth. Остальные статы — из сейва.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))

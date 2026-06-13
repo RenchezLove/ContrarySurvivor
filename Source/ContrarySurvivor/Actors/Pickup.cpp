@@ -10,6 +10,7 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "AMasterInventoryItem.h"
 #include "UInventoryComponent.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 
 APickup::APickup()
 {
@@ -62,6 +63,7 @@ bool APickup::Collect(APlayerCharacter* Player)
 	{
 		Stats->AddMoney(MoneyAmount);
 		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': +%.0f money"), *GetName(), MoneyAmount);
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP +%.0f money. Balance now %.0f"), MoneyAmount, Stats->GetMoney());
 		bMoneyDone = true;
 	}
 
@@ -71,6 +73,8 @@ bool APickup::Collect(APlayerCharacter* Player)
 	{
 		Inv->AddItem(CarriedItem);
 		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted item %s"), *GetName(), *CarriedItem->GetName());
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP item '%s' (name '%s') into backpack"),
+			*CarriedItem->GetName(), *CarriedItem->ItemName);
 		CarriedItem = nullptr; // передан игроку, EndPlay его не уничтожит
 		bItemDone = true;
 	}

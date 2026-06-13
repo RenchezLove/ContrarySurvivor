@@ -13,6 +13,8 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -32,6 +34,15 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	// Показываем курсор мыши (нужен для выбора цели кликом)
 	bShowMouseCursor = true;
 	bEnableClickEvents = true;
+
+	// QA-харнесс (Фаза 4 раунд 2): гасим экранные сообщения движка («LIGHTING NEEDS TO BE
+	// REBUILT» и т.п.), чтобы не мешали приёмке автотестером. Это косметика рендера; сам
+	// Build Lighting — позже. DisableAllScreenMessages выставляет GAreScreenMessagesEnabled=false
+	// (подтверждено в UE 5.5: UEngine::HandleDisableAllScreenMessagesCommand).
+	if (GEngine)
+	{
+		GEngine->Exec(GetWorld(), TEXT("DisableAllScreenMessages"));
+	}
 }
 
 void AContrarySurvivorPlayerController::SetupInputComponent()
@@ -86,6 +97,68 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// Взаимодействие (E) — legacy ActionMapping "Interact" (Фаза 4, экономика: магазин).
 		InputComponent->BindAction(TEXT("Interact"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnInteract);
+
+		// QA-харнесс (Фаза 4 раунд 2): тест-действия на F1-F5 (legacy ActionMapping,
+		// Config/DefaultInput.ini). Дают автотестеру (Computer Use) проверять без `~`-консоли.
+		InputComponent->BindAction(TEXT("QAToggleDebugCam"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleDebugCamera);
+		InputComponent->BindAction(TEXT("QAGiveItems"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveItems);
+		InputComponent->BindAction(TEXT("QAEquipArmor"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestEquipArmor);
+		InputComponent->BindAction(TEXT("QAUnequipArmor"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestUnequipArmor);
+		InputComponent->BindAction(TEXT("QAGiveMoney"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveMoney);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// QA-харнесс: тест-действия на функциональные клавиши (F1-F5)
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnToggleDebugCamera()
+{
+	// F1: переключение свободной debug-камеры. Console-exec "ToggleDebugCamera" роутится в
+	// UCheatManager::ToggleDebugCamera (ENGINE_API, UE 5.5) — отвязывает камеру от игрока для
+	// свободного облёта (рассмотреть меш/броню/волка/NPC сверху и вблизи), повторно — назад.
+	// ConsoleCommand надёжнее прямого вызова: сам найдёт/создаст обработчик cheat-команды.
+	ConsoleCommand(TEXT("ToggleDebugCamera"), /*bWriteToLog=*/true);
+	UE_LOG(LogQA, Display, TEXT("QA: F1 ToggleDebugCamera"));
+}
+
+void AContrarySurvivorPlayerController::OnTestGiveItems()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->GiveTestItems();
+		UE_LOG(LogQA, Display, TEXT("QA: F2 GiveTestItems"));
+	}
+}
+
+void AContrarySurvivorPlayerController::OnTestEquipArmor()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->EquipTestArmor();
+		UE_LOG(LogQA, Display, TEXT("QA: F3 EquipTestArmor"));
+	}
+}
+
+void AContrarySurvivorPlayerController::OnTestUnequipArmor()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->UnequipTestArmor();
+		UE_LOG(LogQA, Display, TEXT("QA: F4 UnequipTestArmor"));
+	}
+}
+
+void AContrarySurvivorPlayerController::OnTestGiveMoney()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UStatsComponent* St = PlayerChar->GetStats())
+		{
+			St->AddMoney(TestMoneyGrant);
+			UE_LOG(LogQA, Display, TEXT("QA: F5 +%.0f money. Balance now %.0f"),
+				TestMoneyGrant, St->GetMoney());
+		}
 	}
 }
 
@@ -235,6 +308,22 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 
 	// Поддерживаем ближайший контекстный интерактив (E): пикап/торговец (BUG3).
 	UpdateNearbyInteractable();
+
+	// QA-харнесс: логируем СМЕНУ залоченной цели один раз (не каждый тик), чтобы тестер
+	// видел по логу, на кого сейчас наведён лок (авто-ближайший или ручной фокус).
+	if (CurrentTarget != LastLoggedTarget)
+	{
+		if (CurrentTarget)
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: lock target -> %s (%s)"),
+				*CurrentTarget->GetName(), bManualLock ? TEXT("manual") : TEXT("auto"));
+		}
+		else
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: lock target cleared"));
+		}
+		LastLoggedTarget = CurrentTarget;
+	}
 }
 
 void AContrarySurvivorPlayerController::UpdateNearbyInteractable()

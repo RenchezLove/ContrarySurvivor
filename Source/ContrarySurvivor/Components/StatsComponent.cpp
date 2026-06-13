@@ -3,6 +3,7 @@
 #include "StatsComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 
 UStatsComponent::UStatsComponent()
 {
@@ -172,6 +173,7 @@ void UStatsComponent::SetThirst(float NewThirst)
 
 void UStatsComponent::ConsumeFood()
 {
+	const float OldHealth = Health;
 	ModifyHunger(FoodRestoreAmount);
 	// DRAFT (Фаза 4): еда дополнительно чуть лечит HP. Heal сам clamp'ит до MaxHealth
 	// и не лечит мёртвых (вернёт 0) — деградация/урон при этом не затрагиваются.
@@ -179,16 +181,31 @@ void UStatsComponent::ConsumeFood()
 	{
 		Heal(FoodHealthRestoreAmount);
 	}
+	UE_LOG(LogQA, Display, TEXT("QA: ate food (+%.0f hunger, +%.1f HP). Hunger %.0f/%.0f, HP %.1f->%.1f/%.1f"),
+		FoodRestoreAmount, Health - OldHealth, Hunger, SurvivalMax, OldHealth, Health, MaxHealth);
 }
 
 void UStatsComponent::DrinkWater()
 {
+	const float OldHealth = Health;
 	ModifyThirst(WaterRestoreAmount);
 	// DRAFT (Фаза 4): вода дополнительно чуть лечит HP (clamp до MaxHealth, не лечит мёртвых).
 	if (WaterHealthRestoreAmount > 0.0f)
 	{
 		Heal(WaterHealthRestoreAmount);
 	}
+	UE_LOG(LogQA, Display, TEXT("QA: drank water (+%.0f thirst, +%.1f HP). Thirst %.0f/%.0f, HP %.1f->%.1f/%.1f"),
+		WaterRestoreAmount, Health - OldHealth, Thirst, SurvivalMax, OldHealth, Health, MaxHealth);
+}
+
+void UStatsComponent::InitMoney(float StartingAmount)
+{
+	// Стартовые деньги НОВОГО персонажа (не загрузка сейва). Перетирать загруженный сейв
+	// этим нельзя: вызывается только из BeginPlay игрока (новый игрок), а RestoreState
+	// (загрузка) идёт отдельным путём (смерть/костёр).
+	Money = FMath::Max(0.0f, StartingAmount);
+	OnMoneyChanged.Broadcast(Money);
+	UE_LOG(LogQA, Display, TEXT("QA: starting money initialised -> %.0f"), Money);
 }
 
 void UStatsComponent::AddMoney(float Amount)
@@ -339,7 +356,13 @@ void UStatsComponent::TickHealthRegen()
 	}
 	if (Hunger >= RegenHungerThreshold && Thirst >= RegenThirstThreshold)
 	{
-		Heal(HealthRegenAmount);
+		const float OldHealth = Health;
+		const float Healed = Heal(HealthRegenAmount);
+		if (Healed > 0.0f)
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: auto-regen tick +%.1f HP (%.1f->%.1f/%.1f), Hunger %.0f Thirst %.0f"),
+				Healed, OldHealth, Health, MaxHealth, Hunger, Thirst);
+		}
 	}
 }
 

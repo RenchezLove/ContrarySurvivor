@@ -133,6 +133,35 @@ protected:
 	// Открывает магазин конкретного торговца (вынесено из OnInteract): HUD + режим ввода UI.
 	void OpenShop(ATraderNPC* Trader);
 
+	// --- QA-харнесс (Фаза 4 раунд 2): тест-действия на функциональные клавиши ---
+	// Привязаны через LEGACY ActionMapping (Config/DefaultInput.ini), без нового IA/.uasset.
+	// Нужны автотестеру (Computer Use), который не может открыть `~`-консоль (русская раскладка).
+	// Дублируют существующие exec-команды — оба пути остаются.
+
+	// F1: свободная/детач debug-камера (console-exec "ToggleDebugCamera", UCheatManager 5.5).
+	UFUNCTION()
+	void OnToggleDebugCamera();
+
+	// F2: наполнить рюкзак тестовыми предметами (= APlayerCharacter::GiveTestItems).
+	UFUNCTION()
+	void OnTestGiveItems();
+
+	// F3: надеть дефолтную броню всех слотов (= APlayerCharacter::EquipTestArmor).
+	UFUNCTION()
+	void OnTestEquipArmor();
+
+	// F4: снять броню всех слотов (= APlayerCharacter::UnequipTestArmor).
+	UFUNCTION()
+	void OnTestUnequipArmor();
+
+	// F5: +TestMoneyGrant денег (для теста покупки у торговца).
+	UFUNCTION()
+	void OnTestGiveMoney();
+
+	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
+	UPROPERTY(EditAnywhere, Category = "QA")
+	float TestMoneyGrant = 100.0f;
+
 	// Сбрасывает флаг «UI-клик уже обработан» при отпускании кнопки огня (BUG1: edge-клик).
 	void OnFireReleased(const FInputActionValue& Value);
 
@@ -179,6 +208,11 @@ private:
 	// Текущая захваченная цель (авто-ближайшая или ручной фокус).
 	UPROPERTY()
 	AActor* CurrentTarget;
+
+	// QA-харнесс: последняя залогированная цель — чтобы логировать СМЕНУ цели один раз
+	// (а не каждый тик). Сравнивается с CurrentTarget в Tick.
+	UPROPERTY()
+	AActor* LastLoggedTarget = nullptr;
 
 	// Ручной фокус (вариант A): true, если игрок ЯВНО выбрал цель тапом/кликом по врагу.
 	// Пока true и цель жива — авто-переброс на ближайшую НЕ происходит. Сбрасывается при

@@ -2,6 +2,7 @@
 
 #include "MasterHumanoidCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h" // USkeletalMesh (полный тип для GetName в QA-логах)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
@@ -178,6 +179,14 @@ void AMasterHumanoidCharacter::EquipArmor(AArmor* Armor)
 
     UE_LOG(LogTemp, Log, TEXT("EquipArmor: %s in slot %d (protection %.2f). Total armor now %.2f"),
         *Armor->GetName(), (int32)Slot, Armor->GetArmorProtection(), GetTotalArmorProtection());
+
+    // QA-харнесс: слот + назначенный меш (или none, если ассета брони ещё нет).
+    const USkeletalMeshComponent* SlotCompLog = GetMeshComponentForSlot(Slot);
+    const USkeletalMesh* SlotMeshLog = SlotCompLog ? SlotCompLog->GetSkeletalMeshAsset() : nullptr;
+    UE_LOG(LogQA, Display, TEXT("QA: EQUIP armor '%s' slot %d mesh '%s' (prot %.2f, total %.2f)"),
+        *Armor->GetName(), (int32)Slot,
+        SlotMeshLog ? *SlotMeshLog->GetName() : TEXT("none"),
+        Armor->GetArmorProtection(), GetTotalArmorProtection());
 }
 
 void AMasterHumanoidCharacter::UnequipArmor(EArmorSlot Slot)
@@ -208,6 +217,12 @@ void AMasterHumanoidCharacter::UnequipArmor(EArmorSlot Slot)
 
     UE_LOG(LogTemp, Log, TEXT("UnequipArmor: slot %d cleared. Total armor now %.2f"),
         (int32)Slot, GetTotalArmorProtection());
+
+    // QA-харнесс: слот + меш, к которому вернулись (базовый меш тела или none).
+    const USkeletalMeshComponent* SlotCompLog = GetMeshComponentForSlot(Slot);
+    const USkeletalMesh* SlotMeshLog = SlotCompLog ? SlotCompLog->GetSkeletalMeshAsset() : nullptr;
+    UE_LOG(LogQA, Display, TEXT("QA: UNEQUIP armor slot %d -> base mesh '%s' (total %.2f)"),
+        (int32)Slot, SlotMeshLog ? *SlotMeshLog->GetName() : TEXT("none"), GetTotalArmorProtection());
 }
 
 AArmor* AMasterHumanoidCharacter::GetEquippedArmor(EArmorSlot Slot) const

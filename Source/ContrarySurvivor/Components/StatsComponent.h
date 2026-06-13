@@ -282,6 +282,11 @@ public:
 
 	// --- Деньги ---
 
+	// Инициализирует деньги для НОВОГО персонажа (стартовое значение, GDD §7.6 = 50).
+	// НЕ для загрузки сейва (для сейва — RestoreState). clamp >=0 + бродкаст HUD.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void InitMoney(float StartingAmount);
+
 	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
 	void AddMoney(float Amount);
 
