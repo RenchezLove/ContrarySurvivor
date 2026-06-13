@@ -4,7 +4,7 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h" // GEngine->GetMediumFont
 #include "EngineUtils.h" // TActorIterator
-#include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "GameFramework/Pawn.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -41,21 +41,26 @@ void AContrarySurvivorHUD::DrawHUD()
 
 	const float RadiusSq = HealthBarShowRadius * HealthBarShowRadius;
 
-	for (TActorIterator<AEnemyCharacter> It(World); It; ++It)
+	// Текущая пешка игрока — её хелсбар над головой не рисуем (у игрока свой HUD-стек).
+	APawn* PlayerPawn = PC ? PC->GetPawn() : nullptr;
+
+	// ТИП-АГНОСТИЧНО: проходим по всем Pawn'ам с UStatsComponent (бандит, волк, …),
+	// определяя «врага» по наличию компонента, а не по конкретному классу.
+	for (TActorIterator<APawn> It(World); It; ++It)
 	{
-		AEnemyCharacter* Enemy = *It;
-		if (!IsValid(Enemy))
+		APawn* Enemy = *It;
+		if (!IsValid(Enemy) || Enemy == PlayerPawn)
 		{
 			continue;
 		}
 
-		UStatsComponent* Stats = Enemy->GetStats();
+		UStatsComponent* Stats = Enemy->FindComponentByClass<UStatsComponent>();
 		if (!Stats || Stats->IsDead())
 		{
-			continue; // мёртвых не показываем
+			continue; // не-враги и мёртвых не показываем
 		}
 
-		// Условие показа: залочена ИЛИ в радиусе от игрока.
+		// Условие показа: залочена (текущая цель любого типа) ИЛИ в радиусе от игрока.
 		const bool bIsLocked = (LockedTarget == Enemy);
 		bool bInRadius = false;
 		if (!bIsLocked && bHavePlayerLocation)
@@ -65,7 +70,7 @@ void AContrarySurvivorHUD::DrawHUD()
 
 		if (bIsLocked || bInRadius)
 		{
-			DrawEnemyHealthBar(Enemy);
+			DrawTargetHealthBar(Enemy, Stats);
 		}
 	}
 
@@ -149,21 +154,15 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 	}
 }
 
-void AContrarySurvivorHUD::DrawEnemyHealthBar(AEnemyCharacter* Enemy)
+void AContrarySurvivorHUD::DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats)
 {
-	if (!Enemy || !Canvas)
+	if (!IsValid(TargetActor) || !Stats || !Canvas)
 	{
 		return;
 	}
 
-	UStatsComponent* Stats = Enemy->GetStats();
-	if (!Stats)
-	{
-		return;
-	}
-
-	// Мировая точка над головой врага.
-	const FVector WorldAnchor = Enemy->GetActorLocation() + FVector(0.0f, 0.0f, HealthBarWorldZOffset);
+	// Мировая точка над головой цели.
+	const FVector WorldAnchor = TargetActor->GetActorLocation() + FVector(0.0f, 0.0f, HealthBarWorldZOffset);
 
 	// Project: X,Y — экранные координаты, Z — глубина (>0 если перед камерой). За камерой — не рисуем.
 	const FVector ScreenPos = Project(WorldAnchor, false);

@@ -6,7 +6,6 @@
 #include "GameFramework/HUD.h"
 #include "ContrarySurvivorHUD.generated.h"
 
-class AEnemyCharacter;
 class UStatsComponent;
 
 /**
@@ -78,8 +77,9 @@ protected:
 	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
 
 private:
-	// Рисует одну полоску здоровья над врагом. Возвращает true, если что-то нарисовано.
-	void DrawEnemyHealthBar(AEnemyCharacter* Enemy);
+	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
+	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
+	void DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats);
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);
