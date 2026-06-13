@@ -19,6 +19,11 @@
 #include "AHeadArmor.h"
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
+#include "AConsumableItem.h"
+#include "ARangedWeapon.h"
+#include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
+#include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
+#include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -81,6 +86,10 @@ void APlayerCharacter::BeginPlay()
     if (Stats)
     {
         Stats->InitHealth(PlayerMaxHealth, /*bSetToMax=*/true);
+        // НОВЫЙ игрок стартует с GDD §7.6 = 50 денег. Делаем это явно в коде (не полагаясь на
+        // дефолт компонента/возможный оверрайд в BP), но ТОЛЬКО как стартовое значение нового
+        // персонажа: BeginPlay сейв не загружает, загрузка (RestoreState) идёт позже отдельно.
+        Stats->InitMoney(StartingMoney);
         // Смерть игрока -> респаун (GDD §7.8).
         Stats->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
     }
@@ -221,6 +230,316 @@ void APlayerCharacter::EquipDefaultArmor()
     SpawnAndEquip(DefaultPantsArmorClass);
 }
 
+void APlayerCharacter::EquipTestArmor()
+{
+    // Консольная команда: (пере)надеть дефолтную броню всех слотов. Использует тот же путь,
+    // что и автоэкип в BeginPlay (спавн DefaultHead/Torso/PantsArmorClass + EquipArmor),
+    // т.е. подменяет модульные меши слотов на ArmorMesh_Equipped брони.
+    EquipDefaultArmor();
+    UE_LOG(LogTemp, Log, TEXT("EquipTestArmor: equipped default armor. Total armor %.2f"),
+        GetTotalArmorProtection());
+}
+
+void APlayerCharacter::UnequipTestArmor()
+{
+    // Консольная команда: снять броню всех слотов (возврат базовых мешей тела).
+    UnequipArmor(EArmorSlot::Head);
+    UnequipArmor(EArmorSlot::Torso);
+    UnequipArmor(EArmorSlot::Legs);
+    UE_LOG(LogTemp, Log, TEXT("UnequipTestArmor: all slots cleared. Total armor %.2f"),
+        GetTotalArmorProtection());
+}
+
+// ---------------------------------------------------------------------------
+// Действия UI-инвентаря (Фаза 4) — вызываются из AContrarySurvivorHUD по клику
+// ---------------------------------------------------------------------------
+
+void APlayerCharacter::Inv_UseBackpackItem(AMasterInventoryItem* Item)
+{
+    if (!Item || !Inventory)
+    {
+        return;
+    }
+
+    switch (Item->GetItemCategory())
+    {
+        case EItemCategory::Armor:
+        {
+            // Броня -> надеть в её слот (подмена меша) и пометить экипированной
+            // (чтобы не теряться при смерти и не дублироваться в списке рюкзака).
+            if (AArmor* Armor = Cast<AArmor>(Item))
+            {
+                EquipArmor(Armor);
+                Inventory->SetItemEquipped(Armor, true);
+                UE_LOG(LogTemp, Log, TEXT("Inv: equipped %s"), *Armor->GetName());
+            }
+            break;
+        }
+        case EItemCategory::Consumable:
+        {
+            // Расходник -> применить эффект (еда +Hunger / вода +Thirst) и израсходовать.
+            if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+            {
+                if (Cons->ApplyConsumeEffect(Stats))
+                {
+                    Inventory->RemoveItem(Item);
+                    Item->Destroy();
+                    UE_LOG(LogTemp, Log, TEXT("Inv: consumed %s"), *Cons->GetName());
+                }
+            }
+            break;
+        }
+        default:
+            UE_LOG(LogTemp, Log, TEXT("Inv: item %s has no use action (category %d)"),
+                *Item->GetName(), (int32)Item->GetItemCategory());
+            break;
+    }
+}
+
+void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
+{
+    if (!Item || !Inventory)
+    {
+        return;
+    }
+
+    // Если выбрасываем экипированную броню — сперва снять (вернуть меш слота к базовому).
+    if (AArmor* Armor = Cast<AArmor>(Item))
+    {
+        if (Inventory->IsItemEquipped(Armor))
+        {
+            UnequipArmor(Armor->GetArmorSlot());
+        }
+    }
+
+    Inventory->RemoveItem(Item);
+
+    // BUG3-фикс (решение Рината/game-lead): выброс = заспавнить предмет МИРОВЫМ пикапом
+    // у ног игрока (НЕ Destroy). Подобрать обратно можно клавишей E. Предмет остаётся
+    // скрытым/без коллизии и переносится пикапом как данные (его визуал — меш пикапа).
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        Item->Destroy(); // нет мира — фолбэк, не оставляем висящий предмет
+        return;
+    }
+
+    Item->SetActorHiddenInGame(true);
+    Item->SetActorEnableCollision(false);
+
+    // Чуть впереди игрока и ниже (примерно к ногам), чтобы мешок был виден.
+    const FVector DropLoc = GetActorLocation()
+        + GetActorForwardVector() * DropForwardOffset
+        + FVector(0.0f, 0.0f, -DropDownOffset);
+
+    FActorSpawnParameters Sp;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    APickup* Dropped = World->SpawnActor<APickup>(APickup::StaticClass(), DropLoc, FRotator::ZeroRotator, Sp);
+    if (Dropped)
+    {
+        Dropped->InitLoot(0.0f, Item);
+        UE_LOG(LogTemp, Log, TEXT("Inv: dropped %s as world pickup at %s"), *Item->GetName(), *DropLoc.ToString());
+        UE_LOG(LogQA, Display, TEXT("QA: DROP '%s' at feet (world pickup spawned) at %s"), *Item->GetName(), *DropLoc.ToString());
+    }
+    else
+    {
+        // Пикап не заспавнился — не оставляем висящий предмет.
+        Item->Destroy();
+        UE_LOG(LogTemp, Warning, TEXT("Inv: drop failed to spawn pickup for %s (destroyed item)"), *Item->GetName());
+    }
+}
+
+void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)
+{
+    AArmor* Armor = GetEquippedArmor(Slot);
+    UnequipArmor(Slot);
+
+    if (Armor && Inventory)
+    {
+        Inventory->SetItemEquipped(Armor, false);
+        // Вернуть в рюкзак как неэкипированный (без дублирования).
+        if (!Inventory->GetInventoryItems().Contains(Armor))
+        {
+            Inventory->AddItem(Armor);
+        }
+        UE_LOG(LogTemp, Log, TEXT("Inv: unequipped slot %d (%s -> backpack)"),
+            (int32)Slot, *Armor->GetName());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
+// ---------------------------------------------------------------------------
+
+bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
+{
+    if (!Stats)
+    {
+        return false;
+    }
+
+    // Проверяем платёжеспособность ДО выдачи товара (clamp >=0: нельзя купить без денег).
+    if (Stats->GetMoney() < Entry.Price)
+    {
+        UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' (%.0f < %.0f)"),
+            *Entry.DisplayName, Stats->GetMoney(), Entry.Price);
+        return false;
+    }
+
+    if (Entry.Kind == EShopEntryKind::Ammo)
+    {
+        // Патроны -> резерв дальнобойного оружия игрока.
+        ARangedWeapon* Ranged = Cast<ARangedWeapon>(RangedWeaponInstance);
+        if (!Ranged)
+        {
+            Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
+        }
+        if (!Ranged)
+        {
+            UE_LOG(LogTemp, Log, TEXT("Shop: no ranged weapon to receive ammo"));
+            return false; // не списываем деньги, если некуда класть патроны
+        }
+        Ranged->AddReserveAmmo(Entry.AmmoAmount);
+    }
+    else
+    {
+        // Предмет -> в рюкзак (скрытый, как тестовые/лут-предметы).
+        if (!Entry.ItemClass)
+        {
+            return false;
+        }
+        UWorld* World = GetWorld();
+        if (!World || !Inventory)
+        {
+            return false;
+        }
+
+        FActorSpawnParameters Sp;
+        Sp.Owner = this;
+        Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+        AMasterInventoryItem* Bought = World->SpawnActor<AMasterInventoryItem>(
+            Entry.ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+        if (!Bought)
+        {
+            return false;
+        }
+
+        // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
+        if (Entry.bApplyConsumableType)
+        {
+            if (AConsumableItem* Cons = Cast<AConsumableItem>(Bought))
+            {
+                Cons->ConsumableType = Entry.ConsumableType;
+            }
+        }
+        if (Bought->ItemName.IsEmpty())
+        {
+            Bought->ItemName = Entry.DisplayName;
+        }
+
+        Bought->SetActorHiddenInGame(true);
+        Bought->SetActorEnableCollision(false);
+        Inventory->AddItem(Bought);
+    }
+
+    // Списываем цену (SpendMoney clamp >=0 + бродкаст HUD).
+    Stats->SpendMoney(Entry.Price);
+    UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' for %.0f. Money left %.0f"),
+        *Entry.DisplayName, Entry.Price, Stats->GetMoney());
+    UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' for %.0f, balance %.0f"),
+        *Entry.DisplayName, Entry.Price, Stats->GetMoney());
+    return true;
+}
+
+void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice)
+{
+    if (!Item || !Inventory || !Stats)
+    {
+        return;
+    }
+
+    // Если продаём экипированную броню — сперва снять (вернуть меш слота к базовому).
+    if (AArmor* Armor = Cast<AArmor>(Item))
+    {
+        if (Inventory->IsItemEquipped(Armor))
+        {
+            UnequipArmor(Armor->GetArmorSlot());
+            Inventory->SetItemEquipped(Armor, false);
+        }
+    }
+
+    const FString SoldName = Item->GetName();
+    Inventory->RemoveItem(Item);
+    Stats->AddMoney(SellPrice);
+    UE_LOG(LogTemp, Log, TEXT("Shop: sold %s for %.0f. Money now %.0f"),
+        *SoldName, SellPrice, Stats->GetMoney());
+    UE_LOG(LogQA, Display, TEXT("QA: SELL '%s' for %.0f, balance %.0f"),
+        *SoldName, SellPrice, Stats->GetMoney());
+
+    Item->Destroy();
+}
+
+void APlayerCharacter::GiveTestItems()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Inventory)
+    {
+        return;
+    }
+
+    FActorSpawnParameters Sp;
+    Sp.Owner = this;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    // Предметы рюкзака — не объекты на сцене: прячем визуал/коллизию, держим как данные.
+    auto AddHidden = [&](AMasterInventoryItem* It)
+    {
+        if (!It)
+        {
+            return;
+        }
+        It->SetActorHiddenInGame(true);
+        It->SetActorEnableCollision(false);
+        Inventory->AddItem(It);
+    };
+
+    // Расходники: еда (+Hunger) и вода (+Thirst).
+    if (AConsumableItem* Food = World->SpawnActor<AConsumableItem>(
+            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Food->ConsumableType = EConsumableType::Food;
+        Food->ItemName = TEXT("Canned Food");
+        AddHidden(Food);
+    }
+    if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
+            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Water->ConsumableType = EConsumableType::Water;
+        Water->ItemName = TEXT("Water Bottle");
+        AddHidden(Water);
+    }
+
+    // Запасная броня (Head_02 / Torso_02) — лежит в рюкзаке неэкипированной,
+    // чтобы было что надеть через paper-doll.
+    if (AHeadArmor* Head = World->SpawnActor<AHeadArmor>(
+            AHeadArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Head->ItemName = TEXT("Spare Head Armor (Head_02)");
+        AddHidden(Head);
+    }
+    if (ATorsoArmor* Torso = World->SpawnActor<ATorsoArmor>(
+            ATorsoArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Torso->ItemName = TEXT("Spare Torso Armor (Torso_02)");
+        AddHidden(Torso);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("GiveTestItems: added 2 consumables + 2 spare armor pieces. Backpack size now %d"),
+        Inventory->GetInventoryItems().Num());
+}
+
 void APlayerCharacter::SwitchWeapon()
 {
     // Тоггл между дальним (пистолет) и ближним (нож) оружием.
@@ -287,6 +606,15 @@ bool APlayerCharacter::SaveGame()
         }
     }
 
+    // ЗАДЕЛ (Фаза 4): сериализуем экипированную броню по слотам как пути классов.
+    auto ArmorPath = [](AArmor* Armor) -> FString
+    {
+        return Armor ? Armor->GetClass()->GetPathName() : FString();
+    };
+    Save->EquippedHeadArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Head));
+    Save->EquippedTorsoArmorClassPath = ArmorPath(GetEquippedArmor(EArmorSlot::Torso));
+    Save->EquippedLegsArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Legs));
+
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
     UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
         *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
@@ -339,31 +667,34 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
 
 void APlayerCharacter::ApplyDeathInventoryPenalty()
 {
-    // ВНИМАНИЕ (эскалация): UInventoryComponent не различает экип/неэкип и категории
-    // (расходник/ресурс/броня). Экипированное оружие хранится отдельно (CurrentWeapon на
-    // базе) и в InventoryItems НЕ лежит — поэтому оно сохраняется автоматически.
-    // Здесь теряется доля ВСЕХ предметов рюкзака (MVP-приближение GDD §7.8).
+    // GDD §7.8 (Фаза 4, тех-долг Фазы 2 закрыт): при смерти теряется только доля
+    // НЕэкипированных предметов категорий Consumable/Resource. Надетая броня (экип-слоты)
+    // и оружие в руках (CurrentWeapon, хранится отдельно от InventoryItems) сохраняются.
     if (!Inventory || DeathItemLossPercent <= 0.0f)
     {
         return;
     }
 
-    TArray<AMasterInventoryItem*> Items = Inventory->GetInventoryItems();
-    const int32 Total = Items.Num();
+    // Кандидаты на потерю: неэкипированные расходники + ресурсы.
+    TArray<AMasterInventoryItem*> Candidates = Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable);
+    Candidates.Append(Inventory->GetUnequippedItemsOfCategory(EItemCategory::Resource));
+
+    const int32 Total = Candidates.Num();
     if (Total <= 0)
     {
+        UE_LOG(LogTemp, Log, TEXT("Death penalty: no unequipped consumables/resources to lose."));
         return;
     }
 
     const int32 LoseCount = FMath::FloorToInt(Total * DeathItemLossPercent);
     for (int32 i = 0; i < LoseCount; ++i)
     {
-        // Снимаем с конца массива (без выпадения лут-мешка — MVP).
-        AMasterInventoryItem* Item = Items[Total - 1 - i];
+        // Снимаем с конца списка кандидатов (без выпадения лут-мешка — MVP).
+        AMasterInventoryItem* Item = Candidates[Total - 1 - i];
         Inventory->RemoveItem(Item);
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d backpack items (%.0f%%)"),
+    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d unequipped consumable/resource items (%.0f%%). Equipped armor/weapons kept."),
         LoseCount, Total, DeathItemLossPercent * 100.0f);
 }
 

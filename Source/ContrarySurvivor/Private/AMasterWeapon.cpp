@@ -19,6 +19,9 @@ AMasterWeapon::AMasterWeapon()
 
 	bIsReloading       = false;
 	LastFireTime       = -9999.0f; // Чтобы первый выстрел был доступен сразу
+
+	// Категория для логики инвентаря/потери рюкзака (Фаза 4): оружие не теряется при смерти.
+	ItemCategory = EItemCategory::Weapon;
 }
 
 void AMasterWeapon::BeginPlay()

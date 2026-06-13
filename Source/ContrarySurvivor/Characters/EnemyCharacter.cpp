@@ -2,6 +2,8 @@
 
 #include "EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Actors/Pickup.h"
+#include "AConsumableItem.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -10,6 +12,10 @@
 AEnemyCharacter::AEnemyCharacter()
 {
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+
+	// Лут по умолчанию: расходник + пикап без BP (editor-независимо).
+	LootItemClass = AConsumableItem::StaticClass();
+	PickupClass   = APickup::StaticClass();
 
 	// Враг управляется AI-контроллером. Конкретный класс назначается в BP/дефолтах
 	// (AEnemyAIController), здесь только включаем авто-поссесс при спавне/размещении.
@@ -126,6 +132,16 @@ void AEnemyCharacter::HandleDeath()
 		SkelMesh->WakeAllRigidBodies();
 	}
 
-	// 5) Снимаем тело с задержкой (даём отыграть рэгдолл).
+	// 5) Лут: деньги + шанс предмета на земле в позиции трупа (GDD §7.8).
+	DropLoot();
+
+	// 6) Снимаем тело с задержкой (даём отыграть рэгдолл).
 	SetLifeSpan(CorpseLifeSpan);
+}
+
+void AEnemyCharacter::DropLoot()
+{
+	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
+	APickup::DropLoot(GetWorld(), GetActorLocation(), Money,
+		LootItemClass, LootItemDropChance, PickupClass);
 }

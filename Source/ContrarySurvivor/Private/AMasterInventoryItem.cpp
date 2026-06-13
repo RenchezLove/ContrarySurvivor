@@ -12,6 +12,9 @@ AMasterInventoryItem::AMasterInventoryItem()
 	ItemMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ItemMesh"));
     RootComponent = ItemMesh;
 
+    // База — нейтральная категория Resource. Наследники переопределяют в своих
+    // конструкторах (AArmor -> Armor, AMasterWeapon -> Weapon).
+    ItemCategory = EItemCategory::Resource;
 }
 
 // Called when the game starts or when spawned

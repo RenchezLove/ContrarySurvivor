@@ -3,6 +3,7 @@
 #include "StatsComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 
 UStatsComponent::UStatsComponent()
 {
@@ -172,12 +173,39 @@ void UStatsComponent::SetThirst(float NewThirst)
 
 void UStatsComponent::ConsumeFood()
 {
+	const float OldHealth = Health;
 	ModifyHunger(FoodRestoreAmount);
+	// DRAFT (Фаза 4): еда дополнительно чуть лечит HP. Heal сам clamp'ит до MaxHealth
+	// и не лечит мёртвых (вернёт 0) — деградация/урон при этом не затрагиваются.
+	if (FoodHealthRestoreAmount > 0.0f)
+	{
+		Heal(FoodHealthRestoreAmount);
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: ate food (+%.0f hunger, +%.1f HP). Hunger %.0f/%.0f, HP %.1f->%.1f/%.1f"),
+		FoodRestoreAmount, Health - OldHealth, Hunger, SurvivalMax, OldHealth, Health, MaxHealth);
 }
 
 void UStatsComponent::DrinkWater()
 {
+	const float OldHealth = Health;
 	ModifyThirst(WaterRestoreAmount);
+	// DRAFT (Фаза 4): вода дополнительно чуть лечит HP (clamp до MaxHealth, не лечит мёртвых).
+	if (WaterHealthRestoreAmount > 0.0f)
+	{
+		Heal(WaterHealthRestoreAmount);
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: drank water (+%.0f thirst, +%.1f HP). Thirst %.0f/%.0f, HP %.1f->%.1f/%.1f"),
+		WaterRestoreAmount, Health - OldHealth, Thirst, SurvivalMax, OldHealth, Health, MaxHealth);
+}
+
+void UStatsComponent::InitMoney(float StartingAmount)
+{
+	// Стартовые деньги НОВОГО персонажа (не загрузка сейва). Перетирать загруженный сейв
+	// этим нельзя: вызывается только из BeginPlay игрока (новый игрок), а RestoreState
+	// (загрузка) идёт отдельным путём (смерть/костёр).
+	Money = FMath::Max(0.0f, StartingAmount);
+	OnMoneyChanged.Broadcast(Money);
+	UE_LOG(LogQA, Display, TEXT("QA: starting money initialised -> %.0f"), Money);
 }
 
 void UStatsComponent::AddMoney(float Amount)
@@ -255,6 +283,14 @@ void UStatsComponent::StartSurvivalTimers()
 	{
 		TM.SetTimer(ThirstHealthTimer, this, &UStatsComponent::TickThirstHealthDrain, ThirstHealthDrainInterval, true);
 	}
+
+	// DRAFT (Фаза 4): авто-реген HP при сытости. Таймер тикает наравне с деградацией;
+	// фактический реген применяется только при выполнении условий (см. TickHealthRegen).
+	// Привязан к тем же владельцам, что и деградация (игрок) — у врага survival выкл, реген не стартует.
+	if (bEnableHealthRegen && HealthRegenInterval > 0.0f)
+	{
+		TM.SetTimer(HealthRegenTimer, this, &UStatsComponent::TickHealthRegen, HealthRegenInterval, true);
+	}
 }
 
 void UStatsComponent::StopSurvivalTimers()
@@ -269,6 +305,7 @@ void UStatsComponent::StopSurvivalTimers()
 	TM.ClearTimer(HungerDrainTimer);
 	TM.ClearTimer(HungerHealthTimer);
 	TM.ClearTimer(ThirstHealthTimer);
+	TM.ClearTimer(HealthRegenTimer);
 }
 
 void UStatsComponent::TickThirstDrain()
@@ -304,6 +341,28 @@ void UStatsComponent::TickThirstHealthDrain()
 	if (!bIsDead && Thirst <= CriticalThreshold)
 	{
 		ApplyDamage(CriticalHealthDrainStep);
+	}
+}
+
+void UStatsComponent::TickHealthRegen()
+{
+	// DRAFT (Фаза 4): медленный авто-реген HP при сытости.
+	// Условия (логически независимы от деградации, которая всегда тикает отдельно):
+	//   жив, HP < MaxHealth, сыт (Hunger >= порога) И не испытывает жажды (Thirst >= порога).
+	// При падении сытости ниже порога реген просто перестаёт применяться (таймер продолжает тикать).
+	if (bIsDead || Health >= MaxHealth)
+	{
+		return;
+	}
+	if (Hunger >= RegenHungerThreshold && Thirst >= RegenThirstThreshold)
+	{
+		const float OldHealth = Health;
+		const float Healed = Heal(HealthRegenAmount);
+		if (Healed > 0.0f)
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: auto-regen tick +%.1f HP (%.1f->%.1f/%.1f), Hunger %.0f Thirst %.0f"),
+				Healed, OldHealth, Health, MaxHealth, Hunger, Thirst);
+		}
 	}
 }
 

@@ -7,6 +7,50 @@
 #include "ContrarySurvivorHUD.generated.h"
 
 class UStatsComponent;
+class APlayerCharacter;
+class AMasterInventoryItem;
+class ATraderNPC;
+
+// Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
+// хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
+enum class EInvAction : uint8
+{
+	None,
+	UnequipSlot,  // клик по слоту paper-doll с надетой бронёй -> снять (SlotIndex = EArmorSlot)
+	UseItem,      // клик по предмету рюкзака -> использовать (надеть броню / съесть расходник)
+	DropItem      // клик по кнопке [X] предмета -> выбросить
+};
+
+// Кликабельная зона инвентаря (пересобирается каждый кадр в DrawInventory). Не UObject-
+// рефлексия: простая структура, указатель валидируется в обработчике (IsValid). Предметы
+// удерживаются живыми инвентарём, поэтому переживают кадр между отрисовкой и кликом.
+struct FInvHitRegion
+{
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = FVector2D::ZeroVector;
+	EInvAction Action = EInvAction::None;
+	AMasterInventoryItem* Item = nullptr; // для UseItem/DropItem
+	int32 SlotIndex = -1;                 // для UnequipSlot (приведение к EArmorSlot)
+};
+
+// Тип действия кликабельной зоны магазина (Фаза 4, экономика).
+enum class EShopAction : uint8
+{
+	None,
+	Buy,   // купить позицию каталога (EntryIndex)
+	Sell,  // продать предмет рюкзака (Item)
+	Close  // закрыть магазин
+};
+
+// Кликабельная зона магазина (пересобирается каждый кадр в DrawShop).
+struct FShopHitRegion
+{
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = FVector2D::ZeroVector;
+	EShopAction Action = EShopAction::None;
+	AMasterInventoryItem* Item = nullptr; // для Sell
+	int32 EntryIndex = -1;                // для Buy (индекс в каталоге торговца)
+};
 
 /**
  * HUD первого вертикального среза (Фаза 1).
@@ -27,6 +71,29 @@ class CONTRARYSURVIVOR_API AContrarySurvivorHUD : public AHUD
 
 public:
 	virtual void DrawHUD() override;
+
+	// --- Экран инвентаря (Фаза 4, GDD §7.4) — immediate-mode, без UMG/.uasset ---
+
+	// Открыть/закрыть/переключить экран инвентаря. Вызывается контроллером по клавише.
+	void SetInventoryOpen(bool bOpen);
+	void ToggleInventory();
+	bool IsInventoryOpen() const { return bInventoryOpen; }
+
+	// Обработать клик мыши/тап по экрану инвентаря в экранных координатах ScreenPos.
+	// Ищет попавшую кликабельную зону (зоны собраны прошлым DrawInventory) и выполняет
+	// действие через APlayerCharacter (надеть/снять/использовать/выбросить).
+	// Возвращает true, если зона найдена и действие выполнено.
+	bool HandleInventoryClick(FVector2D ScreenPos);
+
+	// --- Экран магазина (Фаза 4, экономика — GDD §7.6) — immediate-mode, без UMG/.uasset ---
+
+	// Открыть/закрыть магазин конкретного торговца (вызывается контроллером по клавише).
+	void SetShopOpen(bool bOpen, ATraderNPC* Trader);
+	bool IsShopOpen() const { return bShopOpen; }
+
+	// Обработать клик мыши/тап по экрану магазина (купить/продать/закрыть). Возвращает true,
+	// если зона найдена и действие выполнено.
+	bool HandleShopClick(FVector2D ScreenPos);
 
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
@@ -85,6 +152,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
 	FLinearColor TargetMarkerColor = FLinearColor(1.0f, 0.92f, 0.1f, 1.0f);
 
+	// --- Маркер интерактивных NPC (торговец, позже староста) — находимость ---
+	// Отличается от маркера ВРАГА (жёлтый ретикл): иной цвет (зелёный) и форма (ромб),
+	// + стрелка по краю экрана, если NPC за кадром.
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	FLinearColor NPCMarkerColor = FLinearColor(0.15f, 0.95f, 0.45f, 1.0f); // зелёный (дружественный)
+
+	// Полуразмер ромба маркера на экране (px), когда NPC в кадре.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerHalfSize = 16.0f;
+
+	// Толщина линий маркера/стрелки (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerThickness = 3.0f;
+
+	// Отступ от края экрана для зажатой к краю стрелки (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerEdgeMargin = 56.0f;
+
+	// Длина (px) указывающей стрелки за кадром.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	float NPCMarkerArrowLen = 22.0f;
+
 	// --- HUD игрока (GDD §7.7) ---
 
 	// Левый верхний угол: отступы и размеры HP-бара игрока.
@@ -109,6 +199,34 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
 	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
 
+	// --- Экран инвентаря (GDD §7.4) ---
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvDimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);      // затемнение фона
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvPanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f); // фон панели
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvSlotColor = FLinearColor(0.15f, 0.16f, 0.2f, 1.0f);    // пустой слот/строка
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvSlotFilledColor = FLinearColor(0.2f, 0.3f, 0.22f, 1.0f); // занятый слот
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvHoverColor = FLinearColor(0.32f, 0.38f, 0.5f, 1.0f);   // подсветка под курсором
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvDropColor = FLinearColor(0.5f, 0.12f, 0.12f, 1.0f);    // кнопка [X] выброса
+
+	// --- Контекстная подсказка взаимодействия (E) — BUG3 ---
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	FLinearColor InteractPromptBgColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.65f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	FLinearColor InteractPromptTextColor = FLinearColor(1.0f, 0.95f, 0.5f, 1.0f);
+
 private:
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
@@ -121,4 +239,57 @@ private:
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);
+
+	// --- Маркеры интерактивных NPC (находимость) ---
+
+	// Проходит по актёрам с IInteractableNPCInterface и рисует над каждым маркер
+	// (в кадре — ромб + подпись; за кадром — стрелка по краю экрана к нему).
+	void DrawInteractiveNPCMarkers();
+
+	// Рисует маркер одного NPC по мировому якорю: ромб+подпись в кадре либо краевую стрелку.
+	void DrawNPCMarker(const FVector& WorldAnchor, const FString& Label);
+
+	// Ромб-иконка + подпись по экранной точке (NPC в кадре).
+	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label);
+
+	// Краевая стрелка, указывающая в сторону NPC за пределами экрана.
+	void DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir);
+
+	// Рисует контекстную подсказку взаимодействия («E — подобрать» / «E — торговать»)
+	// по центру снизу (BUG3). Текст берётся у контроллера (ближайший интерактив).
+	void DrawInteractPrompt(const FString& Text);
+
+	// --- Экран инвентаря (immediate-mode) ---
+
+	// Открыт ли экран инвентаря (модальный поверх HUD).
+	bool bInventoryOpen = false;
+
+	// Кликабельные зоны, пересобираемые каждый DrawInventory. Используются HandleInventoryClick.
+	TArray<FInvHitRegion> InvHitRegions;
+
+	// Рисует весь экран инвентаря: слева paper-doll (Head/Torso/Legs + оружие),
+	// справа рюкзак (неэкипированные предметы), сверху деньги/голод/жажда. Заполняет InvHitRegions.
+	void DrawInventory(APlayerCharacter* Player);
+
+	// Рисует прямоугольную «плитку» (фон + опц. подсветка под курсором) и текст. Хелпер layout.
+	void DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
+		const FVector2D& MousePos, const FString& Label, class UFont* Font);
+
+	// Точка внутри прямоугольника зоны?
+	static bool PointInRegion(const FVector2D& P, const FInvHitRegion& R);
+
+	// --- Экран магазина (immediate-mode) ---
+
+	bool bShopOpen = false;
+
+	// Торговец, чей каталог отрисовываем (источник цен/товаров).
+	UPROPERTY()
+	ATraderNPC* ShopTrader = nullptr;
+
+	// Кликабельные зоны магазина, пересобираются каждый DrawShop.
+	TArray<FShopHitRegion> ShopHitRegions;
+
+	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
+	// сверху деньги + [Close]. Заполняет ShopHitRegions.
+	void DrawShop(APlayerCharacter* Player);
 };

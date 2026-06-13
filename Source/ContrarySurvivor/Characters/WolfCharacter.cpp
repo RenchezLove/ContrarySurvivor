@@ -3,6 +3,8 @@
 #include "WolfCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
+#include "ContrarySurvivor/Actors/Pickup.h"
+#include "AConsumableItem.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -20,6 +22,10 @@ AWolfCharacter::AWolfCharacter()
 	PrimaryActorTick.bCanEverTick = true;
 
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+
+	// Лут по умолчанию (editor-независимо): расходник + базовый пикап.
+	LootItemClass = AConsumableItem::StaticClass();
+	PickupClass   = APickup::StaticClass();
 
 	// AI: волк управляется AWolfAIController (chase/attack), авто-поссесс при спавне.
 	AIControllerClass = AWolfAIController::StaticClass();
@@ -192,5 +198,15 @@ void AWolfCharacter::HandleDeath()
 		MeshComp->bPauseAnims = true;
 	}
 
+	// Лут волка (деньги + шанс предмета) в позиции трупа (GDD §7.8).
+	DropLoot();
+
 	SetLifeSpan(CorpseLifeSpan);
+}
+
+void AWolfCharacter::DropLoot()
+{
+	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
+	APickup::DropLoot(GetWorld(), GetActorLocation(), Money,
+		LootItemClass, LootItemDropChance, PickupClass);
 }

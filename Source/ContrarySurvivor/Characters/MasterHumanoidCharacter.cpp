@@ -2,6 +2,7 @@
 
 #include "MasterHumanoidCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h" // USkeletalMesh (полный тип для GetName в QA-логах)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
@@ -45,6 +46,53 @@ void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
     BaseWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+
+    // Снимок базовых мешей слотов (тело без брони). Делаем ДО любой авто-экипировки
+    // (дефолтная броня экипируется позже в APlayerCharacter::BeginPlay), чтобы UnequipArmor
+    // мог вернуть исходный меш слота.
+    CacheBaseSlotMeshes();
+}
+
+void AMasterHumanoidCharacter::CacheBaseSlotMeshes()
+{
+    if (bBaseSlotMeshesCached)
+    {
+        return;
+    }
+    if (HeadMesh)  { BaseHeadMesh  = HeadMesh->GetSkeletalMeshAsset(); }
+    if (TorsoMesh) { BaseTorsoMesh = TorsoMesh->GetSkeletalMeshAsset(); }
+    if (LegsMesh)  { BaseLegsMesh  = LegsMesh->GetSkeletalMeshAsset(); }
+    bBaseSlotMeshesCached = true;
+}
+
+USkeletalMeshComponent* AMasterHumanoidCharacter::GetMeshComponentForSlot(EArmorSlot Slot) const
+{
+    switch (Slot)
+    {
+        case EArmorSlot::Head:  return HeadMesh;
+        case EArmorSlot::Torso: return TorsoMesh;
+        case EArmorSlot::Legs:  return LegsMesh;
+        default:                return nullptr;
+    }
+}
+
+void AMasterHumanoidCharacter::RelinkSlotToLeaderPose(EArmorSlot Slot)
+{
+    // Head — корневой скелет (лидер позы), сам себе лидером не является.
+    if (Slot == EArmorSlot::Head)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* Leader = GetMesh(); // == HeadMesh (см. конструктор базы)
+    USkeletalMeshComponent* Follower = GetMeshComponentForSlot(Slot);
+    if (Leader && Follower)
+    {
+        // Тот же механизм, что и для модульных частей базы (как в AEnemyCharacter):
+        // после подмены меша заново привязываем часть к позе Head — синхронная анимация
+        // модульных частей через Leader/Master Pose Component (GDD §7.4).
+        Follower->SetLeaderPoseComponent(Leader);
+    }
 }
 
 void AMasterHumanoidCharacter::Tick(float DeltaTime)
@@ -99,27 +147,93 @@ void AMasterHumanoidCharacter::EquipArmor(AArmor* Armor)
         return;
     }
 
-    // Раскладываем по слотам по типу. Визуал брони (меш) — Фаза 4; здесь только параметры.
-    if (Armor->IsA(AHeadArmor::StaticClass()))
+    const EArmorSlot Slot = Armor->GetArmorSlot();
+
+    // 1) Сохраняем ссылку в слот (для расчёта суммарной защиты).
+    switch (Slot)
     {
-        EquippedHeadArmor = Armor;
-    }
-    else if (Armor->IsA(ATorsoArmor::StaticClass()))
-    {
-        EquippedTorsoArmor = Armor;
-    }
-    else if (Armor->IsA(APantsArmor::StaticClass()))
-    {
-        EquippedPantsArmor = Armor;
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("EquipArmor: unknown armor slot for %s"), *Armor->GetName());
-        return;
+        case EArmorSlot::Head:  EquippedHeadArmor  = Armor; break;
+        case EArmorSlot::Torso: EquippedTorsoArmor = Armor; break;
+        case EArmorSlot::Legs:  EquippedPantsArmor = Armor; break;
+        default:
+            UE_LOG(LogTemp, Warning, TEXT("EquipArmor: unknown slot for %s"), *Armor->GetName());
+            return;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("EquipArmor: %s (protection %.1f). Total armor now %.1f"),
-        *Armor->GetName(), Armor->GetArmorProtection(), GetTotalArmorProtection());
+    // 2) Подменяем модульный меш слота на меш брони (GDD §7.4). Если у брони меш не задан
+    //    (ArmorMesh_Equipped == nullptr) — слот не трогаем (видим базовое тело), но защита
+    //    учитывается. Так механика работает и до прихода реальных ассетов брони.
+    if (USkeletalMeshComponent* SlotComp = GetMeshComponentForSlot(Slot))
+    {
+        if (USkeletalMesh* ArmorMesh = Armor->GetMesh())
+        {
+            SlotComp->SetSkeletalMeshAsset(ArmorMesh);
+            // 3) Переустанавливаем Leader Pose, чтобы новый меш анимировался синхронно.
+            RelinkSlotToLeaderPose(Slot);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("EquipArmor: %s has no ArmorMesh_Equipped; slot mesh unchanged (protection still applied)."), *Armor->GetName());
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("EquipArmor: %s in slot %d (protection %.2f). Total armor now %.2f"),
+        *Armor->GetName(), (int32)Slot, Armor->GetArmorProtection(), GetTotalArmorProtection());
+
+    // QA-харнесс: слот + назначенный меш (или none, если ассета брони ещё нет).
+    const USkeletalMeshComponent* SlotCompLog = GetMeshComponentForSlot(Slot);
+    const USkeletalMesh* SlotMeshLog = SlotCompLog ? SlotCompLog->GetSkeletalMeshAsset() : nullptr;
+    UE_LOG(LogQA, Display, TEXT("QA: EQUIP armor '%s' slot %d mesh '%s' (prot %.2f, total %.2f)"),
+        *Armor->GetName(), (int32)Slot,
+        SlotMeshLog ? *SlotMeshLog->GetName() : TEXT("none"),
+        Armor->GetArmorProtection(), GetTotalArmorProtection());
+}
+
+void AMasterHumanoidCharacter::UnequipArmor(EArmorSlot Slot)
+{
+    // 1) Очищаем ссылку слота (защита пересчитается в GetTotalArmorProtection).
+    switch (Slot)
+    {
+        case EArmorSlot::Head:  EquippedHeadArmor  = nullptr; break;
+        case EArmorSlot::Torso: EquippedTorsoArmor = nullptr; break;
+        case EArmorSlot::Legs:  EquippedPantsArmor = nullptr; break;
+        default: return;
+    }
+
+    // 2) Возвращаем базовый меш слота (снимок BeginPlay).
+    if (USkeletalMeshComponent* SlotComp = GetMeshComponentForSlot(Slot))
+    {
+        USkeletalMesh* BaseMesh = nullptr;
+        switch (Slot)
+        {
+            case EArmorSlot::Head:  BaseMesh = BaseHeadMesh;  break;
+            case EArmorSlot::Torso: BaseMesh = BaseTorsoMesh; break;
+            case EArmorSlot::Legs:  BaseMesh = BaseLegsMesh;  break;
+            default: break;
+        }
+        SlotComp->SetSkeletalMeshAsset(BaseMesh);
+        RelinkSlotToLeaderPose(Slot);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("UnequipArmor: slot %d cleared. Total armor now %.2f"),
+        (int32)Slot, GetTotalArmorProtection());
+
+    // QA-харнесс: слот + меш, к которому вернулись (базовый меш тела или none).
+    const USkeletalMeshComponent* SlotCompLog = GetMeshComponentForSlot(Slot);
+    const USkeletalMesh* SlotMeshLog = SlotCompLog ? SlotCompLog->GetSkeletalMeshAsset() : nullptr;
+    UE_LOG(LogQA, Display, TEXT("QA: UNEQUIP armor slot %d -> base mesh '%s' (total %.2f)"),
+        (int32)Slot, SlotMeshLog ? *SlotMeshLog->GetName() : TEXT("none"), GetTotalArmorProtection());
+}
+
+AArmor* AMasterHumanoidCharacter::GetEquippedArmor(EArmorSlot Slot) const
+{
+    switch (Slot)
+    {
+        case EArmorSlot::Head:  return EquippedHeadArmor;
+        case EArmorSlot::Torso: return EquippedTorsoArmor;
+        case EArmorSlot::Legs:  return EquippedPantsArmor;
+        default:                return nullptr;
+    }
 }
 
 float AMasterHumanoidCharacter::GetTotalArmorProtection() const

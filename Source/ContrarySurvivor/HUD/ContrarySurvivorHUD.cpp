@@ -8,6 +8,12 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "AArmor.h"               // EArmorSlot, AArmor
+#include "AMasterInventoryItem.h" // EItemCategory, ItemName
+#include "AMasterWeapon.h"        // GetCurrentWeapon display
+#include "UInventoryComponent.h"  // рюкзак
+#include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
+#include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -81,12 +87,544 @@ void AContrarySurvivorHUD::DrawHUD()
 		}
 	}
 
+	// --- Маркеры интерактивных NPC (находимость): торговец и т.п. ---
+	// Рисуем до модальных экранов; внутри функция сама пропускает при открытых меню.
+	DrawInteractiveNPCMarkers();
+
 	// --- Статы игрока (GDD §7.7) ---
 	if (PC)
 	{
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PC->GetPawn()))
 		{
 			DrawPlayerStats(PlayerChar->GetStats());
+
+			// --- Экран инвентаря поверх HUD (модальный, GDD §7.4) ---
+			if (bInventoryOpen)
+			{
+				DrawInventory(PlayerChar);
+			}
+
+			// --- Экран магазина поверх HUD (модальный, GDD §7.6) ---
+			if (bShopOpen)
+			{
+				DrawShop(PlayerChar);
+			}
+		}
+	}
+
+	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец (BUG3) ---
+	// Только когда модальные экраны закрыты (иначе перекрывает панель).
+	if (!bInventoryOpen && !bShopOpen)
+	{
+		if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+		{
+			if (CSPC->HasInteractPrompt())
+			{
+				DrawInteractPrompt(CSPC->GetInteractPromptText());
+			}
+		}
+	}
+}
+
+void AContrarySurvivorHUD::DrawInteractPrompt(const FString& Text)
+{
+	if (Text.IsEmpty() || !Canvas)
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Размер текста для центрирования и фоновой плашки.
+	float TextW = 0.0f, TextH = 0.0f;
+	GetTextSize(Text, TextW, TextH, Font);
+
+	const float PadX = 14.0f;
+	const float PadY = 8.0f;
+	const float BoxW = TextW + PadX * 2.0f;
+	const float BoxH = TextH + PadY * 2.0f;
+
+	// Низ-центр экрана (над тач-зоной/над краем).
+	const float BoxX = (SX - BoxW) * 0.5f;
+	const float BoxY = SY * 0.82f;
+
+	DrawRect(InteractPromptBgColor, BoxX, BoxY, BoxW, BoxH);
+	DrawText(Text, InteractPromptTextColor, BoxX + PadX, BoxY + PadY, Font);
+}
+
+// ===========================================================================
+// Экран инвентаря (immediate-mode, без UMG/.uasset) — GDD §7.4
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetInventoryOpen(bool bOpen)
+{
+	bInventoryOpen = bOpen;
+	if (!bOpen)
+	{
+		InvHitRegions.Reset();
+	}
+}
+
+void AContrarySurvivorHUD::ToggleInventory()
+{
+	SetInventoryOpen(!bInventoryOpen);
+}
+
+bool AContrarySurvivorHUD::PointInRegion(const FVector2D& P, const FInvHitRegion& R)
+{
+	return P.X >= R.Min.X && P.X <= R.Max.X && P.Y >= R.Min.Y && P.Y <= R.Max.Y;
+}
+
+bool AContrarySurvivorHUD::HandleInventoryClick(FVector2D ScreenPos)
+{
+	if (!bInventoryOpen)
+	{
+		return false;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		return false;
+	}
+
+	for (const FInvHitRegion& R : InvHitRegions)
+	{
+		if (!PointInRegion(ScreenPos, R))
+		{
+			continue;
+		}
+
+		switch (R.Action)
+		{
+			case EInvAction::UnequipSlot:
+				Player->Inv_UnequipSlot(static_cast<EArmorSlot>(R.SlotIndex));
+				return true;
+			case EInvAction::UseItem:
+				if (IsValid(R.Item)) { Player->Inv_UseBackpackItem(R.Item); }
+				return true;
+			case EInvAction::DropItem:
+				if (IsValid(R.Item)) { Player->Inv_DropItem(R.Item); }
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorHUD::DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
+	const FVector2D& MousePos, const FString& Label, UFont* Font)
+{
+	const bool bHover = (MousePos.X >= X && MousePos.X <= X + W && MousePos.Y >= Y && MousePos.Y <= Y + H);
+	DrawRect(bHover ? InvHoverColor : BaseColor, X, Y, W, H);
+	if (Font && !Label.IsEmpty())
+	{
+		DrawText(Label, FLinearColor::White, X + 8.0f, Y + (H - 12.0f) * 0.5f, Font);
+	}
+}
+
+void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas)
+	{
+		return;
+	}
+
+	InvHitRegions.Reset();
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (для подсветки зон под мышью). На тач — последняя точка тапа.
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение фона.
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+
+	// Центрированная панель.
+	const float PanelW = FMath::Min(960.0f, SX * 0.86f);
+	const float PanelH = FMath::Min(600.0f, SY * 0.86f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = (SY - PanelH) * 0.5f;
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+
+	const float Pad = 16.0f;
+	const float HeaderY = PY + Pad;
+	if (Font)
+	{
+		DrawText(TEXT("INVENTORY  (Tab / I to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
+	}
+
+	// Деньги / голод / жажда (GDD §7.7).
+	if (UStatsComponent* St = Player->GetStats())
+	{
+		const FString StatStr = FString::Printf(TEXT("Money %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
+			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
+		if (Font)
+		{
+			DrawText(StatStr, FLinearColor(1.0f, 0.9f, 0.4f, 1.0f), PX + Pad, HeaderY + 22.0f, Font);
+		}
+	}
+
+	const float ContentY = HeaderY + 56.0f;
+
+	// --- Левая колонка: paper-doll (слоты брони + оружие) ---
+	const float LeftW = PanelW * 0.42f;
+	const float LeftX = PX + Pad;
+	const float ColW = LeftW - Pad;
+	if (Font)
+	{
+		DrawText(TEXT("EQUIPMENT"), FLinearColor::White, LeftX, ContentY, Font);
+	}
+
+	float SlotY = ContentY + 24.0f;
+	const float SlotH = 56.0f;
+	const float SlotGap = 10.0f;
+
+	auto DrawArmorSlot = [&](const TCHAR* Name, EArmorSlot Slot)
+	{
+		AArmor* Eq = Player->GetEquippedArmor(Slot);
+		FString Worn = TEXT("(empty)");
+		if (Eq)
+		{
+			Worn = Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName;
+		}
+		const FString Label = FString::Printf(TEXT("%s: %s"), Name, *Worn);
+		DrawInvBox(LeftX, SlotY, ColW, SlotH, Eq ? InvSlotFilledColor : InvSlotColor, Mouse, Label, Font);
+
+		if (Eq)
+		{
+			// Клик по занятому слоту -> снять броню.
+			FInvHitRegion R;
+			R.Min = FVector2D(LeftX, SlotY);
+			R.Max = FVector2D(LeftX + ColW, SlotY + SlotH);
+			R.Action = EInvAction::UnequipSlot;
+			R.SlotIndex = static_cast<int32>(Slot);
+			InvHitRegions.Add(R);
+		}
+		SlotY += SlotH + SlotGap;
+	};
+
+	DrawArmorSlot(TEXT("Head"), EArmorSlot::Head);
+	DrawArmorSlot(TEXT("Torso"), EArmorSlot::Torso);
+	DrawArmorSlot(TEXT("Legs"), EArmorSlot::Legs);
+
+	// Слот оружия (только отображение CurrentWeapon).
+	{
+		AMasterWeapon* W = Player->GetCurrentWeapon();
+		const FString Label = FString::Printf(TEXT("Weapon: %s"), W ? *W->GetName() : TEXT("(none)"));
+		DrawInvBox(LeftX, SlotY, ColW, SlotH, InvSlotColor, Mouse, Label, Font);
+		SlotY += SlotH + SlotGap;
+	}
+
+	if (Font)
+	{
+		DrawText(TEXT("(click an armor slot to unequip)"), FLinearColor(0.7f, 0.7f, 0.7f, 1.0f), LeftX, SlotY, Font);
+	}
+
+	// --- Правая колонка: рюкзак (неэкипированные предметы) ---
+	const float RightX = LeftX + LeftW + Pad;
+	const float RightW = (PX + PanelW - Pad) - RightX;
+	if (Font)
+	{
+		DrawText(TEXT("BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
+	}
+
+	float RowY = ContentY + 24.0f;
+	const float RowH = 34.0f;
+	const float RowGap = 6.0f;
+	const float DropW = 30.0f;
+	const float MaxRowY = PY + PanelH - Pad - RowH;
+
+	if (UInventoryComponent* Inv = Player->GetInventory())
+	{
+		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
+		{
+			if (!IsValid(Item) || Inv->IsItemEquipped(Item))
+			{
+				continue; // экипированные показаны в paper-doll
+			}
+
+			const float MainW = RightW - DropW - 6.0f;
+
+			FString ActionHint;
+			const EItemCategory Cat = Item->GetItemCategory();
+			switch (Cat)
+			{
+				case EItemCategory::Consumable: ActionHint = TEXT("use");   break;
+				case EItemCategory::Armor:      ActionHint = TEXT("equip"); break;
+				default:                        ActionHint = TEXT("");      break;
+			}
+
+			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			const FString Label = ActionHint.IsEmpty()
+				? Name
+				: FString::Printf(TEXT("%s  [%s]"), *Name, *ActionHint);
+
+			DrawInvBox(RightX, RowY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+			// Клик по строке -> использовать (надеть броню / съесть расходник).
+			if (Cat == EItemCategory::Consumable || Cat == EItemCategory::Armor)
+			{
+				FInvHitRegion R;
+				R.Min = FVector2D(RightX, RowY);
+				R.Max = FVector2D(RightX + MainW, RowY + RowH);
+				R.Action = EInvAction::UseItem;
+				R.Item = Item;
+				InvHitRegions.Add(R);
+			}
+
+			// Кнопка [X] -> выбросить.
+			const float DropX = RightX + MainW + 6.0f;
+			DrawInvBox(DropX, RowY, DropW, RowH, InvDropColor, Mouse, TEXT("X"), Font);
+			{
+				FInvHitRegion D;
+				D.Min = FVector2D(DropX, RowY);
+				D.Max = FVector2D(DropX + DropW, RowY + RowH);
+				D.Action = EInvAction::DropItem;
+				D.Item = Item;
+				InvHitRegions.Add(D);
+			}
+
+			RowY += RowH + RowGap;
+			if (RowY > MaxRowY)
+			{
+				break; // MVP: без прокрутки — не вылезаем за панель
+			}
+		}
+	}
+}
+
+// ===========================================================================
+// Экран магазина (immediate-mode, без UMG/.uasset) — GDD §7.6
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetShopOpen(bool bOpen, ATraderNPC* Trader)
+{
+	bShopOpen = bOpen;
+	ShopTrader = bOpen ? Trader : nullptr;
+	if (!bOpen)
+	{
+		ShopHitRegions.Reset();
+	}
+}
+
+bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
+{
+	if (!bShopOpen || !ShopTrader)
+	{
+		return false;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		return false;
+	}
+
+	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+
+	for (const FShopHitRegion& R : ShopHitRegions)
+	{
+		const bool bInside = ScreenPos.X >= R.Min.X && ScreenPos.X <= R.Max.X &&
+			ScreenPos.Y >= R.Min.Y && ScreenPos.Y <= R.Max.Y;
+		if (!bInside)
+		{
+			continue;
+		}
+
+		switch (R.Action)
+		{
+			case EShopAction::Buy:
+				if (Catalog.IsValidIndex(R.EntryIndex))
+				{
+					Player->Shop_BuyEntry(Catalog[R.EntryIndex]);
+				}
+				return true;
+			case EShopAction::Sell:
+				if (IsValid(R.Item))
+				{
+					Player->Shop_SellItem(R.Item, ShopTrader->GetSellValue(R.Item));
+				}
+				return true;
+			case EShopAction::Close:
+				if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+				{
+					CSPC->CloseShop();
+				}
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas || !ShopTrader)
+	{
+		return;
+	}
+
+	ShopHitRegions.Reset();
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (подсветка зон).
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение фона + центр-панель (как в инвентаре).
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+	const float PanelW = FMath::Min(960.0f, SX * 0.86f);
+	const float PanelH = FMath::Min(600.0f, SY * 0.86f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = (SY - PanelH) * 0.5f;
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+
+	const float Pad = 16.0f;
+	const float HeaderY = PY + Pad;
+	if (Font)
+	{
+		DrawText(TEXT("TRADER  (E to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
+	}
+
+	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
+	if (Font)
+	{
+		DrawText(FString::Printf(TEXT("Money %.0f"), Money), FLinearColor(1.0f, 0.9f, 0.4f, 1.0f),
+			PX + Pad, HeaderY + 22.0f, Font);
+	}
+
+	// Кнопка Close (правый верх панели).
+	{
+		const float CloseW = 90.0f, CloseH = 28.0f;
+		const float CX = PX + PanelW - Pad - CloseW;
+		const float CY = HeaderY;
+		DrawInvBox(CX, CY, CloseW, CloseH, InvDropColor, Mouse, TEXT("Close"), Font);
+		FShopHitRegion R;
+		R.Min = FVector2D(CX, CY);
+		R.Max = FVector2D(CX + CloseW, CY + CloseH);
+		R.Action = EShopAction::Close;
+		ShopHitRegions.Add(R);
+	}
+
+	const float ContentY = HeaderY + 56.0f;
+	const float RowH = 34.0f;
+	const float RowGap = 6.0f;
+	const float BtnW = 64.0f;
+	const float MaxRowY = PY + PanelH - Pad - RowH;
+
+	// --- Левая колонка: каталог на продажу (BUY) ---
+	const float LeftW = PanelW * 0.52f;
+	const float LeftX = PX + Pad;
+	const float LeftColW = LeftW - Pad;
+	if (Font)
+	{
+		DrawText(TEXT("FOR SALE"), FLinearColor::White, LeftX, ContentY, Font);
+	}
+
+	float RowY = ContentY + 24.0f;
+	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+	for (int32 i = 0; i < Catalog.Num(); ++i)
+	{
+		const FShopEntry& E = Catalog[i];
+		const float MainW = LeftColW - BtnW - 6.0f;
+		const FString Label = FString::Printf(TEXT("%s  -  %.0f"), *E.DisplayName, E.Price);
+		DrawInvBox(LeftX, RowY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+		// Кнопка [Buy] — зелёная, если хватает денег, иначе тускло-красная.
+		const float BtnX = LeftX + MainW + 6.0f;
+		const bool bAfford = (Money >= E.Price);
+		DrawInvBox(BtnX, RowY, BtnW, RowH, bAfford ? InvSlotFilledColor : InvDropColor, Mouse, TEXT("Buy"), Font);
+		if (bAfford)
+		{
+			FShopHitRegion R;
+			R.Min = FVector2D(BtnX, RowY);
+			R.Max = FVector2D(BtnX + BtnW, RowY + RowH);
+			R.Action = EShopAction::Buy;
+			R.EntryIndex = i;
+			ShopHitRegions.Add(R);
+		}
+
+		RowY += RowH + RowGap;
+		if (RowY > MaxRowY)
+		{
+			break; // MVP: без прокрутки
+		}
+	}
+
+	// --- Правая колонка: рюкзак на продажу (SELL) ---
+	const float RightX = LeftX + LeftW + Pad;
+	const float RightW = (PX + PanelW - Pad) - RightX;
+	if (Font)
+	{
+		DrawText(TEXT("SELL FROM BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
+	}
+
+	float SellY = ContentY + 24.0f;
+	if (UInventoryComponent* Inv = Player->GetInventory())
+	{
+		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
+		{
+			if (!IsValid(Item) || Inv->IsItemEquipped(Item))
+			{
+				continue; // надетую броню не продаём из этого списка
+			}
+
+			const float MainW = RightW - BtnW - 6.0f;
+			const float SellVal = ShopTrader->GetSellValue(Item);
+			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			const FString Label = FString::Printf(TEXT("%s  (+%.0f)"), *Name, SellVal);
+			DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+			const float BtnX = RightX + MainW + 6.0f;
+			DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
+			{
+				FShopHitRegion R;
+				R.Min = FVector2D(BtnX, SellY);
+				R.Max = FVector2D(BtnX + BtnW, SellY + RowH);
+				R.Action = EShopAction::Sell;
+				R.Item = Item;
+				ShopHitRegions.Add(R);
+			}
+
+			SellY += RowH + RowGap;
+			if (SellY > MaxRowY)
+			{
+				break;
+			}
 		}
 	}
 }
@@ -204,6 +742,135 @@ void AContrarySurvivorHUD::DrawTargetMarker(AActor* TargetActor)
 	DrawLine(CX - TriHalfW, TriTop, CX + TriHalfW, TriTop, C, T); // основание
 	DrawLine(CX - TriHalfW, TriTop, CX, TriBot, C, T);            // левое ребро к кончику
 	DrawLine(CX + TriHalfW, TriTop, CX, TriBot, C, T);            // правое ребро к кончику
+}
+
+// ===========================================================================
+// Маркеры интерактивных NPC (находимость) — торговец, позже староста (Фаза 5)
+// ===========================================================================
+
+void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Canvas)
+	{
+		return;
+	}
+
+	// Поверх модальных экранов (инвентарь/магазин) маркеры не нужны.
+	if (bInventoryOpen || bShopOpen)
+	{
+		return;
+	}
+
+	// DRAFT/perf: для MVP (1 торговец) перебор всех актёров приемлем. Позже — реестр/тег.
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!IsValid(Actor) || !Actor->Implements<UInteractableNPCInterface>())
+		{
+			continue;
+		}
+
+		const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Actor);
+		const float ZOff = NPC ? NPC->GetNPCMarkerZOffset() : 240.0f;
+		const FString Label = NPC ? NPC->GetNPCMarkerLabel() : FString();
+
+		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label);
+	}
+}
+
+void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label)
+{
+	if (!Canvas)
+	{
+		return;
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+	const FVector2D Center(SX * 0.5f, SY * 0.5f);
+
+	// Project: Z>0 — перед камерой; X,Y — экранные координаты.
+	const FVector Screen = Project(WorldAnchor, false);
+	const bool bBehind = Screen.Z <= 0.0f;
+
+	FVector2D P(Screen.X, Screen.Y);
+	if (bBehind)
+	{
+		// За камерой проекция «вывернута» — зеркалим относительно центра, чтобы стрелка
+		// указывала в верную сторону.
+		P = Center * 2.0f - P;
+	}
+
+	const float Margin = NPCMarkerEdgeMargin;
+	const bool bOnScreen = !bBehind &&
+		P.X >= Margin && P.X <= SX - Margin &&
+		P.Y >= Margin && P.Y <= SY - Margin;
+
+	if (bOnScreen)
+	{
+		DrawNPCIcon(P, Label);
+		return;
+	}
+
+	// За кадром: зажимаем точку к краю экрана по лучу из центра и рисуем стрелку.
+	FVector2D Dir = P - Center;
+	if (Dir.IsNearlyZero())
+	{
+		Dir = FVector2D(0.0f, -1.0f);
+	}
+
+	const float HalfW = SX * 0.5f - Margin;
+	const float HalfH = SY * 0.5f - Margin;
+	const float ScaleX = (FMath::Abs(Dir.X) > KINDA_SMALL_NUMBER) ? HalfW / FMath::Abs(Dir.X) : TNumericLimits<float>::Max();
+	const float ScaleY = (FMath::Abs(Dir.Y) > KINDA_SMALL_NUMBER) ? HalfH / FMath::Abs(Dir.Y) : TNumericLimits<float>::Max();
+	const float Scale = FMath::Min(ScaleX, ScaleY);
+
+	const FVector2D Edge = Center + Dir * Scale;
+	DrawNPCEdgeArrow(Edge, Dir.GetSafeNormal());
+}
+
+void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label)
+{
+	const float CX = ScreenPos.X;
+	const float CY = ScreenPos.Y;
+	const float H = NPCMarkerHalfSize;
+	const float T = NPCMarkerThickness;
+	const FLinearColor C = NPCMarkerColor;
+
+	// Ромб (повёрнутый квадрат) — форма, отличная от углового ретикла врага.
+	DrawLine(CX, CY - H, CX + H, CY, C, T); // верх -> право
+	DrawLine(CX + H, CY, CX, CY + H, C, T); // право -> низ
+	DrawLine(CX, CY + H, CX - H, CY, C, T); // низ -> лево
+	DrawLine(CX - H, CY, CX, CY - H, C, T); // лево -> верх
+
+	// Подпись под ромбом по центру.
+	if (!Label.IsEmpty())
+	{
+		if (UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr)
+		{
+			float TW = 0.0f, TH = 0.0f;
+			GetTextSize(Label, TW, TH, Font);
+			DrawText(Label, C, CX - TW * 0.5f, CY + H + 2.0f, Font);
+		}
+	}
+}
+
+void AContrarySurvivorHUD::DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir)
+{
+	const FLinearColor C = NPCMarkerColor;
+	const float T = NPCMarkerThickness;
+	const float Len = NPCMarkerArrowLen;
+
+	// Стрелка-треугольник: кончик в EdgePos, основание — назад вдоль -Dir.
+	const FVector2D Perp(-Dir.Y, Dir.X);
+	const FVector2D Back = EdgePos - Dir * Len;
+	const FVector2D B1 = Back + Perp * (Len * 0.6f);
+	const FVector2D B2 = Back - Perp * (Len * 0.6f);
+
+	DrawLine(EdgePos.X, EdgePos.Y, B1.X, B1.Y, C, T);
+	DrawLine(EdgePos.X, EdgePos.Y, B2.X, B2.Y, C, T);
+	DrawLine(B1.X, B1.Y, B2.X, B2.Y, C, T);
 }
 
 void AContrarySurvivorHUD::DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats, bool bIsCurrentTarget)

@@ -16,6 +16,8 @@
 
 class UStatsComponent;
 class UContrarySaveGame;
+class AMasterInventoryItem;
+struct FShopEntry;
 
 /**
  * 
@@ -49,6 +51,13 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
     float PlayerMaxHealth = 100.0f;
 
+    // Стартовые деньги НОВОГО персонажа (GDD §7.6 = 50). Применяются в BeginPlay (новый игрок)
+    // через Stats->InitMoney — детерминированно, независимо от дефолта компонента/оверрайда в BP.
+    // НЕ перетирают загруженный сейв: загрузка идёт только при смерти/у костра (LoadGame ->
+    // RestoreState), а BeginPlay сейв не загружает.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
+    float StartingMoney = 50.0f;
+
     // Доля MaxHealth, до которой восстанавливается HP при респауне (решение game-lead:
     // респаун = полный HP). 1.0 -> Health = MaxHealth. Остальные статы — из сейва.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -68,11 +77,19 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
     int32 SaveUserIndex = 0;
 
-    // ЧЕРНОВИК (на тюнинг): доля НЕэкипированных предметов рюкзака, теряемых при смерти.
-    // ВНИМАНИЕ: UInventoryComponent сейчас НЕ различает экип/неэкип и категории
-    // (расходник/ресурс/броня) — теряется доля ВСЕХ предметов массива. См. эскалацию.
+    // ЧЕРНОВИК (на тюнинг): доля теряемых при смерти НЕэкипированных предметов
+    // категорий Consumable/Resource (GDD §7.8). Надетая броня и оружие в руках —
+    // сохраняются (Фаза 4: UInventoryComponent различает экип/неэкип и категории).
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float DeathItemLossPercent = 0.25f;
+
+    // Куда падает выброшенный из рюкзака предмет (мировой пикап): вперёд от игрока и вниз
+    // к ногам (см). DRAFT-тюнинг (BUG3: выброс = пикап, а не Destroy).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+    float DropForwardOffset = 120.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+    float DropDownOffset = 80.0f;
 
     // УСТАРЕЛО (Фаза 1): инлайн-поля голода/жажды. Источник истины теперь Stats.
     // Оставлены, чтобы не ломать возможные ссылки BP; не используются логикой.
@@ -149,6 +166,53 @@ public:
     // Есть ли сохранение в слоте.
     UFUNCTION(BlueprintPure, Category = "Save")
     bool HasSaveGame() const;
+
+    // --- Тестирование брони без UI (Фаза 4, UI — отдельная волна) ---
+    // Консольные команды (открыть консоль `~`, ввести имя). Pawn должен быть под управлением.
+    //   EquipTestArmor   — (пере)спавнит и надевает дефолтную броню всех слотов (подмена меша).
+    //   UnequipTestArmor — снимает броню всех слотов (возврат базовых мешей тела).
+    // Позволяют наблюдать смену модульного меша слота и пересчёт суммарной защиты.
+
+    UFUNCTION(Exec, Category = "Equipment|Armor|Debug")
+    void EquipTestArmor();
+
+    UFUNCTION(Exec, Category = "Equipment|Armor|Debug")
+    void UnequipTestArmor();
+
+    // --- Действия UI-инвентаря (Фаза 4, GDD §7.4) ---
+    // Высокоуровневые операции инвентаря (вызываются из AContrarySurvivorHUD по клику).
+    // Знание о Stats/EquipArmor/Inventory сосредоточено здесь, у владельца предметов.
+
+    // Использовать предмет рюкзака по клику: броня -> надеть (EquipArmor + пометить экип);
+    // расходник -> применить эффект (еда/вода через Stats) и удалить из рюкзака.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_UseBackpackItem(AMasterInventoryItem* Item);
+
+    // Выбросить предмет рюкзака (удалить из инвентаря). Экипированную броню сперва снимает.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_DropItem(AMasterInventoryItem* Item);
+
+    // Снять броню из слота (клик по слоту paper-doll): UnequipArmor + вернуть предмет в рюкзак
+    // (как неэкипированный), чтобы его было видно/можно надеть заново.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_UnequipSlot(EArmorSlot Slot);
+
+    // --- Магазин торговца (Фаза 4, экономика — GDD §7.6) ---
+    // Вызываются из AContrarySurvivorHUD по клику в экране магазина.
+
+    // Купить позицию каталога: проверяет деньги, выдаёт товар (предмет в рюкзак или
+    // патроны в резерв оружия) и списывает цену. Возвращает true при успешной покупке.
+    bool Shop_BuyEntry(const FShopEntry& Entry);
+
+    // Продать предмет рюкзака за SellPrice: экип. броню сначала снимает, удаляет предмет,
+    // начисляет деньги.
+    void Shop_SellItem(AMasterInventoryItem* Item, float SellPrice);
+
+    // DEBUG-команда наполнения рюкзака тестовыми предметами (консоль `~`, ввести GiveTestItems):
+    // пара расходников (еда+вода) + запасная броня головы/торса — чтобы было что
+    // надевать/использовать/выбрасывать в Play без редактора и без BP-ассетов.
+    UFUNCTION(Exec, Category = "Inventory|Debug")
+    void GiveTestItems();
 
 protected:
     // Смерть игрока (привязана к Stats->OnDeath): респаун на последней точке сейва

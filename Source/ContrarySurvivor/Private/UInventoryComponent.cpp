@@ -35,6 +35,45 @@ void UInventoryComponent::RemoveItem(AMasterInventoryItem* Item)
     if (Item)
     {
         InventoryItems.Remove(Item);
+        // Снятый из рюкзака предмет не может оставаться в списке экипированных.
+        EquippedItems.Remove(Item);
     }
+}
+
+void UInventoryComponent::SetItemEquipped(AMasterInventoryItem* Item, bool bEquipped)
+{
+    if (!Item)
+    {
+        return;
+    }
+
+    if (bEquipped)
+    {
+        EquippedItems.AddUnique(Item);
+    }
+    else
+    {
+        EquippedItems.Remove(Item);
+    }
+}
+
+bool UInventoryComponent::IsItemEquipped(const AMasterInventoryItem* Item) const
+{
+    // const_cast: Contains принимает значение того же типа; список хранит неконстантные
+    // указатели. Сам предмет не модифицируется.
+    return Item && EquippedItems.Contains(const_cast<AMasterInventoryItem*>(Item));
+}
+
+TArray<AMasterInventoryItem*> UInventoryComponent::GetUnequippedItemsOfCategory(EItemCategory Category) const
+{
+    TArray<AMasterInventoryItem*> Result;
+    for (AMasterInventoryItem* Item : InventoryItems)
+    {
+        if (Item && Item->GetItemCategory() == Category && !IsItemEquipped(Item))
+        {
+            Result.Add(Item);
+        }
+    }
+    return Result;
 }
 

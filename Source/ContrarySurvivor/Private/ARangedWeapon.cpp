@@ -18,6 +18,18 @@ void ARangedWeapon::BeginPlay()
 	Super::BeginPlay();
 }
 
+void ARangedWeapon::AddReserveAmmo(int32 Amount)
+{
+	if (Amount <= 0)
+	{
+		return;
+	}
+	// CurrentAmmoReserve/MaxAmmoReserve — protected в AMasterWeapon, доступны из наследника.
+	CurrentAmmoReserve = FMath::Min(CurrentAmmoReserve + Amount, MaxAmmoReserve);
+	UE_LOG(LogTemp, Log, TEXT("%s: +%d reserve ammo -> %d/%d"),
+		*GetName(), Amount, CurrentAmmoReserve, MaxAmmoReserve);
+}
+
 void ARangedWeapon::Fire(AActor* Target)
 {
 	if (!CanFire()) 
