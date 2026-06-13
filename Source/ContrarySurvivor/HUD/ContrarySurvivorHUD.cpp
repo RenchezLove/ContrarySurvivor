@@ -88,68 +88,64 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 
 	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
 
-	// HP-бар слева вверху (GDD §7.7: «полоска здоровья — слева вверху»).
+	// Компактный левый стек: HP -> Hunger -> Thirst -> Money.
+	// DEV-режим (решение game-lead): голод/жажда/деньги видны ВСЕГДА, не только в
+	// критической зоне. Прятать-до-критич. (GDD §7.7) вернём в финальной UX-полировке.
 	const float BarX = PlayerHudMarginX;
-	const float BarY = PlayerHudMarginY;
+	float CurY = PlayerHudMarginY;
+	const float SurvivalMax = FMath::Max(Stats->GetSurvivalMax(), 1.0f);
+	const FLinearColor MoneyColor(1.0f, 0.85f, 0.2f, 1.0f);
 
-	DrawRect(BackgroundColor, BarX, BarY, PlayerHealthBarWidth, PlayerHealthBarHeight);
-
-	const float HealthPercent = FMath::Clamp(Stats->GetHealthPercent(), 0.0f, 1.0f);
-	const float HpFillWidth = PlayerHealthBarWidth * HealthPercent;
+	// --- HP-бар (слева вверху, GDD §7.7) ---
+	DrawRect(BackgroundColor, BarX, CurY, PlayerHealthBarWidth, PlayerHealthBarHeight);
+	const float HpFillWidth = PlayerHealthBarWidth * FMath::Clamp(Stats->GetHealthPercent(), 0.0f, 1.0f);
 	if (HpFillWidth > 0.0f)
 	{
-		DrawRect(PlayerHealthFillColor, BarX, BarY, HpFillWidth, PlayerHealthBarHeight);
+		DrawRect(PlayerHealthFillColor, BarX, CurY, HpFillWidth, PlayerHealthBarHeight);
 	}
-
 	if (Font)
 	{
-		const FString HpText = FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth());
-		DrawText(HpText, FLinearColor::White, BarX + 6.0f, BarY + 2.0f, Font);
+		DrawText(FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth()),
+			FLinearColor::White, BarX + 6.0f, CurY + 2.0f, Font);
 	}
+	CurY += PlayerHealthBarHeight + 6.0f;
 
-	// Индикаторы голода/жажды — ТОЛЬКО при критическом уровне (<= порога), GDD §7.7.
-	float IndicatorY = BarY + PlayerHealthBarHeight + 8.0f;
-	const float IndicatorWidth = PlayerHealthBarWidth;
-	const float IndicatorHeight = 14.0f;
-	const float SurvivalMax = FMath::Max(Stats->GetSurvivalMax(), 1.0f);
+	// Высота баров голода/жажды.
+	const float SurvBarH = 16.0f;
 
-	if (Stats->IsHungerCritical())
+	// --- Голод (всегда) ---
+	DrawRect(BackgroundColor, BarX, CurY, PlayerHealthBarWidth, SurvBarH);
+	const float HungerFillW = PlayerHealthBarWidth * FMath::Clamp(Stats->GetHunger() / SurvivalMax, 0.0f, 1.0f);
+	if (HungerFillW > 0.0f)
 	{
-		DrawRect(BackgroundColor, BarX, IndicatorY, IndicatorWidth, IndicatorHeight);
-		const float FillW = IndicatorWidth * FMath::Clamp(Stats->GetHunger() / SurvivalMax, 0.0f, 1.0f);
-		if (FillW > 0.0f)
-		{
-			DrawRect(HungerColor, BarX, IndicatorY, FillW, IndicatorHeight);
-		}
-		if (Font)
-		{
-			DrawText(FString::Printf(TEXT("HUNGER %.0f"), Stats->GetHunger()), FLinearColor::White, BarX + 6.0f, IndicatorY, Font);
-		}
-		IndicatorY += IndicatorHeight + 4.0f;
+		DrawRect(HungerColor, BarX, CurY, HungerFillW, SurvBarH);
 	}
-
-	if (Stats->IsThirstCritical())
-	{
-		DrawRect(BackgroundColor, BarX, IndicatorY, IndicatorWidth, IndicatorHeight);
-		const float FillW = IndicatorWidth * FMath::Clamp(Stats->GetThirst() / SurvivalMax, 0.0f, 1.0f);
-		if (FillW > 0.0f)
-		{
-			DrawRect(ThirstColor, BarX, IndicatorY, FillW, IndicatorHeight);
-		}
-		if (Font)
-		{
-			DrawText(FString::Printf(TEXT("THIRST %.0f"), Stats->GetThirst()), FLinearColor::White, BarX + 6.0f, IndicatorY, Font);
-		}
-	}
-
-	// Деньги — правый верхний угол (GDD §7.7: «где уместно, угол»).
 	if (Font)
 	{
-		const FString MoneyText = FString::Printf(TEXT("$ %.0f"), Stats->GetMoney());
-		float TextW = 0.0f, TextH = 0.0f;
-		GetTextSize(MoneyText, TextW, TextH, Font);
-		DrawText(MoneyText, FLinearColor(1.0f, 0.85f, 0.2f, 1.0f),
-			Canvas->SizeX - TextW - PlayerHudMarginX, PlayerHudMarginY, Font);
+		DrawText(FString::Printf(TEXT("Hunger %.0f"), Stats->GetHunger()),
+			FLinearColor::White, BarX + 6.0f, CurY + 1.0f, Font);
+	}
+	CurY += SurvBarH + 4.0f;
+
+	// --- Жажда (всегда) ---
+	DrawRect(BackgroundColor, BarX, CurY, PlayerHealthBarWidth, SurvBarH);
+	const float ThirstFillW = PlayerHealthBarWidth * FMath::Clamp(Stats->GetThirst() / SurvivalMax, 0.0f, 1.0f);
+	if (ThirstFillW > 0.0f)
+	{
+		DrawRect(ThirstColor, BarX, CurY, ThirstFillW, SurvBarH);
+	}
+	if (Font)
+	{
+		DrawText(FString::Printf(TEXT("Thirst %.0f"), Stats->GetThirst()),
+			FLinearColor::White, BarX + 6.0f, CurY + 1.0f, Font);
+	}
+	CurY += SurvBarH + 6.0f;
+
+	// --- Деньги (всегда, читаемо в общем стеке) ---
+	if (Font)
+	{
+		DrawText(FString::Printf(TEXT("Money %.0f"), Stats->GetMoney()),
+			MoneyColor, BarX, CurY, Font);
 	}
 }
 
