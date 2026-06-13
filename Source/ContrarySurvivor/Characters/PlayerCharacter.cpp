@@ -340,7 +340,7 @@ void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
     {
         Dropped->InitLoot(0.0f, Item);
         UE_LOG(LogTemp, Log, TEXT("Inv: dropped %s as world pickup at %s"), *Item->GetName(), *DropLoc.ToString());
-        UE_LOG(LogQA, Display, TEXT("QA: DROP '%s' as world pickup at %s"), *Item->GetName(), *DropLoc.ToString());
+        UE_LOG(LogQA, Display, TEXT("QA: DROP '%s' at feet (world pickup spawned) at %s"), *Item->GetName(), *DropLoc.ToString());
     }
     else
     {
@@ -448,7 +448,7 @@ bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
     Stats->SpendMoney(Entry.Price);
     UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' for %.0f. Money left %.0f"),
         *Entry.DisplayName, Entry.Price, Stats->GetMoney());
-    UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' for %.0f. Balance now %.0f"),
+    UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' for %.0f, balance %.0f"),
         *Entry.DisplayName, Entry.Price, Stats->GetMoney());
     return true;
 }
@@ -475,7 +475,7 @@ void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice
     Stats->AddMoney(SellPrice);
     UE_LOG(LogTemp, Log, TEXT("Shop: sold %s for %.0f. Money now %.0f"),
         *SoldName, SellPrice, Stats->GetMoney());
-    UE_LOG(LogQA, Display, TEXT("QA: SELL '%s' for %.0f. Balance now %.0f"),
+    UE_LOG(LogQA, Display, TEXT("QA: SELL '%s' for %.0f, balance %.0f"),
         *SoldName, SellPrice, Stats->GetMoney());
 
     Item->Destroy();

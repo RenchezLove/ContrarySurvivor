@@ -158,6 +158,31 @@ protected:
 	UFUNCTION()
 	void OnTestGiveMoney();
 
+	// --- QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами ---
+	// Тестер (Computer Use) НЕ может кликать HUD в PIE (мышь захвачена), поэтому те же
+	// действия, что выполняются кликом, продублированы клавишами + явный LogQA для верификации.
+	// Клики оставлены как есть (их проверяет Ринат). Привязка — legacy ActionMapping (DefaultInput.ini).
+
+	// F6: использовать ПЕРВЫЙ расходник рюкзака (= клик «использовать»).
+	UFUNCTION()
+	void OnQAUseFirstConsumable();
+
+	// F7: выбросить ПЕРВЫЙ предмет рюкзака (= клик [X]).
+	UFUNCTION()
+	void OnQADropFirstItem();
+
+	// F9: купить самый дешёвый товар у ближайшего торговца (иначе пропуск с логом).
+	UFUNCTION()
+	void OnQABuyCheapest();
+
+	// F10: продать первый предмет рюкзака ближайшему торговцу (иначе пропуск с логом).
+	UFUNCTION()
+	void OnQASellFirstItem();
+
+	// F12: очистить слот сейва 'ContrarySave' (UGameplayStatics::DeleteGameInSlot).
+	UFUNCTION()
+	void OnQAClearSave();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;

@@ -8,6 +8,9 @@
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ARangedWeapon.h"
+#include "UInventoryComponent.h"      // QA-харнесс: рюкзак (использовать/выбросить/продать)
+#include "AMasterInventoryItem.h"     // QA-харнесс: предмет + EItemCategory
+#include "Kismet/GameplayStatics.h"   // QA-харнесс: DeleteGameInSlot (очистка сейва)
 #include "Engine/HitResult.h"
 #include "EngineUtils.h" // TActorIterator
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
@@ -105,6 +108,13 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QAEquipArmor"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestEquipArmor);
 		InputComponent->BindAction(TEXT("QAUnequipArmor"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestUnequipArmor);
 		InputComponent->BindAction(TEXT("QAGiveMoney"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveMoney);
+
+		// QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами (тестер не кликает HUD в PIE).
+		InputComponent->BindAction(TEXT("QAUseConsumable"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAUseFirstConsumable);
+		InputComponent->BindAction(TEXT("QADropItem"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQADropFirstItem);
+		InputComponent->BindAction(TEXT("QABuyCheapest"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnQABuyCheapest);
+		InputComponent->BindAction(TEXT("QASellFirst"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASellFirstItem);
+		InputComponent->BindAction(TEXT("QAClearSave"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAClearSave);
 	}
 }
 
@@ -160,6 +170,168 @@ void AContrarySurvivorPlayerController::OnTestGiveMoney()
 				TestMoneyGrant, St->GetMoney());
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// QA-харнесс раунд 3: дублёры UI-действий клавишами (HUD-клики в PIE не доходят
+// до тестера из-за захвата мыши). Те же операции, что и по клику, + явный LogQA.
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnQAUseFirstConsumable()
+{
+	// F6: использовать ПЕРВЫЙ расходник рюкзака (= клик «использовать»). Подтверждает
+	// детерминизм «1 действие на нажатие», эффект еды/воды (+голод/жажда, +HP) и условие
+	// авто-регена (Stats->ConsumeFood/DrinkWater зовутся внутри Inv_UseBackpackItem).
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar) { return; }
+
+	UInventoryComponent* Inv = PlayerChar->GetInventory();
+	UStatsComponent* St = PlayerChar->GetStats();
+	if (!Inv || !St) { return; }
+
+	AMasterInventoryItem* Found = nullptr;
+	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
+	{
+		if (It && It->GetItemCategory() == EItemCategory::Consumable && !Inv->IsItemEquipped(It))
+		{
+			Found = It;
+			break;
+		}
+	}
+
+	if (!Found)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: USE skipped - no consumable in backpack"));
+		return;
+	}
+
+	// Имя берём ДО использования (после Use предмет уничтожается).
+	const FString ItemName = Found->ItemName.IsEmpty() ? Found->GetName() : Found->ItemName;
+
+	PlayerChar->Inv_UseBackpackItem(Found);
+
+	int32 ConsumablesLeft = 0;
+	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
+	{
+		if (It && It->GetItemCategory() == EItemCategory::Consumable)
+		{
+			++ConsumablesLeft;
+		}
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: USE %s -> Hunger=%.0f Thirst=%.0f HP=%.0f, left %d"),
+		*ItemName, St->GetHunger(), St->GetThirst(), St->GetHealth(), ConsumablesLeft);
+}
+
+void AContrarySurvivorPlayerController::OnQADropFirstItem()
+{
+	// F7: выбросить ПЕРВЫЙ предмет рюкзака (= клик [X]). Inv_DropItem спавнит мировой пикап
+	// у ног и сам пишет QA-строку DROP (тот же путь, что и клик).
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar) { return; }
+
+	UInventoryComponent* Inv = PlayerChar->GetInventory();
+	if (!Inv) { return; }
+
+	AMasterInventoryItem* First = nullptr;
+	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
+	{
+		if (It)
+		{
+			First = It;
+			break;
+		}
+	}
+
+	if (!First)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: DROP skipped - backpack empty"));
+		return;
+	}
+
+	PlayerChar->Inv_DropItem(First); // QA-строка DROP пишется внутри
+}
+
+void AContrarySurvivorPlayerController::OnQABuyCheapest()
+{
+	// F9: купить самый дешёвый товар у БЛИЖАЙШЕГО торговца. Без торговца рядом — пропуск с логом.
+	// Shop_BuyEntry сам пишет QA-строку BUY (баланс/цена) при успехе.
+	if (!IsValid(NearbyTrader))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: BUY skipped - no trader near"));
+		return;
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar) { return; }
+
+	const TArray<FShopEntry>& Catalog = NearbyTrader->GetCatalog();
+	const FShopEntry* Cheapest = nullptr;
+	for (const FShopEntry& Entry : Catalog)
+	{
+		if (!Cheapest || Entry.Price < Cheapest->Price)
+		{
+			Cheapest = &Entry;
+		}
+	}
+
+	if (!Cheapest)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: BUY skipped - trader catalog empty"));
+		return;
+	}
+
+	const bool bOk = PlayerChar->Shop_BuyEntry(*Cheapest);
+	if (!bOk)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' (%.0f) failed - not enough money / no slot"),
+			*Cheapest->DisplayName, Cheapest->Price);
+	}
+}
+
+void AContrarySurvivorPlayerController::OnQASellFirstItem()
+{
+	// F10: продать ПЕРВЫЙ предмет рюкзака ближайшему торговцу. Цена выкупа = trader->GetSellValue.
+	// Без торговца рядом продавать некому — пропуск с логом (допущение: продажа требует торговца).
+	// Shop_SellItem сам пишет QA-строку SELL (баланс/цена).
+	if (!IsValid(NearbyTrader))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: SELL skipped - no trader near"));
+		return;
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar) { return; }
+
+	UInventoryComponent* Inv = PlayerChar->GetInventory();
+	if (!Inv) { return; }
+
+	AMasterInventoryItem* First = nullptr;
+	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
+	{
+		if (It)
+		{
+			First = It;
+			break;
+		}
+	}
+
+	if (!First)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: SELL skipped - nothing to sell"));
+		return;
+	}
+
+	const float SellPrice = NearbyTrader->GetSellValue(First);
+	PlayerChar->Shop_SellItem(First, SellPrice); // QA-строка SELL пишется внутри
+}
+
+void AContrarySurvivorPlayerController::OnQAClearSave()
+{
+	// F12: удалить слот сейва 'ContrarySave' (slot/index = дефолты APlayerCharacter).
+	// После рестарта PIE BeginPlay не найдёт сейв -> новый игрок -> InitMoney(50) = старт-деньги 50.
+	UGameplayStatics::DeleteGameInSlot(TEXT("ContrarySave"), 0);
+	UE_LOG(LogQA, Display, TEXT("QA: save 'ContrarySave' cleared - restart PIE for fresh start"));
 }
 
 void AContrarySurvivorPlayerController::SetNearbyTrader(ATraderNPC* Trader)
