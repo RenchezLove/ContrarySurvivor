@@ -4,10 +4,12 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ARangedWeapon.h"
 #include "Engine/HitResult.h"
+#include "EngineUtils.h" // TActorIterator
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -65,6 +67,40 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Reload);
 		}
 	}
+
+	// LEGACY-привязка переключения оружия (пистолет<->нож). UEnhancedInputComponent
+	// наследует UInputComponent, поэтому legacy ActionMapping из DefaultInput.ini работает
+	// параллельно Enhanced Input — без создания нового IA/IMC .uasset (Фаза 3, no-editor путь).
+	if (InputComponent)
+	{
+		InputComponent->BindAction(TEXT("SwitchWeapon"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnSwitchWeapon);
+	}
+}
+
+void AContrarySurvivorPlayerController::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	// Поддерживаем авто-лок на ближайшей живой цели (по умолчанию и после смерти текущей).
+	UpdateAutoTarget();
+}
+
+void AContrarySurvivorPlayerController::UpdateAutoTarget()
+{
+	// Живой текущий lock (ручной или ранее авто-выбранный) сохраняем — ручной выбор
+	// поверх авто-ближайшего. Если цели нет или она умерла — берём ближайшую живую.
+	if (!IsValidTarget(CurrentTarget))
+	{
+		CurrentTarget = FindNearestLivingTarget();
+	}
+}
+
+void AContrarySurvivorPlayerController::OnSwitchWeapon()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->SwitchWeapon();
+	}
 }
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
@@ -101,32 +137,28 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
-	// Клик: пробуем (пере)захватить цель под курсором. Если там враг — lock обновится,
-	// иначе сохраняется текущий lock (ADR-017: клик-захват, цель держится).
+	// Клик: ручной выбор цели под курсором (переключение лока на другого врага).
+	// Если под курсором валидный враг — lock переключается на него (поверх авто-ближайшего).
 	TrySelectTarget();
 
-	// Если захваченная цель умерла/исчезла — снимаем lock.
+	// Если цель невалидна (нет/умерла) — берём ближайшую живую (авто-лок).
 	if (!IsValidTarget(CurrentTarget))
 	{
-		CurrentTarget = nullptr;
+		CurrentTarget = FindNearestLivingTarget();
 	}
 
 	AMasterHumanoidCharacter* PlayerChar = Cast<AMasterHumanoidCharacter>(GetPawn());
 	if (!PlayerChar) return;
 
-	if (CurrentTarget)
+	// Синхронизируем цель оружия. Передаём CurrentTarget (может быть nullptr) — это ВАЖНО:
+	// SetTarget(nullptr) сбрасывает LockedTarget оружия, иначе Fire() оружия падает обратно
+	// на устаревшую (мёртвую) цель (FiringTarget = Target ? Target : LockedTarget) — был БАГ.
+	if (ARangedWeapon* Weapon = Cast<ARangedWeapon>(PlayerChar->GetCurrentWeapon()))
 	{
-		if (ARangedWeapon* Weapon = Cast<ARangedWeapon>(PlayerChar->GetCurrentWeapon()))
-		{
-			Weapon->SetTarget(CurrentTarget);
-		}
+		Weapon->SetTarget(CurrentTarget);
+	}
 
-		PlayerChar->FireCurrentWeapon(CurrentTarget);
-	}
-	else
-	{
-		PlayerChar->FireCurrentWeapon(nullptr);
-	}
+	PlayerChar->FireCurrentWeapon(CurrentTarget);
 }
 
 void AContrarySurvivorPlayerController::Reload(const FInputActionValue& Value)
@@ -153,20 +185,69 @@ void AContrarySurvivorPlayerController::TrySelectTarget()
 
 bool AContrarySurvivorPlayerController::IsValidTarget(AActor* Target) const
 {
-	if (!IsValid(Target))
+	// ТИП-АГНОСТИЧНО: цель валидна, если несёт UStatsComponent (любой враг — бандит,
+	// волк, …), это не сам игрок и он жив.
+	const UStatsComponent* TargetStats = GetTargetStats(Target);
+	return TargetStats && !TargetStats->IsDead();
+}
+
+UStatsComponent* AContrarySurvivorPlayerController::GetTargetStats(AActor* Actor) const
+{
+	if (!IsValid(Actor))
 	{
-		return false;
+		return nullptr;
 	}
 
-	// Враг с UStatsComponent: цель валидна, пока враг жив.
-	if (const AEnemyCharacter* Enemy = Cast<AEnemyCharacter>(Target))
+	// Сам игрок целью быть не может (у игрока тоже есть UStatsComponent).
+	if (Actor == GetPawn())
 	{
-		const UStatsComponent* TargetStats = Enemy->GetStats();
-		return TargetStats && !TargetStats->IsDead();
+		return nullptr;
 	}
 
-	// Не-враг под курсором целью не считаем (в Фазе 1 стреляем только по врагам).
-	return false;
+	// «Врага» определяем по наличию компонента, а НЕ по конкретному классу —
+	// подходит и AEnemyCharacter (бандит), и AWolfCharacter (волк), и будущим врагам.
+	return Actor->FindComponentByClass<UStatsComponent>();
+}
+
+AActor* AContrarySurvivorPlayerController::FindNearestLivingTarget() const
+{
+	UWorld* World = GetWorld();
+	APawn* PlayerPawn = GetPawn();
+	if (!World || !PlayerPawn)
+	{
+		return nullptr;
+	}
+
+	const FVector Origin = PlayerPawn->GetActorLocation();
+	const float RadiusSq = AutoTargetRadius * AutoTargetRadius;
+
+	AActor* Best = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+
+	// Все Pawn'ы со StatsComponent (живые, не игрок) — берём ближайшего в радиусе.
+	for (TActorIterator<APawn> It(World); It; ++It)
+	{
+		APawn* Candidate = *It;
+		if (!IsValid(Candidate) || Candidate == PlayerPawn)
+		{
+			continue;
+		}
+
+		const UStatsComponent* CandidateStats = Candidate->FindComponentByClass<UStatsComponent>();
+		if (!CandidateStats || CandidateStats->IsDead())
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(Origin, Candidate->GetActorLocation());
+		if (DistSq <= RadiusSq && DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Best = Candidate;
+		}
+	}
+
+	return Best;
 }
 
 AActor* AContrarySurvivorPlayerController::GetActorUnderCursor()

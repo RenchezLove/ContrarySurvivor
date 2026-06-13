@@ -6,7 +6,6 @@
 #include "GameFramework/HUD.h"
 #include "ContrarySurvivorHUD.generated.h"
 
-class AEnemyCharacter;
 class UStatsComponent;
 
 /**
@@ -53,6 +52,39 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
 	FLinearColor FillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.9f);
 
+	// Цвет заполнения хелсбара ИМЕННО текущей залоченной цели (ярче обычного — выделяем).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	FLinearColor TargetFillColor = FLinearColor(1.0f, 0.25f, 0.1f, 1.0f);
+
+	// --- Маркер ТЕКУЩЕЙ залоченной цели (ФИКС1: игрок должен видеть, кого бьёт) ---
+
+	// На сколько единиц над Actor location поднимаем якорь маркера (центр силуэта цели).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerWorldZOffset = 50.0f;
+
+	// Полуразмер рамки-ретикла (px): угловые скобки рисуются по углам квадрата 2*HalfSize.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerHalfSize = 46.0f;
+
+	// Длина «плеча» угловой скобки (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerCornerLen = 16.0f;
+
+	// Толщина линий маркера (px).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerThickness = 3.0f;
+
+	// Высота указывающего вниз треугольника над рамкой (px) и зазор до рамки.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerTriHeight = 18.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	float TargetMarkerTriGap = 6.0f;
+
+	// Цвет маркера цели — заметный (жёлтый).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	FLinearColor TargetMarkerColor = FLinearColor(1.0f, 0.92f, 0.1f, 1.0f);
+
 	// --- HUD игрока (GDD §7.7) ---
 
 	// Левый верхний угол: отступы и размеры HP-бара игрока.
@@ -78,8 +110,14 @@ protected:
 	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
 
 private:
-	// Рисует одну полоску здоровья над врагом. Возвращает true, если что-то нарисовано.
-	void DrawEnemyHealthBar(AEnemyCharacter* Enemy);
+	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
+	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
+	// bIsCurrentTarget — текущая залоченная цель (рисуется ярким TargetFillColor).
+	void DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats, bool bIsCurrentTarget);
+
+	// Рисует маркер-ретикл (угловые скобки + указатель) над ТЕКУЩЕЙ залоченной целью,
+	// чтобы игрок чётко видел активную цель (ФИКС1). Через DrawHUD, без UMG.
+	void DrawTargetMarker(AActor* TargetActor);
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);

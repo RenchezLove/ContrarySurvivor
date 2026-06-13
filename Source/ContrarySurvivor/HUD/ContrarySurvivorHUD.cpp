@@ -4,7 +4,7 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h" // GEngine->GetMediumFont
 #include "EngineUtils.h" // TActorIterator
-#include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "GameFramework/Pawn.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -41,21 +41,26 @@ void AContrarySurvivorHUD::DrawHUD()
 
 	const float RadiusSq = HealthBarShowRadius * HealthBarShowRadius;
 
-	for (TActorIterator<AEnemyCharacter> It(World); It; ++It)
+	// Текущая пешка игрока — её хелсбар над головой не рисуем (у игрока свой HUD-стек).
+	APawn* PlayerPawn = PC ? PC->GetPawn() : nullptr;
+
+	// ТИП-АГНОСТИЧНО: проходим по всем Pawn'ам с UStatsComponent (бандит, волк, …),
+	// определяя «врага» по наличию компонента, а не по конкретному классу.
+	for (TActorIterator<APawn> It(World); It; ++It)
 	{
-		AEnemyCharacter* Enemy = *It;
-		if (!IsValid(Enemy))
+		APawn* Enemy = *It;
+		if (!IsValid(Enemy) || Enemy == PlayerPawn)
 		{
 			continue;
 		}
 
-		UStatsComponent* Stats = Enemy->GetStats();
+		UStatsComponent* Stats = Enemy->FindComponentByClass<UStatsComponent>();
 		if (!Stats || Stats->IsDead())
 		{
-			continue; // мёртвых не показываем
+			continue; // не-враги и мёртвых не показываем
 		}
 
-		// Условие показа: залочена ИЛИ в радиусе от игрока.
+		// Условие показа: залочена (текущая цель любого типа) ИЛИ в радиусе от игрока.
 		const bool bIsLocked = (LockedTarget == Enemy);
 		bool bInRadius = false;
 		if (!bIsLocked && bHavePlayerLocation)
@@ -65,7 +70,14 @@ void AContrarySurvivorHUD::DrawHUD()
 
 		if (bIsLocked || bInRadius)
 		{
-			DrawEnemyHealthBar(Enemy);
+			DrawTargetHealthBar(Enemy, Stats, bIsLocked);
+		}
+
+		// ФИКС1: над текущей залоченной целью — заметный маркер-ретикл,
+		// чтобы игрок (тач-управление) видел, на КОМ сейчас лок.
+		if (bIsLocked)
+		{
+			DrawTargetMarker(Enemy);
 		}
 	}
 
@@ -149,21 +161,60 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 	}
 }
 
-void AContrarySurvivorHUD::DrawEnemyHealthBar(AEnemyCharacter* Enemy)
+void AContrarySurvivorHUD::DrawTargetMarker(AActor* TargetActor)
 {
-	if (!Enemy || !Canvas)
+	if (!IsValid(TargetActor) || !Canvas)
 	{
 		return;
 	}
 
-	UStatsComponent* Stats = Enemy->GetStats();
-	if (!Stats)
+	// Якорь — центр силуэта цели; проекция в экран.
+	const FVector WorldAnchor = TargetActor->GetActorLocation() + FVector(0.0f, 0.0f, TargetMarkerWorldZOffset);
+	const FVector ScreenPos = Project(WorldAnchor, false);
+	if (ScreenPos.Z <= 0.0f)
+	{
+		return; // за камерой
+	}
+
+	const float CX = ScreenPos.X;
+	const float CY = ScreenPos.Y;
+	const float H = TargetMarkerHalfSize;
+	const float L = TargetMarkerCornerLen;
+	const float T = TargetMarkerThickness;
+	const FLinearColor C = TargetMarkerColor;
+
+	// Четыре угловые скобки рамки (вид «захвата цели»).
+	// Верх-левый
+	DrawLine(CX - H, CY - H, CX - H + L, CY - H, C, T);
+	DrawLine(CX - H, CY - H, CX - H, CY - H + L, C, T);
+	// Верх-правый
+	DrawLine(CX + H, CY - H, CX + H - L, CY - H, C, T);
+	DrawLine(CX + H, CY - H, CX + H, CY - H + L, C, T);
+	// Низ-левый
+	DrawLine(CX - H, CY + H, CX - H + L, CY + H, C, T);
+	DrawLine(CX - H, CY + H, CX - H, CY + H - L, C, T);
+	// Низ-правый
+	DrawLine(CX + H, CY + H, CX + H - L, CY + H, C, T);
+	DrawLine(CX + H, CY + H, CX + H, CY + H - L, C, T);
+
+	// Указывающий вниз треугольник над рамкой (доп. заметность).
+	const float TriBot = CY - H - TargetMarkerTriGap;             // вершина (кончик вниз)
+	const float TriTop = TriBot - TargetMarkerTriHeight;          // основание (выше)
+	const float TriHalfW = TargetMarkerTriHeight * 0.6f;
+	DrawLine(CX - TriHalfW, TriTop, CX + TriHalfW, TriTop, C, T); // основание
+	DrawLine(CX - TriHalfW, TriTop, CX, TriBot, C, T);            // левое ребро к кончику
+	DrawLine(CX + TriHalfW, TriTop, CX, TriBot, C, T);            // правое ребро к кончику
+}
+
+void AContrarySurvivorHUD::DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats, bool bIsCurrentTarget)
+{
+	if (!IsValid(TargetActor) || !Stats || !Canvas)
 	{
 		return;
 	}
 
-	// Мировая точка над головой врага.
-	const FVector WorldAnchor = Enemy->GetActorLocation() + FVector(0.0f, 0.0f, HealthBarWorldZOffset);
+	// Мировая точка над головой цели.
+	const FVector WorldAnchor = TargetActor->GetActorLocation() + FVector(0.0f, 0.0f, HealthBarWorldZOffset);
 
 	// Project: X,Y — экранные координаты, Z — глубина (>0 если перед камерой). За камерой — не рисуем.
 	const FVector ScreenPos = Project(WorldAnchor, false);
@@ -188,10 +239,10 @@ void AContrarySurvivorHUD::DrawEnemyHealthBar(AEnemyCharacter* Enemy)
 	// Фон.
 	DrawRect(BackgroundColor, BarX, BarY, HealthBarWidth, HealthBarHeight);
 
-	// Заполнение по проценту здоровья.
+	// Заполнение по проценту здоровья. Текущая залоченная цель — ярче (выделяем).
 	const float FillWidth = HealthBarWidth * HealthPercent;
 	if (FillWidth > 0.0f)
 	{
-		DrawRect(FillColor, BarX, BarY, FillWidth, HealthBarHeight);
+		DrawRect(bIsCurrentTarget ? TargetFillColor : FillColor, BarX, BarY, FillWidth, HealthBarHeight);
 	}
 }

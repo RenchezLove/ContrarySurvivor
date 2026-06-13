@@ -29,7 +29,15 @@ public:
     UFUNCTION(BlueprintPure, Category = "Armor")
     USkeletalMesh* GetMesh() const { return ArmorMesh_Equipped; }
 
-    // Armor parameters
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true"))
-    float ArmorProtection; 
+    // Доля снижения урона этим предметом брони [0..1] (решение Рината: ПРОЦЕНТНАЯ броня
+    // вместо flat). Напр. 0.25 = -25% урона от слота. Тюнингуется в редакторе (EditAnywhere).
+    // DRAFT-значения задаются в конструкторах конкретных слотов (Head/Torso/Pants).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
+    float ArmorProtection;
+
+    // Доля снижения урона этим слотом [0..1]. Суммируется по экипированным слотам и
+    // используется при расчёте получаемого урона (GDD §7.2: «урон рассчитывается от
+    // характеристик оружия и брони»). См. AMasterHumanoidCharacter::ComputeArmoredDamage.
+    UFUNCTION(BlueprintPure, Category = "Armor")
+    FORCEINLINE float GetArmorProtection() const { return ArmorProtection; }
 };

@@ -5,7 +5,10 @@
 
 APantsArmor::APantsArmor()
 {
-	// No specific initialization for now
+	// ЧЕРНОВАЯ доля снижения урона слотом штанов [0..1] (draft Рината: процентная броня).
+	ArmorProtection = 0.15f;
+
+	ItemName = FString("Pants Armor");
 }
 
 void APantsArmor::BeginPlay()

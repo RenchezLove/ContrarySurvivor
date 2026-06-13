@@ -11,6 +11,8 @@
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivorPlayerController.generated.h"
 
+class UStatsComponent;
+
 UCLASS()
 class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerController
 {
@@ -26,6 +28,14 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+
+	// Каждый кадр поддерживает авто-лок на ближайшей живой цели (см. UpdateAutoTarget).
+	virtual void Tick(float DeltaTime) override;
+
+	// Радиус авто-захвата ближайшей живой цели (Unreal units). DRAFT — тюнингуется.
+	// Лок по умолчанию = ближайшая живая цель в этом радиусе (развитие ADR-017).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat")
+	float AutoTargetRadius = 3000.0f;
 
 	// --- Input Mapping ---
 
@@ -72,6 +82,11 @@ protected:
 	// Перезарядка
 	void Reload(const FInputActionValue& Value);
 
+	// Переключение оружия (пистолет<->нож). Привязано через LEGACY ActionMapping
+	// (Config/DefaultInput.ini), чтобы не плодить Enhanced Input .uasset без редактора (Фаза 3).
+	UFUNCTION()
+	void OnSwitchWeapon();
+
 	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
@@ -89,4 +104,17 @@ private:
 
 	// Валидна ли цель для захвата/огня (существует и жива).
 	bool IsValidTarget(AActor* Target) const;
+
+	// Возвращает UStatsComponent актёра, ТОЛЬКО если это валидная цель-враг:
+	// не сам игрок и несёт UStatsComponent. ТИП-АГНОСТИЧНО (бандит/волк/любой Pawn
+	// со StatsComponent) — определяем «врага» по наличию компонента, не по классу.
+	UStatsComponent* GetTargetStats(AActor* Actor) const;
+
+	// Ищет ближайшую ЖИВУЮ цель (Pawn с UStatsComponent, не игрок, не мёртв)
+	// в пределах AutoTargetRadius. null, если никого.
+	AActor* FindNearestLivingTarget() const;
+
+	// Авто-лок: если текущая цель невалидна (нет/умерла) — берём ближайшую живую.
+	// Живой ручной lock сохраняется (ручной выбор поверх авто-ближайшего).
+	void UpdateAutoTarget();
 };

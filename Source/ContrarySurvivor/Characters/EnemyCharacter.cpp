@@ -79,10 +79,15 @@ float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 		return 0.0f;
 	}
 
-	const float Applied = Stats->ApplyDamage(DamageAmount);
+	// GDD §7.2: броня снижает урон. ПРОЦЕНТНАЯ формула (решение Рината):
+	// Final = Incoming * (1 - clamp(SumArmorFraction, 0, Cap)). У бандита брони нет
+	// (сумма 0 → урон без изменений); формула общая для всех гуманоидов.
+	const float Reduced = ComputeArmoredDamage(DamageAmount);
 
-	UE_LOG(LogTemp, Log, TEXT("%s took %.1f damage. Health: %.1f/%.1f"),
-		*GetName(), Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+	const float Applied = Stats->ApplyDamage(Reduced);
+
+	UE_LOG(LogTemp, Log, TEXT("%s took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
+		*GetName(), Applied, DamageAmount, GetTotalArmorProtection(), ArmorReductionCap, Stats->GetHealth(), Stats->GetMaxHealth());
 
 	return Applied;
 }
