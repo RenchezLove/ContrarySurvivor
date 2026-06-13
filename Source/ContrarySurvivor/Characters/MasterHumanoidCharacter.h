@@ -7,6 +7,7 @@
 #include "AMasterWeapon.h"
 
 class UInventoryComponent;
+class AArmor;
 
 #include "MasterHumanoidCharacter.generated.h"
 
@@ -62,6 +63,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
 	FName WeaponSocketName;
 
+	// --- Экипированная броня по слотам (GDD §7.2: броня влияет на урон) ---
+	// Хранятся ссылки на экипированные предметы брони; суммарная защита снижает
+	// входящий урон в TakeDamage. Полноценная экип-UI — Фаза 4.
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Armor")
+	AArmor* EquippedHeadArmor;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Armor")
+	AArmor* EquippedTorsoArmor;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Armor")
+	AArmor* EquippedPantsArmor;
+
 public:
 	virtual void Tick(float DeltaTime) override;
 
@@ -78,6 +92,17 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void ReloadCurrentWeapon();
+
+	// --- Броня ---
+
+	// Экипирует предмет брони в слот по его типу (Head/Torso/Pants). Хранит ссылку для
+	// расчёта защиты. Визуальное назначение меша брони — Фаза 4 (здесь только параметры).
+	UFUNCTION(BlueprintCallable, Category = "Equipment|Armor")
+	void EquipArmor(AArmor* Armor);
+
+	// Суммарная защита всех экипированных слотов брони (flat). Читается в TakeDamage.
+	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
+	float GetTotalArmorProtection() const;
 
 	// --- Геттеры ---
 

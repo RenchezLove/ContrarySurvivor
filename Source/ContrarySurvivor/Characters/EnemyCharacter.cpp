@@ -79,10 +79,16 @@ float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 		return 0.0f;
 	}
 
-	const float Applied = Stats->ApplyDamage(DamageAmount);
+	// GDD §7.2: броня снижает урон. DRAFT-формула (на ревью game-lead/Рината):
+	// Final = max(1, Incoming - SumArmorProtection). У бандита брони нет (сумма 0) —
+	// поведение не меняется; формула общая для всех гуманоидов.
+	const float Protection = GetTotalArmorProtection();
+	const float Reduced = FMath::Max(1.0f, DamageAmount - Protection);
 
-	UE_LOG(LogTemp, Log, TEXT("%s took %.1f damage. Health: %.1f/%.1f"),
-		*GetName(), Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+	const float Applied = Stats->ApplyDamage(Reduced);
+
+	UE_LOG(LogTemp, Log, TEXT("%s took %.1f dmg (incoming %.1f - armor %.1f). Health: %.1f/%.1f"),
+		*GetName(), Applied, DamageAmount, Protection, Stats->GetHealth(), Stats->GetMaxHealth());
 
 	return Applied;
 }

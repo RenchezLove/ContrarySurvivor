@@ -31,5 +31,10 @@ public:
 
     // Armor parameters
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true"))
-    float ArmorProtection; 
+    float ArmorProtection;
+
+    // Значение защиты брони (flat-снижение урона). Используется при расчёте получаемого
+    // урона (GDD §7.2: «урон рассчитывается от характеристик оружия и брони»).
+    UFUNCTION(BlueprintPure, Category = "Armor")
+    FORCEINLINE float GetArmorProtection() const { return ArmorProtection; }
 };

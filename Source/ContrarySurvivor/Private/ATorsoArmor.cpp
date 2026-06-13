@@ -5,7 +5,10 @@
 
 ATorsoArmor::ATorsoArmor()
 {
-	// No specific initialization  for now
+	// ЧЕРНОВОЕ значение защиты слота торса (draft, на тюнинг — ревью game-lead/Рината).
+	ArmorProtection = 12.0f;
+
+	ItemName = FString("Torso Armor");
 }
 
 void ATorsoArmor::BeginPlay()

@@ -5,7 +5,10 @@
 
 AHeadArmor::AHeadArmor()
 {
-	
+	// ЧЕРНОВОЕ значение защиты слота головы (draft, на тюнинг — ревью game-lead/Рината).
+	ArmorProtection = 5.0f;
+
+	ItemName = FString("Head Armor");
 }
 
 void AHeadArmor::BeginPlay()

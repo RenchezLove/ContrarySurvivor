@@ -93,6 +93,18 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
     TSubclassOf<AMasterWeapon> DefaultMeleeWeaponClass;
 
+    // Дефолтная броня по слотам (Фаза 3): экипируется в BeginPlay, чтобы снижение урона
+    // (GDD §7.2) было наблюдаемо без экип-UI (UI — Фаза 4). По умолчанию конкретные классы
+    // брони с черновыми значениями защиты. BP игрока может переопределить/обнулить.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
+    TSubclassOf<class AHeadArmor> DefaultHeadArmorClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
+    TSubclassOf<class ATorsoArmor> DefaultTorsoArmorClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
+    TSubclassOf<class APantsArmor> DefaultPantsArmorClass;
+
     // Called when the game starts or when spawned
     virtual void BeginPlay() override;
 
@@ -101,6 +113,9 @@ protected:
 
     // Спавнит DefaultMeleeWeaponClass (нож) и держит «в кобуре» (скрыт, не экипирован).
     void SpawnMeleeWeapon();
+
+    // Спавнит и экипирует дефолтную броню по слотам (для наблюдаемости снижения урона).
+    void EquipDefaultArmor();
 
     /**
      * Sets movement parameters

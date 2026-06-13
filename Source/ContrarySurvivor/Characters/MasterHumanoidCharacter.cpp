@@ -5,6 +5,10 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
+#include "AArmor.h"
+#include "AHeadArmor.h"
+#include "ATorsoArmor.h"
+#include "APantsArmor.h"
 
 
 AMasterHumanoidCharacter::AMasterHumanoidCharacter()
@@ -18,6 +22,10 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 
     CurrentWeapon = nullptr;
     WeaponSocketName = FName("WeaponSocket");
+
+    EquippedHeadArmor  = nullptr;
+    EquippedTorsoArmor = nullptr;
+    EquippedPantsArmor = nullptr;
 
     HeadMesh = GetMesh();
 
@@ -79,6 +87,45 @@ void AMasterHumanoidCharacter::UnequipWeapon()
     CurrentWeapon = nullptr;
 
     UE_LOG(LogTemp, Warning, TEXT("UnequipWeapon: Weapon removed"));
+}
+
+void AMasterHumanoidCharacter::EquipArmor(AArmor* Armor)
+{
+    if (!Armor)
+    {
+        return;
+    }
+
+    // Раскладываем по слотам по типу. Визуал брони (меш) — Фаза 4; здесь только параметры.
+    if (Armor->IsA(AHeadArmor::StaticClass()))
+    {
+        EquippedHeadArmor = Armor;
+    }
+    else if (Armor->IsA(ATorsoArmor::StaticClass()))
+    {
+        EquippedTorsoArmor = Armor;
+    }
+    else if (Armor->IsA(APantsArmor::StaticClass()))
+    {
+        EquippedPantsArmor = Armor;
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipArmor: unknown armor slot for %s"), *Armor->GetName());
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("EquipArmor: %s (protection %.1f). Total armor now %.1f"),
+        *Armor->GetName(), Armor->GetArmorProtection(), GetTotalArmorProtection());
+}
+
+float AMasterHumanoidCharacter::GetTotalArmorProtection() const
+{
+    float Total = 0.0f;
+    if (EquippedHeadArmor)  { Total += EquippedHeadArmor->GetArmorProtection(); }
+    if (EquippedTorsoArmor) { Total += EquippedTorsoArmor->GetArmorProtection(); }
+    if (EquippedPantsArmor) { Total += EquippedPantsArmor->GetArmorProtection(); }
+    return Total;
 }
 
 void AMasterHumanoidCharacter::FireCurrentWeapon(AActor* Target)

@@ -5,7 +5,10 @@
 
 APantsArmor::APantsArmor()
 {
-	// No specific initialization for now
+	// ЧЕРНОВОЕ значение защиты слота штанов (draft, на тюнинг — ревью game-lead/Рината).
+	ArmorProtection = 8.0f;
+
+	ItemName = FString("Pants Armor");
 }
 
 void APantsArmor::BeginPlay()

@@ -16,6 +16,9 @@
 #include "UInventoryComponent.h"
 #include "AMasterInventoryItem.h"
 #include "AMeleeWeapon.h"
+#include "AHeadArmor.h"
+#include "ATorsoArmor.h"
+#include "APantsArmor.h"
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -56,6 +59,12 @@ APlayerCharacter::APlayerCharacter()
     // BP игрока может переопределить (например, на BP_Knife) в дефолтах.
     DefaultMeleeWeaponClass = AMeleeWeapon::StaticClass();
 
+    // Дефолтная броня (Фаза 3, для наблюдаемости снижения урона). Конкретные классы с
+    // черновыми значениями защиты (Head 5 / Torso 12 / Pants 8).
+    DefaultHeadArmorClass  = AHeadArmor::StaticClass();
+    DefaultTorsoArmorClass = ATorsoArmor::StaticClass();
+    DefaultPantsArmorClass = APantsArmor::StaticClass();
+
     SetUpMovement();
 }
 
@@ -81,6 +90,9 @@ void APlayerCharacter::BeginPlay()
 
     // Нож держим «в кобуре» (скрыт), переключение по SwitchWeapon (Фаза 3).
     SpawnMeleeWeapon();
+
+    // Дефолтная броня (Фаза 3): снижение урона наблюдаемо без экип-UI.
+    EquipDefaultArmor();
 }
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -92,10 +104,15 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
         return 0.0f;
     }
 
-    const float Applied = Stats->ApplyDamage(DamageAmount);
+    // GDD §7.2: броня снижает урон. DRAFT-формула (на ревью game-lead/Рината):
+    // Final = max(1, Incoming - SumArmorProtection). Сумма защиты — по экипированным слотам.
+    const float Protection = GetTotalArmorProtection();
+    const float Reduced = FMath::Max(1.0f, DamageAmount - Protection);
 
-    UE_LOG(LogTemp, Log, TEXT("Player took %.1f damage. Health: %.1f/%.1f"),
-        Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+    const float Applied = Stats->ApplyDamage(Reduced);
+
+    UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f - armor %.1f). Health: %.1f/%.1f"),
+        Applied, DamageAmount, Protection, Stats->GetHealth(), Stats->GetMaxHealth());
 
     return Applied;
 }
@@ -168,6 +185,41 @@ void APlayerCharacter::SpawnMeleeWeapon()
     {
         UE_LOG(LogTemp, Warning, TEXT("SpawnMeleeWeapon: failed to spawn DefaultMeleeWeaponClass"));
     }
+}
+
+void APlayerCharacter::EquipDefaultArmor()
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    // Универсальный лямбда-помощник: спавн предмета брони и экип в слот.
+    auto SpawnAndEquip = [&](TSubclassOf<AArmor> ArmorClass)
+    {
+        if (!ArmorClass)
+        {
+            return;
+        }
+        AArmor* Armor = World->SpawnActor<AArmor>(ArmorClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+        if (Armor)
+        {
+            // Броня — не игровой объект на сцене (Фаза 3): прячем визуал/коллизию,
+            // используем только параметры защиты. Полноценная экип/визуал — Фаза 4.
+            Armor->SetActorHiddenInGame(true);
+            Armor->SetActorEnableCollision(false);
+            EquipArmor(Armor);
+        }
+    };
+
+    SpawnAndEquip(DefaultHeadArmorClass);
+    SpawnAndEquip(DefaultTorsoArmorClass);
+    SpawnAndEquip(DefaultPantsArmorClass);
 }
 
 void APlayerCharacter::SwitchWeapon()
