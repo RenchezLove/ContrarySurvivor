@@ -77,28 +77,29 @@ float AEnemyAIController::GetCombinedCapsuleRadius(APawn* Player) const
 	return Combined;
 }
 
-void AEnemyAIController::PerformAttack(APawn* Player)
+bool AEnemyAIController::PerformAttack(APawn* Player)
 {
 	if (!Player)
 	{
-		return;
+		return false;
 	}
 
 	const float Now = GetWorld()->GetTimeSeconds();
 	if (Now - LastAttackTime < AttackCooldown)
 	{
-		return; // ещё на кулдауне
+		return false; // ещё на кулдауне
 	}
 
 	LastAttackTime = Now;
 
-	// Урон игроку через стандартный пайплайн UE
-	// (у игрока — инлайн-Health базы AMasterHumanoidCharacter::TakeDamage).
+	// Урон игроку через стандартный пайплайн UE.
 	FDamageEvent DamageEvent;
 	Player->TakeDamage(AttackDamage, DamageEvent, this, GetPawn());
 
 	UE_LOG(LogTemp, Log, TEXT("%s attacks player for %.1f"),
 		GetPawn() ? *GetPawn()->GetName() : TEXT("Enemy"), AttackDamage);
+
+	return true;
 }
 
 void AEnemyAIController::Tick(float DeltaTime)

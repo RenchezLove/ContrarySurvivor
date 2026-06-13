@@ -7,7 +7,7 @@
 #include "WolfCharacter.generated.h"
 
 class UStatsComponent;
-class UStaticMeshComponent;
+class UAnimSequence;
 
 /**
  * Волк — второй враг MVP (GDD §7.1, стайный для квеста).
@@ -21,8 +21,12 @@ class UStaticMeshComponent;
  * AI-контроллер берёт UStatsComponent обобщённо (FindComponentByClass), без привязки
  * к классу пешки.
  *
- * МЕШ — ПЛЕЙСХОЛДЕР: простой статик-меш движка (цилиндр), чтобы волк был функционален
- * и виден без редактора. Реальный скелет-меш/анимации — позже (modeler-3d/unreal-operator).
+ * МЕШ/АНИМАЦИИ (Фаза 3, добивка): на наследуемый ACharacter::GetMesh()
+ * (USkeletalMeshComponent) назначается реальный скелет-меш SK_Wolf. Анимации
+ * проигрываются БЕЗ editor-AnimBP — через режим Single Node
+ * (USkeletalMeshComponent::PlayAnimation): по скорости Idle/Run, плюс разовый Bite
+ * по сигналу AI-контроллера (PlayBiteAnimation). Это минимальный надёжный путь без
+ * графа AnimBP — реальный AnimBP/стейт-машину делаем позже при необходимости.
  *
  * ЧЕРНОВЫЕ статы (draft): HP 40, скорость ~1.3× бандита. Урон укуса/дальность — на
  * AWolfAIController.
@@ -35,6 +39,12 @@ class CONTRARYSURVIVOR_API AWolfCharacter : public ACharacter
 public:
 	AWolfCharacter();
 
+	virtual void Tick(float DeltaTime) override;
+
+	// Разовый запуск анимации укуса (вызывается AI-контроллером в момент атаки).
+	// Перебивает Idle/Run на время длительности клипа, затем авто-возврат в локомоцию.
+	void PlayBiteAnimation();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -42,20 +52,31 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
 	UStatsComponent* Stats;
 
-	// Плейсхолдер-визуал (простой меш движка), пока нет реального скелет-меша волка.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
-	UStaticMeshComponent* PlaceholderMesh;
+	// --- Анимации (Single Node, без AnimBP). Тюнингуются/переопределяются в редакторе. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	UAnimSequence* IdleAnim;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	UAnimSequence* RunAnim;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	UAnimSequence* BiteAnim;
+
+	// Порог скорости (см/с) для переключения Idle<->Run. DRAFT.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	float RunSpeedThreshold = 10.0f;
 
 	// Стартовое HP волка. ЧЕРНОВОЕ значение (draft, GDD §7.1).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
 	float WolfMaxHealth = 40.0f;
 
 	// Множитель скорости относительно базовой скорости бандита (~600). ЧЕРНОВОЕ (draft).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SpeedMultiplierVsBandit = 1.3f;
 
 	// Через сколько секунд после смерти убрать тело.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death")
 	float CorpseLifeSpan = 5.0f;
 
 	UFUNCTION()
@@ -66,4 +87,17 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	UStatsComponent* GetStats() const { return Stats; }
+
+private:
+	// Текущий проигрываемый локомоторный клип (чтобы не рестартить PlayAnimation каждый кадр).
+	UAnimSequence* CurrentLocomotionAnim = nullptr;
+
+	// До какого времени (GetTimeSeconds) проигрывается укус; пока активно — локомоция не трогается.
+	float BiteUntilTime = -1.0f;
+
+	// Назначить локомоторный клип (Idle/Run) если он сменился; не трогает, если идёт укус.
+	void UpdateLocomotionAnimation();
+
+	// Проиграть клип в режиме Single Node (без AnimBP).
+	void PlaySingleNode(UAnimSequence* Anim, bool bLooping);
 };

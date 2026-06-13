@@ -4,13 +4,29 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/DamageEvents.h"
+#include "UObject/ConstructorHelpers.h"
 
 AMeleeWeapon::AMeleeWeapon()
 {
 	PrimaryActorTick.bCanEverTick = false;
+
+	// Реальный меш ножа (импортирован, Фаза 3). ItemMesh — корневой StaticMeshComponent
+	// из базы AMasterInventoryItem. BP-наследник может переопределить.
+	if (ItemMesh)
+	{
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> KnifeMeshAsset(TEXT("/Game/Weapons/SM_Knife.SM_Knife"));
+		if (KnifeMeshAsset.Succeeded())
+		{
+			ItemMesh->SetStaticMesh(KnifeMeshAsset.Object);
+		}
+		// Нож носится прикреплённым к сокету персонажа; собственная коллизия не нужна.
+		ItemMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
 
 	// --- ЧЕРНОВЫЕ статы ножа (draft, GDD §7.2) ---
 	Damage      = 35.0f;          // урон удара (draft)

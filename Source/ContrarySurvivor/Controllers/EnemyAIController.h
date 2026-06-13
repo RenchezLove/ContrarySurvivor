@@ -65,6 +65,11 @@ protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|State")
 	EEnemyAIState CurrentState = EEnemyAIState::Idle;
 
+	// Выполняет атаку по игроку (урон через TakeDamage по кулдауну).
+	// Возвращает true, если удар реально нанесён (не на кулдауне) — наследник (волк)
+	// использует это, чтобы проиграть анимацию укуса только в момент удара.
+	virtual bool PerformAttack(APawn* Player);
+
 private:
 	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
 	float LastAttackTime = -1000.0f;
@@ -82,7 +87,4 @@ private:
 	// Сумма радиусов капсул врага и игрока (см). Нужна, чтобы дистанции боя/остановки
 	// мерить поверхность-к-поверхности, а не центр-к-центру (GetDistanceTo даёт центры).
 	float GetCombinedCapsuleRadius(APawn* Player) const;
-
-	// Выполняет атаку по игроку (урон через TakeDamage).
-	void PerformAttack(APawn* Player);
 };

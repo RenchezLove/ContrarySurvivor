@@ -19,4 +19,9 @@ class CONTRARYSURVIVOR_API AWolfAIController : public AEnemyAIController
 
 public:
 	AWolfAIController();
+
+protected:
+	// Расширяет атаку базы: при реальном укусе (не на кулдауне) проигрывает анимацию
+	// укуса на пешке-волке (Single Node, без AnimBP).
+	virtual bool PerformAttack(APawn* Player) override;
 };

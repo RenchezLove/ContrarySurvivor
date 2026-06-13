@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "WolfAIController.h"
+#include "ContrarySurvivor/Characters/WolfCharacter.h"
 
 AWolfAIController::AWolfAIController()
 {
@@ -13,4 +14,17 @@ AWolfAIController::AWolfAIController()
 	// Перцепция/преследование — наследуем разумные дефолты бандита; чуть ближе порог приёмки.
 	DetectionRange       = 1800.0f; // волк агрессивнее/зорче (draft)
 	MoveAcceptanceRadius = 50.0f;   // < AttackRange, чтобы доставал укусом
+}
+
+bool AWolfAIController::PerformAttack(APawn* Player)
+{
+	const bool bAttacked = Super::PerformAttack(Player);
+	if (bAttacked)
+	{
+		if (AWolfCharacter* Wolf = Cast<AWolfCharacter>(GetPawn()))
+		{
+			Wolf->PlayBiteAnimation();
+		}
+	}
+	return bAttacked;
 }
