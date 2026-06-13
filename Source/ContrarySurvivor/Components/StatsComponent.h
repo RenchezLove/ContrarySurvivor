@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/TimerHandle.h"
 #include "StatsComponent.generated.h"
 
 // --- Делегаты для привязки HUD/реакций (ADR-015: делегаты на изменение статов) ---
@@ -13,6 +14,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth,
 
 // Срабатывает один раз при переходе здоровья в 0.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDeath);
+
+// Изменение голода. NewHunger — текущее, MaxValue — максимум (для HUD).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHungerChanged, float, NewHunger, float, MaxValue);
+
+// Изменение жажды. NewThirst — текущее, MaxValue — максимум (для HUD).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnThirstChanged, float, NewThirst, float, MaxValue);
+
+// Изменение денег. NewMoney — текущее значение (для HUD).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMoneyChanged, float, NewMoney);
 
 /**
  * Тип операции модификатора стата (ADR-015: структура аддитив/мультипликатив).
@@ -46,8 +56,10 @@ struct FStatModifier
 };
 
 /**
- * Лёгкий кастомный компонент статов (ADR-015: GAS НЕ используем).
- * Фаза 1: только Health + смерть. Остальные статы — задел-поля без логики деградации.
+ * Лёгкий кастомный компонент статов (ADR-015: GAS НЕ используем, на float).
+ * Фаза 1: Health + смерть. Фаза 2 (GDD §7.3): голод/жажда/деньги, деградация по таймеру,
+ * критический порог -> падение HP, методы восстановления (еда/вода).
+ * Расширяемость под модификаторы (FStatModifier) сохранена.
  */
 UCLASS(ClassGroup = (Stats), meta = (BlueprintSpawnableComponent))
 class CONTRARYSURVIVOR_API UStatsComponent : public UActorComponent
@@ -59,6 +71,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// --- Health (активно в Фазе 1) ---
 
@@ -72,16 +85,63 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Health")
 	bool bIsDead = false;
 
-	// --- Задел-статы (Фаза 2+): объявлены, логики деградации НЕТ ---
+	// --- Выживание (Фаза 2, GDD §7.3) ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Survival")
+	// Максимум голода/жажды (GDD §7.3: макс 100).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
+	float SurvivalMax = 100.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
 	float Hunger = 100.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Survival")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
 	float Thirst = 100.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Survival")
-	float Money = 0.0f;
+	// Деньги. Стартовое значение по GDD §7.6 = 50.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
+	float Money = 50.0f;
+
+	// Включать ли деградацию голода/жажды по таймеру (для врага — выкл, для игрока — вкл).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
+	bool bEnableSurvivalDegradation = false;
+
+	// --- Тюнинг деградации (GDD §7.3, числа дословно) ---
+
+	// Жажда -1 / 8 c.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float ThirstDrainInterval = 8.0f;
+
+	// Голод -1 / 12 c.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float HungerDrainInterval = 12.0f;
+
+	// Шаг убыли голода/жажды за тик таймера.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float SurvivalDrainStep = 1.0f;
+
+	// Критический порог: при значении <= этого начинает падать HP (GDD §7.3: <= 20).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float CriticalThreshold = 20.0f;
+
+	// От голода: -1 HP / 3 c (период тика урона от голода).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float HungerHealthDrainInterval = 3.0f;
+
+	// От жажды: -1 HP / 2 c (период тика урона от жажды).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float ThirstHealthDrainInterval = 2.0f;
+
+	// Сколько HP снимается за один критический тик голода/жажды (суммируются, если оба критичны).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float CriticalHealthDrainStep = 1.0f;
+
+	// Восстановление едой (+Hunger) — GDD §7.3.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float FoodRestoreAmount = 30.0f;
+
+	// Восстановление водой (+Thirst) — GDD §7.3.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
+	float WaterRestoreAmount = 40.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Movement")
 	float MoveSpeed = 600.0f;
@@ -99,6 +159,15 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
 	FOnDeath OnDeath;
 
+	UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
+	FOnHungerChanged OnHungerChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
+	FOnThirstChanged OnThirstChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
+	FOnMoneyChanged OnMoneyChanged;
+
 	// --- API ---
 
 	// Наносит урон (>0). Возвращает фактически снятое здоровье. Триггерит OnHealthChanged и (при 0) OnDeath.
@@ -108,6 +177,11 @@ public:
 	// Лечит (>0). Не превышает MaxHealth. Не лечит мёртвых.
 	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
 	float Heal(float HealAmount);
+
+	// Жёстко выставляет здоровье (clamp 0..MaxHealth), пересчитывает bIsDead и бродкастит.
+	// В отличие от Heal — работает и на «мёртвом» компоненте (нужно для респауна).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
+	void SetHealth(float NewHealth);
 
 	UFUNCTION(BlueprintPure, Category = "Stats|Health")
 	FORCEINLINE bool IsDead() const { return bIsDead; }
@@ -125,6 +199,73 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
 	void InitHealth(float InMaxHealth, bool bSetToMax = true);
 
+	// Включает/выключает деградацию голода/жажды. Если вызвано в игре (есть World) —
+	// сразу запускает/останавливает таймеры. Для игрока ставится в конструкторе.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void SetSurvivalDegradationEnabled(bool bEnabled);
+
+	// --- Выживание: геттеры (для HUD/сейва) ---
+
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	FORCEINLINE float GetHunger() const { return Hunger; }
+
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	FORCEINLINE float GetThirst() const { return Thirst; }
+
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	FORCEINLINE float GetMoney() const { return Money; }
+
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	FORCEINLINE float GetSurvivalMax() const { return SurvivalMax; }
+
+	// Голод/жажда в критической зоне (<= порога) — для HUD-индикаторов и логики.
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	bool IsHungerCritical() const { return Hunger <= CriticalThreshold; }
+
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	bool IsThirstCritical() const { return Thirst <= CriticalThreshold; }
+
+	// --- Выживание: восстановление (задел под предметы, GDD §7.3) ---
+
+	// Еда: +FoodRestoreAmount к голоду (clamp 0..SurvivalMax).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void ConsumeFood();
+
+	// Вода: +WaterRestoreAmount к жажде (clamp 0..SurvivalMax).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void DrinkWater();
+
+	// Прямое добавление к голоду/жажде (универсально под предметы). Может быть отрицательным.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void ModifyHunger(float Delta);
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void ModifyThirst(float Delta);
+
+	// Жёстко выставляет голод/жажду (clamp 0..SurvivalMax) и бродкастит. По образцу SetHealth —
+	// нужно для death-респауна (форс полных значений независимо от сейва).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void SetHunger(float NewHunger);
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void SetThirst(float NewThirst);
+
+	// --- Деньги ---
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void AddMoney(float Amount);
+
+	// Списывает деньги, если хватает. Возвращает true при успехе.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	bool SpendMoney(float Amount);
+
+	// --- Сейв/респаун: восстановление состояния (Фаза 2, GDD §7.8) ---
+
+	// Полностью восстанавливает состояние статов из сейва: снимает флаг смерти,
+	// выставляет значения и бродкастит делегаты. Перезапускает таймеры деградации.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void RestoreState(float InHealth, float InHunger, float InThirst, float InMoney);
+
 	// --- ЗАДЕЛ-API под модификаторы (ADR-015), без сложной системы ---
 
 	// Добавить модификатор в список. В Фазе 1 НЕ пересчитывает статы (только хранит). Расширяемость.
@@ -134,4 +275,21 @@ public:
 	// Удалить все модификаторы по тегу-источнику (например, при снятии брони).
 	UFUNCTION(BlueprintCallable, Category = "Stats|Modifier")
 	void RemoveModifiersBySource(FName SourceTag);
+
+private:
+	// --- Таймеры деградации (запускаются в BeginPlay, если bEnableSurvivalDegradation) ---
+	FTimerHandle ThirstDrainTimer;
+	FTimerHandle HungerDrainTimer;
+	FTimerHandle HungerHealthTimer;
+	FTimerHandle ThirstHealthTimer;
+
+	// Запуск/останов таймеров деградации.
+	void StartSurvivalTimers();
+	void StopSurvivalTimers();
+
+	// Колбэки таймеров.
+	void TickThirstDrain();
+	void TickHungerDrain();
+	void TickHungerHealthDrain();
+	void TickThirstHealthDrain();
 };

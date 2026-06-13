@@ -41,13 +41,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Perception")
 	float DetectionRange = 1500.0f;
 
-	// Дистанция, ближе которой враг атакует (см). Должна быть <= AcceptanceRadius движения.
+	// Дальность атаки ножом, измеряется ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ капсул (см),
+	// т.е. зазор между капсулами врага и игрока, а НЕ расстояние между их центрами.
+	// Эффективная проверка центр-к-центру = AttackRange + (радиус капсулы врага + игрока).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
-	float AttackRange = 175.0f;
+	float AttackRange = 90.0f;
 
 	// Радиус приёмки для MoveToActor (см). Останавливаемся, не упираясь в игрока.
+	// Должен быть таким, чтобы дистанция остановки преследования была <= дальности атаки
+	// (с учётом радиусов капсул обоих). 60 < AttackRange(90) поверхность-к-поверхности.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
-	float MoveAcceptanceRadius = 120.0f;
+	float MoveAcceptanceRadius = 60.0f;
 
 	// Урон одной атаки.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
@@ -74,6 +78,10 @@ private:
 
 	// Видит ли врага игрока: дистанция в пределах DetectionRange + LineOfSightTo.
 	bool CanSensePlayer(APawn* Player) const;
+
+	// Сумма радиусов капсул врага и игрока (см). Нужна, чтобы дистанции боя/остановки
+	// мерить поверхность-к-поверхности, а не центр-к-центру (GetDistanceTo даёт центры).
+	float GetCombinedCapsuleRadius(APawn* Player) const;
 
 	// Выполняет атаку по игроку (урон через TakeDamage).
 	void PerformAttack(APawn* Player);

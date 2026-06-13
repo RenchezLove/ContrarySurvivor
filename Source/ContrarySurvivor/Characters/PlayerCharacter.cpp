@@ -11,6 +11,11 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/Controller.h" // Enhanced Input
+#include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"
+#include "UInventoryComponent.h"
+#include "AMasterInventoryItem.h"
+#include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
 {
@@ -37,11 +42,15 @@ APlayerCharacter::APlayerCharacter()
 
     //Sets that camera is not rotates whith controller
 
-    //Parameters initialasation
+    //Parameters initialasation (устаревшие инлайн-поля, см. заголовок)
     Hunger = 100.0f;
     Thirst = 100.0f;
 
-   
+    // Компонент статов игрока (ADR-015). Источник истины по HP/выживанию.
+    Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+    // У игрока (в отличие от врага) деградация голода/жажды включена (GDD §7.3).
+    Stats->SetSurvivalDegradationEnabled(true);
+
     SetUpMovement();
 }
 
@@ -51,8 +60,36 @@ void APlayerCharacter::BeginPlay()
 
     UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
 
+    // Запоминаем стартовый трансформ — фолбэк-точка респауна, если сейва ещё нет.
+    InitialSpawnTransform = GetActorTransform();
+
+    // Инициализируем HP игрока через UStatsComponent (источник истины).
+    if (Stats)
+    {
+        Stats->InitHealth(PlayerMaxHealth, /*bSetToMax=*/true);
+        // Смерть игрока -> респаун (GDD §7.8).
+        Stats->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
+    }
+
     // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
     EquipDefaultWeapon();
+}
+
+float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+    // Намеренно НЕ зовём Super (инлайн-Health базы): единственный источник истины по HP
+    // игрока — UStatsComponent. Death/респаун повесим на Stats->OnDeath (Пункт 3).
+    if (!Stats || Stats->IsDead() || DamageAmount <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    const float Applied = Stats->ApplyDamage(DamageAmount);
+
+    UE_LOG(LogTemp, Log, TEXT("Player took %.1f damage. Health: %.1f/%.1f"),
+        Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+
+    return Applied;
 }
 
 void APlayerCharacter::EquipDefaultWeapon()
@@ -89,6 +126,165 @@ void APlayerCharacter::EquipDefaultWeapon()
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Сейв / смерть / респаун (GDD §7.8)
+// ---------------------------------------------------------------------------
+
+bool APlayerCharacter::SaveGame()
+{
+    if (!Stats)
+    {
+        return false;
+    }
+
+    UContrarySaveGame* Save = Cast<UContrarySaveGame>(
+        UGameplayStatics::CreateSaveGameObject(UContrarySaveGame::StaticClass()));
+    if (!Save)
+    {
+        return false;
+    }
+
+    Save->bHasData = true;
+    Save->Health = Stats->GetHealth();
+    Save->MaxHealth = Stats->GetMaxHealth();
+    Save->Hunger = Stats->GetHunger();
+    Save->Thirst = Stats->GetThirst();
+    Save->Money = Stats->GetMoney();
+    Save->PlayerLocation = GetActorLocation();
+    Save->PlayerRotation = GetActorRotation();
+
+    // ЗАДЕЛ: инвентарь сериализуем как пути классов предметов рюкзака.
+    Save->InventoryItemClassPaths.Reset();
+    if (Inventory)
+    {
+        for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+        {
+            if (Item)
+            {
+                Save->InventoryItemClassPaths.Add(Item->GetClass()->GetPathName());
+            }
+        }
+    }
+
+    const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
+    UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
+        *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
+    return bOk;
+}
+
+bool APlayerCharacter::HasSaveGame() const
+{
+    return UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex);
+}
+
+bool APlayerCharacter::LoadGame()
+{
+    if (!HasSaveGame())
+    {
+        return false;
+    }
+
+    UContrarySaveGame* Save = Cast<UContrarySaveGame>(
+        UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex));
+    if (!Save || !Save->bHasData)
+    {
+        return false;
+    }
+
+    ApplySaveData(Save);
+    return true;
+}
+
+void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
+{
+    if (!Save)
+    {
+        return;
+    }
+
+    if (Stats)
+    {
+        Stats->RestoreState(Save->Health, Save->Hunger, Save->Thirst, Save->Money);
+    }
+
+    // Телепорт в точку респауна (последний костёр/сейв). Гасим скорость.
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->StopMovementImmediately();
+    }
+    SetActorLocationAndRotation(Save->PlayerLocation, Save->PlayerRotation,
+        /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+}
+
+void APlayerCharacter::ApplyDeathInventoryPenalty()
+{
+    // ВНИМАНИЕ (эскалация): UInventoryComponent не различает экип/неэкип и категории
+    // (расходник/ресурс/броня). Экипированное оружие хранится отдельно (CurrentWeapon на
+    // базе) и в InventoryItems НЕ лежит — поэтому оно сохраняется автоматически.
+    // Здесь теряется доля ВСЕХ предметов рюкзака (MVP-приближение GDD §7.8).
+    if (!Inventory || DeathItemLossPercent <= 0.0f)
+    {
+        return;
+    }
+
+    TArray<AMasterInventoryItem*> Items = Inventory->GetInventoryItems();
+    const int32 Total = Items.Num();
+    if (Total <= 0)
+    {
+        return;
+    }
+
+    const int32 LoseCount = FMath::FloorToInt(Total * DeathItemLossPercent);
+    for (int32 i = 0; i < LoseCount; ++i)
+    {
+        // Снимаем с конца массива (без выпадения лут-мешка — MVP).
+        AMasterInventoryItem* Item = Items[Total - 1 - i];
+        Inventory->RemoveItem(Item);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d backpack items (%.0f%%)"),
+        LoseCount, Total, DeathItemLossPercent * 100.0f);
+}
+
+void APlayerCharacter::HandleDeath()
+{
+    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> respawn"));
+
+    // 1) Потеря доли расходников рюкзака (экипировка сохраняется).
+    ApplyDeathInventoryPenalty();
+
+    // 2) Респаун: восстановление из последнего сейва (костёр). Если сейва нет —
+    //    фолбэк на стартовый трансформ + полные статы.
+    if (!LoadGame())
+    {
+        if (Stats)
+        {
+            Stats->RestoreState(Stats->GetMaxHealth(), Stats->GetSurvivalMax(),
+                Stats->GetSurvivalMax(), Stats->GetMoney());
+        }
+        if (UCharacterMovementComponent* Move = GetCharacterMovement())
+        {
+            Move->StopMovementImmediately();
+        }
+        SetActorTransform(InitialSpawnTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+        UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
+    }
+
+    // 3) Death-респаун = полные HP/Голод/Жажда (решение game-lead). Деньги — из сейва (шаг 2).
+    //    Автосейв костра пишет ЖИВЫЕ значения голода/жажды (жажда деградирует быстрее),
+    //    поэтому при загрузке они «нестабильны» по таймингу — форсим в максимум здесь.
+    //    ВАЖНО: только в death-ветке; обычный quit->reload (ApplySaveData) значения НЕ трогает.
+    if (Stats)
+    {
+        Stats->SetHealth(Stats->GetMaxHealth() * RespawnHealthFraction);
+        Stats->SetHunger(Stats->GetSurvivalMax() * RespawnSurvivalFraction);
+        Stats->SetThirst(Stats->GetSurvivalMax() * RespawnSurvivalFraction);
+        UE_LOG(LogTemp, Warning, TEXT("Respawn stats: HP %.1f/%.1f, Hunger %.1f, Thirst %.1f (frac HP %.2f / Surv %.2f)"),
+            Stats->GetHealth(), Stats->GetMaxHealth(), Stats->GetHunger(), Stats->GetThirst(),
+            RespawnHealthFraction, RespawnSurvivalFraction);
+    }
+}
 
 void APlayerCharacter::SetUpMovement()
 {

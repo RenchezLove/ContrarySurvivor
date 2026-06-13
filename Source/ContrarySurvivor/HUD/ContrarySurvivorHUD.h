@@ -7,6 +7,7 @@
 #include "ContrarySurvivorHUD.generated.h"
 
 class AEnemyCharacter;
+class UStatsComponent;
 
 /**
  * HUD первого вертикального среза (Фаза 1).
@@ -52,7 +53,34 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
 	FLinearColor FillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.9f);
 
+	// --- HUD игрока (GDD §7.7) ---
+
+	// Левый верхний угол: отступы и размеры HP-бара игрока.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	float PlayerHudMarginX = 24.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	float PlayerHudMarginY = 24.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	float PlayerHealthBarWidth = 260.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	float PlayerHealthBarHeight = 20.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	FLinearColor PlayerHealthFillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.95f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	FLinearColor HungerColor = FLinearColor(0.85f, 0.55f, 0.1f, 0.95f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
+
 private:
 	// Рисует одну полоску здоровья над врагом. Возвращает true, если что-то нарисовано.
 	void DrawEnemyHealthBar(AEnemyCharacter* Enemy);
+
+	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
+	void DrawPlayerStats(UStatsComponent* Stats);
 };
