@@ -6,13 +6,16 @@
 #include "EngineUtils.h" // TActorIterator
 #include "GameFramework/Pawn.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/QuestComponent.h" // журнал квестов (диалог/трекер)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
 #include "UInventoryComponent.h"  // рюкзак
 #include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
+#include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 
 void AContrarySurvivorHUD::DrawHUD()
@@ -98,6 +101,13 @@ void AContrarySurvivorHUD::DrawHUD()
 		{
 			DrawPlayerStats(PlayerChar->GetStats());
 
+			// --- Трекер активного квеста («Волков: X/5») — GDD §7.7 ---
+			// Только вне модальных экранов (на них квест виден в самом диалоге).
+			if (!bInventoryOpen && !bShopOpen && !bDialogOpen)
+			{
+				DrawQuestTracker(PlayerChar->GetQuests());
+			}
+
 			// --- Экран инвентаря поверх HUD (модальный, GDD §7.4) ---
 			if (bInventoryOpen)
 			{
@@ -109,12 +119,18 @@ void AContrarySurvivorHUD::DrawHUD()
 			{
 				DrawShop(PlayerChar);
 			}
+
+			// --- Экран диалога со старостой (модальный, GDD §7.7) ---
+			if (bDialogOpen)
+			{
+				DrawDialog(PlayerChar);
+			}
 		}
 	}
 
-	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец (BUG3) ---
+	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец/староста (BUG3) ---
 	// Только когда модальные экраны закрыты (иначе перекрывает панель).
-	if (!bInventoryOpen && !bShopOpen)
+	if (!bInventoryOpen && !bShopOpen && !bDialogOpen)
 	{
 		if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
 		{
@@ -629,6 +645,238 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	}
 }
 
+// ===========================================================================
+// Экран диалога со старостой (immediate-mode, без UMG/.uasset) — GDD §7.7
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetDialogOpen(bool bOpen, AElderNPC* Elder)
+{
+	bDialogOpen = bOpen;
+	DialogElder = bOpen ? Elder : nullptr;
+	if (!bOpen)
+	{
+		DialogHitRegions.Reset();
+	}
+}
+
+bool AContrarySurvivorHUD::HandleDialogClick(FVector2D ScreenPos)
+{
+	if (!bDialogOpen || !DialogElder)
+	{
+		return false;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		return false;
+	}
+
+	UQuestComponent* Quests = Player->GetQuests();
+	AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC);
+	const FName QuestId = DialogElder->GetOfferedQuest().QuestId;
+
+	for (const FDialogHitRegion& R : DialogHitRegions)
+	{
+		const bool bInside = ScreenPos.X >= R.Min.X && ScreenPos.X <= R.Max.X &&
+			ScreenPos.Y >= R.Min.Y && ScreenPos.Y <= R.Max.Y;
+		if (!bInside)
+		{
+			continue;
+		}
+
+		switch (R.Action)
+		{
+			case EDialogAction::Accept:
+				UE_LOG(LogQA, Display, TEXT("QA: dialog choice ACCEPT"));
+				if (Quests) { Quests->AcceptQuest(QuestId); }
+				return true;
+			case EDialogAction::Decline:
+				UE_LOG(LogQA, Display, TEXT("QA: dialog choice DECLINE"));
+				if (CSPC) { CSPC->CloseDialog(); }
+				return true;
+			case EDialogAction::TurnIn:
+				UE_LOG(LogQA, Display, TEXT("QA: dialog choice TURN IN"));
+				if (Quests) { Quests->TurnInQuest(QuestId); }
+				return true;
+			case EDialogAction::Close:
+				UE_LOG(LogQA, Display, TEXT("QA: dialog choice CLOSE"));
+				if (CSPC) { CSPC->CloseDialog(); }
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas || !DialogElder)
+	{
+		return;
+	}
+
+	DialogHitRegions.Reset();
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (подсветка зон).
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение фона + нижняя панель диалога (как в визуальных новеллах).
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+
+	const float PanelW = FMath::Min(900.0f, SX * 0.86f);
+	const float PanelH = FMath::Min(280.0f, SY * 0.4f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = SY - PanelH - 40.0f;
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+
+	const float Pad = 18.0f;
+
+	// Определяем текст и кнопки по состоянию квеста в журнале игрока.
+	const FQuest& Offered = DialogElder->GetOfferedQuest();
+	const FQuest* InLog = Player->GetQuests() ? Player->GetQuests()->FindQuest(Offered.QuestId) : nullptr;
+	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
+	const int32 Progress = InLog ? InLog->Progress : 0;
+	const int32 Target = Offered.TargetCount;
+
+	// Заголовок — имя NPC.
+	if (Font)
+	{
+		DrawText(TEXT("СТАРОСТА"), FLinearColor(0.6f, 0.85f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font);
+	}
+
+	// Реплика старосты (зависит от состояния).
+	FString NPCText;
+	switch (State)
+	{
+		case EQuestState::NotStarted:
+			NPCText = Offered.Description; // «Волки одолели деревню. Перебей стаю - пять волков...»
+			break;
+		case EQuestState::Active:
+			NPCText = FString::Printf(TEXT("Ты ещё не закончил. Перебей стаю. Волков: %d/%d."), Progress, Target);
+			break;
+		case EQuestState::Completed:
+			NPCText = TEXT("Стая перебита! Ты спас деревню. Вот твоя награда.");
+			break;
+		case EQuestState::TurnedIn:
+			NPCText = TEXT("Спасибо тебе ещё раз. Деревня теперь в безопасности.");
+			break;
+		default:
+			break;
+	}
+
+	if (Font && !NPCText.IsEmpty())
+	{
+		DrawText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 30.0f, Font);
+	}
+
+	// Кнопки-ответы (внизу панели).
+	const float BtnH = 40.0f;
+	const float BtnY = PY + PanelH - Pad - BtnH;
+	const float BtnGap = 14.0f;
+
+	auto AddButton = [&](float X, float W, const FString& Label, EDialogAction Action, const FLinearColor& Color)
+	{
+		DrawInvBox(X, BtnY, W, BtnH, Color, Mouse, Label, Font);
+		FDialogHitRegion R;
+		R.Min = FVector2D(X, BtnY);
+		R.Max = FVector2D(X + W, BtnY + BtnH);
+		R.Action = Action;
+		DialogHitRegions.Add(R);
+	};
+
+	const float BtnX = PX + Pad;
+
+	switch (State)
+	{
+		case EQuestState::NotStarted:
+		{
+			const float BtnW = 200.0f;
+			AddButton(BtnX, BtnW, TEXT("[ Принять ]"), EDialogAction::Accept, InvSlotFilledColor);
+			AddButton(BtnX + BtnW + BtnGap, BtnW, TEXT("[ Отказаться ]"), EDialogAction::Decline, InvDropColor);
+			break;
+		}
+		case EQuestState::Active:
+		{
+			AddButton(BtnX, 200.0f, TEXT("[ Закрыть ]"), EDialogAction::Close, InvSlotColor);
+			break;
+		}
+		case EQuestState::Completed:
+		{
+			AddButton(BtnX, 240.0f, TEXT("[ Сдать (+150) ]"), EDialogAction::TurnIn, InvSlotFilledColor);
+			break;
+		}
+		case EQuestState::TurnedIn:
+		{
+			AddButton(BtnX, 200.0f, TEXT("[ Закрыть ]"), EDialogAction::Close, InvSlotColor);
+			break;
+		}
+		default:
+			break;
+	}
+}
+
+void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
+{
+	if (!QuestComp || !Canvas)
+	{
+		return;
+	}
+
+	const FQuest* Tracked = QuestComp->GetTrackedQuest();
+	if (!Tracked)
+	{
+		return; // нет активного/выполненного квеста — трекер не рисуем
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+
+	// Текст прогресса. Для Kill-квеста (волки) — «Волков: X/5».
+	const bool bDone = (Tracked->State == EQuestState::Completed);
+	FString Text;
+	if (bDone)
+	{
+		Text = FString::Printf(TEXT("Квест выполнен: Волков %d/%d - вернись к старосте"),
+			Tracked->Progress, Tracked->TargetCount);
+	}
+	else
+	{
+		Text = FString::Printf(TEXT("Квест: Волков %d/%d"), Tracked->Progress, Tracked->TargetCount);
+	}
+
+	float TextW = 0.0f, TextH = 0.0f;
+	GetTextSize(Text, TextW, TextH, Font);
+
+	// Правый верхний угол под отступом.
+	const float X = SX - TextW - 28.0f;
+	const float Y = 28.0f;
+
+	// Фоновая плашка для читаемости.
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.55f), X - 8.0f, Y - 4.0f, TextW + 16.0f, TextH + 8.0f);
+	DrawText(Text, bDone ? QuestTrackerDoneColor : QuestTrackerColor, X, Y, Font);
+}
+
 void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 {
 	if (!Stats || !Canvas)
@@ -756,8 +1004,8 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		return;
 	}
 
-	// Поверх модальных экранов (инвентарь/магазин) маркеры не нужны.
-	if (bInventoryOpen || bShopOpen)
+	// Поверх модальных экранов (инвентарь/магазин/диалог) маркеры не нужны.
+	if (bInventoryOpen || bShopOpen || bDialogOpen)
 	{
 		return;
 	}

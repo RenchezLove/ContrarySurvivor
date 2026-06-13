@@ -15,6 +15,8 @@
 #include "EngineUtils.h" // TActorIterator
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
+#include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
+#include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
@@ -118,6 +120,12 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QABuyCheapest"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnQABuyCheapest);
 		InputComponent->BindAction(TEXT("QASellFirst"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASellFirstItem);
 		InputComponent->BindAction(TEXT("QAClearSave"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAClearSave);
+
+		// QA-харнесс (Фаза 5): квесты/диалог на буквенных клавишах (Y/G/H/K), legacy ActionMapping.
+		InputComponent->BindAction(TEXT("QATeleportToElder"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToElder);
+		InputComponent->BindAction(TEXT("QAAcceptQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAAcceptQuest);
+		InputComponent->BindAction(TEXT("QATurnInQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATurnInQuest);
+		InputComponent->BindAction(TEXT("QACreditWolfKill"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQACreditWolfKill);
 	}
 }
 
@@ -391,6 +399,113 @@ void AContrarySurvivorPlayerController::OnQAClearSave()
 	UE_LOG(LogQA, Display, TEXT("QA: save 'ContrarySave' cleared - restart PIE for fresh start"));
 }
 
+// ---------------------------------------------------------------------------
+// QA-харнесс (Фаза 5): квесты/диалог с клавиш (тестер не кликает HUD и не жмёт `~`)
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnQATeleportToElder()
+{
+	// Y: телепорт игрока вплотную к ближайшему старосте (как T к торговцу), чтобы сработал
+	// NearbyElder и заработали G/H/E. Ставим в радиус InteractTrigger старосты и явно регистрируем.
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no elder"));
+		return;
+	}
+
+	AElderNPC* Elder = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	const FVector PawnLoc = ControlledPawn->GetActorLocation();
+	for (TActorIterator<AElderNPC> It(World); It; ++It)
+	{
+		AElderNPC* Candidate = *It;
+		if (!IsValid(Candidate))
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Elder = Candidate;
+		}
+	}
+
+	if (!IsValid(Elder))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no elder"));
+		return;
+	}
+
+	const FVector ELoc = Elder->GetActorLocation();
+	FVector Dest = ELoc + FVector(120.0f, 0.0f, 0.0f);
+	Dest.Z = PawnLoc.Z;
+
+	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+	SetNearbyElder(Elder);
+
+	UE_LOG(LogQA, Display, TEXT("QA: teleported to elder at %s"), *Dest.ToCompactString());
+}
+
+void AContrarySurvivorPlayerController::OnQAAcceptQuest()
+{
+	// G: предложить+принять квест ближайшего старосты (= открыть диалог и нажать [Принять]).
+	if (!IsValid(NearbyElder))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: accept skipped - no elder near"));
+		return;
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
+	if (!PlayerQuests)
+	{
+		return;
+	}
+
+	const FQuest& Offered = NearbyElder->GetOfferedQuest();
+	PlayerQuests->OfferQuest(Offered);              // OFFERED (один раз)
+	PlayerQuests->AcceptQuest(Offered.QuestId);     // ACCEPTED
+}
+
+void AContrarySurvivorPlayerController::OnQATurnInQuest()
+{
+	// H: сдать выполненный квест ближайшему старосте (= [Сдать]).
+	if (!IsValid(NearbyElder))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - no elder near"));
+		return;
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
+	if (!PlayerQuests)
+	{
+		return;
+	}
+
+	const FQuest& Offered = NearbyElder->GetOfferedQuest();
+	if (!PlayerQuests->TurnInQuest(Offered.QuestId)) // TURNED IN (или skip, если не Completed)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - quest not completed"));
+	}
+}
+
+void AContrarySurvivorPlayerController::OnQACreditWolfKill()
+{
+	// K: зачесть одно убийство волка в квест (прогресс +1) без поиска живого волка —
+	// чтобы прогнать прогресс квеста с клавиатуры. Тег "Wolf" совпадает с тегом квеста старосты.
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
+	if (!PlayerQuests)
+	{
+		return;
+	}
+	PlayerQuests->NotifyKill(FName(TEXT("Wolf"))); // QA: quest progress X/5 (+ COMPLETED)
+}
+
 void AContrarySurvivorPlayerController::SetNearbyTrader(ATraderNPC* Trader)
 {
 	NearbyTrader = Trader;
@@ -410,6 +525,77 @@ void AContrarySurvivorPlayerController::ClearNearbyTrader(ATraderNPC* Trader)
 	}
 }
 
+void AContrarySurvivorPlayerController::SetNearbyElder(AElderNPC* Elder)
+{
+	NearbyElder = Elder;
+}
+
+void AContrarySurvivorPlayerController::ClearNearbyElder(AElderNPC* Elder)
+{
+	// Сбрасываем, только если уходим именно от текущего старосты.
+	if (NearbyElder == Elder)
+	{
+		NearbyElder = nullptr;
+		// Ушли от старосты — закрываем диалог, если был открыт.
+		if (bDialogOpen)
+		{
+			CloseDialog();
+		}
+	}
+}
+
+void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
+{
+	if (!Elder || bDialogOpen)
+	{
+		return;
+	}
+
+	// Предлагаем квест старосты журналу игрока (идемпотентно; OFFERED логируется один раз).
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
+		{
+			PlayerQuests->OfferQuest(Elder->GetOfferedQuest());
+		}
+	}
+
+	bDialogOpen = true;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetDialogOpen(true, Elder);
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: dialog opened (elder %s)"), *Elder->GetName());
+}
+
+void AContrarySurvivorPlayerController::CloseDialog()
+{
+	if (!bDialogOpen)
+	{
+		return;
+	}
+	bDialogOpen = false;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetDialogOpen(false, nullptr);
+	}
+
+	SetInputMode(FInputModeGameOnly());
+	bShowMouseCursor = true;
+	UE_LOG(LogTemp, Log, TEXT("Dialog CLOSED"));
+}
+
 void AContrarySurvivorPlayerController::OnInteract()
 {
 	// Не смешиваем с инвентарём (модальные экраны взаимоисключающие).
@@ -425,8 +611,16 @@ void AContrarySurvivorPlayerController::OnInteract()
 		return;
 	}
 
+	// Открытый диалог закрываем тем же E.
+	if (bDialogOpen)
+	{
+		CloseDialog();
+		return;
+	}
+
 	// Контекстный interact (решение Рината/game-lead): действуем по БЛИЖАЙШЕМУ интерактиву,
-	// выбранному в Tick (UpdateNearbyInteractable). Пикап -> подобрать, торговец -> магазин.
+	// выбранному в Tick (UpdateNearbyInteractable). Пикап -> подобрать, торговец -> магазин,
+	// староста -> диалог.
 	switch (CurrentInteractKind)
 	{
 		case EInteractKind::Pickup:
@@ -446,6 +640,14 @@ void AContrarySurvivorPlayerController::OnInteract()
 			if (ATraderNPC* Trader = Cast<ATraderNPC>(CurrentInteractActor))
 			{
 				OpenShop(Trader);
+			}
+			break;
+		}
+		case EInteractKind::Elder:
+		{
+			if (AElderNPC* Elder = Cast<AElderNPC>(CurrentInteractActor))
+			{
+				OpenDialog(Elder);
 			}
 			break;
 		}
@@ -561,7 +763,7 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	CurrentInteractKind = EInteractKind::None;
 
 	// Пока открыт модальный экран — подсказку не предлагаем.
-	if (bInventoryOpen || bShopOpen)
+	if (bInventoryOpen || bShopOpen || bDialogOpen)
 	{
 		return;
 	}
@@ -582,6 +784,18 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		BestDistSq = FVector::DistSquared(Loc, NearbyTrader->GetActorLocation());
 		CurrentInteractActor = NearbyTrader;
 		CurrentInteractKind = EInteractKind::Trader;
+	}
+
+	// Староста: проксимити задана его overlap-триггером (NearbyElder). Если ближе торговца — он.
+	if (IsValid(NearbyElder))
+	{
+		const float DistSq = FVector::DistSquared(Loc, NearbyElder->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			CurrentInteractActor = NearbyElder;
+			CurrentInteractKind = EInteractKind::Elder;
+		}
 	}
 
 	// Пикапы: ближайший непустой пикап в InteractRange. Если ближе торговца — он и выигрывает.
@@ -615,6 +829,7 @@ FString AContrarySurvivorPlayerController::GetInteractPromptText() const
 	{
 		case EInteractKind::Pickup: return TEXT("E — подобрать");
 		case EInteractKind::Trader: return TEXT("E — торговать");
+		case EInteractKind::Elder:  return TEXT("E — поговорить");
 		default:                    return FString();
 	}
 }
@@ -654,8 +869,8 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин — движение подавлено (модальный экран).
-	if (bInventoryOpen || bShopOpen)
+	// Пока открыт инвентарь/магазин/диалог — движение подавлено (модальный экран).
+	if (bInventoryOpen || bShopOpen || bDialogOpen)
 	{
 		return;
 	}
@@ -726,6 +941,24 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 				if (GetMousePosition(MX, MY))
 				{
 					CSHUD->HandleShopClick(FVector2D(MX, MY));
+				}
+			}
+		}
+		return;
+	}
+
+	// Если открыт диалог — клик уходит в UI диалога (выбор ответа), не в стрельбу. EDGE-схема.
+	if (bDialogOpen)
+	{
+		if (!bUIClickConsumed)
+		{
+			bUIClickConsumed = true;
+			if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+			{
+				float MX = 0.0f, MY = 0.0f;
+				if (GetMousePosition(MX, MY))
+				{
+					CSHUD->HandleDialogClick(FVector2D(MX, MY));
 				}
 			}
 		}

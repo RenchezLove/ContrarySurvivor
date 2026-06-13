@@ -13,15 +13,17 @@
 
 class UStatsComponent;
 class ATraderNPC;
+class AElderNPC;
 class APickup;
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
-// E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> открыть магазин.
+// E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
 enum class EInteractKind : uint8
 {
 	None,
 	Pickup,
-	Trader
+	Trader,
+	Elder
 };
 
 UCLASS()
@@ -45,6 +47,16 @@ public:
 	// Закрыть магазин (кнопка Close в UI / уход от торговца): вернуть режим ввода в Game.
 	UFUNCTION(BlueprintCallable, Category = "Shop")
 	void CloseShop();
+
+	// --- Староста/диалог (Фаза 5) — вызываются старостой (overlap) и HUD (кнопки диалога) ---
+
+	// Регистрирует/сбрасывает ближайшего старосту (вызывает AElderNPC при overlap).
+	void SetNearbyElder(AElderNPC* Elder);
+	void ClearNearbyElder(AElderNPC* Elder);
+
+	// Закрыть диалог (кнопка [Закрыть]/[Отказаться] в UI / уход от старосты).
+	UFUNCTION(BlueprintCallable, Category = "Dialog")
+	void CloseDialog();
 
 	// --- Контекстная подсказка взаимодействия (E) — для HUD ---
 
@@ -133,6 +145,10 @@ protected:
 	// Открывает магазин конкретного торговца (вынесено из OnInteract): HUD + режим ввода UI.
 	void OpenShop(ATraderNPC* Trader);
 
+	// Открывает диалог с конкретным старостой (Фаза 5): предлагает квест журналу игрока
+	// (OfferQuest), включает HUD-окно диалога и режим ввода UI.
+	void OpenDialog(AElderNPC* Elder);
+
 	// --- QA-харнесс (Фаза 4 раунд 2): тест-действия на функциональные клавиши ---
 	// Привязаны через LEGACY ActionMapping (Config/DefaultInput.ini), без нового IA/.uasset.
 	// Нужны автотестеру (Computer Use), который не может открыть `~`-консоль (русская раскладка).
@@ -190,6 +206,25 @@ protected:
 	UFUNCTION()
 	void OnQAClearSave();
 
+	// --- QA-харнесс (Фаза 5): дублёры квестов/диалога клавишами (тестер не кликает HUD/`~`) ---
+	// Свободные буквенные клавиши (НЕ F5/F8/F11). Биндятся через legacy ActionMapping.
+
+	// Y: телепорт игрока вплотную к ближайшему старосте (как T к торговцу).
+	UFUNCTION()
+	void OnQATeleportToElder();
+
+	// G: предложить+принять квест у ближайшего старосты (= открыть диалог и нажать [Принять]).
+	UFUNCTION()
+	void OnQAAcceptQuest();
+
+	// H: сдать выполненный квест ближайшему старосте (= [Сдать]).
+	UFUNCTION()
+	void OnQATurnInQuest();
+
+	// K: зачесть одно убийство волка в квест (прогресс +1) без поиска живого волка.
+	UFUNCTION()
+	void OnQACreditWolfKill();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;
@@ -216,6 +251,13 @@ private:
 	// Ближайший торговец (выставляется его overlap-триггером). null — торговца рядом нет.
 	UPROPERTY()
 	ATraderNPC* NearbyTrader = nullptr;
+
+	// Открыт ли экран диалога (модальный, как магазин): клик уходит в диалог, движение подавлено.
+	bool bDialogOpen = false;
+
+	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
+	UPROPERTY()
+	AElderNPC* NearbyElder = nullptr;
 
 	// --- Контекстный interact по E (BUG3) ---
 

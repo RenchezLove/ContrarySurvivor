@@ -7,9 +7,11 @@
 #include "ContrarySurvivorHUD.generated.h"
 
 class UStatsComponent;
+class UQuestComponent;
 class APlayerCharacter;
 class AMasterInventoryItem;
 class ATraderNPC;
+class AElderNPC;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -50,6 +52,24 @@ struct FShopHitRegion
 	EShopAction Action = EShopAction::None;
 	AMasterInventoryItem* Item = nullptr; // для Sell
 	int32 EntryIndex = -1;                // для Buy (индекс в каталоге торговца)
+};
+
+// Тип действия кликабельной зоны диалога (Фаза 5, квесты).
+enum class EDialogAction : uint8
+{
+	None,
+	Accept,   // принять предложенный квест
+	Decline,  // отказаться (закрыть, не принимая)
+	TurnIn,   // сдать выполненный квест (получить награду)
+	Close     // закрыть диалог (после принятия/сдачи)
+};
+
+// Кликабельная зона диалога (пересобирается каждый кадр в DrawDialog).
+struct FDialogHitRegion
+{
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = FVector2D::ZeroVector;
+	EDialogAction Action = EDialogAction::None;
 };
 
 /**
@@ -94,6 +114,16 @@ public:
 	// Обработать клик мыши/тап по экрану магазина (купить/продать/закрыть). Возвращает true,
 	// если зона найдена и действие выполнено.
 	bool HandleShopClick(FVector2D ScreenPos);
+
+	// --- Экран диалога со старостой (Фаза 5, квесты — GDD §7.7) — immediate-mode, без UMG ---
+
+	// Открыть/закрыть диалог с конкретным старостой (вызывается контроллером по клавише E).
+	void SetDialogOpen(bool bOpen, AElderNPC* Elder);
+	bool IsDialogOpen() const { return bDialogOpen; }
+
+	// Обработать клик/тап по экрану диалога (принять/отказаться/сдать/закрыть). Возвращает true,
+	// если зона найдена и действие выполнено.
+	bool HandleDialogClick(FVector2D ScreenPos);
 
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
@@ -227,6 +257,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
 	FLinearColor InteractPromptTextColor = FLinearColor(1.0f, 0.95f, 0.5f, 1.0f);
 
+	// --- Трекер активного квеста (Фаза 5, GDD §7.7) ---
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
+	FLinearColor QuestTrackerColor = FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
+	FLinearColor QuestTrackerDoneColor = FLinearColor(0.4f, 1.0f, 0.4f, 1.0f);
+
 private:
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
@@ -292,4 +330,23 @@ private:
 	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
 	// сверху деньги + [Close]. Заполняет ShopHitRegions.
 	void DrawShop(APlayerCharacter* Player);
+
+	// --- Экран диалога со старостой (immediate-mode) ---
+
+	bool bDialogOpen = false;
+
+	// Староста, с которым идёт диалог (источник предлагаемого квеста).
+	UPROPERTY()
+	AElderNPC* DialogElder = nullptr;
+
+	// Кликабельные зоны диалога, пересобираются каждый DrawDialog.
+	TArray<FDialogHitRegion> DialogHitRegions;
+
+	// Рисует окно диалога: текст NPC (зависит от состояния квеста) + кнопки-ответы.
+	// Поток: NotStarted -> [Принять]/[Отказаться]; Active -> прогресс + [Закрыть];
+	// Completed -> [Сдать]; TurnedIn -> благодарность + [Закрыть]. Заполняет DialogHitRegions.
+	void DrawDialog(APlayerCharacter* Player);
+
+	// Рисует трекер активного квеста («Волков: X/5») в углу HUD, когда квест Active/Completed.
+	void DrawQuestTracker(UQuestComponent* QuestComp);
 };
