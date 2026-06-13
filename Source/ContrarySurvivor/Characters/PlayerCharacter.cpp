@@ -221,6 +221,26 @@ void APlayerCharacter::EquipDefaultArmor()
     SpawnAndEquip(DefaultPantsArmorClass);
 }
 
+void APlayerCharacter::EquipTestArmor()
+{
+    // Консольная команда: (пере)надеть дефолтную броню всех слотов. Использует тот же путь,
+    // что и автоэкип в BeginPlay (спавн DefaultHead/Torso/PantsArmorClass + EquipArmor),
+    // т.е. подменяет модульные меши слотов на ArmorMesh_Equipped брони.
+    EquipDefaultArmor();
+    UE_LOG(LogTemp, Log, TEXT("EquipTestArmor: equipped default armor. Total armor %.2f"),
+        GetTotalArmorProtection());
+}
+
+void APlayerCharacter::UnequipTestArmor()
+{
+    // Консольная команда: снять броню всех слотов (возврат базовых мешей тела).
+    UnequipArmor(EArmorSlot::Head);
+    UnequipArmor(EArmorSlot::Torso);
+    UnequipArmor(EArmorSlot::Legs);
+    UE_LOG(LogTemp, Log, TEXT("UnequipTestArmor: all slots cleared. Total armor %.2f"),
+        GetTotalArmorProtection());
+}
+
 void APlayerCharacter::SwitchWeapon()
 {
     // Тоггл между дальним (пистолет) и ближним (нож) оружием.
@@ -287,6 +307,15 @@ bool APlayerCharacter::SaveGame()
         }
     }
 
+    // ЗАДЕЛ (Фаза 4): сериализуем экипированную броню по слотам как пути классов.
+    auto ArmorPath = [](AArmor* Armor) -> FString
+    {
+        return Armor ? Armor->GetClass()->GetPathName() : FString();
+    };
+    Save->EquippedHeadArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Head));
+    Save->EquippedTorsoArmorClassPath = ArmorPath(GetEquippedArmor(EArmorSlot::Torso));
+    Save->EquippedLegsArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Legs));
+
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
     UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
         *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
@@ -339,31 +368,34 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
 
 void APlayerCharacter::ApplyDeathInventoryPenalty()
 {
-    // ВНИМАНИЕ (эскалация): UInventoryComponent не различает экип/неэкип и категории
-    // (расходник/ресурс/броня). Экипированное оружие хранится отдельно (CurrentWeapon на
-    // базе) и в InventoryItems НЕ лежит — поэтому оно сохраняется автоматически.
-    // Здесь теряется доля ВСЕХ предметов рюкзака (MVP-приближение GDD §7.8).
+    // GDD §7.8 (Фаза 4, тех-долг Фазы 2 закрыт): при смерти теряется только доля
+    // НЕэкипированных предметов категорий Consumable/Resource. Надетая броня (экип-слоты)
+    // и оружие в руках (CurrentWeapon, хранится отдельно от InventoryItems) сохраняются.
     if (!Inventory || DeathItemLossPercent <= 0.0f)
     {
         return;
     }
 
-    TArray<AMasterInventoryItem*> Items = Inventory->GetInventoryItems();
-    const int32 Total = Items.Num();
+    // Кандидаты на потерю: неэкипированные расходники + ресурсы.
+    TArray<AMasterInventoryItem*> Candidates = Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable);
+    Candidates.Append(Inventory->GetUnequippedItemsOfCategory(EItemCategory::Resource));
+
+    const int32 Total = Candidates.Num();
     if (Total <= 0)
     {
+        UE_LOG(LogTemp, Log, TEXT("Death penalty: no unequipped consumables/resources to lose."));
         return;
     }
 
     const int32 LoseCount = FMath::FloorToInt(Total * DeathItemLossPercent);
     for (int32 i = 0; i < LoseCount; ++i)
     {
-        // Снимаем с конца массива (без выпадения лут-мешка — MVP).
-        AMasterInventoryItem* Item = Items[Total - 1 - i];
+        // Снимаем с конца списка кандидатов (без выпадения лут-мешка — MVP).
+        AMasterInventoryItem* Item = Candidates[Total - 1 - i];
         Inventory->RemoveItem(Item);
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d backpack items (%.0f%%)"),
+    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d unequipped consumable/resource items (%.0f%%). Equipped armor/weapons kept."),
         LoseCount, Total, DeathItemLossPercent * 100.0f);
 }
 

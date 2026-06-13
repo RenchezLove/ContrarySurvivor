@@ -68,9 +68,9 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
     int32 SaveUserIndex = 0;
 
-    // ЧЕРНОВИК (на тюнинг): доля НЕэкипированных предметов рюкзака, теряемых при смерти.
-    // ВНИМАНИЕ: UInventoryComponent сейчас НЕ различает экип/неэкип и категории
-    // (расходник/ресурс/броня) — теряется доля ВСЕХ предметов массива. См. эскалацию.
+    // ЧЕРНОВИК (на тюнинг): доля теряемых при смерти НЕэкипированных предметов
+    // категорий Consumable/Resource (GDD §7.8). Надетая броня и оружие в руках —
+    // сохраняются (Фаза 4: UInventoryComponent различает экип/неэкип и категории).
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float DeathItemLossPercent = 0.25f;
 
@@ -149,6 +149,18 @@ public:
     // Есть ли сохранение в слоте.
     UFUNCTION(BlueprintPure, Category = "Save")
     bool HasSaveGame() const;
+
+    // --- Тестирование брони без UI (Фаза 4, UI — отдельная волна) ---
+    // Консольные команды (открыть консоль `~`, ввести имя). Pawn должен быть под управлением.
+    //   EquipTestArmor   — (пере)спавнит и надевает дефолтную броню всех слотов (подмена меша).
+    //   UnequipTestArmor — снимает броню всех слотов (возврат базовых мешей тела).
+    // Позволяют наблюдать смену модульного меша слота и пересчёт суммарной защиты.
+
+    UFUNCTION(Exec, Category = "Equipment|Armor|Debug")
+    void EquipTestArmor();
+
+    UFUNCTION(Exec, Category = "Equipment|Armor|Debug")
+    void UnequipTestArmor();
 
 protected:
     // Смерть игрока (привязана к Stats->OnDeath): респаун на последней точке сейва

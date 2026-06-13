@@ -7,6 +7,7 @@ APantsArmor::APantsArmor()
 {
 	// ЧЕРНОВАЯ доля снижения урона слотом штанов [0..1] (draft Рината: процентная броня).
 	ArmorProtection = 0.15f;
+	ArmorSlot = EArmorSlot::Legs;
 
 	ItemName = FString("Pants Armor");
 }

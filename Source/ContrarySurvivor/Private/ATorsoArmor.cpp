@@ -7,6 +7,7 @@ ATorsoArmor::ATorsoArmor()
 {
 	// ЧЕРНОВАЯ доля снижения урона слотом торса [0..1] (draft Рината: процентная броня).
 	ArmorProtection = 0.25f;
+	ArmorSlot = EArmorSlot::Torso;
 
 	ItemName = FString("Torso Armor");
 }

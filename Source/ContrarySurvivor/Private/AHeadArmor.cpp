@@ -7,6 +7,7 @@ AHeadArmor::AHeadArmor()
 {
 	// ЧЕРНОВАЯ доля снижения урона слотом головы [0..1] (draft Рината: процентная броня).
 	ArmorProtection = 0.10f;
+	ArmorSlot = EArmorSlot::Head;
 
 	ItemName = FString("Head Armor");
 }

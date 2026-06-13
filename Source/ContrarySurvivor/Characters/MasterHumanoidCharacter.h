@@ -5,9 +5,9 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AMasterWeapon.h"
+#include "AArmor.h" // AArmor + EArmorSlot (тип параметра UFUNCTION UnequipArmor)
 
 class UInventoryComponent;
-class AArmor;
 
 #include "MasterHumanoidCharacter.generated.h"
 
@@ -101,10 +101,18 @@ public:
 
 	// --- Броня ---
 
-	// Экипирует предмет брони в слот по его типу (Head/Torso/Pants). Хранит ссылку для
-	// расчёта защиты. Визуальное назначение меша брони — Фаза 4 (здесь только параметры).
+	// Экипирует предмет брони в слот по его GetArmorSlot() (Head/Torso/Legs). Хранит ссылку
+	// для расчёта защиты (GetTotalArmorProtection) И подменяет модульный скелетный меш
+	// соответствующего слота на Armor->GetMesh() (ArmorMesh_Equipped) (GDD §7.4). Если в
+	// слоте уже была броня — она снимается (меш слота возвращается к базовому перед сменой).
 	UFUNCTION(BlueprintCallable, Category = "Equipment|Armor")
 	void EquipArmor(AArmor* Armor);
+
+	// Снимает броню из слота: очищает ссылку (защита пересчитывается) и возвращает
+	// модульный меш слота к базовому (запомненному в BeginPlay). Меш слота снова
+	// анимируется синхронно с телом через Leader Pose.
+	UFUNCTION(BlueprintCallable, Category = "Equipment|Armor")
+	void UnequipArmor(EArmorSlot Slot);
 
 	// Суммарная ДОЛЯ снижения урона по всем экипированным слотам брони [0..N] (без капа;
 	// кап применяется в ComputeArmoredDamage). Читается при расчёте урона.
@@ -117,6 +125,10 @@ public:
 	// убирает min-1 неуязвимость старой flat-формулы.
 	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
 	float ComputeArmoredDamage(float Incoming) const;
+
+	// Возвращает экипированную броню в слоте (или nullptr). Для сохранения/UI.
+	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
+	AArmor* GetEquippedArmor(EArmorSlot Slot) const;
 
 	// --- Геттеры ---
 
@@ -150,8 +162,33 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual void HandleDeath();
 
+protected:
+	// Модульный меш-компонент слота (Head=GetMesh()/Torso/Legs). nullptr для неизвестного.
+	USkeletalMeshComponent* GetMeshComponentForSlot(EArmorSlot Slot) const;
+
+	// Перепривязывает меш-компонент слота к Leader Pose (Head) после подмены меша, чтобы
+	// часть продолжала анимироваться синхронно с телом (GDD §7.4). Для самого Head — no-op
+	// (он и есть лидер). Использует тот же механизм, что и риг модульных частей базы.
+	void RelinkSlotToLeaderPose(EArmorSlot Slot);
+
+	// Запоминает базовые (надетые в BP) скелетные меши слотов — нужно для возврата при
+	// снятии брони. Вызывается в BeginPlay (после применения дефолтов BP).
+	void CacheBaseSlotMeshes();
+
 private:
     float BaseWalkSpeed;
     float SprintMultiplier = 2.0f;
-    bool IsSprinting;	
+    bool IsSprinting;
+
+    // Базовые меши слотов (тело без брони) — снимок BeginPlay для UnequipArmor.
+    UPROPERTY()
+    USkeletalMesh* BaseHeadMesh = nullptr;
+
+    UPROPERTY()
+    USkeletalMesh* BaseTorsoMesh = nullptr;
+
+    UPROPERTY()
+    USkeletalMesh* BaseLegsMesh = nullptr;
+
+    bool bBaseSlotMeshesCached = false;
 };

@@ -49,4 +49,17 @@ public:
 	// после доработки UInventoryComponent (см. эскалацию по категориям предметов).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	TArray<FString> InventoryItemClassPaths;
+
+	// --- Задел: экипированная броня по слотам (Фаза 4) ---
+	// Пути классов экипированной брони (Head/Torso/Legs); пусто = слот свободен.
+	// ЗАДЕЛ: запись выполняется в APlayerCharacter::SaveGame. Авто-восстановление при
+	// загрузке — будущая волна (сейчас игрок экипирует дефолтную броню в BeginPlay).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
+	FString EquippedHeadArmorClassPath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
+	FString EquippedTorsoArmorClassPath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
+	FString EquippedLegsArmorClassPath;
 };

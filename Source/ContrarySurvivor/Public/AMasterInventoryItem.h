@@ -8,6 +8,18 @@
 #include "Components/StaticMeshComponent.h"
 #include "AMasterInventoryItem.generated.h"
 
+// Категория предмета инвентаря (Фаза 4). Используется логикой потери рюкзака при
+// смерти (GDD §7.8: теряется только часть НЕэкипированных расходников/ресурсов) и
+// будущим UI-инвентарём (фильтр/сортировка по вкладкам).
+UENUM(BlueprintType)
+enum class EItemCategory : uint8
+{
+	Consumable UMETA(DisplayName = "Consumable"), // Еда/вода/аптечки — расходуются при Use()
+	Resource   UMETA(DisplayName = "Resource"),   // Крафт-ресурсы/материалы
+	Armor      UMETA(DisplayName = "Armor"),       // Броня (AArmor и наследники)
+	Weapon     UMETA(DisplayName = "Weapon")       // Оружие (AMasterWeapon и наследники)
+};
+
 UCLASS(Abstract, Blueprintable)
 class CONTRARYSURVIVOR_API AMasterInventoryItem : public AActor
 {
@@ -32,6 +44,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
 	UTexture2D* ItemIcon;
 
+	// Категория предмета (Фаза 4). База = Resource; наследники задают свою в конструкторе
+	// (AArmor -> Armor, AMasterWeapon -> Weapon). Расходники (еда/вода/аптечки) ставят
+	// Consumable в своих BP/классах. Влияет на потерю рюкзака при смерти (GDD §7.8).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
+	EItemCategory ItemCategory;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item", meta = (AllowPrivateAccess = "true"))
     UStaticMeshComponent* ItemMesh;
 
@@ -39,5 +57,8 @@ public:
 	// Functions:
 	UFUNCTION(BlueprintCallable, Category = "Item")
 	virtual void Use();
+
+	UFUNCTION(BlueprintPure, Category = "Item")
+	FORCEINLINE EItemCategory GetItemCategory() const { return ItemCategory; }
 
 };
