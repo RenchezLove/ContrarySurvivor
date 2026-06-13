@@ -15,4 +15,5 @@
 *.sln
 *.csproj
 *.user
-/Content
+
+# /Content теперь версионируется через Git LFS (ADR-019), из ignore убрано.
