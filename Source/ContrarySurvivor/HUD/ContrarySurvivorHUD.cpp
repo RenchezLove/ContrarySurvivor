@@ -2,8 +2,10 @@
 
 #include "ContrarySurvivorHUD.h"
 #include "Engine/Canvas.h"
+#include "Engine/Engine.h" // GEngine->GetMediumFont
 #include "EngineUtils.h" // TActorIterator
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 
@@ -65,6 +67,89 @@ void AContrarySurvivorHUD::DrawHUD()
 		{
 			DrawEnemyHealthBar(Enemy);
 		}
+	}
+
+	// --- Статы игрока (GDD §7.7) ---
+	if (PC)
+	{
+		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PC->GetPawn()))
+		{
+			DrawPlayerStats(PlayerChar->GetStats());
+		}
+	}
+}
+
+void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
+{
+	if (!Stats || !Canvas)
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// HP-бар слева вверху (GDD §7.7: «полоска здоровья — слева вверху»).
+	const float BarX = PlayerHudMarginX;
+	const float BarY = PlayerHudMarginY;
+
+	DrawRect(BackgroundColor, BarX, BarY, PlayerHealthBarWidth, PlayerHealthBarHeight);
+
+	const float HealthPercent = FMath::Clamp(Stats->GetHealthPercent(), 0.0f, 1.0f);
+	const float HpFillWidth = PlayerHealthBarWidth * HealthPercent;
+	if (HpFillWidth > 0.0f)
+	{
+		DrawRect(PlayerHealthFillColor, BarX, BarY, HpFillWidth, PlayerHealthBarHeight);
+	}
+
+	if (Font)
+	{
+		const FString HpText = FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth());
+		DrawText(HpText, FLinearColor::White, BarX + 6.0f, BarY + 2.0f, Font);
+	}
+
+	// Индикаторы голода/жажды — ТОЛЬКО при критическом уровне (<= порога), GDD §7.7.
+	float IndicatorY = BarY + PlayerHealthBarHeight + 8.0f;
+	const float IndicatorWidth = PlayerHealthBarWidth;
+	const float IndicatorHeight = 14.0f;
+	const float SurvivalMax = FMath::Max(Stats->GetSurvivalMax(), 1.0f);
+
+	if (Stats->IsHungerCritical())
+	{
+		DrawRect(BackgroundColor, BarX, IndicatorY, IndicatorWidth, IndicatorHeight);
+		const float FillW = IndicatorWidth * FMath::Clamp(Stats->GetHunger() / SurvivalMax, 0.0f, 1.0f);
+		if (FillW > 0.0f)
+		{
+			DrawRect(HungerColor, BarX, IndicatorY, FillW, IndicatorHeight);
+		}
+		if (Font)
+		{
+			DrawText(FString::Printf(TEXT("HUNGER %.0f"), Stats->GetHunger()), FLinearColor::White, BarX + 6.0f, IndicatorY, Font);
+		}
+		IndicatorY += IndicatorHeight + 4.0f;
+	}
+
+	if (Stats->IsThirstCritical())
+	{
+		DrawRect(BackgroundColor, BarX, IndicatorY, IndicatorWidth, IndicatorHeight);
+		const float FillW = IndicatorWidth * FMath::Clamp(Stats->GetThirst() / SurvivalMax, 0.0f, 1.0f);
+		if (FillW > 0.0f)
+		{
+			DrawRect(ThirstColor, BarX, IndicatorY, FillW, IndicatorHeight);
+		}
+		if (Font)
+		{
+			DrawText(FString::Printf(TEXT("THIRST %.0f"), Stats->GetThirst()), FLinearColor::White, BarX + 6.0f, IndicatorY, Font);
+		}
+	}
+
+	// Деньги — правый верхний угол (GDD §7.7: «где уместно, угол»).
+	if (Font)
+	{
+		const FString MoneyText = FString::Printf(TEXT("$ %.0f"), Stats->GetMoney());
+		float TextW = 0.0f, TextH = 0.0f;
+		GetTextSize(MoneyText, TextW, TextH, Font);
+		DrawText(MoneyText, FLinearColor(1.0f, 0.85f, 0.2f, 1.0f),
+			Canvas->SizeX - TextW - PlayerHudMarginX, PlayerHudMarginY, Font);
 	}
 }
 
