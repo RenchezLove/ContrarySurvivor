@@ -8,6 +8,10 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "AArmor.h"               // EArmorSlot, AArmor
+#include "AMasterInventoryItem.h" // EItemCategory, ItemName
+#include "AMasterWeapon.h"        // GetCurrentWeapon display
+#include "UInventoryComponent.h"  // рюкзак
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -87,6 +91,267 @@ void AContrarySurvivorHUD::DrawHUD()
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PC->GetPawn()))
 		{
 			DrawPlayerStats(PlayerChar->GetStats());
+
+			// --- Экран инвентаря поверх HUD (модальный, GDD §7.4) ---
+			if (bInventoryOpen)
+			{
+				DrawInventory(PlayerChar);
+			}
+		}
+	}
+}
+
+// ===========================================================================
+// Экран инвентаря (immediate-mode, без UMG/.uasset) — GDD §7.4
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetInventoryOpen(bool bOpen)
+{
+	bInventoryOpen = bOpen;
+	if (!bOpen)
+	{
+		InvHitRegions.Reset();
+	}
+}
+
+void AContrarySurvivorHUD::ToggleInventory()
+{
+	SetInventoryOpen(!bInventoryOpen);
+}
+
+bool AContrarySurvivorHUD::PointInRegion(const FVector2D& P, const FInvHitRegion& R)
+{
+	return P.X >= R.Min.X && P.X <= R.Max.X && P.Y >= R.Min.Y && P.Y <= R.Max.Y;
+}
+
+bool AContrarySurvivorHUD::HandleInventoryClick(FVector2D ScreenPos)
+{
+	if (!bInventoryOpen)
+	{
+		return false;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		return false;
+	}
+
+	for (const FInvHitRegion& R : InvHitRegions)
+	{
+		if (!PointInRegion(ScreenPos, R))
+		{
+			continue;
+		}
+
+		switch (R.Action)
+		{
+			case EInvAction::UnequipSlot:
+				Player->Inv_UnequipSlot(static_cast<EArmorSlot>(R.SlotIndex));
+				return true;
+			case EInvAction::UseItem:
+				if (IsValid(R.Item)) { Player->Inv_UseBackpackItem(R.Item); }
+				return true;
+			case EInvAction::DropItem:
+				if (IsValid(R.Item)) { Player->Inv_DropItem(R.Item); }
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorHUD::DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
+	const FVector2D& MousePos, const FString& Label, UFont* Font)
+{
+	const bool bHover = (MousePos.X >= X && MousePos.X <= X + W && MousePos.Y >= Y && MousePos.Y <= Y + H);
+	DrawRect(bHover ? InvHoverColor : BaseColor, X, Y, W, H);
+	if (Font && !Label.IsEmpty())
+	{
+		DrawText(Label, FLinearColor::White, X + 8.0f, Y + (H - 12.0f) * 0.5f, Font);
+	}
+}
+
+void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas)
+	{
+		return;
+	}
+
+	InvHitRegions.Reset();
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (для подсветки зон под мышью). На тач — последняя точка тапа.
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение фона.
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+
+	// Центрированная панель.
+	const float PanelW = FMath::Min(960.0f, SX * 0.86f);
+	const float PanelH = FMath::Min(600.0f, SY * 0.86f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = (SY - PanelH) * 0.5f;
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+
+	const float Pad = 16.0f;
+	const float HeaderY = PY + Pad;
+	if (Font)
+	{
+		DrawText(TEXT("INVENTORY  (Tab / I to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
+	}
+
+	// Деньги / голод / жажда (GDD §7.7).
+	if (UStatsComponent* St = Player->GetStats())
+	{
+		const FString StatStr = FString::Printf(TEXT("Money %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
+			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
+		if (Font)
+		{
+			DrawText(StatStr, FLinearColor(1.0f, 0.9f, 0.4f, 1.0f), PX + Pad, HeaderY + 22.0f, Font);
+		}
+	}
+
+	const float ContentY = HeaderY + 56.0f;
+
+	// --- Левая колонка: paper-doll (слоты брони + оружие) ---
+	const float LeftW = PanelW * 0.42f;
+	const float LeftX = PX + Pad;
+	const float ColW = LeftW - Pad;
+	if (Font)
+	{
+		DrawText(TEXT("EQUIPMENT"), FLinearColor::White, LeftX, ContentY, Font);
+	}
+
+	float SlotY = ContentY + 24.0f;
+	const float SlotH = 56.0f;
+	const float SlotGap = 10.0f;
+
+	auto DrawArmorSlot = [&](const TCHAR* Name, EArmorSlot Slot)
+	{
+		AArmor* Eq = Player->GetEquippedArmor(Slot);
+		FString Worn = TEXT("(empty)");
+		if (Eq)
+		{
+			Worn = Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName;
+		}
+		const FString Label = FString::Printf(TEXT("%s: %s"), Name, *Worn);
+		DrawInvBox(LeftX, SlotY, ColW, SlotH, Eq ? InvSlotFilledColor : InvSlotColor, Mouse, Label, Font);
+
+		if (Eq)
+		{
+			// Клик по занятому слоту -> снять броню.
+			FInvHitRegion R;
+			R.Min = FVector2D(LeftX, SlotY);
+			R.Max = FVector2D(LeftX + ColW, SlotY + SlotH);
+			R.Action = EInvAction::UnequipSlot;
+			R.SlotIndex = static_cast<int32>(Slot);
+			InvHitRegions.Add(R);
+		}
+		SlotY += SlotH + SlotGap;
+	};
+
+	DrawArmorSlot(TEXT("Head"), EArmorSlot::Head);
+	DrawArmorSlot(TEXT("Torso"), EArmorSlot::Torso);
+	DrawArmorSlot(TEXT("Legs"), EArmorSlot::Legs);
+
+	// Слот оружия (только отображение CurrentWeapon).
+	{
+		AMasterWeapon* W = Player->GetCurrentWeapon();
+		const FString Label = FString::Printf(TEXT("Weapon: %s"), W ? *W->GetName() : TEXT("(none)"));
+		DrawInvBox(LeftX, SlotY, ColW, SlotH, InvSlotColor, Mouse, Label, Font);
+		SlotY += SlotH + SlotGap;
+	}
+
+	if (Font)
+	{
+		DrawText(TEXT("(click an armor slot to unequip)"), FLinearColor(0.7f, 0.7f, 0.7f, 1.0f), LeftX, SlotY, Font);
+	}
+
+	// --- Правая колонка: рюкзак (неэкипированные предметы) ---
+	const float RightX = LeftX + LeftW + Pad;
+	const float RightW = (PX + PanelW - Pad) - RightX;
+	if (Font)
+	{
+		DrawText(TEXT("BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
+	}
+
+	float RowY = ContentY + 24.0f;
+	const float RowH = 34.0f;
+	const float RowGap = 6.0f;
+	const float DropW = 30.0f;
+	const float MaxRowY = PY + PanelH - Pad - RowH;
+
+	if (UInventoryComponent* Inv = Player->GetInventory())
+	{
+		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
+		{
+			if (!IsValid(Item) || Inv->IsItemEquipped(Item))
+			{
+				continue; // экипированные показаны в paper-doll
+			}
+
+			const float MainW = RightW - DropW - 6.0f;
+
+			FString ActionHint;
+			const EItemCategory Cat = Item->GetItemCategory();
+			switch (Cat)
+			{
+				case EItemCategory::Consumable: ActionHint = TEXT("use");   break;
+				case EItemCategory::Armor:      ActionHint = TEXT("equip"); break;
+				default:                        ActionHint = TEXT("");      break;
+			}
+
+			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			const FString Label = ActionHint.IsEmpty()
+				? Name
+				: FString::Printf(TEXT("%s  [%s]"), *Name, *ActionHint);
+
+			DrawInvBox(RightX, RowY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+			// Клик по строке -> использовать (надеть броню / съесть расходник).
+			if (Cat == EItemCategory::Consumable || Cat == EItemCategory::Armor)
+			{
+				FInvHitRegion R;
+				R.Min = FVector2D(RightX, RowY);
+				R.Max = FVector2D(RightX + MainW, RowY + RowH);
+				R.Action = EInvAction::UseItem;
+				R.Item = Item;
+				InvHitRegions.Add(R);
+			}
+
+			// Кнопка [X] -> выбросить.
+			const float DropX = RightX + MainW + 6.0f;
+			DrawInvBox(DropX, RowY, DropW, RowH, InvDropColor, Mouse, TEXT("X"), Font);
+			{
+				FInvHitRegion D;
+				D.Min = FVector2D(DropX, RowY);
+				D.Max = FVector2D(DropX + DropW, RowY + RowH);
+				D.Action = EInvAction::DropItem;
+				D.Item = Item;
+				InvHitRegions.Add(D);
+			}
+
+			RowY += RowH + RowGap;
+			if (RowY > MaxRowY)
+			{
+				break; // MVP: без прокрутки — не вылезаем за панель
+			}
 		}
 	}
 }

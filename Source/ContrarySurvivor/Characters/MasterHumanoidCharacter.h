@@ -135,6 +135,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Components")
 	FORCEINLINE USkeletalMeshComponent* GetTorsoMesh() const { return TorsoMesh; }
 
+	// Доступ к рюкзаку (Inventory protected в базе). Нужен UI-инвентарю (HUD/контроллер)
+	// и логике использования/выброса предметов.
+	UFUNCTION(BlueprintPure, Category = "Components")
+	FORCEINLINE UInventoryComponent* GetInventory() const { return Inventory; }
+
 	UFUNCTION(BlueprintPure, Category = "Equipment")
 	FORCEINLINE AMasterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 

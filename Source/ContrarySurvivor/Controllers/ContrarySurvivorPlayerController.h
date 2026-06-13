@@ -87,6 +87,12 @@ protected:
 	UFUNCTION()
 	void OnSwitchWeapon();
 
+	// Открыть/закрыть экран инвентаря (клавиша Tab / I). Привязано через LEGACY ActionMapping
+	// "ToggleInventory" (Config/DefaultInput.ini) — без нового IA/.uasset (Фаза 4).
+	// Тогглит AContrarySurvivorHUD::ToggleInventory + переключает режим ввода (UI/Game).
+	UFUNCTION()
+	void OnToggleInventory();
+
 	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
@@ -94,6 +100,10 @@ protected:
 
 private:
 	bool IsSprinting = false;
+
+	// Открыт ли экран инвентаря (модальный): пока true — клик уходит в инвентарь (не стрельба),
+	// движение подавлено. Зеркалит состояние HUD; источник переключения — OnToggleInventory.
+	bool bInventoryOpen = false;
 
 	// Текущая захваченная цель (держится до смерти цели или захвата новой).
 	UPROPERTY()

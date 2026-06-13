@@ -16,6 +16,7 @@
 
 class UStatsComponent;
 class UContrarySaveGame;
+class AMasterInventoryItem;
 
 /**
  * 
@@ -161,6 +162,30 @@ public:
 
     UFUNCTION(Exec, Category = "Equipment|Armor|Debug")
     void UnequipTestArmor();
+
+    // --- Действия UI-инвентаря (Фаза 4, GDD §7.4) ---
+    // Высокоуровневые операции инвентаря (вызываются из AContrarySurvivorHUD по клику).
+    // Знание о Stats/EquipArmor/Inventory сосредоточено здесь, у владельца предметов.
+
+    // Использовать предмет рюкзака по клику: броня -> надеть (EquipArmor + пометить экип);
+    // расходник -> применить эффект (еда/вода через Stats) и удалить из рюкзака.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_UseBackpackItem(AMasterInventoryItem* Item);
+
+    // Выбросить предмет рюкзака (удалить из инвентаря). Экипированную броню сперва снимает.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_DropItem(AMasterInventoryItem* Item);
+
+    // Снять броню из слота (клик по слоту paper-doll): UnequipArmor + вернуть предмет в рюкзак
+    // (как неэкипированный), чтобы его было видно/можно надеть заново.
+    UFUNCTION(BlueprintCallable, Category = "Inventory")
+    void Inv_UnequipSlot(EArmorSlot Slot);
+
+    // DEBUG-команда наполнения рюкзака тестовыми предметами (консоль `~`, ввести GiveTestItems):
+    // пара расходников (еда+вода) + запасная броня головы/торса — чтобы было что
+    // надевать/использовать/выбрасывать в Play без редактора и без BP-ассетов.
+    UFUNCTION(Exec, Category = "Inventory|Debug")
+    void GiveTestItems();
 
 protected:
     // Смерть игрока (привязана к Stats->OnDeath): респаун на последней точке сейва

@@ -7,6 +7,30 @@
 #include "ContrarySurvivorHUD.generated.h"
 
 class UStatsComponent;
+class APlayerCharacter;
+class AMasterInventoryItem;
+
+// Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
+// хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
+enum class EInvAction : uint8
+{
+	None,
+	UnequipSlot,  // клик по слоту paper-doll с надетой бронёй -> снять (SlotIndex = EArmorSlot)
+	UseItem,      // клик по предмету рюкзака -> использовать (надеть броню / съесть расходник)
+	DropItem      // клик по кнопке [X] предмета -> выбросить
+};
+
+// Кликабельная зона инвентаря (пересобирается каждый кадр в DrawInventory). Не UObject-
+// рефлексия: простая структура, указатель валидируется в обработчике (IsValid). Предметы
+// удерживаются живыми инвентарём, поэтому переживают кадр между отрисовкой и кликом.
+struct FInvHitRegion
+{
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = FVector2D::ZeroVector;
+	EInvAction Action = EInvAction::None;
+	AMasterInventoryItem* Item = nullptr; // для UseItem/DropItem
+	int32 SlotIndex = -1;                 // для UnequipSlot (приведение к EArmorSlot)
+};
 
 /**
  * HUD первого вертикального среза (Фаза 1).
@@ -27,6 +51,19 @@ class CONTRARYSURVIVOR_API AContrarySurvivorHUD : public AHUD
 
 public:
 	virtual void DrawHUD() override;
+
+	// --- Экран инвентаря (Фаза 4, GDD §7.4) — immediate-mode, без UMG/.uasset ---
+
+	// Открыть/закрыть/переключить экран инвентаря. Вызывается контроллером по клавише.
+	void SetInventoryOpen(bool bOpen);
+	void ToggleInventory();
+	bool IsInventoryOpen() const { return bInventoryOpen; }
+
+	// Обработать клик мыши/тап по экрану инвентаря в экранных координатах ScreenPos.
+	// Ищет попавшую кликабельную зону (зоны собраны прошлым DrawInventory) и выполняет
+	// действие через APlayerCharacter (надеть/снять/использовать/выбросить).
+	// Возвращает true, если зона найдена и действие выполнено.
+	bool HandleInventoryClick(FVector2D ScreenPos);
 
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
@@ -109,6 +146,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
 	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
 
+	// --- Экран инвентаря (GDD §7.4) ---
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvDimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);      // затемнение фона
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvPanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f); // фон панели
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvSlotColor = FLinearColor(0.15f, 0.16f, 0.2f, 1.0f);    // пустой слот/строка
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvSlotFilledColor = FLinearColor(0.2f, 0.3f, 0.22f, 1.0f); // занятый слот
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvHoverColor = FLinearColor(0.32f, 0.38f, 0.5f, 1.0f);   // подсветка под курсором
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	FLinearColor InvDropColor = FLinearColor(0.5f, 0.12f, 0.12f, 1.0f);    // кнопка [X] выброса
+
 private:
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
@@ -121,4 +178,23 @@ private:
 
 	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
 	void DrawPlayerStats(UStatsComponent* Stats);
+
+	// --- Экран инвентаря (immediate-mode) ---
+
+	// Открыт ли экран инвентаря (модальный поверх HUD).
+	bool bInventoryOpen = false;
+
+	// Кликабельные зоны, пересобираемые каждый DrawInventory. Используются HandleInventoryClick.
+	TArray<FInvHitRegion> InvHitRegions;
+
+	// Рисует весь экран инвентаря: слева paper-doll (Head/Torso/Legs + оружие),
+	// справа рюкзак (неэкипированные предметы), сверху деньги/голод/жажда. Заполняет InvHitRegions.
+	void DrawInventory(APlayerCharacter* Player);
+
+	// Рисует прямоугольную «плитку» (фон + опц. подсветка под курсором) и текст. Хелпер layout.
+	void DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
+		const FVector2D& MousePos, const FString& Label, class UFont* Font);
+
+	// Точка внутри прямоугольника зоны?
+	static bool PointInRegion(const FVector2D& P, const FInvHitRegion& R);
 };

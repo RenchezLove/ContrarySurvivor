@@ -10,6 +10,7 @@
 #include "ARangedWeapon.h"
 #include "Engine/HitResult.h"
 #include "EngineUtils.h" // TActorIterator
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -74,7 +75,39 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 	if (InputComponent)
 	{
 		InputComponent->BindAction(TEXT("SwitchWeapon"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnSwitchWeapon);
+
+		// Инвентарь (Tab / I) — legacy ActionMapping "ToggleInventory" (Фаза 4, без нового .uasset).
+		InputComponent->BindAction(TEXT("ToggleInventory"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleInventory);
 	}
+}
+
+void AContrarySurvivorPlayerController::OnToggleInventory()
+{
+	bInventoryOpen = !bInventoryOpen;
+
+	// Синхронизируем экран инвентаря на HUD (immediate-mode отрисовка).
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetInventoryOpen(bInventoryOpen);
+	}
+
+	// Режим ввода: открыто -> GameAndUI (курсор виден, клики читаются как UI-клики инвентаря,
+	// игровые экшены тоже доходят — гейтятся флагом bInventoryOpen в Fire/Move). Закрыто -> GameOnly.
+	if (bInventoryOpen)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+		bShowMouseCursor = true;
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+		bShowMouseCursor = true; // курсор нужен и в игре (клик-таргетинг)
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Inventory %s"), bInventoryOpen ? TEXT("OPEN") : TEXT("CLOSED"));
 }
 
 void AContrarySurvivorPlayerController::Tick(float DeltaTime)
@@ -105,6 +138,12 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
+	// Пока открыт инвентарь — движение подавлено (модальный экран).
+	if (bInventoryOpen)
+	{
+		return;
+	}
+
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
 	APawn* ControlledPawn = GetPawn();
@@ -137,6 +176,21 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
+	// Если открыт инвентарь — клик уходит в UI инвентаря (надеть/снять/использовать/выбросить),
+	// НЕ в стрельбу/таргетинг. Editor-независимый hit-test по зонам HUD.
+	if (bInventoryOpen)
+	{
+		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		{
+			float MX = 0.0f, MY = 0.0f;
+			if (GetMousePosition(MX, MY))
+			{
+				CSHUD->HandleInventoryClick(FVector2D(MX, MY));
+			}
+		}
+		return;
+	}
+
 	// Клик: ручной выбор цели под курсором (переключение лока на другого врага).
 	// Если под курсором валидный враг — lock переключается на него (поверх авто-ближайшего).
 	TrySelectTarget();

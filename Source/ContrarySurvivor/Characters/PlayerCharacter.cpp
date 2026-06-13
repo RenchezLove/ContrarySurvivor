@@ -19,6 +19,7 @@
 #include "AHeadArmor.h"
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
+#include "AConsumableItem.h"
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -239,6 +240,152 @@ void APlayerCharacter::UnequipTestArmor()
     UnequipArmor(EArmorSlot::Legs);
     UE_LOG(LogTemp, Log, TEXT("UnequipTestArmor: all slots cleared. Total armor %.2f"),
         GetTotalArmorProtection());
+}
+
+// ---------------------------------------------------------------------------
+// Действия UI-инвентаря (Фаза 4) — вызываются из AContrarySurvivorHUD по клику
+// ---------------------------------------------------------------------------
+
+void APlayerCharacter::Inv_UseBackpackItem(AMasterInventoryItem* Item)
+{
+    if (!Item || !Inventory)
+    {
+        return;
+    }
+
+    switch (Item->GetItemCategory())
+    {
+        case EItemCategory::Armor:
+        {
+            // Броня -> надеть в её слот (подмена меша) и пометить экипированной
+            // (чтобы не теряться при смерти и не дублироваться в списке рюкзака).
+            if (AArmor* Armor = Cast<AArmor>(Item))
+            {
+                EquipArmor(Armor);
+                Inventory->SetItemEquipped(Armor, true);
+                UE_LOG(LogTemp, Log, TEXT("Inv: equipped %s"), *Armor->GetName());
+            }
+            break;
+        }
+        case EItemCategory::Consumable:
+        {
+            // Расходник -> применить эффект (еда +Hunger / вода +Thirst) и израсходовать.
+            if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+            {
+                if (Cons->ApplyConsumeEffect(Stats))
+                {
+                    Inventory->RemoveItem(Item);
+                    Item->Destroy();
+                    UE_LOG(LogTemp, Log, TEXT("Inv: consumed %s"), *Cons->GetName());
+                }
+            }
+            break;
+        }
+        default:
+            UE_LOG(LogTemp, Log, TEXT("Inv: item %s has no use action (category %d)"),
+                *Item->GetName(), (int32)Item->GetItemCategory());
+            break;
+    }
+}
+
+void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
+{
+    if (!Item || !Inventory)
+    {
+        return;
+    }
+
+    // Если выбрасываем экипированную броню — сперва снять (вернуть меш слота к базовому).
+    if (AArmor* Armor = Cast<AArmor>(Item))
+    {
+        if (Inventory->IsItemEquipped(Armor))
+        {
+            UnequipArmor(Armor->GetArmorSlot());
+        }
+    }
+
+    Inventory->RemoveItem(Item);
+    UE_LOG(LogTemp, Log, TEXT("Inv: dropped %s"), *Item->GetName());
+
+    // MVP: без выпадения лут-мешка на землю — просто уничтожаем actor предмета.
+    Item->Destroy();
+}
+
+void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)
+{
+    AArmor* Armor = GetEquippedArmor(Slot);
+    UnequipArmor(Slot);
+
+    if (Armor && Inventory)
+    {
+        Inventory->SetItemEquipped(Armor, false);
+        // Вернуть в рюкзак как неэкипированный (без дублирования).
+        if (!Inventory->GetInventoryItems().Contains(Armor))
+        {
+            Inventory->AddItem(Armor);
+        }
+        UE_LOG(LogTemp, Log, TEXT("Inv: unequipped slot %d (%s -> backpack)"),
+            (int32)Slot, *Armor->GetName());
+    }
+}
+
+void APlayerCharacter::GiveTestItems()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Inventory)
+    {
+        return;
+    }
+
+    FActorSpawnParameters Sp;
+    Sp.Owner = this;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    // Предметы рюкзака — не объекты на сцене: прячем визуал/коллизию, держим как данные.
+    auto AddHidden = [&](AMasterInventoryItem* It)
+    {
+        if (!It)
+        {
+            return;
+        }
+        It->SetActorHiddenInGame(true);
+        It->SetActorEnableCollision(false);
+        Inventory->AddItem(It);
+    };
+
+    // Расходники: еда (+Hunger) и вода (+Thirst).
+    if (AConsumableItem* Food = World->SpawnActor<AConsumableItem>(
+            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Food->ConsumableType = EConsumableType::Food;
+        Food->ItemName = TEXT("Canned Food");
+        AddHidden(Food);
+    }
+    if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
+            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Water->ConsumableType = EConsumableType::Water;
+        Water->ItemName = TEXT("Water Bottle");
+        AddHidden(Water);
+    }
+
+    // Запасная броня (Head_02 / Torso_02) — лежит в рюкзаке неэкипированной,
+    // чтобы было что надеть через paper-doll.
+    if (AHeadArmor* Head = World->SpawnActor<AHeadArmor>(
+            AHeadArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Head->ItemName = TEXT("Spare Head Armor (Head_02)");
+        AddHidden(Head);
+    }
+    if (ATorsoArmor* Torso = World->SpawnActor<ATorsoArmor>(
+            ATorsoArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
+    {
+        Torso->ItemName = TEXT("Spare Torso Armor (Torso_02)");
+        AddHidden(Torso);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("GiveTestItems: added 2 consumables + 2 spare armor pieces. Backpack size now %d"),
+        Inventory->GetInventoryItems().Num());
 }
 
 void APlayerCharacter::SwitchWeapon()
