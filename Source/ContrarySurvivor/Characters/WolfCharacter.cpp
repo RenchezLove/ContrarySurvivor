@@ -43,11 +43,12 @@ AWolfCharacter::AWolfCharacter()
 		{
 			MeshComp->SetSkeletalMeshAsset(WolfMeshAsset.Object);
 		}
-		// Выравнивание меша под капсулу: Z = -(half-height) ставит лапы на дно капсулы
-		// (после re-import волк ориентирован как гуманоид: forward=-Y, up=+Z, лапы на Z0).
-		// Yaw -90 разворачивает по +X (волк смотрит вперёд) — ВЕРНО, не менять. Pitch/Roll 0.
+		// Выравнивание меша под капсулу: Z = -(half-height) ставит лапы на дно капсулы.
+		// После re-export с ИСХОДНОЙ ориентацией волк forward=+Y (гуманоид forward=-Y),
+		// т.е. развёрнут на 180° относительно гуманоида. Поэтому Yaw = +90 (было -90; +90 = -90+180):
+		// волк смотрит вперёд по +X. Это rigid-поворот компонента — скиннинг/анимации не ломает. Pitch/Roll 0.
 		// Z вычисляем от реального half-height капсулы, а не магической константой.
-		MeshComp->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -WolfCapsuleHalfHeight), FRotator(0.f, -90.f, 0.f));
+		MeshComp->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -WolfCapsuleHalfHeight), FRotator(0.f, 90.f, 0.f));
 		// Меш не несёт коллизию — её держит капсула.
 		MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
