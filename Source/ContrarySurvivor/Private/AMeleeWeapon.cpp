@@ -10,6 +10,7 @@
 #include "Engine/OverlapResult.h"
 #include "Engine/DamageEvents.h"
 #include "UObject/ConstructorHelpers.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 
 AMeleeWeapon::AMeleeWeapon()
 {
@@ -80,67 +81,88 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 
 	const FVector Origin = Wielder->GetActorLocation();
 
-	// Грубый overlap по объектам-пешкам: радиус с запасом (носитель + дальность + типовая
-	// капсула цели ~60). Точную проверку поверхность-к-поверхности делаем ниже по каждой цели.
-	const float QueryRadius = WielderRadius + MeleeRange + 60.0f;
+	// Дистанция поверхность-к-поверхности до актёра (центр-к-центру минус радиусы капсул),
+	// как в фиксе боя бандита (Фаза 2). Возвращает BIG_NUMBER, если цель невалидна.
+	auto SurfaceDistTo = [&](AActor* Target) -> float
+	{
+		if (!IsValid(Target) || Target == Wielder)
+		{
+			return TNumericLimits<float>::Max();
+		}
+		float TargetRadius = 0.0f;
+		if (const ACharacter* TargetChar = Cast<ACharacter>(Target))
+		{
+			if (const UCapsuleComponent* Capsule = TargetChar->GetCapsuleComponent())
+			{
+				TargetRadius = Capsule->GetScaledCapsuleRadius();
+			}
+		}
+		const float CenterDist = FVector::Dist(Origin, Target->GetActorLocation());
+		return CenterDist - WielderRadius - TargetRadius;
+	};
 
-	FCollisionObjectQueryParams ObjParams;
-	ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+	// ФИКС2: бьём РОВНО ОДНУ цель за удар (не AoE).
+	AActor* Victim = nullptr;
 
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(Wielder);
-	QueryParams.AddIgnoredActor(this);
+	// 1) Приоритет — залоченная цель игрока (консистентно с тач-управлением: лок = кого бьём),
+	//    если она в дистанции удара. Авто-таргет контроллера держит CurrentTarget живым.
+	if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetInstigatorController()))
+	{
+		AActor* Locked = PC->GetCurrentTarget();
+		if (IsValid(Locked) && Locked != Wielder && SurfaceDistTo(Locked) <= MeleeRange)
+		{
+			Victim = Locked;
+		}
+	}
 
-	TArray<FOverlapResult> Overlaps;
-	const bool bAny = World->OverlapMultiByObjectType(
-		Overlaps,
-		Origin,
-		FQuat::Identity,
-		ObjParams,
-		FCollisionShape::MakeSphere(QueryRadius),
-		QueryParams);
+	// 2) Фолбэк — ближайшая ОДНА цель-пешка в коротком радиусе перед игроком.
+	if (!Victim)
+	{
+		const float QueryRadius = WielderRadius + MeleeRange + 60.0f;
 
-	if (!bAny)
+		FCollisionObjectQueryParams ObjParams;
+		ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+
+		FCollisionQueryParams QueryParams;
+		QueryParams.AddIgnoredActor(Wielder);
+		QueryParams.AddIgnoredActor(this);
+
+		TArray<FOverlapResult> Overlaps;
+		World->OverlapMultiByObjectType(
+			Overlaps,
+			Origin,
+			FQuat::Identity,
+			ObjParams,
+			FCollisionShape::MakeSphere(QueryRadius),
+			QueryParams);
+
+		float BestDist = MeleeRange;
+		for (const FOverlapResult& Ov : Overlaps)
+		{
+			AActor* HitActor = Ov.GetActor();
+			if (!HitActor || HitActor == Wielder)
+			{
+				continue;
+			}
+			const float SurfaceDist = SurfaceDistTo(HitActor);
+			if (SurfaceDist <= BestDist) // строго ближайший в пределах MeleeRange
+			{
+				BestDist = SurfaceDist;
+				Victim = HitActor;
+			}
+		}
+	}
+
+	if (!Victim)
 	{
 		UE_LOG(LogTemp, Log, TEXT("AMeleeWeapon: swing — no target in range"));
 		return;
 	}
 
-	int32 HitCount = 0;
-	TSet<AActor*> Damaged; // не бить одну цель дважды за замах
-	for (const FOverlapResult& Ov : Overlaps)
-	{
-		AActor* HitActor = Ov.GetActor();
-		if (!HitActor || HitActor == Wielder || Damaged.Contains(HitActor))
-		{
-			continue;
-		}
+	// Урон РОВНО одной цели.
+	FDamageEvent DamageEvent;
+	Victim->TakeDamage(Damage, DamageEvent, GetInstigatorController(), this);
 
-		// Дистанция поверхность-к-поверхности (как в фиксе боя бандита).
-		float TargetRadius = 0.0f;
-		if (const ACharacter* HitChar = Cast<ACharacter>(HitActor))
-		{
-			if (const UCapsuleComponent* Capsule = HitChar->GetCapsuleComponent())
-			{
-				TargetRadius = Capsule->GetScaledCapsuleRadius();
-			}
-		}
-
-		const float CenterDist = FVector::Dist(Origin, HitActor->GetActorLocation());
-		const float SurfaceDist = CenterDist - WielderRadius - TargetRadius;
-		if (SurfaceDist > MeleeRange)
-		{
-			continue; // вне короткого радиуса ножа
-		}
-
-		FDamageEvent DamageEvent;
-		HitActor->TakeDamage(Damage, DamageEvent, GetInstigatorController(), this);
-		Damaged.Add(HitActor);
-		++HitCount;
-
-		UE_LOG(LogTemp, Log, TEXT("AMeleeWeapon: knife hit %s for %.1f"),
-			*HitActor->GetName(), Damage);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("AMeleeWeapon: swing dealt damage to %d target(s)"), HitCount);
+	UE_LOG(LogTemp, Log, TEXT("AMeleeWeapon: knife hit %s for %.1f (single target)"),
+		*Victim->GetName(), Damage);
 }
