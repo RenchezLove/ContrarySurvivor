@@ -54,6 +54,12 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float RespawnHealthFraction = 1.0f;
 
+    // Доля SurvivalMax, до которой восстанавливаются Голод/Жажда при death-респауне
+    // (решение game-lead: респаун = полные статы). 1.0 -> полные. Применяется ТОЛЬКО в
+    // ветке HandleDeath, не ломает обычный save/load (quit->reload восстанавливает точные значения).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float RespawnSurvivalFraction = 1.0f;
+
     // --- Сейв/респаун (GDD §7.8) ---
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")

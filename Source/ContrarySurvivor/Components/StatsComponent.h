@@ -242,6 +242,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
 	void ModifyThirst(float Delta);
 
+	// Жёстко выставляет голод/жажду (clamp 0..SurvivalMax) и бродкастит. По образцу SetHealth —
+	// нужно для death-респауна (форс полных значений независимо от сейва).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void SetHunger(float NewHunger);
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")
+	void SetThirst(float NewThirst);
+
 	// --- Деньги ---
 
 	UFUNCTION(BlueprintCallable, Category = "Stats|Survival")

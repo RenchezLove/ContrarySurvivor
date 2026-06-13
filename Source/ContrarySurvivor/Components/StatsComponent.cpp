@@ -158,6 +158,18 @@ void UStatsComponent::ModifyThirst(float Delta)
 	}
 }
 
+void UStatsComponent::SetHunger(float NewHunger)
+{
+	Hunger = FMath::Clamp(NewHunger, 0.0f, SurvivalMax);
+	OnHungerChanged.Broadcast(Hunger, SurvivalMax);
+}
+
+void UStatsComponent::SetThirst(float NewThirst)
+{
+	Thirst = FMath::Clamp(NewThirst, 0.0f, SurvivalMax);
+	OnThirstChanged.Broadcast(Thirst, SurvivalMax);
+}
+
 void UStatsComponent::ConsumeFood()
 {
 	ModifyHunger(FoodRestoreAmount);

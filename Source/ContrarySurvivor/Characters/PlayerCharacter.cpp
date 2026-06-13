@@ -271,13 +271,18 @@ void APlayerCharacter::HandleDeath()
         UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
     }
 
-    // 3) Респаун = полный HP (решение game-lead). Голод/жажда/деньги уже восстановлены
-    //    из сейва выше; здесь принудительно поднимаем только HP до MaxHealth*Fraction.
+    // 3) Death-респаун = полные HP/Голод/Жажда (решение game-lead). Деньги — из сейва (шаг 2).
+    //    Автосейв костра пишет ЖИВЫЕ значения голода/жажды (жажда деградирует быстрее),
+    //    поэтому при загрузке они «нестабильны» по таймингу — форсим в максимум здесь.
+    //    ВАЖНО: только в death-ветке; обычный quit->reload (ApplySaveData) значения НЕ трогает.
     if (Stats)
     {
         Stats->SetHealth(Stats->GetMaxHealth() * RespawnHealthFraction);
-        UE_LOG(LogTemp, Warning, TEXT("Respawn HP set to %.1f/%.1f (fraction %.2f)"),
-            Stats->GetHealth(), Stats->GetMaxHealth(), RespawnHealthFraction);
+        Stats->SetHunger(Stats->GetSurvivalMax() * RespawnSurvivalFraction);
+        Stats->SetThirst(Stats->GetSurvivalMax() * RespawnSurvivalFraction);
+        UE_LOG(LogTemp, Warning, TEXT("Respawn stats: HP %.1f/%.1f, Hunger %.1f, Thirst %.1f (frac HP %.2f / Surv %.2f)"),
+            Stats->GetHealth(), Stats->GetMaxHealth(), Stats->GetHunger(), Stats->GetThirst(),
+            RespawnHealthFraction, RespawnSurvivalFraction);
     }
 }
 
