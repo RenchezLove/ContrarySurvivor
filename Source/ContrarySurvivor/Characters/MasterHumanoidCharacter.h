@@ -76,6 +76,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Armor")
 	AArmor* EquippedPantsArmor;
 
+	// Потолок суммарного процентного снижения урона бронёй [0..1] (решение Рината:
+	// процентная броня). Final = Incoming * (1 - clamp(SumArmorFraction, 0, Cap)).
+	// DRAFT = 0.75 (макс −75% урона, всегда остаётся минимум 25% — нет min-1 неуязвимости).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Armor", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ArmorReductionCap;
+
 public:
 	virtual void Tick(float DeltaTime) override;
 
@@ -100,9 +106,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment|Armor")
 	void EquipArmor(AArmor* Armor);
 
-	// Суммарная защита всех экипированных слотов брони (flat). Читается в TakeDamage.
+	// Суммарная ДОЛЯ снижения урона по всем экипированным слотам брони [0..N] (без капа;
+	// кап применяется в ComputeArmoredDamage). Читается при расчёте урона.
 	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
 	float GetTotalArmorProtection() const;
+
+	// Применяет процентную броню к входящему урону (решение Рината):
+	// Final = Incoming * (1 - clamp(GetTotalArmorProtection(), 0, ArmorReductionCap)).
+	// Используется в TakeDamage игрока и врага. Процент всегда оставляет часть урона —
+	// убирает min-1 неуязвимость старой flat-формулы.
+	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
+	float ComputeArmoredDamage(float Incoming) const;
 
 	// --- Геттеры ---
 

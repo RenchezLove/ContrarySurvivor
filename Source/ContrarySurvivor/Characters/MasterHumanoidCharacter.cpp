@@ -27,6 +27,9 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
     EquippedTorsoArmor = nullptr;
     EquippedPantsArmor = nullptr;
 
+    // DRAFT (решение Рината): потолок процентного снижения урона бронёй = 75%.
+    ArmorReductionCap = 0.75f;
+
     HeadMesh = GetMesh();
 
     TorsoMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("TorsoMesh"));
@@ -126,6 +129,13 @@ float AMasterHumanoidCharacter::GetTotalArmorProtection() const
     if (EquippedTorsoArmor) { Total += EquippedTorsoArmor->GetArmorProtection(); }
     if (EquippedPantsArmor) { Total += EquippedPantsArmor->GetArmorProtection(); }
     return Total;
+}
+
+float AMasterHumanoidCharacter::ComputeArmoredDamage(float Incoming) const
+{
+    // Процентная броня (решение Рината): Final = Incoming * (1 - clamp(Sum, 0, Cap)).
+    const float Fraction = FMath::Clamp(GetTotalArmorProtection(), 0.0f, ArmorReductionCap);
+    return Incoming * (1.0f - Fraction);
 }
 
 void AMasterHumanoidCharacter::FireCurrentWeapon(AActor* Target)

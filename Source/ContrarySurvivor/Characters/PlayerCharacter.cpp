@@ -104,15 +104,14 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
         return 0.0f;
     }
 
-    // GDD §7.2: броня снижает урон. DRAFT-формула (на ревью game-lead/Рината):
-    // Final = max(1, Incoming - SumArmorProtection). Сумма защиты — по экипированным слотам.
-    const float Protection = GetTotalArmorProtection();
-    const float Reduced = FMath::Max(1.0f, DamageAmount - Protection);
+    // GDD §7.2: броня снижает урон. ПРОЦЕНТНАЯ формула (решение Рината):
+    // Final = Incoming * (1 - clamp(SumArmorFraction, 0, Cap)). Без min-1 неуязвимости.
+    const float Reduced = ComputeArmoredDamage(DamageAmount);
 
     const float Applied = Stats->ApplyDamage(Reduced);
 
-    UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f - armor %.1f). Health: %.1f/%.1f"),
-        Applied, DamageAmount, Protection, Stats->GetHealth(), Stats->GetMaxHealth());
+    UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
+        Applied, DamageAmount, GetTotalArmorProtection(), ArmorReductionCap, Stats->GetHealth(), Stats->GetMaxHealth());
 
     return Applied;
 }

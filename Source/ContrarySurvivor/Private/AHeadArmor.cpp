@@ -5,8 +5,8 @@
 
 AHeadArmor::AHeadArmor()
 {
-	// ЧЕРНОВОЕ значение защиты слота головы (draft, на тюнинг — ревью game-lead/Рината).
-	ArmorProtection = 5.0f;
+	// ЧЕРНОВАЯ доля снижения урона слотом головы [0..1] (draft Рината: процентная броня).
+	ArmorProtection = 0.10f;
 
 	ItemName = FString("Head Armor");
 }

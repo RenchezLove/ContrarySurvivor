@@ -5,8 +5,8 @@
 
 APantsArmor::APantsArmor()
 {
-	// ЧЕРНОВОЕ значение защиты слота штанов (draft, на тюнинг — ревью game-lead/Рината).
-	ArmorProtection = 8.0f;
+	// ЧЕРНОВАЯ доля снижения урона слотом штанов [0..1] (draft Рината: процентная броня).
+	ArmorProtection = 0.15f;
 
 	ItemName = FString("Pants Armor");
 }
