@@ -101,13 +101,16 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// Взаимодействие (E) — legacy ActionMapping "Interact" (Фаза 4, экономика: магазин).
 		InputComponent->BindAction(TEXT("Interact"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnInteract);
 
-		// QA-харнесс (Фаза 4 раунд 2): тест-действия на F1-F5 (legacy ActionMapping,
-		// Config/DefaultInput.ini). Дают автотестеру (Computer Use) проверять без `~`-консоли.
+		// QA-харнесс (Фаза 4 раунд 2): тест-действия F1-F4 + M (деньги; перевешено с F5 из-за
+		// вьюмода Shader Complexity) + T (телепорт к торговцу). Legacy ActionMapping,
+		// Config/DefaultInput.ini. Дают автотестеру (Computer Use) проверять без `~`-консоли.
 		InputComponent->BindAction(TEXT("QAToggleDebugCam"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleDebugCamera);
 		InputComponent->BindAction(TEXT("QAGiveItems"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveItems);
 		InputComponent->BindAction(TEXT("QAEquipArmor"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestEquipArmor);
 		InputComponent->BindAction(TEXT("QAUnequipArmor"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestUnequipArmor);
 		InputComponent->BindAction(TEXT("QAGiveMoney"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveMoney);
+			// Тест-телепорт к торговцу (клавиша T) — обход блокировки волками для проверки купли/продажи.
+			InputComponent->BindAction(TEXT("QATeleportToTrader"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToTrader);
 
 		// QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами (тестер не кликает HUD в PIE).
 		InputComponent->BindAction(TEXT("QAUseConsumable"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAUseFirstConsumable);
@@ -119,7 +122,7 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 }
 
 // ---------------------------------------------------------------------------
-// QA-харнесс: тест-действия на функциональные клавиши (F1-F5)
+// QA-харнесс: тест-действия (F1-F4, M = деньги, T = телепорт к торговцу)
 // ---------------------------------------------------------------------------
 
 void AContrarySurvivorPlayerController::OnToggleDebugCamera()
@@ -166,10 +169,64 @@ void AContrarySurvivorPlayerController::OnTestGiveMoney()
 		if (UStatsComponent* St = PlayerChar->GetStats())
 		{
 			St->AddMoney(TestMoneyGrant);
-			UE_LOG(LogQA, Display, TEXT("QA: F5 +%.0f money. Balance now %.0f"),
+			UE_LOG(LogQA, Display, TEXT("QA: +%.0f money, balance %.0f"),
 				TestMoneyGrant, St->GetMoney());
 		}
 	}
+}
+
+void AContrarySurvivorPlayerController::OnQATeleportToTrader()
+{
+	// T: телепортировать игрока вплотную к ближайшему торговцу. «Сборщик» не может подвести
+	// игрока к прилавку сверху (волки сбивают), поэтому для верификации купли/продажи нужен
+	// мгновенный перенос в радиус взаимодействия. Ставим игрока внутрь InteractTrigger
+	// торговца (overlap выставит NearbyTrader) и дополнительно регистрируем торговца напрямую
+	// (детерминизм — не зависим от тайминга overlap-события), после чего F9/F10/E работают.
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no trader"));
+		return;
+	}
+
+	ATraderNPC* Trader = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	const FVector PawnLoc = ControlledPawn->GetActorLocation();
+	for (TActorIterator<ATraderNPC> It(World); It; ++It)
+	{
+		ATraderNPC* Candidate = *It;
+		if (!IsValid(Candidate))
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Trader = Candidate;
+		}
+	}
+
+	if (!IsValid(Trader))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no trader"));
+		return;
+	}
+
+	// Точка рядом с торговцем: смещение по горизонтали (< радиуса триггера, дефолт 220 см),
+	// высота игрока сохраняется, чтобы не утопить/не подвесить капсулу.
+	const FVector TLoc = Trader->GetActorLocation();
+	FVector Dest = TLoc + FVector(120.0f, 0.0f, 0.0f);
+	Dest.Z = PawnLoc.Z;
+
+	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+
+	// Гарантированно регистрируем торговца как ближайшего (overlap при телепорте тоже сработает,
+	// но прямой вызов убирает зависимость от порядка обновления overlap'ов в этом же кадре).
+	SetNearbyTrader(Trader);
+
+	UE_LOG(LogQA, Display, TEXT("QA: teleported to trader at %s"), *Dest.ToCompactString());
 }
 
 // ---------------------------------------------------------------------------

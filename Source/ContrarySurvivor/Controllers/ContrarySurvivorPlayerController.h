@@ -154,9 +154,16 @@ protected:
 	UFUNCTION()
 	void OnTestUnequipArmor();
 
-	// F5: +TestMoneyGrant денег (для теста покупки у торговца).
+	// M (бывш. F5, перевешено из-за конфликта с вьюмодом Shader Complexity): +TestMoneyGrant
+	// денег (для теста покупки у торговца).
 	UFUNCTION()
 	void OnTestGiveMoney();
+
+	// T: тест-телепорт игрока вплотную к ближайшему торговцу (ATraderNPC) в радиус его
+	// InteractTrigger — чтобы сработал NearbyTrader и заработали F9/F10/E. Волки не дают
+	// подойти к прилавку сверху, поэтому нужен телепорт для верификации купли/продажи.
+	UFUNCTION()
+	void OnQATeleportToTrader();
 
 	// --- QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами ---
 	// Тестер (Computer Use) НЕ может кликать HUD в PIE (мышь захвачена), поэтому те же
