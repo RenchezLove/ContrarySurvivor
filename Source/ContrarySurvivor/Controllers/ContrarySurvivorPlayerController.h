@@ -72,6 +72,11 @@ protected:
 	// Перезарядка
 	void Reload(const FInputActionValue& Value);
 
+	// Переключение оружия (пистолет<->нож). Привязано через LEGACY ActionMapping
+	// (Config/DefaultInput.ini), чтобы не плодить Enhanced Input .uasset без редактора (Фаза 3).
+	UFUNCTION()
+	void OnSwitchWeapon();
+
 	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")

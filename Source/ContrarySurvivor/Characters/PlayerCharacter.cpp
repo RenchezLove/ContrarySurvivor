@@ -15,6 +15,7 @@
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "UInventoryComponent.h"
 #include "AMasterInventoryItem.h"
+#include "AMeleeWeapon.h"
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -51,6 +52,10 @@ APlayerCharacter::APlayerCharacter()
     // У игрока (в отличие от врага) деградация голода/жажды включена (GDD §7.3).
     Stats->SetSurvivalDegradationEnabled(true);
 
+    // Нож доступен «из коробки» без нового .uasset: дефолт = конкретный AMeleeWeapon.
+    // BP игрока может переопределить (например, на BP_Knife) в дефолтах.
+    DefaultMeleeWeaponClass = AMeleeWeapon::StaticClass();
+
     SetUpMovement();
 }
 
@@ -73,6 +78,9 @@ void APlayerCharacter::BeginPlay()
 
     // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
     EquipDefaultWeapon();
+
+    // Нож держим «в кобуре» (скрыт), переключение по SwitchWeapon (Фаза 3).
+    SpawnMeleeWeapon();
 }
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -117,6 +125,7 @@ void APlayerCharacter::EquipDefaultWeapon()
 
     if (SpawnedWeapon)
     {
+        RangedWeaponInstance = SpawnedWeapon;
         // EquipWeapon крепит оружие к WeaponSocketName на TorsoMesh и выставляет CurrentWeapon.
         EquipWeapon(SpawnedWeapon);
     }
@@ -124,6 +133,66 @@ void APlayerCharacter::EquipDefaultWeapon()
     {
         UE_LOG(LogTemp, Warning, TEXT("EquipDefaultWeapon: failed to spawn DefaultWeaponClass"));
     }
+}
+
+void APlayerCharacter::SpawnMeleeWeapon()
+{
+    if (!DefaultMeleeWeaponClass)
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.Instigator = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    AMasterWeapon* Knife = World->SpawnActor<AMasterWeapon>(
+        DefaultMeleeWeaponClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+
+    if (Knife)
+    {
+        MeleeWeaponInstance = Knife;
+        // Нож нужен для урона (Instigator), но не активен: гасим видимость/коллизию.
+        Knife->SetInstigator(this);
+        Knife->SetActorHiddenInGame(true);
+        Knife->SetActorEnableCollision(false);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SpawnMeleeWeapon: failed to spawn DefaultMeleeWeaponClass"));
+    }
+}
+
+void APlayerCharacter::SwitchWeapon()
+{
+    // Тоггл между дальним (пистолет) и ближним (нож) оружием.
+    AMasterWeapon* Active = GetCurrentWeapon();
+    AMasterWeapon* Target = (Active == MeleeWeaponInstance) ? RangedWeaponInstance : MeleeWeaponInstance;
+
+    if (!Target || Target == Active)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SwitchWeapon: no alternate weapon to switch to"));
+        return;
+    }
+
+    // Прячем снимаемое, показываем экипируемое (EquipWeapon снимет текущее и прикрепит новое).
+    if (Active)
+    {
+        Active->SetActorHiddenInGame(true);
+        Active->SetActorEnableCollision(false);
+    }
+
+    EquipWeapon(Target);
+    Target->SetActorHiddenInGame(false);
+
+    UE_LOG(LogTemp, Log, TEXT("SwitchWeapon: now wielding %s"), *Target->GetName());
 }
 
 

@@ -87,11 +87,20 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
     TSubclassOf<AMasterWeapon> DefaultWeaponClass;
 
+    // Класс стартового ближнего оружия (нож). По умолчанию AMeleeWeapon (конкретный класс),
+    // чтобы нож был доступен без создания нового .uasset в редакторе (Фаза 3).
+    // Спавнится в BeginPlay и держится «в кобуре»; переключение — SwitchWeapon().
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+    TSubclassOf<AMasterWeapon> DefaultMeleeWeaponClass;
+
     // Called when the game starts or when spawned
     virtual void BeginPlay() override;
 
     // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).
     void EquipDefaultWeapon();
+
+    // Спавнит DefaultMeleeWeaponClass (нож) и держит «в кобуре» (скрыт, не экипирован).
+    void SpawnMeleeWeapon();
 
     /**
      * Sets movement parameters
@@ -105,6 +114,11 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Stats")
     UStatsComponent* GetStats() const { return Stats; }
+
+    // Переключение между дальним (пистолет) и ближним (нож) оружием.
+    // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
+    UFUNCTION(BlueprintCallable, Category = "Equipment")
+    void SwitchWeapon();
 
     // --- Сейв/респаун API (GDD §7.8) ---
 
@@ -135,6 +149,13 @@ protected:
 private:
     // Стартовый трансформ (фолбэк-точка респауна, если сейва ещё нет).
     FTransform InitialSpawnTransform;
+
+    // Инстансы оружия (оба заспавнены в BeginPlay). CurrentWeapon базы указывает на активный.
+    UPROPERTY()
+    AMasterWeapon* RangedWeaponInstance = nullptr;
+
+    UPROPERTY()
+    AMasterWeapon* MeleeWeaponInstance = nullptr;
 
     // Кэш инвентаря (UInventoryComponent на базе AMasterHumanoidCharacter, защищён).
     // Доступ к нему — через каст в .cpp (Inventory protected в базе).

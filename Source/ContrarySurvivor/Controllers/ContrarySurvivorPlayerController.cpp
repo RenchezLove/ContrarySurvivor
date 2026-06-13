@@ -4,6 +4,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ARangedWeapon.h"
@@ -64,6 +65,22 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &AContrarySurvivorPlayerController::Reload);
 		}
+	}
+
+	// LEGACY-привязка переключения оружия (пистолет<->нож). UEnhancedInputComponent
+	// наследует UInputComponent, поэтому legacy ActionMapping из DefaultInput.ini работает
+	// параллельно Enhanced Input — без создания нового IA/IMC .uasset (Фаза 3, no-editor путь).
+	if (InputComponent)
+	{
+		InputComponent->BindAction(TEXT("SwitchWeapon"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnSwitchWeapon);
+	}
+}
+
+void AContrarySurvivorPlayerController::OnSwitchWeapon()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->SwitchWeapon();
 	}
 }
 
