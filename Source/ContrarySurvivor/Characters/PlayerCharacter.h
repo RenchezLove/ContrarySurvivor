@@ -49,6 +49,11 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
     float PlayerMaxHealth = 100.0f;
 
+    // Доля MaxHealth, до которой восстанавливается HP при респауне (решение game-lead:
+    // респаун = полный HP). 1.0 -> Health = MaxHealth. Остальные статы — из сейва.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float RespawnHealthFraction = 1.0f;
+
     // --- Сейв/респаун (GDD §7.8) ---
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")

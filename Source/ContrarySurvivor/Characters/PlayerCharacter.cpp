@@ -270,6 +270,15 @@ void APlayerCharacter::HandleDeath()
         SetActorTransform(InitialSpawnTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
         UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
     }
+
+    // 3) Респаун = полный HP (решение game-lead). Голод/жажда/деньги уже восстановлены
+    //    из сейва выше; здесь принудительно поднимаем только HP до MaxHealth*Fraction.
+    if (Stats)
+    {
+        Stats->SetHealth(Stats->GetMaxHealth() * RespawnHealthFraction);
+        UE_LOG(LogTemp, Warning, TEXT("Respawn HP set to %.1f/%.1f (fraction %.2f)"),
+            Stats->GetHealth(), Stats->GetMaxHealth(), RespawnHealthFraction);
+    }
 }
 
 void APlayerCharacter::SetUpMovement()

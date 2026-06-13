@@ -178,6 +178,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
 	float Heal(float HealAmount);
 
+	// Жёстко выставляет здоровье (clamp 0..MaxHealth), пересчитывает bIsDead и бродкастит.
+	// В отличие от Heal — работает и на «мёртвом» компоненте (нужно для респауна).
+	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
+	void SetHealth(float NewHealth);
+
 	UFUNCTION(BlueprintPure, Category = "Stats|Health")
 	FORCEINLINE bool IsDead() const { return bIsDead; }
 

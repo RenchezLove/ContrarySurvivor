@@ -79,6 +79,13 @@ float UStatsComponent::Heal(float HealAmount)
 	return ActualHeal;
 }
 
+void UStatsComponent::SetHealth(float NewHealth)
+{
+	Health = FMath::Clamp(NewHealth, 0.0f, MaxHealth);
+	bIsDead = (Health <= 0.0f);
+	OnHealthChanged.Broadcast(Health, MaxHealth);
+}
+
 float UStatsComponent::GetHealthPercent() const
 {
 	return (MaxHealth > 0.0f) ? (Health / MaxHealth) : 0.0f;
