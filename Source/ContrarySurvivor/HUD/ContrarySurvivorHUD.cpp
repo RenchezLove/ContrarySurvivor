@@ -12,6 +12,7 @@
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
 #include "UInventoryComponent.h"  // рюкзак
+#include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -96,6 +97,12 @@ void AContrarySurvivorHUD::DrawHUD()
 			if (bInventoryOpen)
 			{
 				DrawInventory(PlayerChar);
+			}
+
+			// --- Экран магазина поверх HUD (модальный, GDD §7.6) ---
+			if (bShopOpen)
+			{
+				DrawShop(PlayerChar);
 			}
 		}
 	}
@@ -351,6 +358,221 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 			if (RowY > MaxRowY)
 			{
 				break; // MVP: без прокрутки — не вылезаем за панель
+			}
+		}
+	}
+}
+
+// ===========================================================================
+// Экран магазина (immediate-mode, без UMG/.uasset) — GDD §7.6
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetShopOpen(bool bOpen, ATraderNPC* Trader)
+{
+	bShopOpen = bOpen;
+	ShopTrader = bOpen ? Trader : nullptr;
+	if (!bOpen)
+	{
+		ShopHitRegions.Reset();
+	}
+}
+
+bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
+{
+	if (!bShopOpen || !ShopTrader)
+	{
+		return false;
+	}
+
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		return false;
+	}
+
+	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+
+	for (const FShopHitRegion& R : ShopHitRegions)
+	{
+		const bool bInside = ScreenPos.X >= R.Min.X && ScreenPos.X <= R.Max.X &&
+			ScreenPos.Y >= R.Min.Y && ScreenPos.Y <= R.Max.Y;
+		if (!bInside)
+		{
+			continue;
+		}
+
+		switch (R.Action)
+		{
+			case EShopAction::Buy:
+				if (Catalog.IsValidIndex(R.EntryIndex))
+				{
+					Player->Shop_BuyEntry(Catalog[R.EntryIndex]);
+				}
+				return true;
+			case EShopAction::Sell:
+				if (IsValid(R.Item))
+				{
+					Player->Shop_SellItem(R.Item, ShopTrader->GetSellValue(R.Item));
+				}
+				return true;
+			case EShopAction::Close:
+				if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+				{
+					CSPC->CloseShop();
+				}
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas || !ShopTrader)
+	{
+		return;
+	}
+
+	ShopHitRegions.Reset();
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (подсветка зон).
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение фона + центр-панель (как в инвентаре).
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+	const float PanelW = FMath::Min(960.0f, SX * 0.86f);
+	const float PanelH = FMath::Min(600.0f, SY * 0.86f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = (SY - PanelH) * 0.5f;
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+
+	const float Pad = 16.0f;
+	const float HeaderY = PY + Pad;
+	if (Font)
+	{
+		DrawText(TEXT("TRADER  (E to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
+	}
+
+	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
+	if (Font)
+	{
+		DrawText(FString::Printf(TEXT("Money %.0f"), Money), FLinearColor(1.0f, 0.9f, 0.4f, 1.0f),
+			PX + Pad, HeaderY + 22.0f, Font);
+	}
+
+	// Кнопка Close (правый верх панели).
+	{
+		const float CloseW = 90.0f, CloseH = 28.0f;
+		const float CX = PX + PanelW - Pad - CloseW;
+		const float CY = HeaderY;
+		DrawInvBox(CX, CY, CloseW, CloseH, InvDropColor, Mouse, TEXT("Close"), Font);
+		FShopHitRegion R;
+		R.Min = FVector2D(CX, CY);
+		R.Max = FVector2D(CX + CloseW, CY + CloseH);
+		R.Action = EShopAction::Close;
+		ShopHitRegions.Add(R);
+	}
+
+	const float ContentY = HeaderY + 56.0f;
+	const float RowH = 34.0f;
+	const float RowGap = 6.0f;
+	const float BtnW = 64.0f;
+	const float MaxRowY = PY + PanelH - Pad - RowH;
+
+	// --- Левая колонка: каталог на продажу (BUY) ---
+	const float LeftW = PanelW * 0.52f;
+	const float LeftX = PX + Pad;
+	const float LeftColW = LeftW - Pad;
+	if (Font)
+	{
+		DrawText(TEXT("FOR SALE"), FLinearColor::White, LeftX, ContentY, Font);
+	}
+
+	float RowY = ContentY + 24.0f;
+	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+	for (int32 i = 0; i < Catalog.Num(); ++i)
+	{
+		const FShopEntry& E = Catalog[i];
+		const float MainW = LeftColW - BtnW - 6.0f;
+		const FString Label = FString::Printf(TEXT("%s  -  %.0f"), *E.DisplayName, E.Price);
+		DrawInvBox(LeftX, RowY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+		// Кнопка [Buy] — зелёная, если хватает денег, иначе тускло-красная.
+		const float BtnX = LeftX + MainW + 6.0f;
+		const bool bAfford = (Money >= E.Price);
+		DrawInvBox(BtnX, RowY, BtnW, RowH, bAfford ? InvSlotFilledColor : InvDropColor, Mouse, TEXT("Buy"), Font);
+		if (bAfford)
+		{
+			FShopHitRegion R;
+			R.Min = FVector2D(BtnX, RowY);
+			R.Max = FVector2D(BtnX + BtnW, RowY + RowH);
+			R.Action = EShopAction::Buy;
+			R.EntryIndex = i;
+			ShopHitRegions.Add(R);
+		}
+
+		RowY += RowH + RowGap;
+		if (RowY > MaxRowY)
+		{
+			break; // MVP: без прокрутки
+		}
+	}
+
+	// --- Правая колонка: рюкзак на продажу (SELL) ---
+	const float RightX = LeftX + LeftW + Pad;
+	const float RightW = (PX + PanelW - Pad) - RightX;
+	if (Font)
+	{
+		DrawText(TEXT("SELL FROM BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
+	}
+
+	float SellY = ContentY + 24.0f;
+	if (UInventoryComponent* Inv = Player->GetInventory())
+	{
+		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
+		{
+			if (!IsValid(Item) || Inv->IsItemEquipped(Item))
+			{
+				continue; // надетую броню не продаём из этого списка
+			}
+
+			const float MainW = RightW - BtnW - 6.0f;
+			const float SellVal = ShopTrader->GetSellValue(Item);
+			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			const FString Label = FString::Printf(TEXT("%s  (+%.0f)"), *Name, SellVal);
+			DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+			const float BtnX = RightX + MainW + 6.0f;
+			DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
+			{
+				FShopHitRegion R;
+				R.Min = FVector2D(BtnX, SellY);
+				R.Max = FVector2D(BtnX + BtnW, SellY + RowH);
+				R.Action = EShopAction::Sell;
+				R.Item = Item;
+				ShopHitRegions.Add(R);
+			}
+
+			SellY += RowH + RowGap;
+			if (SellY > MaxRowY)
+			{
+				break;
 			}
 		}
 	}

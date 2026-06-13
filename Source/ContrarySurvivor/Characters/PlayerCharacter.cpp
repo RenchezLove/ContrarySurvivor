@@ -20,6 +20,8 @@
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
 #include "AConsumableItem.h"
+#include "ARangedWeapon.h"
+#include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
 #include "Kismet/GameplayStatics.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -327,6 +329,114 @@ void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)
         UE_LOG(LogTemp, Log, TEXT("Inv: unequipped slot %d (%s -> backpack)"),
             (int32)Slot, *Armor->GetName());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
+// ---------------------------------------------------------------------------
+
+bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
+{
+    if (!Stats)
+    {
+        return false;
+    }
+
+    // Проверяем платёжеспособность ДО выдачи товара (clamp >=0: нельзя купить без денег).
+    if (Stats->GetMoney() < Entry.Price)
+    {
+        UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' (%.0f < %.0f)"),
+            *Entry.DisplayName, Stats->GetMoney(), Entry.Price);
+        return false;
+    }
+
+    if (Entry.Kind == EShopEntryKind::Ammo)
+    {
+        // Патроны -> резерв дальнобойного оружия игрока.
+        ARangedWeapon* Ranged = Cast<ARangedWeapon>(RangedWeaponInstance);
+        if (!Ranged)
+        {
+            Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
+        }
+        if (!Ranged)
+        {
+            UE_LOG(LogTemp, Log, TEXT("Shop: no ranged weapon to receive ammo"));
+            return false; // не списываем деньги, если некуда класть патроны
+        }
+        Ranged->AddReserveAmmo(Entry.AmmoAmount);
+    }
+    else
+    {
+        // Предмет -> в рюкзак (скрытый, как тестовые/лут-предметы).
+        if (!Entry.ItemClass)
+        {
+            return false;
+        }
+        UWorld* World = GetWorld();
+        if (!World || !Inventory)
+        {
+            return false;
+        }
+
+        FActorSpawnParameters Sp;
+        Sp.Owner = this;
+        Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+        AMasterInventoryItem* Bought = World->SpawnActor<AMasterInventoryItem>(
+            Entry.ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+        if (!Bought)
+        {
+            return false;
+        }
+
+        // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
+        if (Entry.bApplyConsumableType)
+        {
+            if (AConsumableItem* Cons = Cast<AConsumableItem>(Bought))
+            {
+                Cons->ConsumableType = Entry.ConsumableType;
+            }
+        }
+        if (Bought->ItemName.IsEmpty())
+        {
+            Bought->ItemName = Entry.DisplayName;
+        }
+
+        Bought->SetActorHiddenInGame(true);
+        Bought->SetActorEnableCollision(false);
+        Inventory->AddItem(Bought);
+    }
+
+    // Списываем цену (SpendMoney clamp >=0 + бродкаст HUD).
+    Stats->SpendMoney(Entry.Price);
+    UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' for %.0f. Money left %.0f"),
+        *Entry.DisplayName, Entry.Price, Stats->GetMoney());
+    return true;
+}
+
+void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice)
+{
+    if (!Item || !Inventory || !Stats)
+    {
+        return;
+    }
+
+    // Если продаём экипированную броню — сперва снять (вернуть меш слота к базовому).
+    if (AArmor* Armor = Cast<AArmor>(Item))
+    {
+        if (Inventory->IsItemEquipped(Armor))
+        {
+            UnequipArmor(Armor->GetArmorSlot());
+            Inventory->SetItemEquipped(Armor, false);
+        }
+    }
+
+    Inventory->RemoveItem(Item);
+    Stats->AddMoney(SellPrice);
+    UE_LOG(LogTemp, Log, TEXT("Shop: sold %s for %.0f. Money now %.0f"),
+        *Item->GetName(), SellPrice, Stats->GetMoney());
+
+    Item->Destroy();
 }
 
 void APlayerCharacter::GiveTestItems()

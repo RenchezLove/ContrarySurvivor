@@ -12,6 +12,7 @@
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
+class ATraderNPC;
 
 UCLASS()
 class CONTRARYSURVIVOR_API AContrarySurvivorPlayerController : public APlayerController
@@ -24,6 +25,16 @@ public:
 	// Текущая захваченная цель (для HUD/индикатора). Публичный — читается из HUD.
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	AActor* GetCurrentTarget() const { return CurrentTarget; }
+
+	// --- Торговец/магазин (Фаза 4) — вызываются торговцем (overlap) и HUD (кнопка Close) ---
+
+	// Регистрирует/сбрасывает ближайшего торговца (вызывает ATraderNPC при overlap).
+	void SetNearbyTrader(ATraderNPC* Trader);
+	void ClearNearbyTrader(ATraderNPC* Trader);
+
+	// Закрыть магазин (кнопка Close в UI / уход от торговца): вернуть режим ввода в Game.
+	UFUNCTION(BlueprintCallable, Category = "Shop")
+	void CloseShop();
 
 protected:
 	virtual void BeginPlay() override;
@@ -93,6 +104,11 @@ protected:
 	UFUNCTION()
 	void OnToggleInventory();
 
+	// Взаимодействие (LEGACY ActionMapping "Interact", клавиша E). Если рядом торговец —
+	// открыть/закрыть экран магазина (immediate-mode HUD) + переключить режим ввода.
+	UFUNCTION()
+	void OnInteract();
+
 	// Клик/тап по экрану — захват цели под курсором (ADR-017: клик-захват).
 	// Если под курсором валидный враг — захватываем (lock). Иначе текущий lock сохраняется.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
@@ -104,6 +120,14 @@ private:
 	// Открыт ли экран инвентаря (модальный): пока true — клик уходит в инвентарь (не стрельба),
 	// движение подавлено. Зеркалит состояние HUD; источник переключения — OnToggleInventory.
 	bool bInventoryOpen = false;
+
+	// Открыт ли экран магазина (модальный, как инвентарь): клик уходит в магазин,
+	// движение подавлено. Источник переключения — OnInteract/CloseShop.
+	bool bShopOpen = false;
+
+	// Ближайший торговец (выставляется его overlap-триггером). null — торговца рядом нет.
+	UPROPERTY()
+	ATraderNPC* NearbyTrader = nullptr;
 
 	// Текущая захваченная цель (держится до смерти цели или захвата новой).
 	UPROPERTY()

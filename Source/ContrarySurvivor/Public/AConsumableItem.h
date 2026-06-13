@@ -13,8 +13,9 @@ class UStatsComponent;
 UENUM(BlueprintType)
 enum class EConsumableType : uint8
 {
-	Food  UMETA(DisplayName = "Food"),  // +Hunger (Stats->ConsumeFood, +30 из Фазы 2)
-	Water UMETA(DisplayName = "Water")  // +Thirst (Stats->DrinkWater,  +40 из Фазы 2)
+	Food   UMETA(DisplayName = "Food"),   // +Hunger (Stats->ConsumeFood, +30 из Фазы 2)
+	Water  UMETA(DisplayName = "Water"),  // +Thirst (Stats->DrinkWater,  +40 из Фазы 2)
+	Medkit UMETA(DisplayName = "Medkit")  // +HP (Stats->Heal) — бинт/аптечка (GDD §7.6)
 };
 
 /**
@@ -30,9 +31,13 @@ class CONTRARYSURVIVOR_API AConsumableItem : public AMasterInventoryItem
 public:
 	AConsumableItem();
 
-	// Что восстанавливает (еда -> голод, вода -> жажда).
+	// Что восстанавливает (еда -> голод, вода -> жажда, аптечка -> HP).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Consumable")
 	EConsumableType ConsumableType = EConsumableType::Food;
+
+	// Сколько HP восстанавливает аптечка/бинт (тип Medkit). DRAFT, тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Consumable")
+	float HealRestoreAmount = 25.0f;
 
 	// Применяет эффект расходника к статам потребителя. Food -> ConsumeFood (+Hunger),
 	// Water -> DrinkWater (+Thirst). Возвращает true, если эффект применён.

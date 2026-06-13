@@ -7,6 +7,8 @@
 #include "EnemyCharacter.generated.h"
 
 class UStatsComponent;
+class AMasterInventoryItem;
+class APickup;
 
 /**
  * Враг первого вертикального среза (бандит).
@@ -41,6 +43,29 @@ protected:
 	// Через сколько секунд после смерти Destroy тела (даём отыграть рэгдолл).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death")
 	float CorpseLifeSpan = 5.0f;
+
+	// --- Лут при смерти (GDD §7.8: «враги дают деньги, изношенное оружие») ---
+	// Деньги: случайно в [LootMoneyMin..Max]. Бандит DRAFT 10-30 (GDD §7.6 экономика).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	float LootMoneyMin = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	float LootMoneyMax = 30.0f;
+
+	// Шанс выпадения предмета (расходник/изношенный лут). DRAFT.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LootItemDropChance = 0.35f;
+
+	// Класс выпадающего предмета (по умолчанию расходник). Спавнится скрытым в пикапе.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	TSubclassOf<AMasterInventoryItem> LootItemClass;
+
+	// Класс пикапа-лута (по умолчанию APickup, без BP/редактора).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	TSubclassOf<APickup> PickupClass;
+
+	// Спавнит лут (деньги + шанс предмета) в позиции трупа. Вызывается из HandleDeath.
+	void DropLoot();
 
 	// Реакция на смерть из делегата UStatsComponent::OnDeath.
 	// Переопределяет базовую заглушку: у врага смерть идёт через UStatsComponent,

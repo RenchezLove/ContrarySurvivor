@@ -9,6 +9,7 @@
 class UStatsComponent;
 class APlayerCharacter;
 class AMasterInventoryItem;
+class ATraderNPC;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -30,6 +31,25 @@ struct FInvHitRegion
 	EInvAction Action = EInvAction::None;
 	AMasterInventoryItem* Item = nullptr; // для UseItem/DropItem
 	int32 SlotIndex = -1;                 // для UnequipSlot (приведение к EArmorSlot)
+};
+
+// Тип действия кликабельной зоны магазина (Фаза 4, экономика).
+enum class EShopAction : uint8
+{
+	None,
+	Buy,   // купить позицию каталога (EntryIndex)
+	Sell,  // продать предмет рюкзака (Item)
+	Close  // закрыть магазин
+};
+
+// Кликабельная зона магазина (пересобирается каждый кадр в DrawShop).
+struct FShopHitRegion
+{
+	FVector2D Min = FVector2D::ZeroVector;
+	FVector2D Max = FVector2D::ZeroVector;
+	EShopAction Action = EShopAction::None;
+	AMasterInventoryItem* Item = nullptr; // для Sell
+	int32 EntryIndex = -1;                // для Buy (индекс в каталоге торговца)
 };
 
 /**
@@ -64,6 +84,16 @@ public:
 	// действие через APlayerCharacter (надеть/снять/использовать/выбросить).
 	// Возвращает true, если зона найдена и действие выполнено.
 	bool HandleInventoryClick(FVector2D ScreenPos);
+
+	// --- Экран магазина (Фаза 4, экономика — GDD §7.6) — immediate-mode, без UMG/.uasset ---
+
+	// Открыть/закрыть магазин конкретного торговца (вызывается контроллером по клавише).
+	void SetShopOpen(bool bOpen, ATraderNPC* Trader);
+	bool IsShopOpen() const { return bShopOpen; }
+
+	// Обработать клик мыши/тап по экрану магазина (купить/продать/закрыть). Возвращает true,
+	// если зона найдена и действие выполнено.
+	bool HandleShopClick(FVector2D ScreenPos);
 
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
@@ -197,4 +227,19 @@ private:
 
 	// Точка внутри прямоугольника зоны?
 	static bool PointInRegion(const FVector2D& P, const FInvHitRegion& R);
+
+	// --- Экран магазина (immediate-mode) ---
+
+	bool bShopOpen = false;
+
+	// Торговец, чей каталог отрисовываем (источник цен/товаров).
+	UPROPERTY()
+	ATraderNPC* ShopTrader = nullptr;
+
+	// Кликабельные зоны магазина, пересобираются каждый DrawShop.
+	TArray<FShopHitRegion> ShopHitRegions;
+
+	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
+	// сверху деньги + [Close]. Заполняет ShopHitRegions.
+	void DrawShop(APlayerCharacter* Player);
 };

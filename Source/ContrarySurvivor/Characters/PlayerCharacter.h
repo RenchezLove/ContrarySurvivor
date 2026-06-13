@@ -17,6 +17,7 @@
 class UStatsComponent;
 class UContrarySaveGame;
 class AMasterInventoryItem;
+struct FShopEntry;
 
 /**
  * 
@@ -180,6 +181,17 @@ public:
     // (как неэкипированный), чтобы его было видно/можно надеть заново.
     UFUNCTION(BlueprintCallable, Category = "Inventory")
     void Inv_UnequipSlot(EArmorSlot Slot);
+
+    // --- Магазин торговца (Фаза 4, экономика — GDD §7.6) ---
+    // Вызываются из AContrarySurvivorHUD по клику в экране магазина.
+
+    // Купить позицию каталога: проверяет деньги, выдаёт товар (предмет в рюкзак или
+    // патроны в резерв оружия) и списывает цену. Возвращает true при успешной покупке.
+    bool Shop_BuyEntry(const FShopEntry& Entry);
+
+    // Продать предмет рюкзака за SellPrice: экип. броню сначала снимает, удаляет предмет,
+    // начисляет деньги.
+    void Shop_SellItem(AMasterInventoryItem* Item, float SellPrice);
 
     // DEBUG-команда наполнения рюкзака тестовыми предметами (консоль `~`, ввести GiveTestItems):
     // пара расходников (еда+вода) + запасная броня головы/торса — чтобы было что

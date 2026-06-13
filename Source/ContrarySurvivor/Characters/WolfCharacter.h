@@ -8,6 +8,8 @@
 
 class UStatsComponent;
 class UAnimSequence;
+class AMasterInventoryItem;
+class APickup;
 
 /**
  * Волк — второй враг MVP (GDD §7.1, стайный для квеста).
@@ -78,6 +80,25 @@ protected:
 	// Через сколько секунд после смерти убрать тело.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death")
 	float CorpseLifeSpan = 5.0f;
+
+	// --- Лут при смерти (GDD §7.8). Волк DRAFT: деньги 5-15, ниже шанс предмета, чем у бандита. ---
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	float LootMoneyMin = 5.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	float LootMoneyMax = 15.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LootItemDropChance = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	TSubclassOf<AMasterInventoryItem> LootItemClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	TSubclassOf<APickup> PickupClass;
+
+	// Спавнит лут (деньги + шанс предмета) в позиции трупа.
+	void DropLoot();
 
 	// --- Капсула коллизии волка (квадрупед). DRAFT ---
 	// Дефолт ACharacter (r34/hh88) рассчитан на стоящего ГУМАНОИДА — для волка он

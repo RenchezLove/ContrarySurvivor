@@ -1,0 +1,128 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "Templates/SubclassOf.h"
+#include "AConsumableItem.h" // EConsumableType (тип расходника для товара)
+#include "TraderNPC.generated.h"
+
+class USphereComponent;
+class UStaticMeshComponent;
+class AMasterInventoryItem;
+
+// Вид товара в магазине: предмет в рюкзак или пополнение патронов.
+UENUM(BlueprintType)
+enum class EShopEntryKind : uint8
+{
+	Item UMETA(DisplayName = "Item"),  // спавн предмета ItemClass -> в рюкзак
+	Ammo UMETA(DisplayName = "Ammo")   // +AmmoAmount к резерву дальнобойного оружия игрока
+};
+
+/**
+ * Позиция в прайс-листе торговца (GDD §7.6 — цены DRAFT на тюнинг).
+ * Каталог торговца — массив таких записей; задаётся в конструкторе ATraderNPC (editor-
+ * независимо) и тюнингуется в редакторе.
+ */
+USTRUCT(BlueprintType)
+struct FShopEntry
+{
+	GENERATED_BODY()
+
+	// Отображаемое имя в магазине.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	FString DisplayName;
+
+	// Цена покупки (валюта). DRAFT по GDD §7.6.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	float Price = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	EShopEntryKind Kind = EShopEntryKind::Item;
+
+	// Для Kind=Item: класс выдаваемого предмета (расходник/броня/оружие как inventory-item).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	TSubclassOf<AMasterInventoryItem> ItemClass;
+
+	// Если выдаётся расходник — выставить ему этот тип (еда/вода/аптечка).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	bool bApplyConsumableType = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	EConsumableType ConsumableType = EConsumableType::Food;
+
+	// Для Kind=Ammo: сколько патронов добавить в резерв.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	int32 AmmoAmount = 0;
+};
+
+/**
+ * NPC-торговец (Фаза 4, GDD §7.1: «в MVP 1 торговец»).
+ *
+ * НЕ враждебный и НЕ цель авто-лока. Решение «фильтра фракций» (тех-долг прошлых фаз):
+ * торговец — обычный AActor (НЕ Pawn) и НЕ несёт UStatsComponent. Авто-лок/HUD-хелсбары
+ * игрока итерируют ТОЛЬКО TActorIterator<APawn> с UStatsComponent, поэтому торговец не
+ * попадает в выборку ни по типу (не Pawn), ни по признаку (нет Stats) — двойная защита.
+ * Меш без коллизии по Visibility, так что луч дальнобоя сквозь него проходит, урон не идёт.
+ *
+ * Взаимодействие: при входе игрока в радиус (overlap) торговец регистрируется у
+ * AContrarySurvivorPlayerController (NearbyTrader). Клавиша Interact открывает магазин
+ * (immediate-mode экран на AContrarySurvivorHUD). Спавн — кодом (UTraderSpawnSubsystem).
+ */
+UCLASS(Blueprintable)
+class CONTRARYSURVIVOR_API ATraderNPC : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	ATraderNPC();
+
+	// Каталог товаров (для отрисовки магазина и покупки).
+	const TArray<FShopEntry>& GetCatalog() const { return Catalog; }
+
+	// Цена выкупа предмета у игрока (DRAFT ~50% от условной цены, по категории).
+	float GetSellValue(const AMasterInventoryItem* Item) const;
+
+protected:
+	// Триггер диалоговой зоны: overlap по Pawn (игроку).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
+	USphereComponent* InteractTrigger;
+
+	// Плейсхолдер-меш (без коллизии). Реальный гуманоид/скин — позже (operator/modeler).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
+	UStaticMeshComponent* MeshComponent;
+
+	// Радиус, в котором доступно взаимодействие (см). DRAFT.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trader")
+	float InteractRadius = 220.0f;
+
+	// Прайс-лист (заполняется дефолтами в конструкторе, тюнингуется в редакторе).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop")
+	TArray<FShopEntry> Catalog;
+
+	// Цены выкупа по категориям (DRAFT, ~50% от цены покупки соответствующего товара).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
+	float SellValueConsumable = 6.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
+	float SellValueArmor = 40.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
+	float SellValueWeapon = 70.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
+	float SellValueResource = 2.0f;
+
+	UFUNCTION()
+	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnInteractEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+private:
+	// Заполняет Catalog DRAFT-товарами по GDD §7.6 (вызывается в конструкторе).
+	void BuildDefaultCatalog();
+};

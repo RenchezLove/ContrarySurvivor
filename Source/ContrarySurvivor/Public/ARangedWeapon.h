@@ -42,6 +42,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Combat")
 	void ClearTarget();
 
+	// Пополнить запас патронов (резерв) на Amount, не превышая MaxAmmoReserve.
+	// Используется покупкой патронов у торговца (Фаза 4, экономика, GDD §7.6).
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Ammo")
+	void AddReserveAmmo(int32 Amount);
+
 	// Есть ли активная цель
 	UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
 	FORCEINLINE bool HasTarget() const { return LockedTarget != nullptr; }

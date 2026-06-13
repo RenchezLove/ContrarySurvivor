@@ -24,6 +24,10 @@ bool AConsumableItem::ApplyConsumeEffect(UStatsComponent* Stats)
 		case EConsumableType::Water:
 			Stats->DrinkWater();    // +WaterRestoreAmount к жажде (Фаза 2)
 			return true;
+		case EConsumableType::Medkit:
+			// Бинт/аптечка восстанавливает HP. Heal не лечит мёртвых (вернёт 0) — допустимо.
+			Stats->Heal(HealRestoreAmount);
+			return true;
 		default:
 			return false;
 	}

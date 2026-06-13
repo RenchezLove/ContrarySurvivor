@@ -11,6 +11,7 @@
 #include "Engine/HitResult.h"
 #include "EngineUtils.h" // TActorIterator
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
+#include "ContrarySurvivor/Actors/TraderNPC.h"
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -78,7 +79,86 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// Инвентарь (Tab / I) — legacy ActionMapping "ToggleInventory" (Фаза 4, без нового .uasset).
 		InputComponent->BindAction(TEXT("ToggleInventory"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleInventory);
+
+		// Взаимодействие (E) — legacy ActionMapping "Interact" (Фаза 4, экономика: магазин).
+		InputComponent->BindAction(TEXT("Interact"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnInteract);
 	}
+}
+
+void AContrarySurvivorPlayerController::SetNearbyTrader(ATraderNPC* Trader)
+{
+	NearbyTrader = Trader;
+}
+
+void AContrarySurvivorPlayerController::ClearNearbyTrader(ATraderNPC* Trader)
+{
+	// Сбрасываем, только если уходим именно от текущего торговца.
+	if (NearbyTrader == Trader)
+	{
+		NearbyTrader = nullptr;
+		// Ушли от прилавка — закрываем магазин, если был открыт.
+		if (bShopOpen)
+		{
+			CloseShop();
+		}
+	}
+}
+
+void AContrarySurvivorPlayerController::OnInteract()
+{
+	// Не смешиваем с инвентарём (модальные экраны взаимоисключающие).
+	if (bInventoryOpen)
+	{
+		return;
+	}
+
+	if (!NearbyTrader)
+	{
+		UE_LOG(LogTemp, Log, TEXT("Interact: no trader nearby"));
+		return;
+	}
+
+	bShopOpen = !bShopOpen;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetShopOpen(bShopOpen, bShopOpen ? NearbyTrader : nullptr);
+	}
+
+	// Режим ввода: открыто -> GameAndUI (курсор для кликов магазина), закрыто -> GameOnly.
+	if (bShopOpen)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+		bShowMouseCursor = true;
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+		bShowMouseCursor = true;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Shop %s"), bShopOpen ? TEXT("OPEN") : TEXT("CLOSED"));
+}
+
+void AContrarySurvivorPlayerController::CloseShop()
+{
+	if (!bShopOpen)
+	{
+		return;
+	}
+	bShopOpen = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetShopOpen(false, nullptr);
+	}
+
+	SetInputMode(FInputModeGameOnly());
+	bShowMouseCursor = true;
+	UE_LOG(LogTemp, Log, TEXT("Shop CLOSED"));
 }
 
 void AContrarySurvivorPlayerController::OnToggleInventory()
@@ -138,8 +218,8 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь — движение подавлено (модальный экран).
-	if (bInventoryOpen)
+	// Пока открыт инвентарь/магазин — движение подавлено (модальный экран).
+	if (bInventoryOpen || bShopOpen)
 	{
 		return;
 	}
@@ -186,6 +266,20 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 			if (GetMousePosition(MX, MY))
 			{
 				CSHUD->HandleInventoryClick(FVector2D(MX, MY));
+			}
+		}
+		return;
+	}
+
+	// Если открыт магазин — клик уходит в UI магазина (купить/продать/закрыть), не в стрельбу.
+	if (bShopOpen)
+	{
+		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		{
+			float MX = 0.0f, MY = 0.0f;
+			if (GetMousePosition(MX, MY))
+			{
+				CSHUD->HandleShopClick(FVector2D(MX, MY));
 			}
 		}
 		return;
