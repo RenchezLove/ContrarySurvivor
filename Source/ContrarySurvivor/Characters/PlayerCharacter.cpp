@@ -12,6 +12,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/Controller.h" // Enhanced Input
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "UInventoryComponent.h"
 #include "AMasterInventoryItem.h"
@@ -59,6 +60,9 @@ APlayerCharacter::APlayerCharacter()
     Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
     // У игрока (в отличие от врага) деградация голода/жажды включена (GDD §7.3).
     Stats->SetSurvivalDegradationEnabled(true);
+
+    // Журнал квестов (Фаза 5). C++-сабобъект — детерминированно, без BP.
+    Quests = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComponent"));
 
     // Нож доступен «из коробки» без нового .uasset: дефолт = конкретный AMeleeWeapon.
     // BP игрока может переопределить (например, на BP_Knife) в дефолтах.

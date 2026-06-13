@@ -15,6 +15,7 @@
 #include "PlayerCharacter.generated.h"
 
 class UStatsComponent;
+class UQuestComponent;
 class UContrarySaveGame;
 class AMasterInventoryItem;
 struct FShopEntry;
@@ -46,6 +47,11 @@ protected:
     // как и у врага: TakeDamage роутится в Stats.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
     UStatsComponent* Stats;
+
+    // Журнал квестов игрока (Фаза 5, GDD §7.7). C++-сабобъект — добавляется детерминированно,
+    // без BP. Староста предлагает квест, убийства целей инкрементят прогресс, сдача даёт деньги.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true"))
+    UQuestComponent* Quests;
 
     // Стартовое здоровье игрока. Тюнингуемое черновое значение.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
@@ -146,6 +152,9 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Stats")
     UStatsComponent* GetStats() const { return Stats; }
+
+    UFUNCTION(BlueprintPure, Category = "Quest")
+    UQuestComponent* GetQuests() const { return Quests; }
 
     // Переключение между дальним (пистолет) и ближним (нож) оружием.
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.

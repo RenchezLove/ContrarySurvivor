@@ -2,9 +2,11 @@
 
 #include "WolfCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства волка в квест
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "AConsumableItem.h"
+#include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -200,6 +202,16 @@ void AWolfCharacter::HandleDeath()
 
 	// Лут волка (деньги + шанс предмета) в позиции трупа (GDD §7.8).
 	DropLoot();
+
+	// Фаза 5: засчитываем убийство волка в Kill-квест игрока (если есть Active с тегом "Wolf").
+	// Журнал квестов живёт на пешке игрока (UQuestComponent). Тег цели — "Wolf".
+	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
+	{
+		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+		{
+			PlayerQuests->NotifyKill(FName(TEXT("Wolf")));
+		}
+	}
 
 	SetLifeSpan(CorpseLifeSpan);
 }
