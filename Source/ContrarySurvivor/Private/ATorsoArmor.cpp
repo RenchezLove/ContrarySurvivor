@@ -2,6 +2,8 @@
 
 
 #include "ATorsoArmor.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Engine/SkeletalMesh.h"
 
 ATorsoArmor::ATorsoArmor()
 {
@@ -10,6 +12,14 @@ ATorsoArmor::ATorsoArmor()
 	ArmorSlot = EArmorSlot::Torso;
 
 	ItemName = FString("Torso Armor");
+
+	// Меш-слот при экипировке (общий скелет -> Leader Pose). EquipArmor подменяет меш Torso.
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
+		TEXT("/Game/Characters/Armor/SK_Armor_Torso_01.SK_Armor_Torso_01"));
+	if (ArmorMeshFinder.Succeeded())
+	{
+		ArmorMesh_Equipped = ArmorMeshFinder.Object;
+	}
 }
 
 void ATorsoArmor::BeginPlay()

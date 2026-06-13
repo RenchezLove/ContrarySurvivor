@@ -2,6 +2,8 @@
 
 
 #include "AHeadArmor.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Engine/SkeletalMesh.h"
 
 AHeadArmor::AHeadArmor()
 {
@@ -10,6 +12,15 @@ AHeadArmor::AHeadArmor()
 	ArmorSlot = EArmorSlot::Head;
 
 	ItemName = FString("Head Armor");
+
+	// Меш-слот при экипировке (на ОБЩЕМ скелете персонажа -> Leader Pose даёт синхронную
+	// анимацию). EquipArmor подменяет меш слота Head на этот ассет.
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
+		TEXT("/Game/Characters/Armor/SK_Armor_Head_01.SK_Armor_Head_01"));
+	if (ArmorMeshFinder.Succeeded())
+	{
+		ArmorMesh_Equipped = ArmorMeshFinder.Object;
+	}
 }
 
 void AHeadArmor::BeginPlay()
