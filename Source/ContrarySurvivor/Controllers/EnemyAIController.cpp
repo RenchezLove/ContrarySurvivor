@@ -23,11 +23,10 @@ void AEnemyAIController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
-	OwnStats = nullptr;
-	if (AEnemyCharacter* Enemy = Cast<AEnemyCharacter>(InPawn))
-	{
-		OwnStats = Enemy->GetStats();
-	}
+	// Берём UStatsComponent обобщённо через FindComponentByClass — контроллер подходит
+	// любому врагу с компонентом статов (бандит-гуманоид И волк-квадрупед), без жёсткой
+	// привязки к AEnemyCharacter (Фаза 3: переиспользование AI для волка).
+	OwnStats = InPawn ? InPawn->FindComponentByClass<UStatsComponent>() : nullptr;
 
 	CurrentState = EEnemyAIState::Idle;
 }
