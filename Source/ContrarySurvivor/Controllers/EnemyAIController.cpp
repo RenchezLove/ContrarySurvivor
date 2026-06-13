@@ -4,6 +4,8 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
 
@@ -51,6 +53,29 @@ bool AEnemyAIController::CanSensePlayer(APawn* Player) const
 
 	// LineOfSightTo унаследован от AController — учитывает препятствия.
 	return LineOfSightTo(Player);
+}
+
+float AEnemyAIController::GetCombinedCapsuleRadius(APawn* Player) const
+{
+	float Combined = 0.0f;
+
+	if (const ACharacter* SelfChar = Cast<ACharacter>(GetPawn()))
+	{
+		if (const UCapsuleComponent* Capsule = SelfChar->GetCapsuleComponent())
+		{
+			Combined += Capsule->GetScaledCapsuleRadius();
+		}
+	}
+
+	if (const ACharacter* PlayerChar = Cast<ACharacter>(Player))
+	{
+		if (const UCapsuleComponent* Capsule = PlayerChar->GetCapsuleComponent())
+		{
+			Combined += Capsule->GetScaledCapsuleRadius();
+		}
+	}
+
+	return Combined;
 }
 
 void AEnemyAIController::PerformAttack(APawn* Player)
@@ -116,9 +141,17 @@ void AEnemyAIController::Tick(float DeltaTime)
 	// Игрок обнаружен — смотрим на него.
 	SetFocus(Player);
 
+	// GetDistanceTo меряет ЦЕНТР-К-ЦЕНТРУ капсул. Дальность ножа AttackRange задана
+	// поверхность-к-поверхности, поэтому переводим её в центр-к-центру, добавляя
+	// сумму радиусов капсул. БАГ ДО ФИКСА: AttackRange(175) сравнивали напрямую с
+	// center-distance, а MoveToActor (AcceptanceRadius 120 + reach-test добавляет радиусы
+	// капсул) останавливал врага на center-distance ~120+радиусы (≈200+), что БОЛЬШЕ 175 →
+	// враг тормозил дальше, чем мог достать ножом, и не атаковал, пока игрок сам не подойдёт.
+	const float CombinedRadius = GetCombinedCapsuleRadius(Player);
+	const float EffectiveAttackRange = AttackRange + CombinedRadius;
 	const float Dist = Self->GetDistanceTo(Player);
 
-	if (Dist <= AttackRange)
+	if (Dist <= EffectiveAttackRange)
 	{
 		// В радиусе атаки.
 		if (CurrentState != EEnemyAIState::Attack)
