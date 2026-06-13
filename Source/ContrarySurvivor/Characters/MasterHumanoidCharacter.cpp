@@ -114,10 +114,30 @@ float AMasterHumanoidCharacter::TakeDamage(float DamageAmount, struct FDamageEve
 
         if (Health <= 0.f)
         {
-             UE_LOG(LogTemp, Warning, TEXT("I am dead"));
+            HandleDeath();
         }
     }
     return ActualDamage;
+}
+
+void AMasterHumanoidCharacter::HandleDeath()
+{
+    // Минимальная заглушка смерти (Фаза 1): без краша, без респауна (респаун — Фаза 2).
+    // Глушим движение, отключаем коллизию капсулы. Тело остаётся на сцене.
+    UE_LOG(LogTemp, Warning, TEXT("%s: HandleDeath (stub)"), *GetName());
+
+    if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+    {
+        Movement->StopMovementImmediately();
+        Movement->DisableMovement();
+    }
+
+    if (AController* Ctrl = GetController())
+    {
+        DisableInput(Cast<APlayerController>(Ctrl));
+    }
+
+    SetActorEnableCollision(false);
 }
 
 void AMasterHumanoidCharacter::RestoreHealth(float HealAmount)

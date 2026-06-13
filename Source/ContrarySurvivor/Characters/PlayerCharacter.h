@@ -11,6 +11,7 @@
 #include "Camera/CameraComponent.h" 
 #include "GameFramework/Controller.h" // Enhanced Input
 //#include "PlayerController.h"
+#include "AMasterWeapon.h"
 #include "PlayerCharacter.generated.h"
 
 /**
@@ -42,8 +43,16 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats")
     float Thirst;
 
+    // Класс стартового оружия. Если задан — спавнится и экипируется в BeginPlay.
+    // Значение (например, BP_Pistol) выставляется в дефолтах BP игрока.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+    TSubclassOf<AMasterWeapon> DefaultWeaponClass;
+
     // Called when the game starts or when spawned
     virtual void BeginPlay() override;
+
+    // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).
+    void EquipDefaultWeapon();
 
     /**
      * Sets movement parameters

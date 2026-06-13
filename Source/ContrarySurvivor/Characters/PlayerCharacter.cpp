@@ -51,6 +51,42 @@ void APlayerCharacter::BeginPlay()
 
     UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
 
+    // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
+    EquipDefaultWeapon();
+}
+
+void APlayerCharacter::EquipDefaultWeapon()
+{
+    if (!DefaultWeaponClass)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipDefaultWeapon: DefaultWeaponClass not set, skipping"));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    // Спавним оружие. Owner/Instigator — игрок; EquipWeapon довыставит Instigator и прикрепит к сокету.
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.Instigator = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    AMasterWeapon* SpawnedWeapon = World->SpawnActor<AMasterWeapon>(
+        DefaultWeaponClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+
+    if (SpawnedWeapon)
+    {
+        // EquipWeapon крепит оружие к WeaponSocketName на TorsoMesh и выставляет CurrentWeapon.
+        EquipWeapon(SpawnedWeapon);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipDefaultWeapon: failed to spawn DefaultWeaponClass"));
+    }
 }
 
 
