@@ -14,6 +14,8 @@
 #include "AMasterWeapon.h"
 #include "PlayerCharacter.generated.h"
 
+class UStatsComponent;
+
 /**
  * 
  */
@@ -36,11 +38,22 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera", meta = (AllowPrivateAccess = "true"))
     UCameraComponent* CameraComponent;
 
-    // Stats
-    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats")
+    // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
+    // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
+    // как и у врага: TakeDamage роутится в Stats.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+    UStatsComponent* Stats;
+
+    // Стартовое здоровье игрока. Тюнингуемое черновое значение.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
+    float PlayerMaxHealth = 100.0f;
+
+    // УСТАРЕЛО (Фаза 1): инлайн-поля голода/жажды. Источник истины теперь Stats.
+    // Оставлены, чтобы не ломать возможные ссылки BP; не используются логикой.
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats|Deprecated")
     float Hunger;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats")
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats|Deprecated")
     float Thirst;
 
     // Класс стартового оружия. Если задан — спавнится и экипируется в BeginPlay.
@@ -59,5 +72,12 @@ protected:
      */
     void SetUpMovement();
 
+public:
+    // Перехват стандартного пайплайна урона UE и роутинг в UStatsComponent
+    // (как у AEnemyCharacter), чтобы система оружия работала без правок.
+    virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
+
+    UFUNCTION(BlueprintPure, Category = "Stats")
+    UStatsComponent* GetStats() const { return Stats; }
 
 };

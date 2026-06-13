@@ -11,6 +11,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/Controller.h" // Enhanced Input
+#include "ContrarySurvivor/Components/StatsComponent.h"
 
 APlayerCharacter::APlayerCharacter()
 {
@@ -37,11 +38,15 @@ APlayerCharacter::APlayerCharacter()
 
     //Sets that camera is not rotates whith controller
 
-    //Parameters initialasation
+    //Parameters initialasation (устаревшие инлайн-поля, см. заголовок)
     Hunger = 100.0f;
     Thirst = 100.0f;
 
-   
+    // Компонент статов игрока (ADR-015). Источник истины по HP/выживанию.
+    Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+    // У игрока (в отличие от врага) деградация голода/жажды включена (GDD §7.3).
+    Stats->SetSurvivalDegradationEnabled(true);
+
     SetUpMovement();
 }
 
@@ -51,8 +56,31 @@ void APlayerCharacter::BeginPlay()
 
     UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
 
+    // Инициализируем HP игрока через UStatsComponent (источник истины).
+    if (Stats)
+    {
+        Stats->InitHealth(PlayerMaxHealth, /*bSetToMax=*/true);
+    }
+
     // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
     EquipDefaultWeapon();
+}
+
+float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+    // Намеренно НЕ зовём Super (инлайн-Health базы): единственный источник истины по HP
+    // игрока — UStatsComponent. Death/респаун повесим на Stats->OnDeath (Пункт 3).
+    if (!Stats || Stats->IsDead() || DamageAmount <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    const float Applied = Stats->ApplyDamage(DamageAmount);
+
+    UE_LOG(LogTemp, Log, TEXT("Player took %.1f damage. Health: %.1f/%.1f"),
+        Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+
+    return Applied;
 }
 
 void APlayerCharacter::EquipDefaultWeapon()
