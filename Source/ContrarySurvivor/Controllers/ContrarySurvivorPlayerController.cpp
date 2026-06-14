@@ -12,14 +12,20 @@
 #include "AMasterInventoryItem.h"     // QA-харнесс: предмет + EItemCategory
 #include "Kismet/GameplayStatics.h"   // QA-харнесс: DeleteGameInSlot (очистка сейва)
 #include "Engine/HitResult.h"
+#include "Engine/DamageEvents.h" // QA: FDamageEvent (force-kill N через TakeDamage)
 #include "EngineUtils.h" // TActorIterator
+#include "GameFramework/Character.h"                  // QA: ACharacter (телепорт V)
+#include "GameFramework/CharacterMovementComponent.h" // QA: StopMovementImmediately (телепорт V)
+#include "Components/CapsuleComponent.h"              // QA: halfHeight капсулы (телепорт V)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
-#include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O)
+#include "ContrarySurvivor/Subsystems/WolfSpawnSubsystem.h" // QA: телепорт к Логову (клавиша V)
+#include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
+#include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O/N/V)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 
@@ -134,6 +140,10 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QAForceDrop"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleForceDrop);
 		InputComponent->BindAction(TEXT("QASpawnWolf"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASpawnTestWolf);
 		InputComponent->BindAction(TEXT("QAToggleOverlay"),IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleOverlay);
+
+		// QA debug-инструменты (Фаза 5, доп.): N — force-kill ближайшего врага; V — телепорт к Логову.
+		InputComponent->BindAction(TEXT("QAForceKill"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAForceKillNearest);
+		InputComponent->BindAction(TEXT("QATeleportToDen"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToWolfDen);
 	}
 }
 
@@ -145,6 +155,19 @@ void AContrarySurvivorPlayerController::OnQAToggleGodMode()
 {
 	// J: тумблер неуязвимости + заморозки деградации голода/жажды. Включаем оверлей вместе
 	// с god-mode, чтобы тестер сразу видел статус на экране.
+	//
+	// ЗАДАЧА 4 (отчёт QA «GODMODE сам выключился сразу после включения»): дебаунс против
+	// двойного IE_Pressed (повтор клавиши от Computer Use / дребезг). Повторный тоггл в
+	// пределах GodModeToggleDebounce сек после предыдущего ИГНОРИРУЕМ — иначе «вкл→тут же выкл».
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	if (Now - LastGodModeToggleTime < GodModeToggleDebounce)
+	{
+		FQADebug::QA(this, FString::Printf(TEXT("QA: GODMODE toggle ignored (debounce %.2fs)"),
+			Now - LastGodModeToggleTime), /*bScreen=*/true);
+		return;
+	}
+	LastGodModeToggleTime = Now;
+
 	FQADebug::bGodMode = !FQADebug::bGodMode;
 	if (FQADebug::bGodMode)
 	{
@@ -192,6 +215,99 @@ void AContrarySurvivorPlayerController::OnQAToggleOverlay()
 	// O: тумблер видимости экранного QA-оверлея.
 	FQADebug::bOverlayVisible = !FQADebug::bOverlayVisible;
 	FQADebug::QA(this, FString::Printf(TEXT("QA: overlay %s"), FQADebug::bOverlayVisible ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
+}
+
+void AContrarySurvivorPlayerController::OnQAForceKillNearest()
+{
+	// N: мгновенно убить БЛИЖАЙШЕГО врага. Враг = любой Pawn с UStatsComponent, не игрок, живой
+	// (тип-агностично — бандит/волк/любой). Урон наносим штатным путём (TakeDamage, как оружие),
+	// поэтому отрабатывают override TakeDamage врага -> Stats->ApplyDamage -> HandleDeath ->
+	// DropLoot (+ квест-счётчик у волка). С активным force-drop (U) дроп гарантирован.
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		FQADebug::QA(this, TEXT("QA: FORCEKILL skipped - no pawn/world"), /*bScreen=*/true);
+		return;
+	}
+
+	const FVector PawnLoc = ControlledPawn->GetActorLocation();
+	APawn* Nearest = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (TActorIterator<APawn> It(World); It; ++It)
+	{
+		APawn* Candidate = *It;
+		if (!IsValid(Candidate) || Candidate == ControlledPawn)
+		{
+			continue;
+		}
+		UStatsComponent* CandStats = Candidate->FindComponentByClass<UStatsComponent>();
+		if (!CandStats || CandStats->IsDead())
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Nearest = Candidate;
+		}
+	}
+
+	if (!IsValid(Nearest))
+	{
+		FQADebug::QA(this, TEXT("QA: FORCEKILL skipped - no living enemy"), /*bScreen=*/true);
+		return;
+	}
+
+	const FString EnemyName = Nearest->GetName();
+	const float Dist = FMath::Sqrt(BestDistSq);
+
+	// Летальный урон через штатный TakeDamage (как ARangedWeapon: FDamageEvent + инстигатор).
+	// Большое число гарантирует смерть даже после брони (ArmorReductionCap всегда пропускает часть).
+	FDamageEvent DamageEvent;
+	Nearest->TakeDamage(1000000.0f, DamageEvent, this, ControlledPawn);
+
+	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEKILL %s (dist %.0f)"), *EnemyName, Dist), /*bScreen=*/true);
+}
+
+void AContrarySurvivorPlayerController::OnQATeleportToWolfDen()
+{
+	// V: телепорт игрока к Логову волков. Берём XY из UWolfSpawnSubsystem (источник истины —
+	// тот же WolfDenLocation, по которому спавнятся волки), высоту — трассой до пола в этой XY.
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		FQADebug::QA(this, TEXT("QA: teleport to WolfDen skipped - no pawn/world"), /*bScreen=*/true);
+		return;
+	}
+
+	UWolfSpawnSubsystem* WolfSys = World->GetSubsystem<UWolfSpawnSubsystem>();
+	if (!WolfSys)
+	{
+		FQADebug::QA(this, TEXT("QA: teleport to WolfDen skipped - no WolfSpawnSubsystem"), /*bScreen=*/true);
+		return;
+	}
+
+	const FVector Den = WolfSys->GetWolfDenLocation();
+
+	// Высота капсулы игрока: садим капсулу на пол (трасса) + halfHeight, иначе безопасный Z.
+	const ACharacter* AsChar = Cast<ACharacter>(ControlledPawn);
+	const float HalfHeight = (AsChar && AsChar->GetCapsuleComponent())
+		? AsChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+	const float SafeZ = SpawnPlacement::ResolveSpawnZ(
+		World, Den.X, Den.Y, HalfHeight + 10.0f, TEXT("WolfDen-teleport"), ControlledPawn);
+
+	const FVector Dest(Den.X, Den.Y, SafeZ);
+
+	if (UCharacterMovementComponent* Move = AsChar ? AsChar->GetCharacterMovement() : nullptr)
+	{
+		Move->StopMovementImmediately();
+	}
+	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+
+	FQADebug::QA(this, FString::Printf(TEXT("QA: teleported to WolfDen at %s"), *Dest.ToCompactString()), /*bScreen=*/true);
 }
 
 // ---------------------------------------------------------------------------

@@ -250,6 +250,17 @@ protected:
 	UFUNCTION()
 	void OnQAToggleOverlay();
 
+	// N: мгновенно убить БЛИЖАЙШЕГО врага (волк/бандит) штатным путём урона (TakeDamage),
+	// чтобы сработали смерть + дроп лута + квест-счётчик. С активным force-drop (U) выпадет
+	// предмет — тестер проверяет цепочку лута без прицеливания.
+	UFUNCTION()
+	void OnQAForceKillNearest();
+
+	// V: телепорт игрока к Логову волков (WolfDenLocation из UWolfSpawnSubsystem) — чтобы
+	// тестер дошёл до места kill-квеста (навигация CU на +Y ненадёжна). Высота — трасса до пола.
+	UFUNCTION()
+	void OnQATeleportToWolfDen();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;
@@ -264,6 +275,12 @@ protected:
 
 private:
 	bool IsSprinting = false;
+
+	// QA: дебаунс тумблера god-mode (J). Отчёт тестера «GODMODE сам выключился сразу после
+	// включения» = вероятный двойной IE_Pressed (CU/повтор клавиши). Игнорируем повторный
+	// тоггл, пришедший в течение GodModeToggleDebounce секунд после предыдущего.
+	double LastGodModeToggleTime = -1000.0;
+	static constexpr double GodModeToggleDebounce = 0.30;
 
 	// Открыт ли экран инвентаря (модальный): пока true — клик уходит в инвентарь (не стрельба),
 	// движение подавлено. Зеркалит состояние HUD; источник переключения — OnToggleInventory.

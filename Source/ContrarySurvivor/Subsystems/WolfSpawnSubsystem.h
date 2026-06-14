@@ -35,6 +35,10 @@ class CONTRARYSURVIVOR_API UWolfSpawnSubsystem : public UWorldSubsystem
 public:
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
+	// Центр «Логова волков» (для QA-телепорта игрока к Логову, клавиша V). Z тут условный —
+	// точную высоту берёт трасса до пола; XY = место выполнения kill-квеста.
+	FVector GetWolfDenLocation() const { return WolfDenLocation; }
+
 protected:
 	// Класс волка для спавна (по умолчанию AWolfCharacter — без BP/редактора).
 	UPROPERTY()
