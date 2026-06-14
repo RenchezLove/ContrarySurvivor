@@ -108,6 +108,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
 	TSubclassOf<APickup> PickupClass;
 
+	// --- Квестовый дроп (Фаза 5): волк ВСЕГДА роняет «Шкуру волка» ---
+	// Класс гарантированного квестового предмета (dropChance=1.0). По умолчанию — расходник-
+	// плейсхолдер (как и обычный лут), чтобы дроп работал без BP/редактора; можно переопределить
+	// на реальный BP-предмет шкуры. Имя предмета задаётся QuestLootItemName.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot|Quest")
+	TSubclassOf<AMasterInventoryItem> QuestLootItemClass;
+
+	// Понятное имя квестового предмета (выставляется заспавненному предмету -> ItemName, виден в UI).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot|Quest")
+	FString QuestLootItemName = TEXT("Шкура волка");
+
 	// Спавнит лут (деньги + шанс предмета) в позиции трупа.
 	void DropLoot();
 

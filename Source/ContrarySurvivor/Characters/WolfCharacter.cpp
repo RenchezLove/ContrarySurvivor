@@ -30,6 +30,10 @@ AWolfCharacter::AWolfCharacter()
 	LootItemClass = AConsumableItem::StaticClass();
 	PickupClass   = APickup::StaticClass();
 
+	// Квестовый дроп: гарантированная «Шкура волка». По умолчанию тот же концертный
+	// AMasterInventoryItem-наследник (расходник-плейсхолдер), тюнингуется на BP шкуры.
+	QuestLootItemClass = AConsumableItem::StaticClass();
+
 	// AI: волк управляется AWolfAIController (chase/attack), авто-поссесс при спавне.
 	AIControllerClass = AWolfAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
@@ -249,7 +253,20 @@ void AWolfCharacter::HandleDeath()
 
 void AWolfCharacter::DropLoot()
 {
+	UWorld* World = GetWorld();
+	const FVector Loc = GetActorLocation();
 	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
-	APickup::DropLoot(GetWorld(), GetActorLocation(), Money,
-		LootItemClass, LootItemDropChance, PickupClass);
+
+	// 1) КВЕСТОВЫЙ ДРОП (Фаза 5): «Шкура волка» гарантированно (dropChance=1.0) + деньги.
+	//    Имя предмета задаём явно, чтобы он читался в рюкзаке/UI как «Шкура волка».
+	APickup::DropLoot(World, Loc, Money,
+		QuestLootItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestLootItemName);
+
+	// 2) ПРОЧИЙ ЛУТ (по шансу, как раньше) — отдельным пикапом рядом, без денег
+	//    (деньги уже отданы квестовым пикапом). Force-drop (клавиша U) поднимет шанс до 100%.
+	if (LootItemClass && LootItemDropChance > 0.0f)
+	{
+		APickup::DropLoot(World, Loc + FVector(45.0f, 0.0f, 0.0f), 0.0f,
+			LootItemClass, LootItemDropChance, PickupClass);
+	}
 }

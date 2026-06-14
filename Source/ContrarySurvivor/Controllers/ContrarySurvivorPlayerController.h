@@ -231,6 +231,25 @@ protected:
 	UFUNCTION()
 	void OnQACreditWolfKill();
 
+	// --- QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay на клавишах J/U/B/O ---
+	// Глобальные флаги в FQADebug, читаются в точках урона/деградации/дропа.
+
+	// J: тумблер god-mode (неуязвимость игрока + заморозка убыли голода/жажды). Авто-вкл оверлей.
+	UFUNCTION()
+	void OnQAToggleGodMode();
+
+	// U: тумблер force-drop (все враги роняют лут со 100% шансом).
+	UFUNCTION()
+	void OnQAToggleForceDrop();
+
+	// B: заспавнить одного тест-волка рядом с игроком (быстро проверить лут).
+	UFUNCTION()
+	void OnQASpawnTestWolf();
+
+	// O: тумблер показа экранного QA-оверлея.
+	UFUNCTION()
+	void OnQAToggleOverlay();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;

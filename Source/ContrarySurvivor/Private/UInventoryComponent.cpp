@@ -3,6 +3,7 @@
 
 #include "UInventoryComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Debug/QADebug.h"    // QA-хелпер (оверлей/flush)
 
 // Sets default values for this component's properties
 UInventoryComponent::UInventoryComponent()
@@ -28,10 +29,10 @@ bool UInventoryComponent::AddItem(AMasterInventoryItem* Item)
         const int32 CountBefore = InventoryItems.Num();
         InventoryItems.Add(Item);
         const int32 CountAfter = InventoryItems.Num();
-        // QA-инструментирование (BUG «лут не попадает в рюкзак»): что добавили и размер ДО/ПОСЛЕ.
-        UE_LOG(LogQA, Display,
-            TEXT("QA: ADDITEM '%s' (name '%s') | InventoryItems %d -> %d"),
-            *Item->GetName(), *Item->ItemName, CountBefore, CountAfter);
+        // QA-инструментирование (BUG «лут не попадает в рюкзак»): имя предмета + размер инвентаря ДО->ПОСЛЕ.
+        const FString DisplayName = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+        FQADebug::QA(this, FString::Printf(
+            TEXT("QA: ADDITEM %s -> inv %d->%d"), *DisplayName, CountBefore, CountAfter));
         return true;
     }
     UE_LOG(LogQA, Display, TEXT("QA: ADDITEM called with NULL item — ignored"));

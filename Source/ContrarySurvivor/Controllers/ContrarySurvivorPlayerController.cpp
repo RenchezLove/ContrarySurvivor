@@ -18,6 +18,8 @@
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
+#include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 
@@ -126,7 +128,70 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QAAcceptQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAAcceptQuest);
 		InputComponent->BindAction(TEXT("QATurnInQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATurnInQuest);
 		InputComponent->BindAction(TEXT("QACreditWolfKill"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQACreditWolfKill);
+
+		// QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay (J/U/B/O), legacy ActionMapping.
+		InputComponent->BindAction(TEXT("QAGodMode"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleGodMode);
+		InputComponent->BindAction(TEXT("QAForceDrop"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleForceDrop);
+		InputComponent->BindAction(TEXT("QASpawnWolf"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASpawnTestWolf);
+		InputComponent->BindAction(TEXT("QAToggleOverlay"),IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleOverlay);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// QA debug-инструменты (Фаза 5): god-mode / force-drop / spawn-wolf / overlay
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnQAToggleGodMode()
+{
+	// J: тумблер неуязвимости + заморозки деградации голода/жажды. Включаем оверлей вместе
+	// с god-mode, чтобы тестер сразу видел статус на экране.
+	FQADebug::bGodMode = !FQADebug::bGodMode;
+	if (FQADebug::bGodMode)
+	{
+		FQADebug::bOverlayVisible = true;
+	}
+	FQADebug::QA(this, FString::Printf(TEXT("QA: GODMODE %s"), FQADebug::bGodMode ? TEXT("on") : TEXT("off")));
+}
+
+void AContrarySurvivorPlayerController::OnQAToggleForceDrop()
+{
+	// U: тумблер 100%-дропа со всех врагов.
+	FQADebug::bForceDrop = !FQADebug::bForceDrop;
+	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEDROP %s"), FQADebug::bForceDrop ? TEXT("on") : TEXT("off")));
+}
+
+void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
+{
+	// B: заспавнить одного тест-волка чуть впереди игрока (быстро убить и проверить лут).
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		FQADebug::QA(this, TEXT("QA: spawn test wolf skipped - no pawn/world"));
+		return;
+	}
+
+	const FVector SpawnLoc = ControlledPawn->GetActorLocation()
+		+ ControlledPawn->GetActorForwardVector() * 300.0f
+		+ FVector(0.0f, 0.0f, 90.0f);
+	const FRotator SpawnRot = (ControlledPawn->GetActorLocation() - SpawnLoc).Rotation();
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	AWolfCharacter* Wolf = World->SpawnActor<AWolfCharacter>(
+		AWolfCharacter::StaticClass(), SpawnLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
+
+	FQADebug::QA(this, Wolf
+		? FString::Printf(TEXT("QA: spawned test wolf %s"), *Wolf->GetName())
+		: TEXT("QA: spawned test wolf FAILED"));
+}
+
+void AContrarySurvivorPlayerController::OnQAToggleOverlay()
+{
+	// O: тумблер видимости экранного QA-оверлея.
+	FQADebug::bOverlayVisible = !FQADebug::bOverlayVisible;
+	FQADebug::QA(this, FString::Printf(TEXT("QA: overlay %s"), FQADebug::bOverlayVisible ? TEXT("on") : TEXT("off")));
 }
 
 // ---------------------------------------------------------------------------

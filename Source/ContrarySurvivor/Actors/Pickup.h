@@ -46,10 +46,13 @@ public:
 
 	// Создаёт лут на земле: при необходимости спавнит предмет (по ItemDropChance) и пикап,
 	// который несёт MoneyAmount + предмет. Удобный путь для дропа с врага одной строкой.
+	// ItemDisplayName (опц.): если задано и предмет заспавнен — выставляет ему ItemName
+	// (понятное имя в рюкзаке/UI, напр. «Шкура волка»). QA force-drop (FQADebug::bForceDrop)
+	// поднимает фактический шанс выпадения предмета до 100%.
 	// Возвращает заспавненный пикап (или nullptr).
 	static APickup* DropLoot(UWorld* World, const FVector& Location, float MoneyAmount,
 		TSubclassOf<AMasterInventoryItem> ItemClass, float ItemDropChance,
-		TSubclassOf<APickup> PickupClass);
+		TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName = FString());
 
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

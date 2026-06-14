@@ -8,6 +8,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Debug/QADebug.h"     // QA god-mode (заморозка деградации) + MONEY-лог
 
 UStatsComponent::UStatsComponent()
 {
@@ -239,6 +240,8 @@ void UStatsComponent::AddMoney(float Amount)
 	}
 	Money = FMath::Max(0.0f, Money + Amount);
 	OnMoneyChanged.Broadcast(Money);
+	// QA-инструментирование: начисление/списание денег + итоговый баланс (виден в оверлее).
+	FQADebug::QA(this, FString::Printf(TEXT("QA: MONEY %+.0f -> balance %.0f"), Amount, Money));
 }
 
 bool UStatsComponent::SpendMoney(float Amount)
@@ -333,7 +336,8 @@ void UStatsComponent::StopSurvivalTimers()
 
 void UStatsComponent::TickThirstDrain()
 {
-	if (bIsDead)
+	// QA god-mode (клавиша J): убыль голода/жажды заморожена (только у игрока есть деградация).
+	if (bIsDead || FQADebug::bGodMode)
 	{
 		return;
 	}
@@ -342,7 +346,7 @@ void UStatsComponent::TickThirstDrain()
 
 void UStatsComponent::TickHungerDrain()
 {
-	if (bIsDead)
+	if (bIsDead || FQADebug::bGodMode)
 	{
 		return;
 	}
@@ -353,7 +357,8 @@ void UStatsComponent::TickHungerHealthDrain()
 {
 	// При критическом голоде HP падает. Суммирование с жаждой — за счёт двух
 	// независимых таймеров, каждый снимает HP отдельно (GDD §7.3).
-	if (!bIsDead && Hunger <= CriticalThreshold)
+	// God-mode (J) замораживает и критический урон от голода.
+	if (!bIsDead && !FQADebug::bGodMode && Hunger <= CriticalThreshold)
 	{
 		ApplyDamage(CriticalHealthDrainStep);
 	}
@@ -361,7 +366,7 @@ void UStatsComponent::TickHungerHealthDrain()
 
 void UStatsComponent::TickThirstHealthDrain()
 {
-	if (!bIsDead && Thirst <= CriticalThreshold)
+	if (!bIsDead && !FQADebug::bGodMode && Thirst <= CriticalThreshold)
 	{
 		ApplyDamage(CriticalHealthDrainStep);
 	}

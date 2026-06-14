@@ -59,9 +59,27 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment")
 	AMasterWeapon* CurrentWeapon;
 
-	// Сокет на TorsoMesh к которому крепится оружие
+	// УСТАРЕЛО: имя сокета (на TorsoMesh такого сокета нет — оружие падало в origin).
+	// Оставлено для совместимости с BP-дефолтами; привязка теперь к КОСТИ (см. ниже).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
 	FName WeaponSocketName;
+
+	// Имя КОСТИ правой кисти, к которой крепится оружие (привязка к кости, не к сокету).
+	// На модульном гуманоиде это R_Hand. AActor::AttachToComponent принимает имя кости
+	// напрямую как SocketName. Меш-носитель кости выбирается ПО ФАКТУ в EquipWeapon
+	// (DoesSocketExist на скелетном меше возвращает true и для костей) с приоритетом
+	// анимируемого Leader-меша (GetMesh()).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment")
+	FName WeaponAttachBoneName;
+
+	// Тонкая подстройка положения/поворота оружия в кисти ОТНОСИТЕЛЬНО кости R_Hand
+	// (подбирается по скрину; дефолт 0). Применяется через SetRelativeLocationAndRotation
+	// после attach к кости.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	FVector WeaponGripLocation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	FRotator WeaponGripRotation;
 
 	// --- Экипированная броня по слотам (GDD §7.2: броня влияет на урон) ---
 	// Хранятся ссылки на экипированные предметы брони; суммарная защита снижает

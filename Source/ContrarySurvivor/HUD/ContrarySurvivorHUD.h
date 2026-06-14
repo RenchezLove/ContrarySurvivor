@@ -367,4 +367,18 @@ private:
 
 	// Рисует трекер активного квеста («Волков: X/5») в углу HUD, когда квест Active/Completed.
 	void DrawQuestTracker(UQuestComponent* QuestComp);
+
+	// --- QA-оверлей (Фаза 5, debug под автотестера) ---
+	// Рисует кольцевой буфер последних QA-сообщений (FQADebug) в ПРАВОМ НИЖНЕМ углу:
+	// жирный КРАСНЫЙ текст с тенью+обводкой (DrawShadowedText). Видимость — FQADebug::bOverlayVisible
+	// (тумблер клавиша O; авто-вкл вместе с god-mode J). Рисуется последним — поверх всего.
+	void DrawQADebugOverlay();
+
+	// Цвет строк QA-оверлея (ярко-красный для заметности на любом фоне).
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|QA")
+	FLinearColor QAOverlayColor = FLinearColor(1.0f, 0.12f, 0.1f, 1.0f);
+
+	// Масштаб шрифта строк оверлея (растровый шрифт; >1 слегка мылит — допустимо для debug).
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|QA")
+	float QAOverlayTextScale = 1.15f;
 };

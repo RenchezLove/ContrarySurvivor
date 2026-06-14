@@ -26,6 +26,7 @@
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI при смерти
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
+#include "ContrarySurvivor/Debug/QADebug.h"      // QA god-mode (неуязвимость)
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
@@ -270,6 +271,12 @@ void APlayerCharacter::UpdateFootsteps(float DeltaTime)
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
+    // QA god-mode (клавиша J): игрок неуязвим — весь входящий урон зануляется.
+    if (FQADebug::bGodMode)
+    {
+        return 0.0f;
+    }
+
     // Намеренно НЕ зовём Super (инлайн-Health базы): единственный источник истины по HP
     // игрока — UStatsComponent. Death/респаун повесим на Stats->OnDeath (Пункт 3).
     if (!Stats || Stats->IsDead() || DamageAmount <= 0.0f)

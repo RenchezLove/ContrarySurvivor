@@ -24,6 +24,12 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
     CurrentWeapon = nullptr;
     WeaponSocketName = FName("WeaponSocket");
 
+    // Привязка оружия к КОСТИ правой кисти модульного гуманоида (а не к несуществующему
+    // сокету). Офсет грипа подбирается по скрину; дефолт — нулевой (на кости).
+    WeaponAttachBoneName = FName("R_Hand");
+    WeaponGripLocation = FVector::ZeroVector;
+    WeaponGripRotation = FRotator::ZeroRotator;
+
     EquippedHeadArmor  = nullptr;
     EquippedTorsoArmor = nullptr;
     EquippedPantsArmor = nullptr;
@@ -116,24 +122,47 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 
     CurrentWeapon = NewWeapon;
 
-    // Крепим оружие к сокету на торсе
-    if (TorsoMesh)
+    // Крепим оружие к КОСТИ правой кисти (R_Hand), а не к сокету (сокета WeaponSocket на
+    // TorsoMesh нет — оружие падало в origin). Носитель кости определяем ПО ФАКТУ:
+    // у скелетного меша DoesSocketExist(BoneName) истинно и для костей. Приоритет —
+    // анимируемый Leader-меш (GetMesh() == HeadMesh): на нём поза R_Hand реально проигрывается.
+    // Запасные кандидаты — модульные меши слотов (Torso/Legs), на случай иной раскладки скелета.
+    USkeletalMeshComponent* BoneCarrier = nullptr;
+    USkeletalMeshComponent* Candidates[] = { GetMesh(), TorsoMesh, LegsMesh };
+    for (USkeletalMeshComponent* MeshComp : Candidates)
     {
-        // ДИАГНОСТИКА: проверяем, существует ли сокет реально (аудит: крепим к TorsoMesh
-        // на WeaponSocketName). Если сокета нет — AttachToComponent крепит к началу
-        // координат компонента (оружие окажется не в руке). Привязку НЕ меняем (по указанию):
-        // сокет на кость кисти добавит редактор/оператор отдельно.
-        if (!TorsoMesh->DoesSocketExist(WeaponSocketName))
+        if (MeshComp && MeshComp->DoesSocketExist(WeaponAttachBoneName))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("EquipWeapon: socket '%s' NOT found on TorsoMesh '%s' — weapon will attach at component origin, not hand. Add the socket in editor."),
-                *WeaponSocketName.ToString(),
-                TorsoMesh->GetSkeletalMeshAsset() ? *TorsoMesh->GetSkeletalMeshAsset()->GetName() : TEXT("none"));
+            BoneCarrier = MeshComp;
+            break;
         }
+    }
 
-        CurrentWeapon->AttachToComponent(TorsoMesh,
+    if (BoneCarrier)
+    {
+        // Снап к кости, затем относительный офсет грипа (подбор по скрину).
+        CurrentWeapon->AttachToComponent(BoneCarrier,
             FAttachmentTransformRules::SnapToTargetIncludingScale,
-            WeaponSocketName);
+            WeaponAttachBoneName);
+        CurrentWeapon->SetActorRelativeLocation(WeaponGripLocation);
+        CurrentWeapon->SetActorRelativeRotation(WeaponGripRotation);
+
+        const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();
+        UE_LOG(LogTemp, Log,
+            TEXT("EquipWeapon: attached %s to bone '%s' on mesh '%s' (component '%s')"),
+            *CurrentWeapon->GetName(), *WeaponAttachBoneName.ToString(),
+            CarrierAsset ? *CarrierAsset->GetName() : TEXT("none"),
+            *BoneCarrier->GetName());
+    }
+    else
+    {
+        // Кость не найдена ни на одном меше — крепим к капсуле (корню), чтобы оружие не
+        // улетало в origin мира, и громко логируем (нужно поправить имя кости/скелет).
+        CurrentWeapon->AttachToComponent(GetRootComponent(),
+            FAttachmentTransformRules::KeepRelativeTransform);
+        UE_LOG(LogTemp, Warning,
+            TEXT("EquipWeapon: bone '%s' NOT found on Head/Torso/Legs meshes — attached to root as fallback. Check bone name / skeleton."),
+            *WeaponAttachBoneName.ToString());
     }
 
     // Устанавливаем владельца оружия

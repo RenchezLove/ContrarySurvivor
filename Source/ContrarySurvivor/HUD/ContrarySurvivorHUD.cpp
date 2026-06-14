@@ -8,6 +8,7 @@
 #include "GameFramework/Pawn.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Debug/QADebug.h"     // QA-оверлей (буфер сообщений + видимость)
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // журнал квестов (диалог/трекер)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -141,6 +142,59 @@ void AContrarySurvivorHUD::DrawHUD()
 				DrawInteractPrompt(CSPC->GetInteractPromptText());
 			}
 		}
+	}
+
+	// --- QA-оверлей (debug под автотестера) — рисуем ПОСЛЕДНИМ, поверх всех экранов ---
+	DrawQADebugOverlay();
+}
+
+void AContrarySurvivorHUD::DrawQADebugOverlay()
+{
+	if (!Canvas || !FQADebug::bOverlayVisible)
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const TArray<FString>& Messages = FQADebug::GetMessages();
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+	const float Margin = 16.0f;
+	const float Scale = FMath::Max(0.5f, QAOverlayTextScale);
+
+	// Высота строки по фактическому шрифту (с масштабом) + небольшой межстрочный зазор.
+	float ProbeW = 0.0f, ProbeH = 0.0f;
+	GetTextSize(TEXT("Ag"), ProbeW, ProbeH, Font);
+	const float LineH = (ProbeH > 0.0f ? ProbeH : 14.0f) * Scale + 3.0f;
+
+	// Заголовок-метка + строки. Низ-право: стек растёт снизу вверх.
+	const FString Header = TEXT("== QA ==");
+	const int32 TotalLines = Messages.Num() + 1; // +заголовок
+	float Y = SY - Margin - LineH * TotalLines;
+
+	// Заголовок (правый край).
+	{
+		float TW = 0.0f, TH = 0.0f;
+		GetTextSize(Header, TW, TH, Font);
+		const float X = SX - TW * Scale - Margin;
+		DrawShadowedText(Header, QAOverlayColor, X, Y, Font, Scale);
+		Y += LineH;
+	}
+
+	// Сообщения (старые сверху, свежие снизу — естественная лента).
+	for (const FString& Line : Messages)
+	{
+		float TW = 0.0f, TH = 0.0f;
+		GetTextSize(Line, TW, TH, Font);
+		const float X = SX - TW * Scale - Margin;
+		DrawShadowedText(Line, QAOverlayColor, X, Y, Font, Scale);
+		Y += LineH;
 	}
 }
 

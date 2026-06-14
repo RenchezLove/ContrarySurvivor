@@ -11,6 +11,7 @@
 #include "AMasterInventoryItem.h"
 #include "UInventoryComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Debug/QADebug.h"    // QA-хелпер (оверлей/флаги/flush)
 
 APickup::APickup()
 {
@@ -57,13 +58,12 @@ bool APickup::Collect(APlayerCharacter* Player)
 	UStatsComponent* Stats = Player->GetStats();
 	UInventoryComponent* Inv = Player->GetInventory();
 
-	// QA-инструментирование: что подбираем и найдены ли компоненты-приёмники.
-	UE_LOG(LogQA, Display,
-		TEXT("QA: COLLECT '%s' money=%.0f carriedItem=%s | Stats=%s Inventory=%s"),
-		*GetName(), MoneyAmount,
-		IsValid(CarriedItem) ? *CarriedItem->GetName() : TEXT("none"),
-		Stats ? TEXT("found") : TEXT("NULL"),
-		Inv ? TEXT("found") : TEXT("NULL"));
+	// QA-инструментирование: КТО подбирает и ЧТО (класс предмета), + найдены ли приёмники.
+	const FString ItemClassName = IsValid(CarriedItem) ? CarriedItem->GetClass()->GetName() : TEXT("none");
+	FQADebug::QA(this, FString::Printf(
+		TEXT("QA: COLLECT %s by %s (money=%.0f, Stats=%s Inv=%s)"),
+		*ItemClassName, *Player->GetName(), MoneyAmount,
+		Stats ? TEXT("ok") : TEXT("NULL"), Inv ? TEXT("ok") : TEXT("NULL")));
 
 	// Деньги -> в статы. Считаем «начислено», только если реально добавили (или денег нет).
 	bool bMoneyDone = (MoneyAmount <= 0.0f);
@@ -116,11 +116,18 @@ void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAmount,
 	TSubclassOf<AMasterInventoryItem> ItemClass, float ItemDropChance,
-	TSubclassOf<APickup> PickupClass)
+	TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName)
 {
 	if (!World)
 	{
 		return nullptr;
+	}
+
+	// QA force-drop (клавиша U): все враги роняют предмет со 100% шансом — для проверки
+	// цепочки предмет->пикап->рюкзак. Влияет только на шанс предмета, не на деньги.
+	if (FQADebug::bForceDrop)
+	{
+		ItemDropChance = 1.0f;
 	}
 
 	TSubclassOf<APickup> SpawnClass = PickupClass;
@@ -145,17 +152,22 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 			// Предмет лута — данные рюкзака, не объект на сцене: прячем визуал/коллизию.
 			DroppedItem->SetActorHiddenInGame(true);
 			DroppedItem->SetActorEnableCollision(false);
+			// Понятное имя предмета (напр. «Шкура волка»), если задано вызывающим.
+			if (!ItemDisplayName.IsEmpty())
+			{
+				DroppedItem->ItemName = ItemDisplayName;
+			}
 		}
 	}
 
 	// QA-инструментирование (BUG «лут не попадает в рюкзак»): что именно дропнулось при смерти врага.
-	UE_LOG(LogQA, Display,
-		TEXT("QA: DROPLOOT money=%.0f | itemClass=%s dropChance=%.2f roll=%.2f chanceHit=%s itemSpawned=%s"),
+	FQADebug::QA(World, FString::Printf(
+		TEXT("QA: DROPLOOT money=%.0f item=%s chance=%.2f roll=%.2f hit=%s spawned=%s"),
 		MoneyAmount,
 		ItemClass ? *ItemClass->GetName() : TEXT("none"),
 		ItemDropChance, ItemRoll,
 		bItemChanceHit ? TEXT("YES") : TEXT("no"),
-		DroppedItem ? *DroppedItem->GetName() : TEXT("none"));
+		DroppedItem ? *DroppedItem->GetName() : TEXT("none")));
 
 	// Деньги/предмет несёт один пикап (общий overlap отдаёт оба).
 	APickup* Pickup = World->SpawnActor<APickup>(
