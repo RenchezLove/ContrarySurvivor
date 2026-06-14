@@ -150,14 +150,14 @@ void AContrarySurvivorPlayerController::OnQAToggleGodMode()
 	{
 		FQADebug::bOverlayVisible = true;
 	}
-	FQADebug::QA(this, FString::Printf(TEXT("QA: GODMODE %s"), FQADebug::bGodMode ? TEXT("on") : TEXT("off")));
+	FQADebug::QA(this, FString::Printf(TEXT("QA: GODMODE %s"), FQADebug::bGodMode ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
 }
 
 void AContrarySurvivorPlayerController::OnQAToggleForceDrop()
 {
 	// U: тумблер 100%-дропа со всех врагов.
 	FQADebug::bForceDrop = !FQADebug::bForceDrop;
-	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEDROP %s"), FQADebug::bForceDrop ? TEXT("on") : TEXT("off")));
+	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEDROP %s"), FQADebug::bForceDrop ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
 }
 
 void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
@@ -167,7 +167,7 @@ void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
 	UWorld* World = GetWorld();
 	if (!ControlledPawn || !World)
 	{
-		FQADebug::QA(this, TEXT("QA: spawn test wolf skipped - no pawn/world"));
+		FQADebug::QA(this, TEXT("QA: spawn test wolf skipped - no pawn/world"), /*bScreen=*/true);
 		return;
 	}
 
@@ -184,14 +184,14 @@ void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
 
 	FQADebug::QA(this, Wolf
 		? FString::Printf(TEXT("QA: spawned test wolf %s"), *Wolf->GetName())
-		: TEXT("QA: spawned test wolf FAILED"));
+		: TEXT("QA: spawned test wolf FAILED"), /*bScreen=*/true);
 }
 
 void AContrarySurvivorPlayerController::OnQAToggleOverlay()
 {
 	// O: тумблер видимости экранного QA-оверлея.
 	FQADebug::bOverlayVisible = !FQADebug::bOverlayVisible;
-	FQADebug::QA(this, FString::Printf(TEXT("QA: overlay %s"), FQADebug::bOverlayVisible ? TEXT("on") : TEXT("off")));
+	FQADebug::QA(this, FString::Printf(TEXT("QA: overlay %s"), FQADebug::bOverlayVisible ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
 }
 
 // ---------------------------------------------------------------------------

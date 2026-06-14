@@ -32,7 +32,7 @@ bool UInventoryComponent::AddItem(AMasterInventoryItem* Item)
         // QA-инструментирование (BUG «лут не попадает в рюкзак»): имя предмета + размер инвентаря ДО->ПОСЛЕ.
         const FString DisplayName = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
         FQADebug::QA(this, FString::Printf(
-            TEXT("QA: ADDITEM %s -> inv %d->%d"), *DisplayName, CountBefore, CountAfter));
+            TEXT("QA: ADDITEM %s -> inv %d->%d"), *DisplayName, CountBefore, CountAfter), /*bScreen=*/true);
         return true;
     }
     UE_LOG(LogQA, Display, TEXT("QA: ADDITEM called with NULL item — ignored"));

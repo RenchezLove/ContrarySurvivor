@@ -241,7 +241,7 @@ void UStatsComponent::AddMoney(float Amount)
 	Money = FMath::Max(0.0f, Money + Amount);
 	OnMoneyChanged.Broadcast(Money);
 	// QA-инструментирование: начисление/списание денег + итоговый баланс (виден в оверлее).
-	FQADebug::QA(this, FString::Printf(TEXT("QA: MONEY %+.0f -> balance %.0f"), Amount, Money));
+	FQADebug::QA(this, FString::Printf(TEXT("QA: MONEY %+.0f -> balance %.0f"), Amount, Money), /*bScreen=*/true);
 }
 
 bool UStatsComponent::SpendMoney(float Amount)

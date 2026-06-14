@@ -63,7 +63,7 @@ bool APickup::Collect(APlayerCharacter* Player)
 	FQADebug::QA(this, FString::Printf(
 		TEXT("QA: COLLECT %s by %s (money=%.0f, Stats=%s Inv=%s)"),
 		*ItemClassName, *Player->GetName(), MoneyAmount,
-		Stats ? TEXT("ok") : TEXT("NULL"), Inv ? TEXT("ok") : TEXT("NULL")));
+		Stats ? TEXT("ok") : TEXT("NULL"), Inv ? TEXT("ok") : TEXT("NULL")), /*bScreen=*/true);
 
 	// Деньги -> в статы. Считаем «начислено», только если реально добавили (или денег нет).
 	bool bMoneyDone = (MoneyAmount <= 0.0f);
@@ -167,7 +167,7 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 		ItemClass ? *ItemClass->GetName() : TEXT("none"),
 		ItemDropChance, ItemRoll,
 		bItemChanceHit ? TEXT("YES") : TEXT("no"),
-		DroppedItem ? *DroppedItem->GetName() : TEXT("none")));
+		DroppedItem ? *DroppedItem->GetName() : TEXT("none")), /*bScreen=*/true);
 
 	// Деньги/предмет несёт один пикап (общий overlap отдаёт оба).
 	APickup* Pickup = World->SpawnActor<APickup>(

@@ -40,9 +40,13 @@ public:
 	// Сколько последних QA-сообщений держим в кольцевом буфере (рисует HUD).
 	static int32 MaxMessages;
 
-	// Логирует QA-сообщение: UE_LOG(LogQA, Display) + GLog->Flush() + запись в кольцевой буфер.
+	// Логирует QA-сообщение. ВСЕГДА: UE_LOG(LogQA, Display) + GLog->Flush() (в лог-файл).
+	// bScreen=true — ДОПОЛНИТЕЛЬНО кладёт в кольцевой буфер экранного оверлея (курируемые,
+	// важные события). bScreen=false (дефолт) — только в лог-файл (спам: шаги/реген/частые тики),
+	// чтобы не вытеснять полезные строки из оверлея. Повтор последней экранной строки сжимается
+	// в "<msg> (xN)" вместо добавления новой.
 	// WorldCtx сейчас не используется (буфер статический), оставлен для совместимости сигнатуры/будущего.
-	static void QA(const UObject* WorldCtx, const FString& Msg);
+	static void QA(const UObject* WorldCtx, const FString& Msg, bool bScreen = false);
 
 	// Доступ к буферу последних сообщений (для отрисовки оверлея на HUD). Старые — в начале.
 	static const TArray<FString>& GetMessages();
