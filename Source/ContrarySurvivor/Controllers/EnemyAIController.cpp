@@ -8,12 +8,16 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
-#include "Navigation/PathFollowingComponent.h" // EPathFollowingStatus (GetMoveStatus в Chase)
+#include "Navigation/PathFollowingComponent.h" // EPathFollowingStatus (GetMoveStatus в Chase), EPathFollowingRequestResult
+#include "NavigationSystem.h" // UNavigationSystemV1::GetCurrent / ProjectPointToNavigation + FNavLocation (QA-диагностика навмеша)
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
 
 AEnemyAIController::AEnemyAIController()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	// До первого реального MoveToActor считаем запрос непроведённым (Failed).
+	LastMoveResult = EPathFollowingRequestResult::Failed;
 }
 
 void AEnemyAIController::BeginPlay()
@@ -183,17 +187,50 @@ void AEnemyAIController::Tick(float DeltaTime)
 		if (bNotMoving || (NowMove - LastMoveIssueTime >= RepathInterval))
 		{
 			LastMoveIssueTime = NowMove;
-			MoveToActor(Player, MoveAcceptanceRadius);
+			// ЗАХВАТЫВАЕМ результат запроса move (раньше игнорировался). Если путь к игроку не
+			// строится (пешка/цель вне навмеша или навмеш не запечён) — здесь будет Failed.
+			LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
 		}
 
-		// QA-лог факта погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить
-		// каждый тик: пишем не чаще раза в ChaseLogInterval сек. bScreen=false — только в лог-файл.
+		// QA-диагностика погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить
+		// каждый тик: пишем не чаще раза в ChaseLogInterval сек.
+		// СВЕДЁННАЯ строка даёт QA различить причину провала погони:
+		//   selfNav  — спроецирована ли позиция ВРАГА на навмеш (нет → враг стоит вне навмеша);
+		//   targetNav— спроецирована ли позиция ИГРОКА на навмеш (нет → цель недостижима);
+		//   moveResult — итог последнего MoveToActor (Failed/AlreadyAtGoal/RequestSuccessful);
+		//   dist     — center-to-center дистанция до игрока.
 		const float NowChase = GetWorld()->GetTimeSeconds();
 		if (NowChase - LastChaseLogTime >= ChaseLogInterval)
 		{
 			LastChaseLogTime = NowChase;
-			FQADebug::QA(GetWorld(), FString::Printf(TEXT("QA: %s chasing player dist=%.0f"),
-				*Self->GetName(), Dist), /*bScreen=*/false);
+
+			// Проекция позиций на навмеш. Небольшой extent (по умолчанию nav-системы мог бы
+			// «вытянуть» далёкую точку — берём умеренный, чтобы ответ был честным «рядом ли навмеш»).
+			bool bSelfOnNav = false;
+			bool bTargetOnNav = false;
+			if (UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(GetWorld()))
+			{
+				const FVector QueryExtent(100.0f, 100.0f, 200.0f);
+				FNavLocation Proj;
+				bSelfOnNav = NavSys->ProjectPointToNavigation(Self->GetActorLocation(), Proj, QueryExtent);
+				if (Player)
+				{
+					bTargetOnNav = NavSys->ProjectPointToNavigation(Player->GetActorLocation(), Proj, QueryExtent);
+				}
+			}
+
+			const TCHAR* MoveResultStr =
+				(LastMoveResult == EPathFollowingRequestResult::Failed) ? TEXT("Failed") :
+				(LastMoveResult == EPathFollowingRequestResult::AlreadyAtGoal) ? TEXT("AlreadyAtGoal") :
+				TEXT("RequestSuccessful");
+
+			FQADebug::QA(GetWorld(), FString::Printf(
+				TEXT("QA: %s chase: selfNav=%s targetNav=%s moveResult=%s dist=%.0f"),
+				*Self->GetName(),
+				bSelfOnNav ? TEXT("yes") : TEXT("no"),
+				bTargetOnNav ? TEXT("yes") : TEXT("no"),
+				MoveResultStr,
+				Dist), /*bScreen=*/true);
 		}
 	}
 }

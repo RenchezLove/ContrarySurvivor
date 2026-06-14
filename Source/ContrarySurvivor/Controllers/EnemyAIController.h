@@ -93,6 +93,11 @@ private:
 	// Время последней отдачи MoveToActor в Chase. -1000 — чтобы первый Chase отдал move сразу.
 	float LastMoveIssueTime = -1000.0f;
 
+	// Результат последнего MoveToActor в Chase (для QA-диагностики навигации). Тип возвращается
+	// MoveToActor (AAIController). Инициализируется в конструкторе (Failed) — в этом заголовке
+	// доступна лишь форвард-декларация namespace-enum, поэтому инициализатор задаём в .cpp.
+	EPathFollowingRequestResult::Type LastMoveResult;
+
 	// Кэш статов своего пешки (для проверки "враг жив").
 	UPROPERTY()
 	UStatsComponent* OwnStats = nullptr;
