@@ -70,9 +70,17 @@ protected:
 	// использует это, чтобы проиграть анимацию укуса только в момент удара.
 	virtual bool PerformAttack(APawn* Player);
 
+	// Интервал дросселирования QA-лога погони (сек). Лог пишется не чаще раза в этот период,
+	// чтобы не спамить каждый тик. Только для верификации QA по логу.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Debug")
+	float ChaseLogInterval = 1.0f;
+
 private:
 	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
 	float LastAttackTime = -1000.0f;
+
+	// Время последнего QA-лога погони (дроссель). -1000 — чтобы первый Chase залогировался сразу.
+	float LastChaseLogTime = -1000.0f;
 
 	// Кэш статов своего пешки (для проверки "враг жив").
 	UPROPERTY()

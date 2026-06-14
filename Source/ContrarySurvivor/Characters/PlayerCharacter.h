@@ -20,6 +20,7 @@ class UContrarySaveGame;
 class AMasterInventoryItem;
 class USoundBase;
 class UAudioComponent;
+class UNavigationInvokerComponent;
 struct FShopEntry;
 
 /**
@@ -115,6 +116,24 @@ protected:
     // без BP. Староста предлагает квест, убийства целей инкрементят прогресс, сдача даёт деньги.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true"))
     UQuestComponent* Quests;
+
+    // Navigation Invoker (Фаза 5): навмеш генерится ТОЛЬКО вокруг игрока и следует за ним
+    // (см. DefaultEngine.ini bGenerateNavigationOnlyAroundNavigationInvokers=true). Это даёт
+    // тайлы навмеша у боевых зон (база бандитов/Логово), куда бы игрок ни пришёл, и не требует
+    // строить весь огромный пол — важно для Android. Радиусы задаются в конструкторе
+    // (NavInvokerGenerationRadius/NavInvokerRemovalRadius) через SetGenerationRadii.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (AllowPrivateAccess = "true"))
+    UNavigationInvokerComponent* NavInvoker;
+
+    // Радиус генерации тайлов навмеша вокруг игрока (см). Должен покрывать зону деревни +
+    // боевые точки, когда игрок там. DRAFT-тюнинг.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (ClampMin = "0.1"))
+    float NavInvokerGenerationRadius = 5000.0f;
+
+    // Радиус удаления тайлов навмеша (см). > радиуса генерации, чтобы тайлы не «мигали»
+    // на границе при движении игрока (гистерезис). DRAFT-тюнинг.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (ClampMin = "0.1"))
+    float NavInvokerRemovalRadius = 7000.0f;
 
     // Стартовое здоровье игрока. Тюнингуемое черновое значение.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")

@@ -33,6 +33,7 @@
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
 #include "Components/AudioComponent.h"
+#include "NavigationInvokerComponent.h" // Navigation Invoker: навмеш следует за игроком
 #include "UObject/ConstructorHelpers.h"
 
 APlayerCharacter::APlayerCharacter()
@@ -88,6 +89,15 @@ APlayerCharacter::APlayerCharacter()
 
     // Журнал квестов (Фаза 5). C++-сабобъект — детерминированно, без BP.
     Quests = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComponent"));
+
+    // Navigation Invoker (Фаза 5): навмеш генерится локально вокруг игрока и следует за ним.
+    // Вместе с bGenerateNavigationOnlyAroundNavigationInvokers=true (DefaultEngine.ini) это
+    // гарантирует тайлы навмеша у боевых зон (база бандитов на юге, Логово) в момент, когда
+    // игрок туда приходит -> враги получают навигацию (navmesh=yes) и преследуют. Радиусы —
+    // через SetGenerationRadii (поля TileGeneration/RemovalRadius protected в компоненте).
+    // API сверено по UE 5.5: NavigationInvokerComponent.h:45 SetGenerationRadii(Gen, Removal).
+    NavInvoker = CreateDefaultSubobject<UNavigationInvokerComponent>(TEXT("NavInvoker"));
+    NavInvoker->SetGenerationRadii(NavInvokerGenerationRadius, NavInvokerRemovalRadius);
 
     // Нож доступен «из коробки» без нового .uasset: дефолт = конкретный AMeleeWeapon.
     // BP игрока может переопределить (например, на BP_Knife) в дефолтах.

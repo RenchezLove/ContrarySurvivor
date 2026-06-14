@@ -8,6 +8,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
+#include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
 
 AEnemyAIController::AEnemyAIController()
 {
@@ -169,5 +170,15 @@ void AEnemyAIController::Tick(float DeltaTime)
 			CurrentState = EEnemyAIState::Chase;
 		}
 		MoveToActor(Player, MoveAcceptanceRadius);
+
+		// QA-лог факта погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить
+		// каждый тик: пишем не чаще раза в ChaseLogInterval сек. bScreen=false — только в лог-файл.
+		const float NowChase = GetWorld()->GetTimeSeconds();
+		if (NowChase - LastChaseLogTime >= ChaseLogInterval)
+		{
+			LastChaseLogTime = NowChase;
+			FQADebug::QA(GetWorld(), FString::Printf(TEXT("QA: %s chasing player dist=%.0f"),
+				*Self->GetName(), Dist), /*bScreen=*/false);
+		}
 	}
 }
