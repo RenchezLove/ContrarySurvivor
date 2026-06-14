@@ -83,6 +83,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
 	float RepathInterval = 0.35f;
 
+	// --- Fallback: прямая погоня (steering без навмеша) ---
+	// На маленькой открытой карте демки навигация по навмешу ненадёжна: цель (игрок на
+	// телепорт-точках) или сам враг бывают ВНЕ навмеша, либо динамический навмеш у боевой
+	// зоны ещё не готов → MoveToActor отдаёт Failed и враг стоит. Тогда переключаемся на
+	// прямой ход к игроку через AddMovementInput (игнорирует навмеш). В деревне, где навмеш
+	// работает, остаётся обычная nav-погоня (обходит препятствия). Direct — именно fallback.
+
+	// Сколько секунд враг должен НЕ сближаться с игроком (dist не убывает заметно), чтобы
+	// счесть nav-погоню застрявшей и включить прямой ход. Защита от «навмеш есть, но путь
+	// упирается / враг толчётся на месте».
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
+	float StuckConvergeTime = 1.5f;
+
+	// Минимальное убывание дистанции (см), считающееся реальным прогрессом сближения.
+	// Меньше — считаем шумом, прогресс не засчитываем (иначе микродрожь сбросит таймер застревания).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
+	float ChaseConvergeEpsilon = 5.0f;
+
 private:
 	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
 	float LastAttackTime = -1000.0f;
@@ -92,6 +110,12 @@ private:
 
 	// Время последней отдачи MoveToActor в Chase. -1000 — чтобы первый Chase отдал move сразу.
 	float LastMoveIssueTime = -1000.0f;
+
+	// Лучшая (минимальная) дистанция до игрока, достигнутая за текущую погоню, и время, когда
+	// мы последний раз реально сблизились. Если за StuckConvergeTime сек прогресса нет —
+	// nav-погоня считается застрявшей и включается прямой ход (fallback). Сбрасываются на входе в Chase.
+	float BestChaseDist = 0.0f;
+	float LastProgressTime = -1000.0f;
 
 	// Результат последнего MoveToActor в Chase (для QA-диагностики навигации). Тип возвращается
 	// MoveToActor (AAIController). Инициализируется в конструкторе (Failed) — в этом заголовке

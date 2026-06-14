@@ -170,54 +170,99 @@ void AEnemyAIController::Tick(float DeltaTime)
 	else
 	{
 		// Далеко — преследуем.
+		const float Now = GetWorld()->GetTimeSeconds();
+
 		if (CurrentState != EEnemyAIState::Chase)
 		{
 			CurrentState = EEnemyAIState::Chase;
 			LastMoveIssueTime = -1000.0f; // на входе в Chase отдать move немедленно
+			// На входе даём nav честный первый шанс (оптимистично RequestSuccessful), сбрасываем
+			// трекинг сближения от текущей дистанции. Если первый MoveToActor реально вернёт Failed —
+			// со следующего тика включится прямой ход.
+			LastMoveResult = EPathFollowingRequestResult::RequestSuccessful;
+			BestChaseDist = Dist;
+			LastProgressTime = Now;
 		}
 
-		// ПЕРЕОТДАЁМ MoveToActor НЕПРЕРЫВНО, пока в Chase и игрок в радиусе.
-		// БАГ ДО ФИКСА: MoveToActor вызывался КАЖДЫЙ кадр — каждый вызов рестартил path-request,
-		// пешка не успевала продвинуться и фактически стояла (погоня логнулась один раз и встала).
-		// ФИКС: отдаём move заново только когда path-following НЕ в состоянии Moving
-		// (завершился/зафейлился/Idle — иначе пешка встала бы навсегда) ЛИБО периодически раз в
-		// RepathInterval (чтобы цель отслеживала движущегося игрока). Так враг реально сближается.
-		const float NowMove = GetWorld()->GetTimeSeconds();
-		const bool bNotMoving = (GetMoveStatus() != EPathFollowingStatus::Moving);
-		if (bNotMoving || (NowMove - LastMoveIssueTime >= RepathInterval))
+		// --- Проекция позиций на навмеш (нужна и для решения о fallback, и для QA-лога) ---
+		// Считаем КАЖДЫЙ тик (а не только в логе): по ней решаем, можно ли вообще навигировать.
+		// Небольшой extent — чтобы ответ был честным «рядом ли навмеш», а не вытягивал далёкую точку.
+		bool bSelfOnNav = false;
+		bool bTargetOnNav = false;
+		if (UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(GetWorld()))
 		{
-			LastMoveIssueTime = NowMove;
-			// ЗАХВАТЫВАЕМ результат запроса move (раньше игнорировался). Если путь к игроку не
-			// строится (пешка/цель вне навмеша или навмеш не запечён) — здесь будет Failed.
-			LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
-		}
-
-		// QA-диагностика погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить
-		// каждый тик: пишем не чаще раза в ChaseLogInterval сек.
-		// СВЕДЁННАЯ строка даёт QA различить причину провала погони:
-		//   selfNav  — спроецирована ли позиция ВРАГА на навмеш (нет → враг стоит вне навмеша);
-		//   targetNav— спроецирована ли позиция ИГРОКА на навмеш (нет → цель недостижима);
-		//   moveResult — итог последнего MoveToActor (Failed/AlreadyAtGoal/RequestSuccessful);
-		//   dist     — center-to-center дистанция до игрока.
-		const float NowChase = GetWorld()->GetTimeSeconds();
-		if (NowChase - LastChaseLogTime >= ChaseLogInterval)
-		{
-			LastChaseLogTime = NowChase;
-
-			// Проекция позиций на навмеш. Небольшой extent (по умолчанию nav-системы мог бы
-			// «вытянуть» далёкую точку — берём умеренный, чтобы ответ был честным «рядом ли навмеш»).
-			bool bSelfOnNav = false;
-			bool bTargetOnNav = false;
-			if (UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(GetWorld()))
+			const FVector QueryExtent(100.0f, 100.0f, 200.0f);
+			FNavLocation Proj;
+			bSelfOnNav = NavSys->ProjectPointToNavigation(Self->GetActorLocation(), Proj, QueryExtent);
+			if (Player)
 			{
-				const FVector QueryExtent(100.0f, 100.0f, 200.0f);
-				FNavLocation Proj;
-				bSelfOnNav = NavSys->ProjectPointToNavigation(Self->GetActorLocation(), Proj, QueryExtent);
-				if (Player)
-				{
-					bTargetOnNav = NavSys->ProjectPointToNavigation(Player->GetActorLocation(), Proj, QueryExtent);
-				}
+				bTargetOnNav = NavSys->ProjectPointToNavigation(Player->GetActorLocation(), Proj, QueryExtent);
 			}
+		}
+
+		// --- Трекинг сближения: реально ли убывает дистанция ---
+		if (Dist < BestChaseDist - ChaseConvergeEpsilon)
+		{
+			BestChaseDist = Dist;
+			LastProgressTime = Now;
+		}
+		const bool bNotConverging = (Now - LastProgressTime) >= StuckConvergeTime;
+
+		// --- Решение: нормальная nav-погоня или прямой ход (fallback) ---
+		// Direct включается, если путь по навмешу не строится / цель или враг вне навмеша /
+		// враг застрял (не сближается). Иначе — обычная навигация (обходит препятствия в деревне).
+		const bool bUseDirect =
+			(LastMoveResult == EPathFollowingRequestResult::Failed) ||
+			!bSelfOnNav || !bTargetOnNav || bNotConverging;
+
+		if (bUseDirect)
+		{
+			// FALLBACK: прямой steering к игроку, игнорируя навмеш. AddMovementInput на пешке
+			// (Character с UCharacterMovementComponent — бандит/волк) гарантированно сближает на
+			// открытой местности. Гасим активный path-following, чтобы он не конфликтовал с ручным вводом.
+			if (GetMoveStatus() == EPathFollowingStatus::Moving)
+			{
+				StopMovement();
+			}
+
+			const FVector ToPlayer = (Player->GetActorLocation() - Self->GetActorLocation()).GetSafeNormal2D();
+			if (!ToPlayer.IsNearlyZero())
+			{
+				Self->AddMovementInput(ToPlayer, 1.0f);
+			}
+
+			// ПРОБА nav на восстановление: периодически переотдаём MoveToActor. Если навмеш стал
+			// доступен (станет RequestSuccessful, мы на навмеше и снова сближаемся) — со следующего
+			// тика bUseDirect станет false и вернёмся к обычной навигации. Если опять Failed — остаёмся в direct.
+			if (Now - LastMoveIssueTime >= RepathInterval)
+			{
+				LastMoveIssueTime = Now;
+				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
+			}
+		}
+		else
+		{
+			// НОРМАЛЬНАЯ nav-погоня. Переотдаём MoveToActor непрерывно: сразу, если path-following
+			// не в Moving (завершился/зафейлился/Idle), и периодически раз в RepathInterval (чтобы
+			// цель отслеживала движущегося игрока). НЕ каждый кадр (каждый вызов рестартит запрос —
+			// пешка не успевала продвинуться и стояла; это был баг до фикса 159729d).
+			const bool bNotMoving = (GetMoveStatus() != EPathFollowingStatus::Moving);
+			if (bNotMoving || (Now - LastMoveIssueTime >= RepathInterval))
+			{
+				LastMoveIssueTime = Now;
+				// ЗАХВАТЫВАЕМ результат запроса move. Если путь к игроку не строится (пешка/цель вне
+				// навмеша или навмеш не запечён) — здесь будет Failed → со следующего тика fallback.
+				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
+			}
+		}
+
+		// QA-диагностика погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить.
+		// СВЕДЁННАЯ строка: mode — режим (nav|direct), selfNav/targetNav — спроецированы ли враг/игрок
+		// на навмеш, moveResult — итог последнего MoveToActor, dist — center-to-center дистанция.
+		// Сборщик по mode видит, fallback ли это, по dist — убывает ли сближение.
+		if (Now - LastChaseLogTime >= ChaseLogInterval)
+		{
+			LastChaseLogTime = Now;
 
 			const TCHAR* MoveResultStr =
 				(LastMoveResult == EPathFollowingRequestResult::Failed) ? TEXT("Failed") :
@@ -225,12 +270,13 @@ void AEnemyAIController::Tick(float DeltaTime)
 				TEXT("RequestSuccessful");
 
 			FQADebug::QA(GetWorld(), FString::Printf(
-				TEXT("QA: %s chase: selfNav=%s targetNav=%s moveResult=%s dist=%.0f"),
+				TEXT("QA: %s chase mode=%s dist=%.0f (selfNav=%s targetNav=%s moveResult=%s)"),
 				*Self->GetName(),
+				bUseDirect ? TEXT("direct") : TEXT("nav"),
+				Dist,
 				bSelfOnNav ? TEXT("yes") : TEXT("no"),
 				bTargetOnNav ? TEXT("yes") : TEXT("no"),
-				MoveResultStr,
-				Dist), /*bScreen=*/true);
+				MoveResultStr), /*bScreen=*/true);
 		}
 	}
 }
