@@ -17,6 +17,7 @@
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
 #include "ARangedWeapon.h"        // патроны экипированного дальнобоя в HUD (#5)
 #include "UInventoryComponent.h"  // рюкзак
+#include "AAmmoItem.h"            // стак патронов (слайдер продажи)
 #include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
@@ -500,10 +501,120 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, ATraderNPC* Trader)
 {
 	bShopOpen = bOpen;
 	ShopTrader = bOpen ? Trader : nullptr;
+	CancelShopSlider(); // закрытие/открытие магазина сбрасывает активную транзакцию
 	if (!bOpen)
 	{
 		ShopHitRegions.Reset();
 	}
+}
+
+void AContrarySurvivorHUD::CancelShopSlider()
+{
+	bSliderActive = false;
+	bSliderIsBuy = false;
+	SliderEntryIndex = -1;
+	SliderItem = nullptr;
+	SliderQty = 1;
+	SliderQtyMax = 1;
+	SliderUnitPrice = 0.0f;
+	SliderUnitAmmo = 0;
+	SliderTitle.Reset();
+}
+
+void AContrarySurvivorHUD::ArmBuySlider(APlayerCharacter* Player, int32 EntryIndex)
+{
+	if (!Player || !ShopTrader)
+	{
+		return;
+	}
+	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+	if (!Catalog.IsValidIndex(EntryIndex))
+	{
+		return;
+	}
+	const FShopEntry& E = Catalog[EntryIndex];
+
+	bSliderActive = true;
+	bSliderIsBuy = true;
+	SliderEntryIndex = EntryIndex;
+	SliderItem = nullptr;
+	SliderUnitPrice = E.Price;
+	SliderUnitAmmo = (E.Kind == EShopEntryKind::Ammo) ? FMath::Max(0, E.AmmoAmount) : 0;
+	SliderTitle = E.DisplayName;
+
+	// Потолок по деньгам: сколько единиц по цене может позволить игрок (минимум 1).
+	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
+	int32 ByMoney = 999;
+	if (E.Price > 0.0f)
+	{
+		ByMoney = FMath::FloorToInt(Money / E.Price);
+	}
+	SliderQtyMax = FMath::Clamp(ByMoney, 1, 999);
+	SliderQty = 1;
+}
+
+void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInventoryItem* Item)
+{
+	if (!Player || !ShopTrader || !IsValid(Item))
+	{
+		return;
+	}
+
+	// Слайдер количества имеет смысл только для стака патронов. Прочие предметы продаём сразу.
+	AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
+	if (!Ammo)
+	{
+		Player->Shop_SellItem(Item, ShopTrader->GetSellValue(Item));
+		return;
+	}
+
+	bSliderActive = true;
+	bSliderIsBuy = false;
+	SliderEntryIndex = -1;
+	SliderItem = Item;
+	SliderUnitPrice = ShopTrader->GetAmmoSellPerRound();
+	SliderUnitAmmo = 0;
+	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны") : Item->ItemName;
+	SliderQtyMax = FMath::Max(1, Ammo->StackCount);
+	SliderQty = SliderQtyMax; // по умолчанию продать всё (как в STALKER — потом крутишь вниз)
+}
+
+void AContrarySurvivorHUD::AdjustShopSliderQty(int32 Delta)
+{
+	if (!bSliderActive)
+	{
+		return;
+	}
+	SliderQty = FMath::Clamp(SliderQty + Delta, 1, FMath::Max(1, SliderQtyMax));
+}
+
+void AContrarySurvivorHUD::ConfirmShopSlider(APlayerCharacter* Player)
+{
+	if (!bSliderActive || !Player)
+	{
+		CancelShopSlider();
+		return;
+	}
+
+	const int32 Qty = FMath::Clamp(SliderQty, 1, FMath::Max(1, SliderQtyMax));
+
+	if (bSliderIsBuy)
+	{
+		if (ShopTrader)
+		{
+			const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
+			if (Catalog.IsValidIndex(SliderEntryIndex))
+			{
+				Player->Shop_BuyEntryQty(Catalog[SliderEntryIndex], Qty);
+			}
+		}
+	}
+	else if (IsValid(SliderItem))
+	{
+		Player->Shop_SellItemQty(SliderItem, SliderUnitPrice, Qty);
+	}
+
+	CancelShopSlider();
 }
 
 bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
@@ -520,8 +631,6 @@ bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
 		return false;
 	}
 
-	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
-
 	for (const FShopHitRegion& R : ShopHitRegions)
 	{
 		const bool bInside = ScreenPos.X >= R.Min.X && ScreenPos.X <= R.Max.X &&
@@ -534,22 +643,39 @@ bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
 		switch (R.Action)
 		{
 			case EShopAction::Buy:
-				if (Catalog.IsValidIndex(R.EntryIndex))
-				{
-					Player->Shop_BuyEntry(Catalog[R.EntryIndex]);
-				}
+				// Клик «Buy» арміт слайдер количества (не покупает сразу) — STALKER 2-стиль.
+				ArmBuySlider(Player, R.EntryIndex);
 				return true;
 			case EShopAction::Sell:
-				if (IsValid(R.Item))
-				{
-					Player->Shop_SellItem(R.Item, ShopTrader->GetSellValue(R.Item));
-				}
+				// Стак патронов -> слайдер; прочее -> прямая продажа (внутри ArmSellSlider).
+				ArmSellSlider(Player, R.Item);
 				return true;
 			case EShopAction::Close:
 				if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
 				{
 					CSPC->CloseShop();
 				}
+				return true;
+			case EShopAction::SliderTrack:
+			{
+				// qty = round(max * (mouseX - trackX) / trackW), кламп 1..max.
+				const float TrackW = FMath::Max(1.0f, SliderTrackMax.X - SliderTrackMin.X);
+				const float Frac = FMath::Clamp((ScreenPos.X - SliderTrackMin.X) / TrackW, 0.0f, 1.0f);
+				const int32 NewQty = FMath::RoundToInt(Frac * static_cast<float>(FMath::Max(1, SliderQtyMax)));
+				SliderQty = FMath::Clamp(NewQty, 1, FMath::Max(1, SliderQtyMax));
+				return true;
+			}
+			case EShopAction::SliderDec:
+				AdjustShopSliderQty(-1);
+				return true;
+			case EShopAction::SliderInc:
+				AdjustShopSliderQty(+1);
+				return true;
+			case EShopAction::SliderConfirm:
+				ConfirmShopSlider(Player);
+				return true;
+			case EShopAction::SliderCancel:
+				CancelShopSlider();
 				return true;
 			default:
 				break;
@@ -611,11 +737,14 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		const float CX = PX + PanelW - Pad - CloseW;
 		const float CY = HeaderY;
 		DrawInvBox(CX, CY, CloseW, CloseH, InvDropColor, Mouse, TEXT("Close"), Font);
-		FShopHitRegion R;
-		R.Min = FVector2D(CX, CY);
-		R.Max = FVector2D(CX + CloseW, CY + CloseH);
-		R.Action = EShopAction::Close;
-		ShopHitRegions.Add(R);
+		if (!bSliderActive) // при активном слайдере списки/кнопки за ним не кликаются (модально)
+		{
+			FShopHitRegion R;
+			R.Min = FVector2D(CX, CY);
+			R.Max = FVector2D(CX + CloseW, CY + CloseH);
+			R.Action = EShopAction::Close;
+			ShopHitRegions.Add(R);
+		}
 	}
 
 	const float ContentY = HeaderY + 56.0f;
@@ -646,7 +775,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		const float BtnX = LeftX + MainW + 6.0f;
 		const bool bAfford = (Money >= E.Price);
 		DrawInvBox(BtnX, RowY, BtnW, RowH, bAfford ? InvSlotFilledColor : InvDropColor, Mouse, TEXT("Buy"), Font);
-		if (bAfford)
+		if (bAfford && !bSliderActive)
 		{
 			FShopHitRegion R;
 			R.Min = FVector2D(BtnX, RowY);
@@ -689,6 +818,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 
 			const float BtnX = RightX + MainW + 6.0f;
 			DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
+			if (!bSliderActive)
 			{
 				FShopHitRegion R;
 				R.Min = FVector2D(BtnX, SellY);
@@ -704,6 +834,134 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 				break;
 			}
 		}
+	}
+
+	// Поверх списков — панель слайдера количества (если идёт транзакция купли/продажи стака).
+	if (bSliderActive)
+	{
+		DrawShopSlider(Player, Mouse, Font, SX, SY);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Слайдер количества купли-продажи (immediate-mode, STALKER 2-стиль) — Фаза 5
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVector2D& Mouse,
+	UFont* Font, float SX, float SY)
+{
+	// Компактная модальная панель по центру экрана.
+	const float PW = FMath::Min(560.0f, SX * 0.6f);
+	const float PH = 220.0f;
+	const float PXc = (SX - PW) * 0.5f;
+	const float PYc = (SY - PH) * 0.5f;
+
+	// Затемнение под панелью + сама панель.
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+	DrawRect(InvPanelColor, PXc, PYc, PW, PH);
+
+	const float Pad = 18.0f;
+	float Y = PYc + Pad;
+
+	// Заголовок: что и в каком режиме.
+	if (Font)
+	{
+		const FString Mode = bSliderIsBuy ? TEXT("BUY") : TEXT("SELL");
+		DrawText(FString::Printf(TEXT("%s:  %s"), *Mode, *SliderTitle),
+			FLinearColor::White, PXc + Pad, Y, Font);
+	}
+	Y += 30.0f;
+
+	// Кламп qty на случай, если max изменился.
+	SliderQty = FMath::Clamp(SliderQty, 1, FMath::Max(1, SliderQtyMax));
+
+	// Строка количества + (для патронов) сколько это патронов.
+	if (Font)
+	{
+		FString QtyLine = FString::Printf(TEXT("Qty: %d / %d"), SliderQty, SliderQtyMax);
+		if (SliderUnitAmmo > 0)
+		{
+			QtyLine += FString::Printf(TEXT("   (= %d ammo)"), SliderQty * SliderUnitAmmo);
+		}
+		DrawText(QtyLine, FLinearColor(1.0f, 0.95f, 0.6f, 1.0f), PXc + Pad, Y, Font);
+	}
+	Y += 28.0f;
+
+	// --- Трек слайдера ---
+	const float TrackX = PXc + Pad;
+	const float TrackW = PW - Pad * 2.0f;
+	const float TrackY = Y + 10.0f;
+	const float TrackH = 10.0f;
+	SliderTrackMin = FVector2D(TrackX, TrackY - 8.0f);          // расширяем зону клика по вертикали
+	SliderTrackMax = FVector2D(TrackX + TrackW, TrackY + TrackH + 8.0f);
+
+	DrawRect(InvSlotColor, TrackX, TrackY, TrackW, TrackH); // фон трека
+	const float Frac = (SliderQtyMax > 1)
+		? static_cast<float>(SliderQty - 1) / static_cast<float>(SliderQtyMax - 1)
+		: 1.0f;
+	const float FillW = TrackW * Frac;
+	DrawRect(InvSlotFilledColor, TrackX, TrackY, FillW, TrackH); // заполнение до ручки
+	// Ручка.
+	const float HandleW = 12.0f;
+	const float HandleX = FMath::Clamp(TrackX + FillW - HandleW * 0.5f, TrackX, TrackX + TrackW - HandleW);
+	DrawRect(FLinearColor::White, HandleX, TrackY - 6.0f, HandleW, TrackH + 12.0f);
+
+	// Зона клика по треку.
+	{
+		FShopHitRegion R;
+		R.Min = SliderTrackMin;
+		R.Max = SliderTrackMax;
+		R.Action = EShopAction::SliderTrack;
+		ShopHitRegions.Add(R);
+	}
+	Y = TrackY + TrackH + 20.0f;
+
+	// --- Кнопки [-] [+] ---
+	const float SmallW = 48.0f, SmallH = 30.0f;
+	DrawInvBox(TrackX, Y, SmallW, SmallH, InvSlotColor, Mouse, TEXT("-"), Font);
+	{
+		FShopHitRegion R; R.Min = FVector2D(TrackX, Y); R.Max = FVector2D(TrackX + SmallW, Y + SmallH);
+		R.Action = EShopAction::SliderDec; ShopHitRegions.Add(R);
+	}
+	const float PlusX = TrackX + SmallW + 8.0f;
+	DrawInvBox(PlusX, Y, SmallW, SmallH, InvSlotColor, Mouse, TEXT("+"), Font);
+	{
+		FShopHitRegion R; R.Min = FVector2D(PlusX, Y); R.Max = FVector2D(PlusX + SmallW, Y + SmallH);
+		R.Action = EShopAction::SliderInc; ShopHitRegions.Add(R);
+	}
+
+	// --- Живая итоговая цена ---
+	const float Total = SliderUnitPrice * static_cast<float>(SliderQty);
+	if (Font)
+	{
+		const FString PriceStr = bSliderIsBuy
+			? FString::Printf(TEXT("Total: %.0f"), Total)
+			: FString::Printf(TEXT("Gain: +%.0f"), Total);
+		DrawText(PriceStr, FLinearColor(1.0f, 0.9f, 0.4f, 1.0f), PlusX + SmallW + 24.0f, Y + 6.0f, Font);
+	}
+
+	// --- Кнопки [Confirm] [Cancel] (правый нижний угол панели) ---
+	const float BtnW = 120.0f, BtnH = 34.0f;
+	const float BtnY = PYc + PH - Pad - BtnH;
+	const float ConfirmX = PXc + PW - Pad - BtnW;
+	const float CancelX = ConfirmX - BtnW - 10.0f;
+
+	DrawInvBox(CancelX, BtnY, BtnW, BtnH, InvDropColor, Mouse, TEXT("Cancel"), Font);
+	{
+		FShopHitRegion R; R.Min = FVector2D(CancelX, BtnY); R.Max = FVector2D(CancelX + BtnW, BtnY + BtnH);
+		R.Action = EShopAction::SliderCancel; ShopHitRegions.Add(R);
+	}
+	DrawInvBox(ConfirmX, BtnY, BtnW, BtnH, InvSlotFilledColor, Mouse, TEXT("Confirm"), Font);
+	{
+		FShopHitRegion R; R.Min = FVector2D(ConfirmX, BtnY); R.Max = FVector2D(ConfirmX + BtnW, BtnY + BtnH);
+		R.Action = EShopAction::SliderConfirm; ShopHitRegions.Add(R);
+	}
+
+	// Подсказка по клавишам (стрелки/колесо ±1, Shift ±10).
+	if (Font)
+	{
+		DrawText(TEXT("[<-/->] +-1   [Shift] +-10   [Enter] confirm"),
+			FLinearColor(0.7f, 0.7f, 0.7f, 1.0f), PXc + Pad, BtnY + 8.0f, Font);
 	}
 }
 
@@ -1191,8 +1449,10 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	// AMasterWeapon: GetCurrentAmmoInClip()/GetCurrentAmmoReserve() (подтв. AMasterWeapon.h).
 	if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon()))
 	{
-		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d"),
-			Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve());
+		// Обойма / резерв оружия + (в рюкзаке) — патроны как стак-предмет (Фаза 5).
+		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d  (bag %d)"),
+			Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve(),
+			Player->GetReserveAmmoInInventory());
 		// Плашка под патронами для читаемости.
 		float AmmoW = 0.0f, AmmoH = 0.0f;
 		if (Font)

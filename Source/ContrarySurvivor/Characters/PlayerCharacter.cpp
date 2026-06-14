@@ -23,6 +23,7 @@
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
 #include "AConsumableItem.h"
+#include "AAmmoItem.h" // патроны как стак-предмет рюкзака (Фаза 5)
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
@@ -606,37 +607,38 @@ void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)
 
 bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
 {
+    return Shop_BuyEntryQty(Entry, 1);
+}
+
+bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
+{
     if (!Stats)
     {
         return false;
     }
 
+    Qty = FMath::Max(1, Qty);
+    const float TotalPrice = Entry.Price * static_cast<float>(Qty);
+
     // Проверяем платёжеспособность ДО выдачи товара (clamp >=0: нельзя купить без денег).
-    if (Stats->GetMoney() < Entry.Price)
+    if (Stats->GetMoney() < TotalPrice)
     {
-        UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' (%.0f < %.0f)"),
-            *Entry.DisplayName, Stats->GetMoney(), Entry.Price);
+        UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' x%d (%.0f < %.0f)"),
+            *Entry.DisplayName, Qty, Stats->GetMoney(), TotalPrice);
         return false;
     }
 
     if (Entry.Kind == EShopEntryKind::Ammo)
     {
-        // Патроны -> резерв дальнобойного оружия игрока.
-        ARangedWeapon* Ranged = Cast<ARangedWeapon>(RangedWeaponInstance);
-        if (!Ranged)
-        {
-            Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
-        }
-        if (!Ranged)
-        {
-            UE_LOG(LogTemp, Log, TEXT("Shop: no ranged weapon to receive ammo"));
-            return false; // не списываем деньги, если некуда класть патроны
-        }
-        Ranged->AddReserveAmmo(Entry.AmmoAmount);
+        // Патроны -> в рюкзак СТАКОМ (Фаза 5). Qty единиц * AmmoAmount патронов в каждой.
+        const int32 RoundsBought = FMath::Max(0, Entry.AmmoAmount) * Qty;
+        AddAmmoToInventory(RoundsBought);
+        UE_LOG(LogQA, Display, TEXT("QA: BUY %d ammo (x%d) -> backpack now %d rounds"),
+            RoundsBought, Qty, GetReserveAmmoInInventory());
     }
     else
     {
-        // Предмет -> в рюкзак (скрытый, как тестовые/лут-предметы).
+        // Предмет -> в рюкзак (скрытый, как тестовые/лут-предметы). Qty копий.
         if (!Entry.ItemClass)
         {
             return false;
@@ -651,38 +653,198 @@ bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
         Sp.Owner = this;
         Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-        AMasterInventoryItem* Bought = World->SpawnActor<AMasterInventoryItem>(
-            Entry.ItemClass, GetActorLocation(), GetActorRotation(), Sp);
-        if (!Bought)
+        for (int32 i = 0; i < Qty; ++i)
         {
-            return false;
-        }
-
-        // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
-        if (Entry.bApplyConsumableType)
-        {
-            if (AConsumableItem* Cons = Cast<AConsumableItem>(Bought))
+            AMasterInventoryItem* Bought = World->SpawnActor<AMasterInventoryItem>(
+                Entry.ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+            if (!Bought)
             {
-                Cons->ConsumableType = Entry.ConsumableType;
+                continue;
             }
-        }
-        if (Bought->ItemName.IsEmpty())
-        {
-            Bought->ItemName = Entry.DisplayName;
-        }
 
-        Bought->SetActorHiddenInGame(true);
-        Bought->SetActorEnableCollision(false);
-        Inventory->AddItem(Bought);
+            // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
+            if (Entry.bApplyConsumableType)
+            {
+                if (AConsumableItem* Cons = Cast<AConsumableItem>(Bought))
+                {
+                    Cons->ConsumableType = Entry.ConsumableType;
+                }
+            }
+            if (Bought->ItemName.IsEmpty())
+            {
+                Bought->ItemName = Entry.DisplayName;
+            }
+
+            Bought->SetActorHiddenInGame(true);
+            Bought->SetActorEnableCollision(false);
+            Inventory->AddItem(Bought);
+        }
     }
 
-    // Списываем цену (SpendMoney clamp >=0 + бродкаст HUD).
-    Stats->SpendMoney(Entry.Price);
-    UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' for %.0f. Money left %.0f"),
-        *Entry.DisplayName, Entry.Price, Stats->GetMoney());
-    UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' for %.0f, balance %.0f"),
-        *Entry.DisplayName, Entry.Price, Stats->GetMoney());
+    // Списываем итоговую цену (SpendMoney clamp >=0 + бродкаст HUD).
+    Stats->SpendMoney(TotalPrice);
+    UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' x%d for %.0f. Money left %.0f"),
+        *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
+    UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),
+        *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Патроны как стак-предмет рюкзака (Фаза 5, STALKER 2-стиль)
+// ---------------------------------------------------------------------------
+
+int32 APlayerCharacter::GetReserveAmmoInInventory() const
+{
+    if (!Inventory)
+    {
+        return 0;
+    }
+    int32 Total = 0;
+    for (AMasterInventoryItem* It : Inventory->GetInventoryItems())
+    {
+        if (AAmmoItem* Ammo = Cast<AAmmoItem>(It))
+        {
+            Total += FMath::Max(0, Ammo->StackCount);
+        }
+    }
+    return Total;
+}
+
+void APlayerCharacter::AddAmmoToInventory(int32 Amount)
+{
+    if (Amount <= 0 || !Inventory)
+    {
+        return;
+    }
+
+    // 1) Дозаполняем существующие пачки (стак), пока есть место.
+    for (AMasterInventoryItem* It : Inventory->GetInventoryItems())
+    {
+        if (Amount <= 0)
+        {
+            break;
+        }
+        if (AAmmoItem* Ammo = Cast<AAmmoItem>(It))
+        {
+            const int32 Space = Ammo->GetStackSpace();
+            if (Space > 0)
+            {
+                const int32 Add = FMath::Min(Space, Amount);
+                Ammo->StackCount += Add;
+                Amount -= Add;
+            }
+        }
+    }
+
+    // 2) Остаток — в новые пачки (если за раз купили больше MaxStackCount).
+    UWorld* World = GetWorld();
+    while (Amount > 0 && World)
+    {
+        FActorSpawnParameters Sp;
+        Sp.Owner = this;
+        Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+        AAmmoItem* NewPack = World->SpawnActor<AAmmoItem>(
+            AAmmoItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+        if (!NewPack)
+        {
+            break;
+        }
+        const int32 Add = FMath::Min(NewPack->MaxStackCount, Amount);
+        NewPack->StackCount = Add;
+        Amount -= Add;
+        NewPack->SetActorHiddenInGame(true);
+        NewPack->SetActorEnableCollision(false);
+        Inventory->AddItem(NewPack);
+    }
+}
+
+int32 APlayerCharacter::TakeAmmoFromInventory(int32 Amount)
+{
+    if (Amount <= 0 || !Inventory)
+    {
+        return 0;
+    }
+
+    int32 Taken = 0;
+    // Копия списка: при опустошении пачки удаляем её из инвентаря (модификация коллекции).
+    TArray<AMasterInventoryItem*> Items = Inventory->GetInventoryItems();
+    for (AMasterInventoryItem* It : Items)
+    {
+        if (Taken >= Amount)
+        {
+            break;
+        }
+        AAmmoItem* Ammo = Cast<AAmmoItem>(It);
+        if (!Ammo || Ammo->StackCount <= 0)
+        {
+            continue;
+        }
+        const int32 Pull = FMath::Min(Ammo->StackCount, Amount - Taken);
+        Ammo->StackCount -= Pull;
+        Taken += Pull;
+        if (Ammo->StackCount <= 0)
+        {
+            Inventory->RemoveItem(Ammo);
+            Ammo->Destroy();
+        }
+    }
+    return Taken;
+}
+
+void APlayerCharacter::ReloadCurrentWeapon()
+{
+    // Перед штатной перезарядкой пополняем резерв оружия из пачки патронов рюкзака.
+    if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(GetCurrentWeapon()))
+    {
+        const int32 Space = Ranged->GetReserveSpace();
+        if (Space > 0)
+        {
+            const int32 Pulled = TakeAmmoFromInventory(Space);
+            if (Pulled > 0)
+            {
+                Ranged->AddReserveAmmo(Pulled);
+                UE_LOG(LogQA, Display, TEXT("QA: RELOAD pulled %d ammo from backpack -> reserve %d (backpack left %d)"),
+                    Pulled, Ranged->GetCurrentAmmoReserve(), GetReserveAmmoInInventory());
+            }
+        }
+    }
+
+    // Штатный перенос резерв -> обойма (база).
+    Super::ReloadCurrentWeapon();
+}
+
+void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSellPrice, int32 Qty)
+{
+    if (!Item || !Inventory || !Stats)
+    {
+        return;
+    }
+
+    // Стак патронов: продаём Qty патронов из пачки за UnitSellPrice/патрон.
+    if (AAmmoItem* Ammo = Cast<AAmmoItem>(Item))
+    {
+        const int32 SellCount = FMath::Clamp(Qty, 1, Ammo->StackCount);
+        if (SellCount <= 0)
+        {
+            return;
+        }
+        const float Gain = UnitSellPrice * static_cast<float>(SellCount);
+        Ammo->StackCount -= SellCount;
+        Stats->AddMoney(Gain);
+        if (Ammo->StackCount <= 0)
+        {
+            Inventory->RemoveItem(Ammo);
+            Ammo->Destroy();
+        }
+        UE_LOG(LogQA, Display, TEXT("QA: SELL %d ammo for %.0f, balance %.0f (backpack left %d)"),
+            SellCount, Gain, Stats->GetMoney(), GetReserveAmmoInInventory());
+        return;
+    }
+
+    // Нестакающийся предмет — продаём целиком (UnitSellPrice = полная цена выкупа).
+    Shop_SellItem(Item, UnitSellPrice);
 }
 
 void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice)

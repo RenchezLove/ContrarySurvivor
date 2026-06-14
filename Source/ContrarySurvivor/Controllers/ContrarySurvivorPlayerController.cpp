@@ -3,6 +3,7 @@
 #include "ContrarySurvivorPlayerController.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputCoreTypes.h" // EKeys (детект Shift для слайдера ±10)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
@@ -160,6 +161,10 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
 		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
+
+		// Фаза 5: слайдер количества в магазине — ±количество (стрелки/колесо, Shift=±10).
+		InputComponent->BindAction(TEXT("ShopQtyDec"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnShopQtyDec);
+		InputComponent->BindAction(TEXT("ShopQtyInc"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnShopQtyInc);
 	}
 }
 
@@ -207,6 +212,22 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 
 void AContrarySurvivorPlayerController::OnRespawnPressed()
 {
+	// Фаза 5: если в магазине открыт слайдер количества — Enter/Пробел подтверждает транзакцию.
+	if (bShopOpen)
+	{
+		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		{
+			if (CSHUD->IsShopSliderActive())
+			{
+				if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+				{
+					CSHUD->ConfirmShopSlider(PlayerChar);
+				}
+				return;
+			}
+		}
+	}
+
 	// Дубль кнопки «Возродиться» клавишей (Enter / Пробел). Действует только на экране смерти.
 	if (!bDeathScreen)
 	{
@@ -216,6 +237,32 @@ void AContrarySurvivorPlayerController::OnRespawnPressed()
 	{
 		UE_LOG(LogQA, Display, TEXT("QA: respawn key pressed"));
 		PlayerChar->Respawn();
+	}
+}
+
+void AContrarySurvivorPlayerController::OnShopQtyDec()
+{
+	if (!bShopOpen) return;
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		if (CSHUD->IsShopSliderActive())
+		{
+			const bool bShift = IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
+			CSHUD->AdjustShopSliderQty(bShift ? -10 : -1);
+		}
+	}
+}
+
+void AContrarySurvivorPlayerController::OnShopQtyInc()
+{
+	if (!bShopOpen) return;
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		if (CSHUD->IsShopSliderActive())
+		{
+			const bool bShift = IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
+			CSHUD->AdjustShopSliderQty(bShift ? 10 : 1);
+		}
 	}
 }
 

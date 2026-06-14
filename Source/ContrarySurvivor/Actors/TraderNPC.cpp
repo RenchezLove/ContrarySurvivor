@@ -138,11 +138,13 @@ void ATraderNPC::BuildDefaultCatalog()
 
 	// Патроны: 2/шт (GDD §7.6). Пачка 10 шт = 20.
 	{
+		// Поштучно (STALKER 2-стиль): 1 патрон = 2 валюты. Слайдер магазина даёт купить N патронов
+		// с живым пересчётом цены. Покупка идёт в рюкзак СТАКОМ (AAmmoItem), не в резерв напрямую.
 		FShopEntry Ammo;
-		Ammo.DisplayName = TEXT("Pistol Ammo x10");
-		Ammo.Price = 20.0f;
+		Ammo.DisplayName = TEXT("Pistol Ammo");
+		Ammo.Price = 2.0f;
 		Ammo.Kind = EShopEntryKind::Ammo;
-		Ammo.AmmoAmount = 10;
+		Ammo.AmmoAmount = 1;
 		Catalog.Add(Ammo);
 	}
 

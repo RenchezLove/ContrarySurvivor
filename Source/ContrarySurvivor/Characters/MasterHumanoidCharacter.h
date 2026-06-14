@@ -120,8 +120,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void FireCurrentWeapon(AActor* Target);
 
+	// virtual: APlayerCharacter переопределяет, чтобы перед штатной перезарядкой пополнить
+	// резерв оружия из пачки патронов (AAmmoItem) в рюкзаке (Фаза 5, STALKER 2-стиль).
 	UFUNCTION(BlueprintCallable, Category = "Combat")
-	void ReloadCurrentWeapon();
+	virtual void ReloadCurrentWeapon();
 
 	// --- Броня ---
 

@@ -88,6 +88,9 @@ public:
 	// Цена выкупа предмета у игрока (DRAFT ~50% от условной цены, по категории).
 	float GetSellValue(const AMasterInventoryItem* Item) const;
 
+	// Цена выкупа ОДНОГО патрона (для слайдера продажи стака патронов). DRAFT ~50% от цены покупки.
+	float GetAmmoSellPerRound() const { return SellValueAmmoPerRound; }
+
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
 	virtual FString GetNPCMarkerLabel() const override { return TEXT("Trader"); }
 	virtual float GetNPCMarkerZOffset() const override { return 320.0f; }
@@ -142,6 +145,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
 	float SellValueResource = 2.0f;
+
+	// Выкуп патронов — поштучно (стак). DRAFT ~50% от цены покупки (2/шт по GDD §7.6).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
+	float SellValueAmmoPerRound = 1.0f;
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,

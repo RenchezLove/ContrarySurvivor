@@ -298,6 +298,13 @@ protected:
 	UFUNCTION()
 	void OnQAKillPlayer();
 
+	// Слайдер количества в магазине (Фаза 5): ±количество. Стрелки/колесо = ±1, с Shift = ±10.
+	// Действуют только когда открыт магазин и активен слайдер транзакции.
+	UFUNCTION()
+	void OnShopQtyDec();
+	UFUNCTION()
+	void OnShopQtyInc();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;

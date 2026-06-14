@@ -355,13 +355,41 @@ public:
     // --- Магазин торговца (Фаза 4, экономика — GDD §7.6) ---
     // Вызываются из AContrarySurvivorHUD по клику в экране магазина.
 
-    // Купить позицию каталога: проверяет деньги, выдаёт товар (предмет в рюкзак или
-    // патроны в резерв оружия) и списывает цену. Возвращает true при успешной покупке.
+    // Купить позицию каталога (qty=1). Тонкая обёртка над Shop_BuyEntryQty — сохраняет старые
+    // call-site'ы (QA-клавиши/HUD). Возвращает true при успешной покупке.
     bool Shop_BuyEntry(const FShopEntry& Entry);
 
-    // Продать предмет рюкзака за SellPrice: экип. броню сначала снимает, удаляет предмет,
-    // начисляет деньги.
+    // Купить Qty единиц позиции каталога: проверяет деньги на Qty*Price, выдаёт товар (патроны —
+    // в рюкзак стаком; предметы — Qty копий в рюкзак) и списывает цену. Слайдер магазина зовёт
+    // это с выбранным количеством (Фаза 5, STALKER 2-стиль). Возвращает true при успехе.
+    bool Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty);
+
+    // Продать предмет рюкзака за SellPrice (целиком): экип. броню сначала снимает, удаляет
+    // предмет, начисляет деньги. Для нестакающихся предметов.
     void Shop_SellItem(AMasterInventoryItem* Item, float SellPrice);
+
+    // Продать Qty единиц из стака патронов (AAmmoItem) за UnitSellPrice за патрон. Уменьшает
+    // StackCount; пустую пачку удаляет. Для прочих предметов — продаёт целиком (Qty игнор).
+    void Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSellPrice, int32 Qty);
+
+    // --- Патроны как стак-предмет рюкзака (Фаза 5, STALKER 2-стиль) ---
+
+    // Суммарно патронов во всех пачках (AAmmoItem) рюкзака.
+    UFUNCTION(BlueprintPure, Category = "Inventory|Ammo")
+    int32 GetReserveAmmoInInventory() const;
+
+    // Добавить патроны в рюкзак стаком: пополняет первую неполную пачку, остаток — новой пачкой.
+    UFUNCTION(BlueprintCallable, Category = "Inventory|Ammo")
+    void AddAmmoToInventory(int32 Amount);
+
+    // Изъять до Amount патронов из рюкзака (для перезарядки). Возвращает реально изъятое;
+    // опустошённые пачки удаляются.
+    UFUNCTION(BlueprintCallable, Category = "Inventory|Ammo")
+    int32 TakeAmmoFromInventory(int32 Amount);
+
+    // Перезарядка игрока: сперва пополняет резерв оружия из пачки патронов рюкзака, затем —
+    // штатный перенос резерв->обойма (база). Переопределяет AMasterHumanoidCharacter.
+    virtual void ReloadCurrentWeapon() override;
 
     // DEBUG-команда наполнения рюкзака тестовыми предметами (консоль `~`, ввести GiveTestItems):
     // пара расходников (еда+вода) + запасная броня головы/торса — чтобы было что

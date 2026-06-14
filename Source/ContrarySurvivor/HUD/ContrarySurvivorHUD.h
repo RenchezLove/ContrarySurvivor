@@ -35,13 +35,18 @@ struct FInvHitRegion
 	int32 SlotIndex = -1;                 // для UnequipSlot (приведение к EArmorSlot)
 };
 
-// Тип действия кликабельной зоны магазина (Фаза 4, экономика).
+// Тип действия кликабельной зоны магазина (Фаза 4, экономика; Фаза 5 — слайдер количества).
 enum class EShopAction : uint8
 {
 	None,
-	Buy,   // купить позицию каталога (EntryIndex)
-	Sell,  // продать предмет рюкзака (Item)
-	Close  // закрыть магазин
+	Buy,            // арм слайдера покупки позиции каталога (EntryIndex)
+	Sell,           // арм слайдера/прямая продажа предмета рюкзака (Item)
+	Close,          // закрыть магазин
+	SliderTrack,    // клик по треку слайдера -> qty = по позиции мыши
+	SliderDec,      // кнопка [-]
+	SliderInc,      // кнопка [+]
+	SliderConfirm,  // подтвердить покупку/продажу на выбранное qty
+	SliderCancel    // отменить слайдер (вернуться к списку)
 };
 
 // Кликабельная зона магазина (пересобирается каждый кадр в DrawShop).
@@ -114,6 +119,16 @@ public:
 	// Обработать клик мыши/тап по экрану магазина (купить/продать/закрыть). Возвращает true,
 	// если зона найдена и действие выполнено.
 	bool HandleShopClick(FVector2D ScreenPos);
+
+	// Слайдер количества активен (открыта транзакция купли/продажи стака)? Контроллер маршрутит
+	// клавиши ±количества только когда true.
+	bool IsShopSliderActive() const { return bSliderActive; }
+
+	// Изменить выбранное количество слайдера на Delta (клавиши ±1 / Shift ±10 / колесо). Кламп 1..max.
+	void AdjustShopSliderQty(int32 Delta);
+
+	// Выполнить транзакцию на выбранное qty и закрыть слайдер (Enter/кнопка Confirm).
+	void ConfirmShopSlider(APlayerCharacter* Player);
 
 	// --- Экран диалога со старостой (Фаза 5, квесты — GDD §7.7) — immediate-mode, без UMG ---
 
@@ -376,6 +391,50 @@ private:
 	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
 	// сверху деньги + [Close]. Заполняет ShopHitRegions.
 	void DrawShop(APlayerCharacter* Player);
+
+	// --- Слайдер количества купли-продажи (Фаза 5, STALKER 2-стиль) ---
+
+	// Активна ли транзакция со слайдером (поверх списков магазина).
+	bool bSliderActive = false;
+
+	// true = покупка позиции каталога (SliderEntryIndex); false = продажа предмета (SliderItem).
+	bool bSliderIsBuy = false;
+
+	// Индекс позиции каталога для покупки (-1 если продажа).
+	int32 SliderEntryIndex = -1;
+
+	// Продаваемый предмет (стак патронов) при продаже.
+	UPROPERTY()
+	AMasterInventoryItem* SliderItem = nullptr;
+
+	// Выбранное количество и его потолок (по деньгам/размеру стака).
+	int32 SliderQty = 1;
+	int32 SliderQtyMax = 1;
+
+	// Цена за ЕДИНИЦУ слайдера (для покупки — Price позиции; для продажи патрона — выкуп/патрон).
+	float SliderUnitPrice = 0.0f;
+
+	// Сколько патронов даёт одна единица покупки (для подписи «= N патронов»); 0 для не-патронов.
+	int32 SliderUnitAmmo = 0;
+
+	// Заголовок транзакции (имя товара/предмета).
+	FString SliderTitle;
+
+	// Армировать слайдер покупки/продажи (вызывается из HandleShopClick по клику Buy/Sell).
+	void ArmBuySlider(APlayerCharacter* Player, int32 EntryIndex);
+	void ArmSellSlider(APlayerCharacter* Player, AMasterInventoryItem* Item);
+
+	// Закрыть слайдер (Cancel/после Confirm).
+	void CancelShopSlider();
+
+	// Нарисовать панель слайдера (трек+ручка, живая цена, кнопки) поверх списков. Добавляет
+	// слайдер-зоны в ShopHitRegions. Возвращает геометрию трека через члены ниже (для hit-теста).
+	void DrawShopSlider(APlayerCharacter* Player, const FVector2D& Mouse, UFont* Font,
+		float SX, float SY);
+
+	// Геометрия трека слайдера (пересобирается в DrawShopSlider) — для клика по треку.
+	FVector2D SliderTrackMin = FVector2D::ZeroVector;
+	FVector2D SliderTrackMax = FVector2D::ZeroVector;
 
 	// --- Экран диалога со старостой (immediate-mode) ---
 

@@ -94,6 +94,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
 	FORCEINLINE int32 GetCurrentAmmoReserve() const { return CurrentAmmoReserve; }
 
+	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
+	FORCEINLINE int32 GetMaxAmmoReserve() const { return MaxAmmoReserve; }
+
+	// Сколько ещё патронов влезает в резерв оружия (для пополнения из рюкзака при перезарядке).
+	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
+	FORCEINLINE int32 GetReserveSpace() const { return FMath::Max(0, MaxAmmoReserve - CurrentAmmoReserve); }
+
 	UFUNCTION(BlueprintPure, Category = "Weapon|State")
 	FORCEINLINE bool GetIsReloading() const { return bIsReloading; }
 };
