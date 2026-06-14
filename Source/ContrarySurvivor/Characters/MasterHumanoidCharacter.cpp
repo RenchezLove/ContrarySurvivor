@@ -124,17 +124,37 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 
     // Крепим оружие к КОСТИ правой кисти (R_Hand), а не к сокету (сокета WeaponSocket на
     // TorsoMesh нет — оружие падало в origin). Носитель кости определяем ПО ФАКТУ:
-    // у скелетного меша DoesSocketExist(BoneName) истинно и для костей. Приоритет —
-    // анимируемый Leader-меш (GetMesh() == HeadMesh): на нём поза R_Hand реально проигрывается.
-    // Запасные кандидаты — модульные меши слотов (Torso/Legs), на случай иной раскладки скелета.
+    // у скелетного меша DoesSocketExist(BoneName) истинно и для костей.
+    //
+    // ПРИОРИТЕТ — ЛИДЕР-меш GetMesh() (== HeadMesh, см. конструктор/RelinkSlotToLeaderPose):
+    // это ГЛАВНЫЙ анимируемый скелет, follower-меши (Torso/Legs) идут за ним через
+    // SetLeaderPoseComponent. Привязка к лидеру корректнее и устойчивее к смене модулей,
+    // чем к follower-под-мешу. Если у лидера в текущем ассете нет R_Hand — пробуем followers
+    // как запас (иная раскладка скелета), и только затем root-фолбэк.
     USkeletalMeshComponent* BoneCarrier = nullptr;
-    USkeletalMeshComponent* Candidates[] = { GetMesh(), TorsoMesh, LegsMesh };
-    for (USkeletalMeshComponent* MeshComp : Candidates)
+    bool bCarrierIsLeader = false;
+
+    USkeletalMeshComponent* Leader = GetMesh();
+    if (Leader && Leader->DoesSocketExist(WeaponAttachBoneName))
     {
-        if (MeshComp && MeshComp->DoesSocketExist(WeaponAttachBoneName))
+        BoneCarrier = Leader;
+        bCarrierIsLeader = true;
+    }
+    else
+    {
+        // Лидер не несёт R_Hand в текущем ассете — оставляем привязку как есть (follower),
+        // но громко сообщаем: это нештатно (см. задачу — целевой носитель = GetMesh()).
+        UE_LOG(LogTemp, Warning,
+            TEXT("EquipWeapon: leader mesh GetMesh() has NO bone '%s' — falling back to follower meshes."),
+            *WeaponAttachBoneName.ToString());
+        USkeletalMeshComponent* Followers[] = { TorsoMesh, LegsMesh };
+        for (USkeletalMeshComponent* MeshComp : Followers)
         {
-            BoneCarrier = MeshComp;
-            break;
+            if (MeshComp && MeshComp->DoesSocketExist(WeaponAttachBoneName))
+            {
+                BoneCarrier = MeshComp;
+                break;
+            }
         }
     }
 
@@ -152,8 +172,9 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 
         const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();
         UE_LOG(LogTemp, Log,
-            TEXT("EquipWeapon: attached %s to bone '%s' on mesh '%s' (component '%s')"),
+            TEXT("EquipWeapon: attached %s to bone '%s' on %s mesh '%s' (component '%s')"),
             *CurrentWeapon->GetName(), *WeaponAttachBoneName.ToString(),
+            bCarrierIsLeader ? TEXT("LEADER") : TEXT("follower"),
             CarrierAsset ? *CarrierAsset->GetName() : TEXT("none"),
             *BoneCarrier->GetName());
     }

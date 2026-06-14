@@ -55,10 +55,24 @@ namespace SpawnPlacement
 			Params.AddIgnoredActor(IgnoreActor);
 		}
 
+		// BUG (регрессия боя/спавна): раньше тут была LineTraceSingleByChannel(ECC_WorldStatic).
+		// Это трасса ПО КАНАЛУ WorldStatic — она попадает по ВСЕМУ, что блокирует этот канал,
+		// в т.ч. по КАПСУЛАМ ПЕШЕК (у Pawn-пресета ответ на WorldStatic = Block) и прочей
+		// динамике. В PIE трасса из Z=2000 цепляла капсулу у точки старта (само-/пешко-попадание)
+		// и возвращала Z≈2000+offset (≈2098) вместо реального пола (≈162) — игрок/волки спавнились
+		// высоко и падали (а волки Логова не попадали к игроку → ломался авто-лок/агр).
+		//
+		// ФИКС: трасса ПО ТИПУ ОБЪЕКТА (LineTraceSingleByObjectType) только по статической/динамической
+		// геометрии мира — Pawn'ы (object type Pawn) и прочие пешки в выборку НЕ входят ВООБЩЕ
+		// (это и есть «игнор self + всех Pawn» по построению, надёжнее перечисления актёров).
+		// WorldStatic — пол/дома/дороги (landscape/BSP/static mesh); WorldDynamic — на случай,
+		// если пол собран движимой геометрией. Тип Pawn сознательно НЕ запрашиваем.
+		FCollisionObjectQueryParams ObjParams;
+		ObjParams.AddObjectTypesToQuery(ECC_WorldStatic);
+		ObjParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+
 		FHitResult Hit;
-		// ECC_WorldStatic: ловим только статичный пол/дома/дороги; динамику (пешки, оружие,
-		// небесный гигант-пистолет) трасса игнорирует — раньше по ECC_Visibility садились на мусор.
-		if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, Params))
+		if (World->LineTraceSingleByObjectType(Hit, Start, End, ObjParams, Params))
 		{
 			OutZ = Hit.Location.Z + ZOffset;
 			return true;
