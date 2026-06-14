@@ -307,7 +307,11 @@ void AContrarySurvivorHUD::DrawInvBox(float X, float Y, float W, float H, const 
 	DrawRect(bHover ? InvHoverColor : BaseColor, X, Y, W, H);
 	if (Font && !Label.IsEmpty())
 	{
-		DrawText(Label, FLinearColor::White, X + 8.0f, Y + (H - 12.0f) * 0.5f, Font);
+		// #18: текст плитки/кнопки с тенью+обводкой — читается на любом фоне плитки.
+		float TH = 0.0f, TW = 0.0f;
+		GetTextSize(TEXT("Ag"), TW, TH, Font);
+		const float TextH = (TH > 0.0f ? TH : 14.0f) * UIBoxLabelScale;
+		DrawShadowedText(Label, FLinearColor::White, X + 8.0f, Y + (H - TextH) * 0.5f, Font, UIBoxLabelScale);
 	}
 }
 
@@ -345,35 +349,29 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	const float PX = (SX - PanelW) * 0.5f;
 	const float PY = (SY - PanelH) * 0.5f;
 	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+	// #18: рамка-обводка панели (золотой акцент) — отделяет от сцены.
+	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
 
 	const float Pad = 16.0f;
 	const float HeaderY = PY + Pad;
-	if (Font)
-	{
-		DrawText(TEXT("INVENTORY  (Tab / I to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
-	}
+	// #18: крупный заголовок с обводкой.
+	DrawShadowedText(TEXT("INVENTORY  (Tab / I to close)"), UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
-	// Деньги / голод / жажда (GDD §7.7).
+	// Деньги / голод / жажда (GDD §7.7) — крупно, золотой, на плашке (#18).
 	if (UStatsComponent* St = Player->GetStats())
 	{
 		const FString StatStr = FString::Printf(TEXT("Money %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
 			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
-		if (Font)
-		{
-			DrawText(StatStr, FLinearColor(1.0f, 0.9f, 0.4f, 1.0f), PX + Pad, HeaderY + 22.0f, Font);
-		}
+		DrawLabelWithPlate(StatStr, UIMoneyColor, PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 	}
 
-	const float ContentY = HeaderY + 56.0f;
+	const float ContentY = HeaderY + 64.0f;
 
 	// --- Левая колонка: paper-doll (слоты брони + оружие) ---
 	const float LeftW = PanelW * 0.42f;
 	const float LeftX = PX + Pad;
 	const float ColW = LeftW - Pad;
-	if (Font)
-	{
-		DrawText(TEXT("EQUIPMENT"), FLinearColor::White, LeftX, ContentY, Font);
-	}
+	DrawShadowedText(TEXT("EQUIPMENT"), UIHeaderColor, LeftX, ContentY, Font, UISubHeaderTextScale);
 
 	float SlotY = ContentY + 24.0f;
 	const float SlotH = 56.0f;
@@ -415,18 +413,12 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 		SlotY += SlotH + SlotGap;
 	}
 
-	if (Font)
-	{
-		DrawText(TEXT("(click an armor slot to unequip)"), FLinearColor(0.7f, 0.7f, 0.7f, 1.0f), LeftX, SlotY, Font);
-	}
+	DrawShadowedText(TEXT("(click an armor slot to unequip)"), FLinearColor(0.78f, 0.78f, 0.8f, 1.0f), LeftX, SlotY, Font);
 
 	// --- Правая колонка: рюкзак (неэкипированные предметы) ---
 	const float RightX = LeftX + LeftW + Pad;
 	const float RightW = (PX + PanelW - Pad) - RightX;
-	if (Font)
-	{
-		DrawText(TEXT("BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
-	}
+	DrawShadowedText(TEXT("BACKPACK"), UIHeaderColor, RightX, ContentY, Font, UISubHeaderTextScale);
 
 	float RowY = ContentY + 24.0f;
 	const float RowH = 34.0f;
@@ -716,20 +708,18 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	const float PX = (SX - PanelW) * 0.5f;
 	const float PY = (SY - PanelH) * 0.5f;
 	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+	// #18: рамка-обводка панели магазина (золотой акцент).
+	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
 
 	const float Pad = 16.0f;
 	const float HeaderY = PY + Pad;
-	if (Font)
-	{
-		DrawText(TEXT("TRADER  (E to close)"), FLinearColor::White, PX + Pad, HeaderY, Font);
-	}
+	// #18: крупный заголовок с обводкой.
+	DrawShadowedText(TEXT("TRADER  (E to close)"), UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
 	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
-	if (Font)
-	{
-		DrawText(FString::Printf(TEXT("Money %.0f"), Money), FLinearColor(1.0f, 0.9f, 0.4f, 1.0f),
-			PX + Pad, HeaderY + 22.0f, Font);
-	}
+	// Деньги — крупно, золотой, на плашке (#18).
+	DrawLabelWithPlate(FString::Printf(TEXT("Money %.0f"), Money), UIMoneyColor,
+		PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 
 	// Кнопка Close (правый верх панели).
 	{
@@ -747,7 +737,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		}
 	}
 
-	const float ContentY = HeaderY + 56.0f;
+	const float ContentY = HeaderY + 64.0f;
 	const float RowH = 34.0f;
 	const float RowGap = 6.0f;
 	const float BtnW = 64.0f;
@@ -757,10 +747,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	const float LeftW = PanelW * 0.52f;
 	const float LeftX = PX + Pad;
 	const float LeftColW = LeftW - Pad;
-	if (Font)
-	{
-		DrawText(TEXT("FOR SALE"), FLinearColor::White, LeftX, ContentY, Font);
-	}
+	DrawShadowedText(TEXT("FOR SALE  (Купить)"), UIHeaderColor, LeftX, ContentY, Font, UISubHeaderTextScale);
 
 	float RowY = ContentY + 24.0f;
 	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
@@ -795,10 +782,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	// --- Правая колонка: рюкзак на продажу (SELL) ---
 	const float RightX = LeftX + LeftW + Pad;
 	const float RightW = (PX + PanelW - Pad) - RightX;
-	if (Font)
-	{
-		DrawText(TEXT("SELL FROM BACKPACK"), FLinearColor::White, RightX, ContentY, Font);
-	}
+	DrawShadowedText(TEXT("SELL FROM BACKPACK  (Продать)"), UIHeaderColor, RightX, ContentY, Font, UISubHeaderTextScale);
 
 	float SellY = ContentY + 24.0f;
 	if (UInventoryComponent* Inv = Player->GetInventory())
@@ -851,41 +835,40 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 	UFont* Font, float SX, float SY)
 {
 	// Компактная модальная панель по центру экрана.
-	const float PW = FMath::Min(560.0f, SX * 0.6f);
-	const float PH = 220.0f;
+	const float PW = FMath::Min(600.0f, SX * 0.62f);
+	const float PH = 260.0f;
 	const float PXc = (SX - PW) * 0.5f;
 	const float PYc = (SY - PH) * 0.5f;
 
-	// Затемнение под панелью + сама панель.
+	// Затемнение под панелью + сама панель + рамка-обводка (#18).
 	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
 	DrawRect(InvPanelColor, PXc, PYc, PW, PH);
+	DrawRectOutline(PXc, PYc, PW, PH, UIPanelBorderColor, UIPanelBorderThickness);
 
 	const float Pad = 18.0f;
 	float Y = PYc + Pad;
 
-	// Заголовок: что и в каком режиме.
-	if (Font)
+	// Заголовок: что и в каком режиме (крупно, обводка). Купить/Продать — по-русски для ясности.
 	{
-		const FString Mode = bSliderIsBuy ? TEXT("BUY") : TEXT("SELL");
-		DrawText(FString::Printf(TEXT("%s:  %s"), *Mode, *SliderTitle),
-			FLinearColor::White, PXc + Pad, Y, Font);
+		const FString Mode = bSliderIsBuy ? TEXT("КУПИТЬ") : TEXT("ПРОДАТЬ");
+		DrawShadowedText(FString::Printf(TEXT("%s:  %s"), *Mode, *SliderTitle),
+			UIHeaderColor, PXc + Pad, Y, Font, UISliderTitleScale);
 	}
-	Y += 30.0f;
+	Y += 38.0f;
 
 	// Кламп qty на случай, если max изменился.
 	SliderQty = FMath::Clamp(SliderQty, 1, FMath::Max(1, SliderQtyMax));
 
-	// Строка количества + (для патронов) сколько это патронов.
-	if (Font)
+	// Строка количества + (для патронов) сколько это патронов — КРУПНОЕ число, на плашке (#18).
 	{
-		FString QtyLine = FString::Printf(TEXT("Qty: %d / %d"), SliderQty, SliderQtyMax);
+		FString QtyLine = FString::Printf(TEXT("Кол-во: %d / %d"), SliderQty, SliderQtyMax);
 		if (SliderUnitAmmo > 0)
 		{
 			QtyLine += FString::Printf(TEXT("   (= %d ammo)"), SliderQty * SliderUnitAmmo);
 		}
-		DrawText(QtyLine, FLinearColor(1.0f, 0.95f, 0.6f, 1.0f), PXc + Pad, Y, Font);
+		DrawLabelWithPlate(QtyLine, FLinearColor(1.0f, 0.97f, 0.7f, 1.0f), PXc + Pad, Y, Font, UISliderQtyScale);
 	}
-	Y += 28.0f;
+	Y += 38.0f;
 
 	// --- Трек слайдера ---
 	const float TrackX = PXc + Pad;
@@ -930,14 +913,13 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 		R.Action = EShopAction::SliderInc; ShopHitRegions.Add(R);
 	}
 
-	// --- Живая итоговая цена ---
+	// --- Живая итоговая цена — крупно, золотой, на плашке (#18) ---
 	const float Total = SliderUnitPrice * static_cast<float>(SliderQty);
-	if (Font)
 	{
 		const FString PriceStr = bSliderIsBuy
-			? FString::Printf(TEXT("Total: %.0f"), Total)
-			: FString::Printf(TEXT("Gain: +%.0f"), Total);
-		DrawText(PriceStr, FLinearColor(1.0f, 0.9f, 0.4f, 1.0f), PlusX + SmallW + 24.0f, Y + 6.0f, Font);
+			? FString::Printf(TEXT("Итого: %.0f"), Total)
+			: FString::Printf(TEXT("Выручка: +%.0f"), Total);
+		DrawLabelWithPlate(PriceStr, UIMoneyColor, PlusX + SmallW + 24.0f, Y + 2.0f, Font, UISliderPriceScale);
 	}
 
 	// --- Кнопки [Confirm] [Cancel] (правый нижний угол панели) ---
@@ -958,11 +940,8 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 	}
 
 	// Подсказка по клавишам (стрелки/колесо ±1, Shift ±10).
-	if (Font)
-	{
-		DrawText(TEXT("[<-/->] +-1   [Shift] +-10   [Enter] confirm"),
-			FLinearColor(0.7f, 0.7f, 0.7f, 1.0f), PXc + Pad, BtnY + 8.0f, Font);
-	}
+	DrawShadowedText(TEXT("[<-/->] +-1   [Shift] +-10   [Enter] confirm"),
+		FLinearColor(0.8f, 0.8f, 0.82f, 1.0f), PXc + Pad, BtnY + 8.0f, Font);
 }
 
 // ===========================================================================
@@ -1065,6 +1044,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	const float PX = (SX - PanelW) * 0.5f;
 	const float PY = SY - PanelH - 40.0f;
 	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+	// #18: рамка-обводка панели диалога.
+	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
 
 	const float Pad = 18.0f;
 
@@ -1075,11 +1056,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	// Источник данных квеста: журнал (если уже в нём) либо предложение старосты (ещё не принят).
 	const FQuest& QData = InLog ? *InLog : Offered;
 
-	// Заголовок — имя NPC.
-	if (Font)
-	{
-		DrawText(TEXT("СТАРОСТА"), FLinearColor(0.6f, 0.85f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font);
-	}
+	// Заголовок — имя NPC (крупно, обводка).
+	DrawShadowedText(TEXT("СТАРОСТА"), FLinearColor(0.65f, 0.88f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font, UIHeaderTextScale);
 
 	// Строка прогресса целей (kill и/или item), обобщённо по полям квеста.
 	FString ObjStr;
@@ -1115,9 +1093,9 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 			break;
 	}
 
-	if (Font && !NPCText.IsEmpty())
+	if (!NPCText.IsEmpty())
 	{
-		DrawText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 30.0f, Font);
+		DrawShadowedText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 36.0f, Font);
 	}
 
 	// Кнопки-ответы (внизу панели).
@@ -1382,6 +1360,36 @@ void AContrarySurvivorHUD::DrawShadowedText(const FString& Text, const FLinearCo
 	Item.OutlineColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.85f);
 	Item.Scale = FVector2D(ScaleXY, ScaleXY);
 	Canvas->DrawItem(Item);
+}
+
+void AContrarySurvivorHUD::DrawLabelWithPlate(const FString& Text, const FLinearColor& Color,
+	float X, float Y, UFont* Font, float ScaleXY)
+{
+	if (!Canvas || !Font || Text.IsEmpty())
+	{
+		return;
+	}
+	// Плашка по фактическому размеру текста (с учётом масштаба) + паддинг — текст читается
+	// поверх любой сцены/панели (#18).
+	float TW = 0.0f, TH = 0.0f;
+	GetTextSize(Text, TW, TH, Font);
+	const float PadX = 7.0f;
+	const float PadY = 3.0f;
+	DrawRect(UITextPlateColor, X - PadX, Y - PadY, TW * ScaleXY + PadX * 2.0f, TH * ScaleXY + PadY * 2.0f);
+	DrawShadowedText(Text, Color, X, Y, Font, ScaleXY);
+}
+
+void AContrarySurvivorHUD::DrawRectOutline(float X, float Y, float W, float H,
+	const FLinearColor& Color, float Thickness)
+{
+	if (!Canvas)
+	{
+		return;
+	}
+	DrawLine(X, Y, X + W, Y, Color, Thickness);            // верх
+	DrawLine(X, Y + H, X + W, Y + H, Color, Thickness);    // низ
+	DrawLine(X, Y, X, Y + H, Color, Thickness);            // лево
+	DrawLine(X + W, Y, X + W, Y + H, Color, Thickness);    // право
 }
 
 void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)

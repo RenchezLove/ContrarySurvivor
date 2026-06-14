@@ -302,6 +302,49 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
 	FLinearColor QuestTrackerDoneColor = FLinearColor(0.4f, 1.0f, 0.4f, 1.0f);
 
+	// --- Читаемость HUD магазина/инвентаря (#18): жирный/крупный текст, подложки, обводка ---
+	// Вынесено в EditAnywhere, чтобы Ринат твикал размеры/цвета без пересборки.
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UIHeaderTextScale = 1.3f;        // заголовки панелей (INVENTORY/TRADER/...)
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UISubHeaderTextScale = 1.12f;    // подзаголовки колонок (EQUIPMENT/FOR SALE/...)
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UIMoneyTextScale = 1.25f;        // строка денег в панелях
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UIBoxLabelScale = 1.0f;          // подписи внутри плиток/кнопок (с обводкой)
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UISliderTitleScale = 1.35f;      // заголовок слайдера BUY/SELL
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UISliderQtyScale = 1.5f;         // число количества в слайдере
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UISliderPriceScale = 1.4f;       // итоговая цена/выручка в слайдере
+
+	// Подложка-плашка под ключевыми надписями (тёмная полупрозрачная).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	FLinearColor UITextPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);
+
+	// Светлый цвет заголовков/подписей.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	FLinearColor UIHeaderColor = FLinearColor(0.95f, 0.96f, 1.0f, 1.0f);
+
+	// Золотой акцент для денег/цен.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	FLinearColor UIMoneyColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
+
+	// Рамка-обводка вокруг модальных панелей (золотой акцент).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	FLinearColor UIPanelBorderColor = FLinearColor(0.8f, 0.65f, 0.25f, 0.9f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	float UIPanelBorderThickness = 2.0f;
+
 	// --- Экран смерти (#26) ---
 
 	// Затемнение фона экрана смерти (почти чёрное — фокус на статистике).
@@ -338,6 +381,14 @@ private:
 	// ScaleXY > 1 увеличивает кегль (шрифты HUD растровые, увеличение слегка мылит — ок для плашек).
 	void DrawShadowedText(const FString& Text, const FLinearColor& Color, float X, float Y,
 		class UFont* Font, float ScaleXY = 1.0f);
+
+	// #18: текст с тёмной подложкой-плашкой под ним (плашка по размеру текста*scale + паддинг),
+	// затем DrawShadowedText поверх. Для ключевых надписей магазина/инвентаря (деньги/цены).
+	void DrawLabelWithPlate(const FString& Text, const FLinearColor& Color, float X, float Y,
+		class UFont* Font, float ScaleXY = 1.0f);
+
+	// #18: обводка прямоугольника (4 линии) — рамка-акцент вокруг модальных панелей.
+	void DrawRectOutline(float X, float Y, float W, float H, const FLinearColor& Color, float Thickness);
 
 	// --- Маркеры интерактивных NPC (находимость) ---
 
