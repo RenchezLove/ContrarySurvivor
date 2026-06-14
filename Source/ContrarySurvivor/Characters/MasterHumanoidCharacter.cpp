@@ -393,10 +393,17 @@ void AMasterHumanoidCharacter::UpdateCharacterAppearance()
 
 void AMasterHumanoidCharacter::SetSprint(bool bIsSprinting)
 {
+    // SetSprint зовётся каждый кадр на бегу. Логируем ТОЛЬКО при реальной смене состояния,
+    // иначе "Sprint state changed to: true" спамит каждый кадр.
+    const bool bChanged = (bIsSprinting != IsSprinting);
+
     IsSprinting = bIsSprinting;
-    
-    GetCharacterMovement()->MaxWalkSpeed = 
+
+    GetCharacterMovement()->MaxWalkSpeed =
         IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed;
-        
-    UE_LOG(LogTemp, Warning, TEXT("Sprint state changed to: %s"), IsSprinting ? TEXT("true") : TEXT("false"));
+
+    if (bChanged)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Sprint state changed to: %s"), IsSprinting ? TEXT("true") : TEXT("false"));
+    }
 }

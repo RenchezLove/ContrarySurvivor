@@ -8,6 +8,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
+#include "Navigation/PathFollowingComponent.h" // EPathFollowingStatus (GetMoveStatus в Chase)
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
 
 AEnemyAIController::AEnemyAIController()
@@ -168,8 +169,22 @@ void AEnemyAIController::Tick(float DeltaTime)
 		if (CurrentState != EEnemyAIState::Chase)
 		{
 			CurrentState = EEnemyAIState::Chase;
+			LastMoveIssueTime = -1000.0f; // на входе в Chase отдать move немедленно
 		}
-		MoveToActor(Player, MoveAcceptanceRadius);
+
+		// ПЕРЕОТДАЁМ MoveToActor НЕПРЕРЫВНО, пока в Chase и игрок в радиусе.
+		// БАГ ДО ФИКСА: MoveToActor вызывался КАЖДЫЙ кадр — каждый вызов рестартил path-request,
+		// пешка не успевала продвинуться и фактически стояла (погоня логнулась один раз и встала).
+		// ФИКС: отдаём move заново только когда path-following НЕ в состоянии Moving
+		// (завершился/зафейлился/Idle — иначе пешка встала бы навсегда) ЛИБО периодически раз в
+		// RepathInterval (чтобы цель отслеживала движущегося игрока). Так враг реально сближается.
+		const float NowMove = GetWorld()->GetTimeSeconds();
+		const bool bNotMoving = (GetMoveStatus() != EPathFollowingStatus::Moving);
+		if (bNotMoving || (NowMove - LastMoveIssueTime >= RepathInterval))
+		{
+			LastMoveIssueTime = NowMove;
+			MoveToActor(Player, MoveAcceptanceRadius);
+		}
 
 		// QA-лог факта погони (камера ненадёжна). Дросселируем по времени, чтобы не спамить
 		// каждый тик: пишем не чаще раза в ChaseLogInterval сек. bScreen=false — только в лог-файл.

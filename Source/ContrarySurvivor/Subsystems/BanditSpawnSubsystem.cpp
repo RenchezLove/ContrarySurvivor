@@ -84,13 +84,28 @@ void UBanditSpawnSubsystem::CheckActivation()
 
 	if (DistSqXY <= RadiusSq)
 	{
-		SpawnBanditsAtBase();
-		SpawnQuestNotebookAtBase(); // Фаза 5: ноутбук (кв.2) появляется на базе вместе с бандитами
-		bBanditsSpawned = true; // одноразово
+		bBanditsSpawned = true; // одноразово, сразу — чтобы CheckActivation не перезапланировал спавн
+		World->GetTimerManager().ClearTimer(ActivationTimerHandle); // активация отработала
 
-		// Активация отработала — гасим таймер проверки.
-		World->GetTimerManager().ClearTimer(ActivationTimerHandle);
+		// НЕ спавним мгновенно: игрок только что прибыл к базе (телепорт Z), Navigation Invoker на
+		// игроке ещё не успел построить навмеш-тайлы вокруг этой точки в ТОТ ЖЕ кадр → бандиты сели
+		// бы navmesh=floor-trace и не навигировали. Даём инвокеру SpawnDelay секунд на построение
+		// тайлов, затем спавним — бандиты сядут navmesh=yes.
+		World->GetTimerManager().SetTimer(
+			SpawnDelayTimerHandle, this, &UBanditSpawnSubsystem::DoDelayedSpawn,
+			SpawnDelay, /*bLoop=*/false);
+
+		FQADebug::QA(World, FString::Printf(
+			TEXT("QA: BanditBase player in range, spawning in %.1fs (waiting for navmesh build)"), SpawnDelay),
+			true);
 	}
+}
+
+void UBanditSpawnSubsystem::DoDelayedSpawn()
+{
+	// Отложенный спавн (после паузы на построение навмеша инвокером).
+	SpawnBanditsAtBase();
+	SpawnQuestNotebookAtBase(); // Фаза 5: ноутбук (кв.2) появляется на базе вместе с бандитами
 }
 
 void UBanditSpawnSubsystem::SpawnBanditsAtBase()

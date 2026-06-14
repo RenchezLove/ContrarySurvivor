@@ -75,12 +75,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Debug")
 	float ChaseLogInterval = 1.0f;
 
+	// Период переотдачи MoveToActor в Chase (сек). Пока враг в Chase и игрок в радиусе,
+	// MoveToActor переотдаётся НЕПРЕРЫВНО: сразу, если path-following не в состоянии Moving
+	// (завершился/зафейлился/Idle), и периодически раз в RepathInterval — чтобы цель
+	// отслеживала движущегося игрока. НЕ каждый тик (вызов каждый кадр рестартит запрос
+	// и мешает пешке реально двигаться).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
+	float RepathInterval = 0.35f;
+
 private:
 	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
 	float LastAttackTime = -1000.0f;
 
 	// Время последнего QA-лога погони (дроссель). -1000 — чтобы первый Chase залогировался сразу.
 	float LastChaseLogTime = -1000.0f;
+
+	// Время последней отдачи MoveToActor в Chase. -1000 — чтобы первый Chase отдал move сразу.
+	float LastMoveIssueTime = -1000.0f;
 
 	// Кэш статов своего пешки (для проверки "враг жив").
 	UPROPERTY()

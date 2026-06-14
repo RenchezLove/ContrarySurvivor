@@ -89,11 +89,23 @@ protected:
 	// Период проверки дистанции игрока до базы (сек).
 	float ActivationCheckPeriod = 0.5f;
 
+	// Задержка (сек) между входом игрока в радиус и фактическим спавном бандитов. Нужна, чтобы
+	// Navigation Invoker на игроке успел построить навмеш-тайлы вокруг базы (игрок только что
+	// телепортнулся) → бандиты садятся navmesh=yes, а не floor-trace. EditAnywhere — на тюнинг.
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	float SpawnDelay = 1.2f;
+
 private:
 	FTimerHandle ActivationTimerHandle;
 
+	// Таймер отложенного спавна (после паузы на построение навмеша).
+	FTimerHandle SpawnDelayTimerHandle;
+
 	// Тик проверки активации (по таймеру): сравнивает XY-дистанцию игрока до базы.
 	void CheckActivation();
+
+	// Отложенный спавн бандитов + ноутбука (вызывается по SpawnDelayTimerHandle).
+	void DoDelayedSpawn();
 
 	// Спавнит NumBandits бандитов вокруг BanditBaseLocation (высота каждого — трасса до пола).
 	void SpawnBanditsAtBase();
