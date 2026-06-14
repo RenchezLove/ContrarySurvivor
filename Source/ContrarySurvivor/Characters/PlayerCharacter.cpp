@@ -24,6 +24,7 @@
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI при смерти
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
 #include "Kismet/GameplayStatics.h"
 
@@ -705,6 +706,13 @@ void APlayerCharacter::ApplyDeathInventoryPenalty()
 void APlayerCharacter::HandleDeath()
 {
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> respawn"));
+
+    // 0) Закрываем все открытые модальные окна (инвентарь/магазин/диалог), чтобы UI не
+    //    «зависал» поверх экрана после респауна (BUG: окна оставались открытыми при смерти).
+    if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))
+    {
+        PC->CloseAllUI();
+    }
 
     // 1) Потеря доли расходников рюкзака (экипировка сохраняется).
     ApplyDeathInventoryPenalty();

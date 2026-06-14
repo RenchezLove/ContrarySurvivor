@@ -33,8 +33,10 @@ protected:
 	UPROPERTY()
 	TSubclassOf<AWolfCharacter> WolfClass;
 
-	// Сколько волков спавнить (draft: 1-2).
-	int32 NumWolves = 2;
+	// Сколько волков спавнить. 5 — чтобы хватало для Kill-квеста «убить 5 волков» (Фаза 5).
+	// UPROPERTY(EditAnywhere) — чтобы тюнить число без перекомпиляции.
+	UPROPERTY(EditAnywhere, Category = "WolfSpawn")
+	int32 NumWolves = 5;
 
 	// Задержка перед спавном (сек): даём игроку/контроллеру заспавниться.
 	float SpawnDelay = 1.5f;

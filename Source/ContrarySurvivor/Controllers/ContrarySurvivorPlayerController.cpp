@@ -596,6 +596,30 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	UE_LOG(LogTemp, Log, TEXT("Dialog CLOSED"));
 }
 
+void AContrarySurvivorPlayerController::CloseAllUI()
+{
+	// Магазин/диалог: их Close* сами синхронизируют HUD-флаг и возвращают режим ввода в Game
+	// (early-return, если окно не открыто).
+	CloseShop();
+	CloseDialog();
+
+	// Инвентарь: сбрасываем флаг, синхронизируем HUD и режим ввода (как ветка «закрыто» в OnToggleInventory).
+	if (bInventoryOpen)
+	{
+		bInventoryOpen = false;
+		bUIClickConsumed = false;
+		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		{
+			CSHUD->SetInventoryOpen(false);
+		}
+		SetInputMode(FInputModeGameOnly());
+		bShowMouseCursor = true;
+		UE_LOG(LogTemp, Log, TEXT("Inventory CLOSED (player death)"));
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: all UI windows closed on player death"));
+}
+
 void AContrarySurvivorPlayerController::OnInteract()
 {
 	// Не смешиваем с инвентарём (модальные экраны взаимоисключающие).

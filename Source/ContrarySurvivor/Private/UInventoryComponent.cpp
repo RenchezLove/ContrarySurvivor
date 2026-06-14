@@ -2,6 +2,7 @@
 
 
 #include "UInventoryComponent.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 
 // Sets default values for this component's properties
 UInventoryComponent::UInventoryComponent()
@@ -24,9 +25,16 @@ bool UInventoryComponent::AddItem(AMasterInventoryItem* Item)
 {
     if (Item)
     {
+        const int32 CountBefore = InventoryItems.Num();
         InventoryItems.Add(Item);
+        const int32 CountAfter = InventoryItems.Num();
+        // QA-инструментирование (BUG «лут не попадает в рюкзак»): что добавили и размер ДО/ПОСЛЕ.
+        UE_LOG(LogQA, Display,
+            TEXT("QA: ADDITEM '%s' (name '%s') | InventoryItems %d -> %d"),
+            *Item->GetName(), *Item->ItemName, CountBefore, CountAfter);
         return true;
     }
+    UE_LOG(LogQA, Display, TEXT("QA: ADDITEM called with NULL item — ignored"));
     return false;
 }
 

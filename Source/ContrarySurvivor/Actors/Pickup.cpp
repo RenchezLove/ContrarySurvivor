@@ -57,6 +57,14 @@ bool APickup::Collect(APlayerCharacter* Player)
 	UStatsComponent* Stats = Player->GetStats();
 	UInventoryComponent* Inv = Player->GetInventory();
 
+	// QA-инструментирование: что подбираем и найдены ли компоненты-приёмники.
+	UE_LOG(LogQA, Display,
+		TEXT("QA: COLLECT '%s' money=%.0f carriedItem=%s | Stats=%s Inventory=%s"),
+		*GetName(), MoneyAmount,
+		IsValid(CarriedItem) ? *CarriedItem->GetName() : TEXT("none"),
+		Stats ? TEXT("found") : TEXT("NULL"),
+		Inv ? TEXT("found") : TEXT("NULL"));
+
 	// Деньги -> в статы. Считаем «начислено», только если реально добавили (или денег нет).
 	bool bMoneyDone = (MoneyAmount <= 0.0f);
 	if (MoneyAmount > 0.0f && Stats)
@@ -126,7 +134,9 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 
 	// Шанс выпадения предмета (изношенное оружие/расходник — GDD §7.8).
 	AMasterInventoryItem* DroppedItem = nullptr;
-	if (ItemClass && FMath::FRand() <= ItemDropChance)
+	const float ItemRoll = FMath::FRand();
+	const bool bItemChanceHit = (ItemClass != nullptr) && (ItemRoll <= ItemDropChance);
+	if (bItemChanceHit)
 	{
 		DroppedItem = World->SpawnActor<AMasterInventoryItem>(
 			ItemClass, Location, FRotator::ZeroRotator, SpawnParams);
@@ -137,6 +147,15 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 			DroppedItem->SetActorEnableCollision(false);
 		}
 	}
+
+	// QA-инструментирование (BUG «лут не попадает в рюкзак»): что именно дропнулось при смерти врага.
+	UE_LOG(LogQA, Display,
+		TEXT("QA: DROPLOOT money=%.0f | itemClass=%s dropChance=%.2f roll=%.2f chanceHit=%s itemSpawned=%s"),
+		MoneyAmount,
+		ItemClass ? *ItemClass->GetName() : TEXT("none"),
+		ItemDropChance, ItemRoll,
+		bItemChanceHit ? TEXT("YES") : TEXT("no"),
+		DroppedItem ? *DroppedItem->GetName() : TEXT("none"));
 
 	// Деньги/предмет несёт один пикап (общий overlap отдаёт оба).
 	APickup* Pickup = World->SpawnActor<APickup>(

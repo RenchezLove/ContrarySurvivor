@@ -58,6 +58,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
+	// Закрыть ВСЕ открытые модальные окна (инвентарь/магазин/диалог) и вернуть режим ввода
+	// в Game. Вызывается при смерти игрока (APlayerCharacter::HandleDeath), чтобы UI не
+	// «зависал» открытым после респауна.
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void CloseAllUI();
+
 	// --- Контекстная подсказка взаимодействия (E) — для HUD ---
 
 	// Есть ли рядом интерактив (пикап/торговец), по которому E что-то сделает.
