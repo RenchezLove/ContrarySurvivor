@@ -140,9 +140,12 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 
     if (BoneCarrier)
     {
-        // Снап к кости, затем относительный офсет грипа (подбор по скрину).
+        // Снап к кости БЕЗ наследования масштаба кости/меша: с IncludingScale оружие
+        // наследовало крупный масштаб кости и раздувалось до scale~100 (гигантский
+        // пистолет в воздухе). NotIncludingScale сохраняет собственный масштаб оружия (1).
+        // Затем относительный офсет грипа (подбор по скрину).
         CurrentWeapon->AttachToComponent(BoneCarrier,
-            FAttachmentTransformRules::SnapToTargetIncludingScale,
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale,
             WeaponAttachBoneName);
         CurrentWeapon->SetActorRelativeLocation(WeaponGripLocation);
         CurrentWeapon->SetActorRelativeRotation(WeaponGripRotation);
