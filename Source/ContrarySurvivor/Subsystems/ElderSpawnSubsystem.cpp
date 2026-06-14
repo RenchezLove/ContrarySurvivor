@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
 #include "TimerManager.h"
+#include "SpawnPlacementUtils.h"
 
 void UElderSpawnSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
@@ -79,9 +80,11 @@ void UElderSpawnSubsystem::SpawnElder()
 		}
 		else
 		{
+			// Навмеш недоступен — высоту берём трассировкой до пола (не от Z игрока, который
+			// мог провалиться под карту). См. SpawnPlacementUtils / BUG спавна на Z=-4055.
 			UE_LOG(LogTemp, Warning,
-				TEXT("ElderSpawnSubsystem: navmesh projection FAILED; using raw fallback %s. Проверь NavMeshBoundsVolume."),
-				*SpawnLoc.ToString());
+				TEXT("ElderSpawnSubsystem: navmesh projection FAILED; using floor-trace fallback. Проверь NavMeshBoundsVolume."));
+			SpawnLoc.Z = SpawnPlacement::ResolveSpawnZ(World, SpawnLoc.X, SpawnLoc.Y, /*ZOffset=*/90.0f, TEXT("Elder"));
 		}
 	}
 

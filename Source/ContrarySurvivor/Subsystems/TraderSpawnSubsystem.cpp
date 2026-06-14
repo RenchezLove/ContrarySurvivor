@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
 #include "TimerManager.h"
+#include "SpawnPlacementUtils.h"
 
 void UTraderSpawnSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
@@ -82,9 +83,12 @@ void UTraderSpawnSubsystem::SpawnTrader()
 		}
 		else
 		{
+			// Навмеш недоступен (например, ещё не достроен в рантайме). Раньше брали "сырой"
+			// fallback с Z игрока — если игрок под картой (Z=-4055), торговец тоже уходил под пол.
+			// Теперь ставим высоту НЕ от навмеша, а трассировкой до пола в этой XY-точке.
 			UE_LOG(LogTemp, Warning,
-				TEXT("TraderSpawnSubsystem: navmesh projection FAILED in all directions; using raw fallback %s. Проверь NavMeshBoundsVolume в деревне."),
-				*SpawnLoc.ToString());
+				TEXT("TraderSpawnSubsystem: navmesh projection FAILED in all directions; using floor-trace fallback. Проверь NavMeshBoundsVolume в деревне."));
+			SpawnLoc.Z = SpawnPlacement::ResolveSpawnZ(World, SpawnLoc.X, SpawnLoc.Y, /*ZOffset=*/90.0f, TEXT("Trader"));
 		}
 	}
 

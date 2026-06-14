@@ -14,6 +14,8 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
+#include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
+#include "Components/CapsuleComponent.h"
 #include "UInventoryComponent.h"
 #include "AMasterInventoryItem.h"
 #include "AMeleeWeapon.h"
@@ -123,6 +125,25 @@ void APlayerCharacter::BeginPlay()
     ApplyCameraSettings();
 
     // Запоминаем стартовый трансформ — фолбэк-точка респауна, если сейва ещё нет.
+    // BUG (демка неиграбельна): если игрок появился под картой (Z=-4055 — битый
+    // PlayerStart / провал до постройки навмеша), петля "падение -> KillZ -> респавн".
+    // Гарантируем, что игрок ВСЕГДА на полу: при битом Z трассируем до пола (не зависит
+    // от навмеша) и переставляем. Корректный трансформ запоминаем как фолбэк респауна.
+    {
+        FVector StartLoc = GetActorLocation();
+        if (StartLoc.Z < SpawnPlacement::BadZThreshold)
+        {
+            const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+            const float SafeZ = SpawnPlacement::ResolveSpawnZ(GetWorld(), StartLoc.X, StartLoc.Y, HalfHeight + 10.0f, TEXT("Player-start"), this);
+            StartLoc.Z = SafeZ;
+            if (UCharacterMovementComponent* Move = GetCharacterMovement())
+            {
+                Move->StopMovementImmediately();
+            }
+            SetActorLocation(StartLoc, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+            UE_LOG(LogTemp, Warning, TEXT("QA: player start was under map -> relocated to floor Z=%.1f"), SafeZ);
+        }
+    }
     InitialSpawnTransform = GetActorTransform();
 
     // Инициализируем HP игрока через UStatsComponent (источник истины).
@@ -838,7 +859,18 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
     {
         Move->StopMovementImmediately();
     }
-    SetActorLocationAndRotation(Save->PlayerLocation, Save->PlayerRotation,
+
+    // BUG-кламп: сейв прошлой сломанной сессии мог сохранить Z под картой (-4055).
+    // Если так — заменяем высоту трассировкой до пола, чтобы не возрождать петлю падения.
+    FVector TargetLoc = Save->PlayerLocation;
+    if (TargetLoc.Z < SpawnPlacement::BadZThreshold)
+    {
+        const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+        TargetLoc.Z = SpawnPlacement::ResolveSpawnZ(GetWorld(), TargetLoc.X, TargetLoc.Y, HalfHeight + 10.0f, TEXT("Player-load"), this);
+        UE_LOG(LogTemp, Warning, TEXT("QA: loaded save Z was under map -> clamped to floor Z=%.1f"), TargetLoc.Z);
+    }
+
+    SetActorLocationAndRotation(TargetLoc, Save->PlayerRotation,
         /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 }
 

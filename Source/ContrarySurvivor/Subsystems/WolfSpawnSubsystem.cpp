@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
 #include "TimerManager.h"
+#include "SpawnPlacementUtils.h"
 
 void UWolfSpawnSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
@@ -70,6 +71,12 @@ void UWolfSpawnSubsystem::SpawnWolves()
 		{
 			// Чуть приподнимаем над навмешем, чтобы капсула не утонула.
 			ProjectedLoc = ProjectedOut + FVector(0.0f, 0.0f, 90.0f);
+		}
+		else
+		{
+			// Навмеш недоступен — раньше волк вставал на Z игрока (если игрок под картой на
+			// Z=-4055, волк уходил в войд). Теперь высоту берём трассировкой до пола в этой XY.
+			ProjectedLoc.Z = SpawnPlacement::ResolveSpawnZ(World, ProjectedLoc.X, ProjectedLoc.Y, /*ZOffset=*/90.0f, TEXT("Wolf"));
 		}
 
 		const FRotator SpawnRot = (PlayerLoc - ProjectedLoc).Rotation();
