@@ -11,6 +11,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class USkeletalMeshComponent;
 class AMasterInventoryItem;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
@@ -99,7 +100,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
 	USphereComponent* InteractTrigger;
 
-	// Плейсхолдер-меш тела (без коллизии). Реальный гуманоид/скин — позже (operator/modeler).
+	// Визуал торговца: скелет-меш на общем гуманоидном скелете (Head_Skeleton) + AnimBP
+	// ABP_HumanoidCharacter. DRAFT: пока используем SK_Elder (отдельный меш торговца — финал-арт-пасс).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
+	USkeletalMeshComponent* CharMesh;
+
+	// Плейсхолдер-меш тела (без коллизии). СКРЫТ (визуал-пасс): заменён на CharMesh.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
 	UStaticMeshComponent* MeshComponent;
 

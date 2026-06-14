@@ -10,6 +10,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class USkeletalMeshComponent;
 class UMaterialInterface;
 
 /**
@@ -48,7 +49,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
 	USphereComponent* InteractTrigger;
 
-	// Плейсхолдер-меш тела (без коллизии). Реальный меш старосты — позже (modeler/operator).
+	// Визуал старосты: скелет-меш SK_Elder на общем гуманоидном скелете (Head_Skeleton)
+	// + AnimBP ABP_HumanoidCharacter (idle/walk/run). Заменил кислотный плейсхолдер.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
+	USkeletalMeshComponent* CharMesh;
+
+	// Плейсхолдер-меш тела (без коллизии). СКРЫТ (визуал-пасс): заменён на CharMesh.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
 	UStaticMeshComponent* MeshComponent;
 
