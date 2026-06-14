@@ -205,7 +205,7 @@ protected:
 	void CacheBaseSlotMeshes();
 
 private:
-    float BaseWalkSpeed;
+    float BaseWalkSpeed = 600.0f;   // дефолт, чтобы SetSprint никогда не выставил MaxWalkSpeed=0 (фикс «поворачивается, но не идёт»)
     float SprintMultiplier = 2.0f;
     bool IsSprinting = false;
 
