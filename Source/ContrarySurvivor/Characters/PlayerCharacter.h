@@ -18,6 +18,8 @@ class UStatsComponent;
 class UQuestComponent;
 class UContrarySaveGame;
 class AMasterInventoryItem;
+class USoundBase;
+class UAudioComponent;
 struct FShopEntry;
 
 /**
@@ -166,6 +168,34 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats|Deprecated")
     float Thirst;
 
+    // --- Аудио (Демо) ---
+
+    // Звуки шагов: при ходьбе по земле проигрывается СЛУЧАЙНЫЙ из списка по таймеру.
+    // Дефолты грузятся в конструкторе из /Game/Audio/Demo/footstep_soft_1..4 (FObjectFinder).
+    // Анимаций нет — поэтому шаги по таймеру/скорости в Tick, без AnimNotify.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps")
+    TArray<USoundBase*> FootstepSounds;
+
+    // Интервал между шагами (сек) при движении. Тюнингуется.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps", meta = (ClampMin = "0.05"))
+    float FootstepInterval = 0.45f;
+
+    // Громкость шагов (тихо). Тюнингуется.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps", meta = (ClampMin = "0.0"))
+    float FootstepVolume = 0.35f;
+
+    // Порог скорости (см/с), выше которого считаем, что персонаж идёт.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps", meta = (ClampMin = "0.0"))
+    float FootstepSpeedThreshold = 50.0f;
+
+    // Фоновый эмбиент леса (зациклен, тихо). Дефолт из /Game/Audio/Demo/forest_ambience_loop.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Ambience")
+    USoundBase* AmbienceSound;
+
+    // Громкость эмбиента (фоном, негромко). Тюнингуется.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Ambience", meta = (ClampMin = "0.0"))
+    float AmbienceVolume = 0.2f;
+
     // Класс стартового оружия. Если задан — спавнится и экипируется в BeginPlay.
     // Значение (например, BP_Pistol) выставляется в дефолтах BP игрока.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
@@ -207,6 +237,12 @@ protected:
 
     // Спавнит и экипирует дефолтную броню по слотам (для наблюдаемости снижения урона).
     void EquipDefaultArmor();
+
+    // Запускает зацикленный фоновый эмбиент леса (Демо) тихо. Зовётся в BeginPlay.
+    void StartAmbience();
+
+    // Обновляет таймер шагов: при ходьбе по земле проигрывает шаги (Демо). Зовётся в Tick.
+    void UpdateFootsteps(float DeltaTime);
 
     /**
      * Sets movement parameters
@@ -322,4 +358,12 @@ private:
 
     // Текущее сглаженное смещение look-ahead (world XY), интерполируется к целевому в Tick.
     FVector CameraLookAheadOffset = FVector::ZeroVector;
+
+    // --- Аудио-рантайм (Демо) ---
+    // Накопитель времени для интервала шагов.
+    float FootstepAccumulator = 0.0f;
+
+    // Активный компонент фонового эмбиента (зациклен, не авто-уничтожается).
+    UPROPERTY()
+    UAudioComponent* AmbienceComponent = nullptr;
 };

@@ -7,6 +7,8 @@
 #include "Engine/TimerHandle.h"
 #include "StatsComponent.generated.h"
 
+class USoundBase;
+
 // --- Делегаты для привязки HUD/реакций (ADR-015: делегаты на изменение статов) ---
 
 // Срабатывает при любом изменении здоровья. NewHealth — текущее, MaxHealth — максимум.
@@ -176,6 +178,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Movement")
 	float MoveSpeed = 600.0f;
 
+	// --- Звук получения урона (Демо) ---
+	// Единая точка для игрока и врагов: PlayHurtSound() зовётся из боевого TakeDamage
+	// каждого персонажа (НЕ из ApplyDamage — иначе бы звучал и на тик голода/жажды).
+	// Дефолт грузится из /Game/Audio/Demo/death_pain_grunts в конструкторе.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Audio")
+	USoundBase* HurtSound;
+
+	// Громкость звука боли. Тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Audio", meta = (ClampMin = "0.0"))
+	float HurtSoundVolume = 0.6f;
+
 	// Задел: список активных модификаторов статов (ADR-015). В Фазе 1 не применяется.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Modifier")
 	TArray<FStatModifier> ActiveModifiers;
@@ -207,6 +220,11 @@ public:
 	// Лечит (>0). Не превышает MaxHealth. Не лечит мёртвых.
 	UFUNCTION(BlueprintCallable, Category = "Stats|Health")
 	float Heal(float HealAmount);
+
+	// Проигрывает звук получения урона (Демо) в позиции владельца. Зовётся из боевого
+	// TakeDamage персонажа (игрок/бандит/волк), чтобы боль звучала только от боя.
+	UFUNCTION(BlueprintCallable, Category = "Stats|Audio")
+	void PlayHurtSound();
 
 	// Жёстко выставляет здоровье (clamp 0..MaxHealth), пересчитывает bIsDead и бродкастит.
 	// В отличие от Heal — работает и на «мёртвом» компоненте (нужно для респауна).

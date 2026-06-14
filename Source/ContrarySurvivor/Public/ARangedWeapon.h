@@ -6,6 +6,8 @@
 #include "AMasterWeapon.h"
 #include "ARangedWeapon.generated.h"
 
+class USoundBase;
+
 UCLASS(Abstract, Blueprintable)
 class CONTRARYSURVIVOR_API ARangedWeapon : public AMasterWeapon
 {
@@ -28,6 +30,17 @@ protected:
 	// Разброс (0 = идеальная точность, 1 = максимальный разброс)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Spread;
+
+	// --- Звук выстрела (Демо) ---
+	// Проигрывается в момент реального выстрела (не на пустой обойме). Дефолт грузится
+	// из /Game/Audio/Demo/pistol_22_gunshot через FObjectFinder в конструкторе; можно
+	// переопределить в редакторе/BP.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio")
+	USoundBase* FireSound;
+
+	// Громкость выстрела (негромко, чтобы не оглушало). Тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0"))
+	float FireSoundVolume;
 
 public:
 

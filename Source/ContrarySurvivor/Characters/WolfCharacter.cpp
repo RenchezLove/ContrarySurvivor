@@ -12,6 +12,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimSequence.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 
 // Базовая скорость бандита (дефолт CharacterMovementComponent::MaxWalkSpeed UE = 600).
@@ -70,6 +71,14 @@ AWolfCharacter::AWolfCharacter()
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> BiteAsset(TEXT("/Game/Characters/Wolf/Anim_Wolf_Bite.Anim_Wolf_Bite"));
 	if (BiteAsset.Succeeded()) { BiteAnim = BiteAsset.Object; }
 
+	// Звуки атаки волка (Демо): набор рыков, при укусе выбирается случайный.
+	static ConstructorHelpers::FObjectFinder<USoundBase> Growl1(TEXT("/Game/Audio/Demo/wolf_growl_monster1.wolf_growl_monster1"));
+	if (Growl1.Succeeded()) { AttackGrowlSounds.Add(Growl1.Object); }
+	static ConstructorHelpers::FObjectFinder<USoundBase> Growl2(TEXT("/Game/Audio/Demo/wolf_growl_monster2.wolf_growl_monster2"));
+	if (Growl2.Succeeded()) { AttackGrowlSounds.Add(Growl2.Object); }
+	static ConstructorHelpers::FObjectFinder<USoundBase> Growl3(TEXT("/Game/Audio/Demo/wolf_growl_wolfman.wolf_growl_wolfman"));
+	if (Growl3.Succeeded()) { AttackGrowlSounds.Add(Growl3.Object); }
+
 	// Скорость ~1.3× бандита (draft).
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
@@ -127,6 +136,9 @@ void AWolfCharacter::UpdateLocomotionAnimation()
 
 void AWolfCharacter::PlayBiteAnimation()
 {
+	// Рык атаки (Демо) — на каждый укус, независимо от наличия аним-клипа.
+	PlayAttackSound();
+
 	if (!BiteAnim)
 	{
 		return;
@@ -157,6 +169,19 @@ void AWolfCharacter::PlaySingleNode(UAnimSequence* Anim, bool bLooping)
 	}
 }
 
+void AWolfCharacter::PlayAttackSound()
+{
+	if (AttackGrowlSounds.Num() == 0)
+	{
+		return;
+	}
+	const int32 Index = FMath::RandRange(0, AttackGrowlSounds.Num() - 1);
+	if (USoundBase* Growl = AttackGrowlSounds[Index])
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Growl, GetActorLocation(), AttackGrowlVolume);
+	}
+}
+
 float AWolfCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
 	// Источник истины по HP волка — UStatsComponent (как у бандита). Брони у волка нет.
@@ -166,6 +191,12 @@ float AWolfCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 	}
 
 	const float Applied = Stats->ApplyDamage(DamageAmount);
+
+	// Звук боли (Демо) — только от боевого урона (эта точка).
+	if (Applied > 0.0f)
+	{
+		Stats->PlayHurtSound();
+	}
 
 	UE_LOG(LogTemp, Log, TEXT("%s (wolf) took %.1f damage. Health: %.1f/%.1f"),
 		*GetName(), Applied, Stats->GetHealth(), Stats->GetMaxHealth());

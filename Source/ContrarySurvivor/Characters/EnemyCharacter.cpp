@@ -92,6 +92,12 @@ float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 
 	const float Applied = Stats->ApplyDamage(Reduced);
 
+	// Звук боли (Демо) — только от боевого урона (эта точка).
+	if (Applied > 0.0f)
+	{
+		Stats->PlayHurtSound();
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("%s took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
 		*GetName(), Applied, DamageAmount, GetTotalArmorProtection(), ArmorReductionCap, Stats->GetHealth(), Stats->GetMaxHealth());
 

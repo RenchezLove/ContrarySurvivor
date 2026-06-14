@@ -27,6 +27,10 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI при смерти
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundWave.h"
+#include "Components/AudioComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 APlayerCharacter::APlayerCharacter()
 {
@@ -92,6 +96,19 @@ APlayerCharacter::APlayerCharacter()
     DefaultTorsoArmorClass = ATorsoArmor::StaticClass();
     DefaultPantsArmorClass = APantsArmor::StaticClass();
 
+    // --- Аудио (Демо): шаги + эмбиент. Дефолты из импортированных ассетов. ---
+    static ConstructorHelpers::FObjectFinder<USoundBase> Step1(TEXT("/Game/Audio/Demo/footstep_soft_1.footstep_soft_1"));
+    if (Step1.Succeeded()) { FootstepSounds.Add(Step1.Object); }
+    static ConstructorHelpers::FObjectFinder<USoundBase> Step2(TEXT("/Game/Audio/Demo/footstep_soft_2.footstep_soft_2"));
+    if (Step2.Succeeded()) { FootstepSounds.Add(Step2.Object); }
+    static ConstructorHelpers::FObjectFinder<USoundBase> Step3(TEXT("/Game/Audio/Demo/footstep_soft_3.footstep_soft_3"));
+    if (Step3.Succeeded()) { FootstepSounds.Add(Step3.Object); }
+    static ConstructorHelpers::FObjectFinder<USoundBase> Step4(TEXT("/Game/Audio/Demo/footstep_soft_4.footstep_soft_4"));
+    if (Step4.Succeeded()) { FootstepSounds.Add(Step4.Object); }
+
+    static ConstructorHelpers::FObjectFinder<USoundBase> Ambience(TEXT("/Game/Audio/Demo/forest_ambience_loop.forest_ambience_loop"));
+    if (Ambience.Succeeded()) { AmbienceSound = Ambience.Object; }
+
     SetUpMovement();
 }
 
@@ -127,6 +144,29 @@ void APlayerCharacter::BeginPlay()
 
     // Дефолтная броня (Фаза 3): снижение урона наблюдаемо без экип-UI.
     EquipDefaultArmor();
+
+    // Фоновый эмбиент леса (Демо), зациклен и тихо.
+    StartAmbience();
+}
+
+void APlayerCharacter::StartAmbience()
+{
+    if (!AmbienceSound)
+    {
+        return;
+    }
+
+    // Зацикливание в UE 5.5 — свойство САМОГО ассета (USoundWave::bLooping); у функций
+    // SpawnSound2D/PlaySound2D параметра loop нет. Импортированный SoundWave по умолчанию
+    // не зациклен, поэтому форсим bLooping на загруженном ассете перед запуском.
+    if (USoundWave* Wave = Cast<USoundWave>(AmbienceSound))
+    {
+        Wave->bLooping = true;
+    }
+
+    // bAutoDestroy=false — держим компонент живым (зациклен), храним ссылку.
+    AmbienceComponent = UGameplayStatics::SpawnSound2D(
+        this, AmbienceSound, AmbienceVolume, 1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
 }
 
 void APlayerCharacter::ApplyCameraSettings()
@@ -193,6 +233,39 @@ void APlayerCharacter::Tick(float DeltaTime)
     }
 
     SpringArmComponent->TargetOffset = DesiredOffset;
+
+    // Шаги (Демо): по таймеру при ходьбе по земле (анимаций нет, AnimNotify не используем).
+    UpdateFootsteps(DeltaTime);
+}
+
+void APlayerCharacter::UpdateFootsteps(float DeltaTime)
+{
+    if (FootstepSounds.Num() == 0)
+    {
+        return;
+    }
+
+    const UCharacterMovementComponent* Move = GetCharacterMovement();
+    const bool bOnGround = Move && Move->IsMovingOnGround();
+    const float Speed = GetVelocity().Size2D();
+
+    if (!bOnGround || Speed < FootstepSpeedThreshold)
+    {
+        // Стоит/в воздухе — сбрасываем накопитель, чтобы первый шаг при старте был не сразу.
+        FootstepAccumulator = 0.0f;
+        return;
+    }
+
+    FootstepAccumulator += DeltaTime;
+    if (FootstepAccumulator >= FootstepInterval)
+    {
+        FootstepAccumulator = 0.0f;
+        const int32 Index = FMath::RandRange(0, FootstepSounds.Num() - 1);
+        if (USoundBase* Step = FootstepSounds[Index])
+        {
+            UGameplayStatics::PlaySoundAtLocation(this, Step, GetActorLocation(), FootstepVolume);
+        }
+    }
 }
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -209,6 +282,12 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
     const float Reduced = ComputeArmoredDamage(DamageAmount);
 
     const float Applied = Stats->ApplyDamage(Reduced);
+
+    // Звук боли (Демо) — только от боевого урона (эта точка), не от голода/жажды.
+    if (Applied > 0.0f)
+    {
+        Stats->PlayHurtSound();
+    }
 
     UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
         Applied, DamageAmount, GetTotalArmorProtection(), ArmorReductionCap, Stats->GetHealth(), Stats->GetMaxHealth());

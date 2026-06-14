@@ -6,6 +6,8 @@
 #include "AMasterWeapon.h"
 #include "AMeleeWeapon.generated.h"
 
+class USoundBase;
+
 /**
  * Ближнее оружие (нож) — GDD §7.2: «атака по цели в коротком радиусе (sweep/overlap),
  * урон, кулдаун замаха. Без комбо.»
@@ -43,6 +45,16 @@ protected:
 	// Кулдаун замаха (сек) между атаками ножом. DRAFT.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Melee")
 	float AttackCooldown = 1.0f;
+
+	// --- Звук замаха ножом (Демо) ---
+	// Проигрывается при каждом реальном замахе (после прохождения кулдауна, до проверки
+	// попадания) — звучит и при промахе. Дефолт из /Game/Audio/Demo/knife_melee_swing.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio")
+	USoundBase* SwingSound;
+
+	// Громкость замаха. Тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0"))
+	float SwingSoundVolume = 0.5f;
 
 private:
 	// Время последней атаки (GetWorld()->GetTimeSeconds()).

@@ -3,12 +3,35 @@
 #include "StatsComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "GameFramework/Actor.h"
+#include "Sound/SoundBase.h"
+#include "Kismet/GameplayStatics.h"
+#include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 
 UStatsComponent::UStatsComponent()
 {
 	// Компонент статов не тикает (логика деградации статов — Фаза 2+).
 	PrimaryComponentTick.bCanEverTick = false;
+
+	// Звук получения урона (Демо). Дефолт из импортированного ассета; переопределяется в BP.
+	static ConstructorHelpers::FObjectFinder<USoundBase> HurtSoundAsset(
+		TEXT("/Game/Audio/Demo/death_pain_grunts.death_pain_grunts"));
+	if (HurtSoundAsset.Succeeded())
+	{
+		HurtSound = HurtSoundAsset.Object;
+	}
+}
+
+void UStatsComponent::PlayHurtSound()
+{
+	if (!HurtSound)
+	{
+		return;
+	}
+	const AActor* Owner = GetOwner();
+	const FVector Loc = Owner ? Owner->GetActorLocation() : FVector::ZeroVector;
+	UGameplayStatics::PlaySoundAtLocation(this, HurtSound, Loc, HurtSoundVolume);
 }
 
 void UStatsComponent::BeginPlay()

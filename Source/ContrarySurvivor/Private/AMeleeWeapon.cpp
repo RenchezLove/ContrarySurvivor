@@ -10,6 +10,8 @@
 #include "Engine/OverlapResult.h"
 #include "Engine/DamageEvents.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Sound/SoundBase.h"
+#include "Kismet/GameplayStatics.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 
 AMeleeWeapon::AMeleeWeapon()
@@ -27,6 +29,14 @@ AMeleeWeapon::AMeleeWeapon()
 		}
 		// Нож носится прикреплённым к сокету персонажа; собственная коллизия не нужна.
 		ItemMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	// Звук замаха ножом (Демо). Дефолт из импортированного ассета; переопределяется в BP.
+	static ConstructorHelpers::FObjectFinder<USoundBase> SwingSoundAsset(
+		TEXT("/Game/Audio/Demo/knife_melee_swing.knife_melee_swing"));
+	if (SwingSoundAsset.Succeeded())
+	{
+		SwingSound = SwingSoundAsset.Object;
 	}
 
 	// --- ЧЕРНОВЫЕ статы ножа (draft, GDD §7.2) ---
@@ -67,6 +77,12 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("AMeleeWeapon::Fire — no instigator"));
 		return;
+	}
+
+	// Звук замаха — на каждый реальный взмах (звучит и при промахе).
+	if (SwingSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, SwingSound, Wielder->GetActorLocation(), SwingSoundVolume);
 	}
 
 	// Радиус капсулы носителя — для перевода MeleeRange (surface) в дистанцию центров.

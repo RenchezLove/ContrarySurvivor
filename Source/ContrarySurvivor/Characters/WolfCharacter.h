@@ -10,6 +10,7 @@ class UStatsComponent;
 class UAnimSequence;
 class AMasterInventoryItem;
 class APickup;
+class USoundBase;
 
 /**
  * Волк — второй враг MVP (GDD §7.1, стайный для квеста).
@@ -68,6 +69,16 @@ protected:
 	// Порог скорости (см/с) для переключения Idle<->Run. DRAFT.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	float RunSpeedThreshold = 10.0f;
+
+	// --- Звук атаки волка (Демо) ---
+	// При укусе проигрывается СЛУЧАЙНЫЙ рык из списка. Дефолты грузятся в конструкторе
+	// из /Game/Audio/Demo/wolf_growl_* через FObjectFinder; можно переопределить в BP.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio")
+	TArray<USoundBase*> AttackGrowlSounds;
+
+	// Громкость рыка. Тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio", meta = (ClampMin = "0.0"))
+	float AttackGrowlVolume = 0.7f;
 
 	// Стартовое HP волка. ЧЕРНОВОЕ значение (draft, GDD §7.1).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
@@ -132,4 +143,7 @@ private:
 
 	// Проиграть клип в режиме Single Node (без AnimBP).
 	void PlaySingleNode(UAnimSequence* Anim, bool bLooping);
+
+	// Проиграть случайный рык атаки (Демо) в позиции волка.
+	void PlayAttackSound();
 };

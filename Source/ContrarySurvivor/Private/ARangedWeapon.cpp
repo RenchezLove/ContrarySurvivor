@@ -3,6 +3,9 @@
 #include "ARangedWeapon.h"
 #include "DrawDebugHelpers.h" // Для отладочной визуализации LineTrace
 #include "Engine/DamageEvents.h"
+#include "Sound/SoundBase.h"
+#include "Kismet/GameplayStatics.h"
+#include "UObject/ConstructorHelpers.h"
 
 ARangedWeapon::ARangedWeapon()
 {
@@ -11,6 +14,15 @@ ARangedWeapon::ARangedWeapon()
 	LockedTarget    = nullptr;
 	MuzzleSocketName = FName("MuzzleSocket");
 	Spread          = 0.05f;
+
+	// Звук выстрела (Демо). Дефолт из импортированного ассета; переопределяется в BP.
+	FireSoundVolume = 0.5f;
+	static ConstructorHelpers::FObjectFinder<USoundBase> FireSoundAsset(
+		TEXT("/Game/Audio/Demo/pistol_22_gunshot.pistol_22_gunshot"));
+	if (FireSoundAsset.Succeeded())
+	{
+		FireSound = FireSoundAsset.Object;
+	}
 }
 
 void ARangedWeapon::BeginPlay()
@@ -62,6 +74,12 @@ void ARangedWeapon::Fire(AActor* Target)
 			UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s for %.1f damage"), 
 				*HitActor->GetName(), Damage);
 		}
+	}
+
+	// Звук выстрела — только при реальном выстреле (CanFire() уже прошёл, обойма не пуста).
+	if (FireSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), FireSoundVolume);
 	}
 
 	// Тратим патрон и обновляем время последнего выстрела

@@ -119,6 +119,18 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     // Крепим оружие к сокету на торсе
     if (TorsoMesh)
     {
+        // ДИАГНОСТИКА: проверяем, существует ли сокет реально (аудит: крепим к TorsoMesh
+        // на WeaponSocketName). Если сокета нет — AttachToComponent крепит к началу
+        // координат компонента (оружие окажется не в руке). Привязку НЕ меняем (по указанию):
+        // сокет на кость кисти добавит редактор/оператор отдельно.
+        if (!TorsoMesh->DoesSocketExist(WeaponSocketName))
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("EquipWeapon: socket '%s' NOT found on TorsoMesh '%s' — weapon will attach at component origin, not hand. Add the socket in editor."),
+                *WeaponSocketName.ToString(),
+                TorsoMesh->GetSkeletalMeshAsset() ? *TorsoMesh->GetSkeletalMeshAsset()->GetName() : TEXT("none"));
+        }
+
         CurrentWeapon->AttachToComponent(TorsoMesh,
             FAttachmentTransformRules::SnapToTargetIncludingScale,
             WeaponSocketName);
