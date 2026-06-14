@@ -42,6 +42,67 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera", meta = (AllowPrivateAccess = "true"))
     UCameraComponent* CameraComponent;
 
+    // --- Камера в стиле Last Day on Earth (#20) ---
+    // Тюнингуемые из редактора параметры камеры. Применяются в конструкторе (дефолты) и
+    // в BeginPlay (на случай оверрайда в BP/инстансе), чтобы можно было подбирать без кода.
+    // ВАЖНО: Yaw=90 сохраняет исходную ориентацию обзора уровня (не ломает курсорный
+    // прицел — он работает через deproject экрана, угол-агностичен).
+
+    // Угол наклона камеры вниз (Pitch) и направление обзора (Yaw). DRAFT LDoE-ракурс.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    FRotator CameraBoomRotation = FRotator(-55.0f, 90.0f, 0.0f);
+
+    // Дистанция камеры от персонажа.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    float CameraArmLength = 1000.0f;
+
+    // Угол обзора камеры (перспектива). Узкий FOV ~40 даёт «сжатый» LDoE-вид.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    float CameraFieldOfView = 40.0f;
+
+    // Плавное отставание камеры (lag) — оживляет движение, чтобы камера не была «приклеена».
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    bool bEnableCameraLag = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0"))
+    float CameraLagSpeed = 7.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0"))
+    float CameraLagMaxDistance = 150.0f;
+
+    // --- «Дыхание» камеры + look-ahead по ходу движения (#28) ---
+    // Эффекты ЕДВА ЗАМЕТНЫЕ (запрос Рината «чуть-чуть»; на мобиле сильное покачивание укачивает).
+    // Реализованы процедурно в Tick через SpringArm->TargetOffset (world space): look-ahead по
+    // вектору скорости пешки + крошечный синусный боб.
+
+    // «Дыхание»: лёгкий постоянный вертикальный боб камеры (амплитуда в см — крошечная).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel")
+    bool bEnableCameraBreathing = true;
+
+    // Амплитуда дыхания (см). Держать малой (~1-2), иначе заметно/укачивает.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    float BreathingAmplitude = 1.5f;
+
+    // Скорость дыхания (рад/сек ~ циклов). Медленно = «живо», не нервно.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    float BreathingSpeed = 1.1f;
+
+    // Look-ahead: при движении камера чуть смещается в сторону движения.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel")
+    bool bEnableCameraLookAhead = true;
+
+    // Максимальное смещение look-ahead (см). Небольшое — чтобы игрок оставался в центре.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    float LookAheadAmount = 70.0f;
+
+    // Скорость плавного подмешивания look-ahead (VInterpTo). Меньше = плавнее/ленивее.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    float LookAheadInterpSpeed = 2.5f;
+
+    // Порог скорости пешки (см/с), выше которого включается look-ahead (отсекает дрожь покоя).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    float LookAheadSpeedThreshold = 50.0f;
+
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
     // как и у врага: TakeDamage роутится в Stats.
@@ -130,6 +191,13 @@ protected:
 
     // Called when the game starts or when spawned
     virtual void BeginPlay() override;
+
+    // Процедурные эффекты камеры (#28): дыхание + look-ahead через SpringArm->TargetOffset.
+    virtual void Tick(float DeltaTime) override;
+
+    // Применяет тюнингуемые параметры камеры (#20) к SpringArm/Camera. Зовётся в BeginPlay,
+    // чтобы оверрайды из BP/инстанса тоже учитывались (не только конструкторные дефолты).
+    void ApplyCameraSettings();
 
     // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).
     void EquipDefaultWeapon();
@@ -247,4 +315,11 @@ private:
 
     // Кэш инвентаря (UInventoryComponent на базе AMasterHumanoidCharacter, защищён).
     // Доступ к нему — через каст в .cpp (Inventory protected в базе).
+
+    // --- Рантайм-состояние процедурных эффектов камеры (#28) ---
+    // Накопленное время для синусного «дыхания».
+    float CameraBreathingTime = 0.0f;
+
+    // Текущее сглаженное смещение look-ahead (world XY), интерполируется к целевому в Tick.
+    FVector CameraLookAheadOffset = FVector::ZeroVector;
 };

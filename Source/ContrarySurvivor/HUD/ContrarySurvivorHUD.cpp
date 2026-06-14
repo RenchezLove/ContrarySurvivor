@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivorHUD.h"
 #include "Engine/Canvas.h"
+#include "CanvasItem.h"    // FCanvasTextItem (текст с тенью/обводкой, #18)
 #include "Engine/Engine.h" // GEngine->GetMediumFont
 #include "EngineUtils.h" // TActorIterator
 #include "GameFramework/Pawn.h"
@@ -13,6 +14,7 @@
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
+#include "ARangedWeapon.h"        // патроны экипированного дальнобоя в HUD (#5)
 #include "UInventoryComponent.h"  // рюкзак
 #include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
@@ -99,7 +101,7 @@ void AContrarySurvivorHUD::DrawHUD()
 	{
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PC->GetPawn()))
 		{
-			DrawPlayerStats(PlayerChar->GetStats());
+			DrawPlayerStats(PlayerChar);
 
 			// --- Трекер активного квеста («Волков: X/5») — GDD §7.7 ---
 			// Только вне модальных экранов (на них квест виден в самом диалоге).
@@ -877,16 +879,40 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 	DrawText(Text, bDone ? QuestTrackerDoneColor : QuestTrackerColor, X, Y, Font);
 }
 
-void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
+void AContrarySurvivorHUD::DrawShadowedText(const FString& Text, const FLinearColor& Color, float X, float Y,
+	UFont* Font, float ScaleXY)
 {
-	if (!Stats || !Canvas)
+	if (!Canvas || !Font)
+	{
+		return;
+	}
+
+	FCanvasTextItem Item(FVector2D(X, Y), FText::FromString(Text), Font, Color);
+	// Тень + обводка — текст читается на любом фоне (#18). Подтверждено по UE 5.5
+	// CanvasItem.h: EnableShadow(InColor, InOffset), bOutlined/OutlineColor, Scale.
+	Item.EnableShadow(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f), FVector2D(1.5f, 1.5f));
+	Item.bOutlined = true;
+	Item.OutlineColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.85f);
+	Item.Scale = FVector2D(ScaleXY, ScaleXY);
+	Canvas->DrawItem(Item);
+}
+
+void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas)
+	{
+		return;
+	}
+
+	UStatsComponent* Stats = Player->GetStats();
+	if (!Stats)
 	{
 		return;
 	}
 
 	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
 
-	// Компактный левый стек: HP -> Hunger -> Thirst -> Money.
+	// Компактный левый стек: HP -> Hunger -> Thirst -> Ammo -> Money.
 	// DEV-режим (решение game-lead): голод/жажда/деньги видны ВСЕГДА, не только в
 	// критической зоне. Прятать-до-критич. (GDD §7.7) вернём в финальной UX-полировке.
 	const float BarX = PlayerHudMarginX;
@@ -894,22 +920,19 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 	const float SurvivalMax = FMath::Max(Stats->GetSurvivalMax(), 1.0f);
 	const FLinearColor MoneyColor(1.0f, 0.85f, 0.2f, 1.0f);
 
-	// --- HP-бар (слева вверху, GDD §7.7) ---
+	// --- HP-бар (слева вверху, GDD §7.7; #18: крупнее + текст с обводкой) ---
 	DrawRect(BackgroundColor, BarX, CurY, PlayerHealthBarWidth, PlayerHealthBarHeight);
 	const float HpFillWidth = PlayerHealthBarWidth * FMath::Clamp(Stats->GetHealthPercent(), 0.0f, 1.0f);
 	if (HpFillWidth > 0.0f)
 	{
 		DrawRect(PlayerHealthFillColor, BarX, CurY, HpFillWidth, PlayerHealthBarHeight);
 	}
-	if (Font)
-	{
-		DrawText(FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth()),
-			FLinearColor::White, BarX + 6.0f, CurY + 2.0f, Font);
-	}
+	DrawShadowedText(FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth()),
+		FLinearColor::White, BarX + 8.0f, CurY + 4.0f, Font);
 	CurY += PlayerHealthBarHeight + 6.0f;
 
-	// Высота баров голода/жажды.
-	const float SurvBarH = 16.0f;
+	// Высота баров голода/жажды (#18: крупнее).
+	const float SurvBarH = PlayerSurvivalBarHeight;
 
 	// --- Голод (всегда) ---
 	DrawRect(BackgroundColor, BarX, CurY, PlayerHealthBarWidth, SurvBarH);
@@ -918,11 +941,8 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 	{
 		DrawRect(HungerColor, BarX, CurY, HungerFillW, SurvBarH);
 	}
-	if (Font)
-	{
-		DrawText(FString::Printf(TEXT("Hunger %.0f"), Stats->GetHunger()),
-			FLinearColor::White, BarX + 6.0f, CurY + 1.0f, Font);
-	}
+	DrawShadowedText(FString::Printf(TEXT("Hunger %.0f"), Stats->GetHunger()),
+		FLinearColor::White, BarX + 8.0f, CurY + 3.0f, Font);
 	CurY += SurvBarH + 4.0f;
 
 	// --- Жажда (всегда) ---
@@ -932,19 +952,38 @@ void AContrarySurvivorHUD::DrawPlayerStats(UStatsComponent* Stats)
 	{
 		DrawRect(ThirstColor, BarX, CurY, ThirstFillW, SurvBarH);
 	}
-	if (Font)
-	{
-		DrawText(FString::Printf(TEXT("Thirst %.0f"), Stats->GetThirst()),
-			FLinearColor::White, BarX + 6.0f, CurY + 1.0f, Font);
-	}
-	CurY += SurvBarH + 6.0f;
+	DrawShadowedText(FString::Printf(TEXT("Thirst %.0f"), Stats->GetThirst()),
+		FLinearColor::White, BarX + 8.0f, CurY + 3.0f, Font);
+	CurY += SurvBarH + 8.0f;
 
-	// --- Деньги (всегда, читаемо в общем стеке) ---
+	// --- Патроны экипированного оружия (#5) ---
+	// Показываем «в магазине / резерв» ТОЛЬКО для дальнобоя (ARangedWeapon). Холодное
+	// оружие (нож, AMeleeWeapon) и пустые руки — патроны не рисуем. Геттеры базы
+	// AMasterWeapon: GetCurrentAmmoInClip()/GetCurrentAmmoReserve() (подтв. AMasterWeapon.h).
+	if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon()))
+	{
+		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d"),
+			Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve());
+		// Плашка под патронами для читаемости.
+		float AmmoW = 0.0f, AmmoH = 0.0f;
+		if (Font)
+		{
+			GetTextSize(AmmoStr, AmmoW, AmmoH, Font);
+		}
+		DrawRect(MoneyPlateColor, BarX - 4.0f, CurY - 2.0f, AmmoW + 16.0f, AmmoH + 6.0f);
+		DrawShadowedText(AmmoStr, AmmoColor, BarX + 4.0f, CurY, Font);
+		CurY += (AmmoH > 0.0f ? AmmoH : 16.0f) + 8.0f;
+	}
+
+	// --- Деньги (всегда) + подложка-плашка под текстом (#18) ---
+	const FString MoneyStr = FString::Printf(TEXT("Money %.0f"), Stats->GetMoney());
+	float MoneyW = 0.0f, MoneyH = 0.0f;
 	if (Font)
 	{
-		DrawText(FString::Printf(TEXT("Money %.0f"), Stats->GetMoney()),
-			MoneyColor, BarX, CurY, Font);
+		GetTextSize(MoneyStr, MoneyW, MoneyH, Font);
 	}
+	DrawRect(MoneyPlateColor, BarX - 4.0f, CurY - 2.0f, MoneyW + 16.0f, MoneyH + 6.0f);
+	DrawShadowedText(MoneyStr, MoneyColor, BarX + 4.0f, CurY, Font);
 }
 
 void AContrarySurvivorHUD::DrawTargetMarker(AActor* TargetActor)

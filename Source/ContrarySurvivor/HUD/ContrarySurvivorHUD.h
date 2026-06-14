@@ -215,10 +215,22 @@ protected:
 	float PlayerHudMarginY = 24.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
-	float PlayerHealthBarWidth = 260.0f;
+	float PlayerHealthBarWidth = 320.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
-	float PlayerHealthBarHeight = 20.0f;
+	float PlayerHealthBarHeight = 28.0f;
+
+	// Высота баров голода/жажды (#18: крупнее для читаемости).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	float PlayerSurvivalBarHeight = 24.0f;
+
+	// Подложка-плашка под текстом денег (#18) — тёмный полупрозрачный прямоугольник.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	FLinearColor MoneyPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);
+
+	// Цвет текста патронов экипированного оружия (#5).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	FLinearColor AmmoColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
 	FLinearColor PlayerHealthFillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.95f);
@@ -275,8 +287,14 @@ private:
 	// чтобы игрок чётко видел активную цель (ФИКС1). Через DrawHUD, без UMG.
 	void DrawTargetMarker(AActor* TargetActor);
 
-	// Рисует статы игрока (HP-бар слева вверху, критич. голод/жажда под ним, деньги).
-	void DrawPlayerStats(UStatsComponent* Stats);
+	// Рисует статы игрока (HP-бар слева вверху, голод/жажда под ним, деньги-плашка) +
+	// патроны экипированного дальнобоя (#5). Берёт Stats и CurrentWeapon у игрока.
+	void DrawPlayerStats(APlayerCharacter* Player);
+
+	// Рисует текст с тенью и обводкой (#18, читаемость на любом фоне) через FCanvasTextItem.
+	// ScaleXY > 1 увеличивает кегль (шрифты HUD растровые, увеличение слегка мылит — ок для плашек).
+	void DrawShadowedText(const FString& Text, const FLinearColor& Color, float X, float Y,
+		class UFont* Font, float ScaleXY = 1.0f);
 
 	// --- Маркеры интерактивных NPC (находимость) ---
 

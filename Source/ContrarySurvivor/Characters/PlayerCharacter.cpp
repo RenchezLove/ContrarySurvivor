@@ -32,19 +32,36 @@ APlayerCharacter::APlayerCharacter()
 {
     
 
+    // Камера в стиле Last Day on Earth (#20): пологий угол сверху, узкий FOV, плавный lag.
+    // Конкретные значения берутся из тюнингуемых UPROPERTY (дефолты заданы в заголовке) и
+    // применяются здесь + повторно в BeginPlay (ApplyCameraSettings) на случай BP-оверрайда.
+
     // Create Spring Arm Component
     SpringArmComponent = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
     SpringArmComponent->SetupAttachment(RootComponent); // Attaching to RootComponent (CapsuleComponent)
-    SpringArmComponent->TargetArmLength = 1500.0f;      // Distance to Character
-    SpringArmComponent->SetRelativeRotation(FRotator(-70.f, 90.f, 0.f)); //Sets isometric view
+    SpringArmComponent->TargetArmLength = CameraArmLength;          // Дистанция камеры (LDoE ~1000)
+    SpringArmComponent->SetRelativeRotation(CameraBoomRotation);    // Угол LDoE (Pitch ~-55, Yaw 90)
 
     SpringArmComponent->bDoCollisionTest = false;
     //Disable collision chek for springarm. If true -> When spring arm is overlaped by something -> Camera movese closer to player
+
+    // Камера фиксирована относительно мира (top-down/LDoE): не наследует вращение пешки/контроллера.
+    SpringArmComponent->bUsePawnControlRotation = false;
+    SpringArmComponent->bInheritPitch = false;
+    SpringArmComponent->bInheritYaw   = false;
+    SpringArmComponent->bInheritRoll  = false;
+
+    // Плавное отставание (lag) — лёгкое «оживление» движения камеры.
+    SpringArmComponent->bEnableCameraLag       = bEnableCameraLag;
+    SpringArmComponent->CameraLagSpeed         = CameraLagSpeed;
+    SpringArmComponent->CameraLagMaxDistance   = CameraLagMaxDistance;
 
     // Create Camera Component
     CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     CameraComponent->SetupAttachment(SpringArmComponent, USpringArmComponent::SocketName); // Attach to   SpringArm
     CameraComponent->bUsePawnControlRotation = false;                                      // Camera not rotates whith character
+    CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
+    CameraComponent->SetFieldOfView(CameraFieldOfView);                                    // Узкий FOV (LDoE-сжатие)
 
     
     bUseControllerRotationPitch = false;
@@ -84,6 +101,9 @@ void APlayerCharacter::BeginPlay()
 
     UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
 
+    // Применяем тюнингуемые параметры камеры (#20) — учитывает BP-оверрайды, не только дефолты ctor.
+    ApplyCameraSettings();
+
     // Запоминаем стартовый трансформ — фолбэк-точка респауна, если сейва ещё нет.
     InitialSpawnTransform = GetActorTransform();
 
@@ -107,6 +127,72 @@ void APlayerCharacter::BeginPlay()
 
     // Дефолтная броня (Фаза 3): снижение урона наблюдаемо без экип-UI.
     EquipDefaultArmor();
+}
+
+void APlayerCharacter::ApplyCameraSettings()
+{
+    if (SpringArmComponent)
+    {
+        SpringArmComponent->TargetArmLength = CameraArmLength;
+        SpringArmComponent->SetRelativeRotation(CameraBoomRotation);
+        SpringArmComponent->bDoCollisionTest = false;
+        SpringArmComponent->bUsePawnControlRotation = false;
+        SpringArmComponent->bInheritPitch = false;
+        SpringArmComponent->bInheritYaw   = false;
+        SpringArmComponent->bInheritRoll  = false;
+        SpringArmComponent->bEnableCameraLag     = bEnableCameraLag;
+        SpringArmComponent->CameraLagSpeed       = CameraLagSpeed;
+        SpringArmComponent->CameraLagMaxDistance = CameraLagMaxDistance;
+    }
+    if (CameraComponent)
+    {
+        CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
+        CameraComponent->SetFieldOfView(CameraFieldOfView);
+    }
+}
+
+void APlayerCharacter::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+
+    // --- Процедурные эффекты камеры (#28): дыхание + look-ahead ---
+    // Оба ЕДВА ЗАМЕТНЫ (запрос «чуть-чуть»). Подмешиваем в SpringArm->TargetOffset (world space),
+    // не трогая базовую позицию/поворот руки — управление/прицел не затрагиваются.
+    if (!SpringArmComponent)
+    {
+        return;
+    }
+
+    FVector DesiredOffset = FVector::ZeroVector;
+
+    // Look-ahead: целевое смещение по горизонтали в сторону движения пешки.
+    if (bEnableCameraLookAhead)
+    {
+        FVector Velocity = GetVelocity();
+        Velocity.Z = 0.0f;
+        const float Speed = Velocity.Size();
+        FVector TargetLookAhead = FVector::ZeroVector;
+        if (Speed > LookAheadSpeedThreshold)
+        {
+            TargetLookAhead = Velocity.GetSafeNormal() * LookAheadAmount;
+        }
+        // Плавно подмешиваем (в т.ч. возврат к нулю при остановке).
+        CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, TargetLookAhead, DeltaTime, LookAheadInterpSpeed);
+        DesiredOffset += CameraLookAheadOffset;
+    }
+    else
+    {
+        CameraLookAheadOffset = FVector::ZeroVector;
+    }
+
+    // «Дыхание»: крошечный вертикальный синусный боб — камера кажется живой.
+    if (bEnableCameraBreathing)
+    {
+        CameraBreathingTime += DeltaTime * BreathingSpeed;
+        DesiredOffset.Z += FMath::Sin(CameraBreathingTime) * BreathingAmplitude;
+    }
+
+    SpringArmComponent->TargetOffset = DesiredOffset;
 }
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
