@@ -272,6 +272,12 @@ protected:
 	UFUNCTION()
 	void OnQATeleportToWolfDen();
 
+	// Z: телепорт игрока к базе бандитов (BanditBaseLocation из UBanditSpawnSubsystem) — зеркало V.
+	// Тестер не доходит до базы (юг, −Y) пешком top-down камерой; телепорт активирует спавн бандитов
+	// «по приближению» (квест-2 «зачистить базу»). Высота — трасса до пола.
+	UFUNCTION()
+	void OnQATeleportToBanditBase();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;

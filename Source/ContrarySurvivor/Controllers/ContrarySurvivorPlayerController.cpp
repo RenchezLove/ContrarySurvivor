@@ -25,6 +25,7 @@
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
 #include "ContrarySurvivor/Subsystems/WolfSpawnSubsystem.h" // QA: телепорт к Логову (клавиша V)
+#include "ContrarySurvivor/Subsystems/BanditSpawnSubsystem.h" // QA: телепорт к базе бандитов (клавиша Z)
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
 #include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O/N/V)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
@@ -150,6 +151,9 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// QA debug-инструменты (Фаза 5, доп.): N — force-kill ближайшего врага; V — телепорт к Логову.
 		InputComponent->BindAction(TEXT("QAForceKill"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAForceKillNearest);
 		InputComponent->BindAction(TEXT("QATeleportToDen"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToWolfDen);
+
+		// Z — телепорт к базе бандитов (зеркало V/Логово): тестер не доходит на юг (−Y) пешком top-down камерой.
+		InputComponent->BindAction(TEXT("QATeleportToBanditBase"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToBanditBase);
 	}
 }
 
@@ -211,8 +215,18 @@ void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
 	const FVector SpawnLoc(AheadXY.X, AheadXY.Y, SpawnZ);
 	const FRotator SpawnRot = (PawnLoc - SpawnLoc).Rotation();
 
+	// БАГ QA (dist 2352 вместо ~300): XY вычислялась верно (PawnLoc + Forward*300, по логу
+	// SpawnLoc=(-1043,285,90) на полу, ~300 от игрока), но СПАВН-релокация уносила волка далеко.
+	// AdjustIfPossibleButAlwaysSpawn при пересечении капсулы со статикой (в той XY floortrace
+	// видел 45 хитов) синхронно зовёт FindTeleportSpot, который сдвигает актора на свободное
+	// место — здесь на 2352 ед. (поэтому замер dist сразу после SpawnActor уже «далеко»).
+	// В отличие от спавна у Логова, B НЕ проецирует точку на навмеш, поэтому свободного места
+	// рядом нет. Для QA-инструмента нужна ДЕТЕРМИНИРОВАННАЯ точка ровно перед игроком, а не
+	// «правильная» проходимость — ставим AlwaysSpawn (без релокации): волк появляется точно в
+	// SpawnLoc (≤300 + Z90), сразу попадает в радиус авто-лока (3000) и агрится. Капсула волка
+	// (hh=40) при ZOffset=90 висит ~50 над полом и оседает гравитацией — XY при этом не меняется.
 	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 	AWolfCharacter* Wolf = World->SpawnActor<AWolfCharacter>(
 		AWolfCharacter::StaticClass(), SpawnLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
@@ -337,6 +351,46 @@ void AContrarySurvivorPlayerController::OnQATeleportToWolfDen()
 	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
 
 	FQADebug::QA(this, FString::Printf(TEXT("QA: teleported to WolfDen at %s"), *Dest.ToCompactString()), /*bScreen=*/true);
+}
+
+void AContrarySurvivorPlayerController::OnQATeleportToBanditBase()
+{
+	// Z: телепорт игрока к базе бандитов. Берём XY из UBanditSpawnSubsystem (источник истины —
+	// тот же BanditBaseLocation, по которому активируется спавн бандитов «по приближению»),
+	// высоту — трассой до пола в этой XY. Зеркало OnQATeleportToWolfDen (клавиша V).
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		FQADebug::QA(this, TEXT("QA: teleport to BanditBase skipped - no pawn/world"), /*bScreen=*/true);
+		return;
+	}
+
+	UBanditSpawnSubsystem* BanditSys = World->GetSubsystem<UBanditSpawnSubsystem>();
+	if (!BanditSys)
+	{
+		FQADebug::QA(this, TEXT("QA: teleport to BanditBase skipped - no BanditSpawnSubsystem"), /*bScreen=*/true);
+		return;
+	}
+
+	const FVector Base = BanditSys->GetBanditBaseLocation();
+
+	// Высота капсулы игрока: садим капсулу на пол (трасса) + halfHeight, иначе безопасный Z.
+	const ACharacter* AsChar = Cast<ACharacter>(ControlledPawn);
+	const float HalfHeight = (AsChar && AsChar->GetCapsuleComponent())
+		? AsChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+	const float SafeZ = SpawnPlacement::ResolveSpawnZ(
+		World, Base.X, Base.Y, HalfHeight + 10.0f, TEXT("BanditBase-teleport"), ControlledPawn);
+
+	const FVector Dest(Base.X, Base.Y, SafeZ);
+
+	if (UCharacterMovementComponent* Move = AsChar ? AsChar->GetCharacterMovement() : nullptr)
+	{
+		Move->StopMovementImmediately();
+	}
+	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+
+	FQADebug::QA(this, FString::Printf(TEXT("QA: teleported to BanditBase at %s"), *Dest.ToCompactString()), /*bScreen=*/true);
 }
 
 // ---------------------------------------------------------------------------

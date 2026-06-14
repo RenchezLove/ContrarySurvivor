@@ -37,6 +37,11 @@ public:
 
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
+	// Центр базы бандитов (для QA-телепорта игрока к базе, клавиша Z — зеркало V/Логово). Z тут
+	// условный — точную высоту берёт трасса до пола; XY = место выполнения квеста «зачистить базу».
+	// Источник истины тот же BanditBaseLocation, по которому активируется спавн бандитов «по приближению».
+	FVector GetBanditBaseLocation() const { return BanditBaseLocation; }
+
 protected:
 	// Класс бандита для спавна. Дефолт грузится из BP_EnemyBandit (модульные меши назначены в
 	// редакторе). EditAnywhere — чтобы подменить класс без перекомпиляции.
