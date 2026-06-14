@@ -2,6 +2,7 @@
 
 #include "WolfSpawnSubsystem.h"
 #include "ContrarySurvivor/Characters/WolfCharacter.h"
+#include "ContrarySurvivor/Debug/QADebug.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -24,15 +25,27 @@ void UWolfSpawnSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 		WolfClass = AWolfCharacter::StaticClass();
 	}
 
-	// Спавним с задержкой: к OnWorldBeginPlay игрок может быть ещё не создан.
+	// Деревня — мирная зона: НЕ спавним волков у игрока на старте. Вместо этого ждём
+	// приближения игрока к Логову — повторяющийся таймер проверки дистанции.
 	InWorld.GetTimerManager().SetTimer(
-		SpawnTimerHandle, this, &UWolfSpawnSubsystem::SpawnWolves, SpawnDelay, false);
+		ActivationTimerHandle, this, &UWolfSpawnSubsystem::CheckActivation,
+		ActivationCheckPeriod, /*bLoop=*/true, /*FirstDelay=*/ActivationCheckPeriod);
+
+	FQADebug::QA(&InWorld,
+		FString::Printf(TEXT("QA: WolfDen armed at %s, R=%.0f (peaceful village, wolves wait at den)"),
+			*WolfDenLocation.ToString(), ActivationRadius),
+		true);
 }
 
-void UWolfSpawnSubsystem::SpawnWolves()
+void UWolfSpawnSubsystem::CheckActivation()
 {
+	if (bWolvesSpawned)
+	{
+		return;
+	}
+
 	UWorld* World = GetWorld();
-	if (!World || !WolfClass)
+	if (!World)
 	{
 		return;
 	}
@@ -40,11 +53,33 @@ void UWolfSpawnSubsystem::SpawnWolves()
 	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
 	if (!PlayerPawn)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("WolfSpawnSubsystem: no player pawn, skip wolf spawn"));
+		return; // игрок ещё не заспавнен — ждём следующего тика таймера
+	}
+
+	// Горизонтальная (XY) дистанция игрока до центра Логова: Z игнорируем (рельеф/высота
+	// игрока не должны влиять на триггер активации).
+	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
+	const float DistSqXY = FVector::DistSquaredXY(PlayerLoc, WolfDenLocation);
+	const float RadiusSq = ActivationRadius * ActivationRadius;
+
+	if (DistSqXY <= RadiusSq)
+	{
+		SpawnWolvesAtDen();
+		bWolvesSpawned = true; // одноразово
+
+		// Активация отработала — гасим таймер проверки.
+		World->GetTimerManager().ClearTimer(ActivationTimerHandle);
+	}
+}
+
+void UWolfSpawnSubsystem::SpawnWolvesAtDen()
+{
+	UWorld* World = GetWorld();
+	if (!World || !WolfClass)
+	{
 		return;
 	}
 
-	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
 	const int32 Count = FMath::Max(1, NumWolves);
 
 	FActorSpawnParameters SpawnParams;
@@ -53,15 +88,15 @@ void UWolfSpawnSubsystem::SpawnWolves()
 	int32 Spawned = 0;
 	for (int32 i = 0; i < Count; ++i)
 	{
-		// Раскладываем волков по дуге вокруг игрока на дистанции SpawnDistance.
-		const float AngleDeg = 40.0f + (i * 80.0f); // 40, 120, ... — спереди-сбоку от игрока
+		// Раскладываем волков равномерно по кругу вокруг центра Логова.
+		const float AngleDeg = (360.0f / Count) * i;
 		const float AngleRad = FMath::DegreesToRadians(AngleDeg);
-		const FVector Offset(FMath::Cos(AngleRad) * SpawnDistance,
-		                     FMath::Sin(AngleRad) * SpawnDistance,
-		                     0.0f);
-		FVector DesiredLoc = PlayerLoc + Offset;
+		FVector DesiredLoc = WolfDenLocation + FVector(
+			FMath::Cos(AngleRad) * DenSpreadRadius,
+			FMath::Sin(AngleRad) * DenSpreadRadius,
+			0.0f);
 
-		// Проецируем на навмеш, чтобы волк встал в проходимой точке (не в доме/стене).
+		// Проецируем XY на навмеш, чтобы волк встал в проходимой точке (не в стволе/камне).
 		FVector ProjectedLoc = DesiredLoc;
 		FVector ProjectedOut;
 		const bool bProjected = UNavigationSystemV1::K2_ProjectPointToNavigation(
@@ -69,27 +104,27 @@ void UWolfSpawnSubsystem::SpawnWolves()
 			FVector(600.0f, 600.0f, 600.0f));
 		if (bProjected)
 		{
-			// Чуть приподнимаем над навмешем, чтобы капсула не утонула.
-			ProjectedLoc = ProjectedOut + FVector(0.0f, 0.0f, 90.0f);
+			// Высоту НЕ берём от навмеш-проекции/игрока: трасса до пола в этой XY (надёжный Z).
+			ProjectedLoc.X = ProjectedOut.X;
+			ProjectedLoc.Y = ProjectedOut.Y;
 		}
-		else
-		{
-			// Навмеш недоступен — раньше волк вставал на Z игрока (если игрок под картой на
-			// Z=-4055, волк уходил в войд). Теперь высоту берём трассировкой до пола в этой XY.
-			ProjectedLoc.Z = SpawnPlacement::ResolveSpawnZ(World, ProjectedLoc.X, ProjectedLoc.Y, /*ZOffset=*/90.0f, TEXT("Wolf"));
-		}
+		ProjectedLoc.Z = SpawnPlacement::ResolveSpawnZ(
+			World, ProjectedLoc.X, ProjectedLoc.Y, /*ZOffset=*/90.0f, TEXT("Wolf"));
 
-		const FRotator SpawnRot = (PlayerLoc - ProjectedLoc).Rotation();
+		// Разворачиваем волка лицом к центру Логова.
+		const FRotator SpawnRot = (WolfDenLocation - ProjectedLoc).Rotation();
 		AWolfCharacter* Wolf = World->SpawnActor<AWolfCharacter>(
 			WolfClass, ProjectedLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
 
 		if (Wolf)
 		{
 			++Spawned;
-			UE_LOG(LogTemp, Log, TEXT("WolfSpawnSubsystem: spawned %s at %s (navmesh=%s)"),
-				*Wolf->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("fallback"));
+			UE_LOG(LogTemp, Log, TEXT("WolfSpawnSubsystem: spawned %s at den %s (navmesh=%s)"),
+				*Wolf->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"));
 		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("WolfSpawnSubsystem: spawned %d/%d wolves near player"), Spawned, Count);
+	FQADebug::QA(World,
+		FString::Printf(TEXT("QA: WolfDen activated, spawned %d wolves at den"), Spawned),
+		true);
 }
