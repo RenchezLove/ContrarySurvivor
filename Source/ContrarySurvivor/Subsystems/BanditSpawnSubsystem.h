@@ -1,0 +1,78 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Subsystems/WorldSubsystem.h"
+#include "BanditSpawnSubsystem.generated.h"
+
+class AEnemyCharacter;
+
+/**
+ * Зональный спавнер бандитов (Фаза 5, квест «зачистить базу») — зеркало UWolfSpawnSubsystem.
+ *
+ * ДИЗАЙН: деревня — мирная зона. База бандитов находится ЮЖНЕЕ деревни (у сарая). Когда игрок
+ * ВПЕРВЫЕ подходит к базе (XY-дистанция ≤ ActivationRadius), там одноразово спавнится группа
+ * бандитов — место выполнения квеста «зачистить базу».
+ *
+ * Реализация: UWorldSubsystem (создаётся автоматически для каждого игрового мира). На
+ * OnWorldBeginPlay запускает повторяющийся таймер (~0.5с), который проверяет горизонтальную
+ * дистанцию игрока до BanditBaseLocation. При первом входе в радиус спавнит NumBandits
+ * бандитов вокруг базы (высота каждого — трасса до пола через SpawnPlacement, НЕ от игрока) и
+ * одноразово выставляет bBanditsSpawned=true (таймер после этого гасится).
+ *
+ * ВАЖНО: спавним BP_EnemyBandit (модульный визуал/меши назначены в редакторе), а не голый
+ * C++ AEnemyCharacter. Класс грузится в конструкторе через FClassFinder; fallback —
+ * AEnemyCharacter::StaticClass(). AI/бой бандита уже работает у placed-актора и здесь не трогаются.
+ */
+UCLASS()
+class CONTRARYSURVIVOR_API UBanditSpawnSubsystem : public UWorldSubsystem
+{
+	GENERATED_BODY()
+
+public:
+	UBanditSpawnSubsystem();
+
+	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
+
+protected:
+	// Класс бандита для спавна. Дефолт грузится из BP_EnemyBandit (модульные меши назначены в
+	// редакторе). EditAnywhere — чтобы подменить класс без перекомпиляции.
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	TSubclassOf<AEnemyCharacter> BanditClass;
+
+	// Центр базы бандитов — ЮЖНЕЕ деревни (−Y, у сарая). Точную высоту КАЖДОГО бандита берём
+	// трассой до пола, поэтому дефолтный Z тут не критичен. EditAnywhere — чтобы unreal-operator
+	// подвинул базу под реальную карту без перекомпиляции.
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	FVector BanditBaseLocation = FVector(0.0f, -1500.0f, 0.0f);
+
+	// Радиус активации (см): когда игрок ВПЕРВЫЕ входит в этот радиус (по XY) от базы — спавним
+	// бандитов. ~1200 см ≈ 12 м.
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	float ActivationRadius = 1200.0f;
+
+	// Сколько бандитов спавнить (квест «зачистить базу»).
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	int32 NumBandits = 3;
+
+	// Разброс бандитов по кругу вокруг центра базы (см).
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	float SpreadRadius = 300.0f;
+
+	// Одноразовый флаг: бандиты на базе уже заспавнены. EditAnywhere для дебага/тюнинга.
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
+	bool bBanditsSpawned = false;
+
+	// Период проверки дистанции игрока до базы (сек).
+	float ActivationCheckPeriod = 0.5f;
+
+private:
+	FTimerHandle ActivationTimerHandle;
+
+	// Тик проверки активации (по таймеру): сравнивает XY-дистанцию игрока до базы.
+	void CheckActivation();
+
+	// Спавнит NumBandits бандитов вокруг BanditBaseLocation (высота каждого — трасса до пола).
+	void SpawnBanditsAtBase();
+};
