@@ -194,10 +194,16 @@ void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
 		return;
 	}
 
-	const FVector SpawnLoc = ControlledPawn->GetActorLocation()
-		+ ControlledPawn->GetActorForwardVector() * 300.0f
-		+ FVector(0.0f, 0.0f, 90.0f);
-	const FRotator SpawnRot = (ControlledPawn->GetActorLocation() - SpawnLoc).Rotation();
+	// Точка ВПЛОТНУЮ перед игроком (300 ед.), чтобы волк сразу агрился/локался и был
+	// достижим (kill->drop->подбор в одной точке). Высоту берём НА ПОЛУ трассой (как
+	// спавн-сабсистемы, ZOffset=90 = центр капсулы над полом), а не фикс. +90 от Z игрока —
+	// иначе волк висел/проваливался и оказывался «далеко» (баг QA: dist ~21907).
+	const FVector PawnLoc = ControlledPawn->GetActorLocation();
+	const FVector AheadXY = PawnLoc + ControlledPawn->GetActorForwardVector() * 300.0f;
+	const float SpawnZ = SpawnPlacement::ResolveSpawnZ(
+		World, AheadXY.X, AheadXY.Y, /*ZOffset=*/90.0f, TEXT("QATestWolf"), ControlledPawn);
+	const FVector SpawnLoc(AheadXY.X, AheadXY.Y, SpawnZ);
+	const FRotator SpawnRot = (PawnLoc - SpawnLoc).Rotation();
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
@@ -205,8 +211,9 @@ void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
 	AWolfCharacter* Wolf = World->SpawnActor<AWolfCharacter>(
 		AWolfCharacter::StaticClass(), SpawnLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
 
+	const float SpawnedDist = Wolf ? FVector::Dist(PawnLoc, Wolf->GetActorLocation()) : -1.0f;
 	FQADebug::QA(this, Wolf
-		? FString::Printf(TEXT("QA: spawned test wolf %s"), *Wolf->GetName())
+		? FString::Printf(TEXT("QA: spawned test wolf %s at dist %.0f"), *Wolf->GetName(), SpawnedDist)
 		: TEXT("QA: spawned test wolf FAILED"), /*bScreen=*/true);
 }
 
@@ -232,43 +239,59 @@ void AContrarySurvivorPlayerController::OnQAForceKillNearest()
 	}
 
 	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-	APawn* Nearest = nullptr;
-	float BestDistSq = TNumericLimits<float>::Max();
-	for (TActorIterator<APawn> It(World); It; ++It)
+
+	// Выбор цели:
+	// 1) ПРИОРИТЕТ — текущая залоченная цель (CurrentTarget: авто-лок или ручной лок),
+	//    т.е. то, на что игрок реально наведён. Это и есть «ближайший в радиусе авто-лока».
+	// 2) Иначе — РЕАЛЬНО ближайший живой враг по МИНИМУМУ дистанции (тип-агностично).
+	//    Раньше N брал просто ближайшего без учёта лока; теперь N детерминированно
+	//    добивает залоченную цель (баг QA: добивал дальнего, т.к. лок игнорировался).
+	AActor* Target = nullptr;
+	if (IsValidTarget(CurrentTarget))
 	{
-		APawn* Candidate = *It;
-		if (!IsValid(Candidate) || Candidate == ControlledPawn)
+		Target = CurrentTarget;
+	}
+	else
+	{
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (TActorIterator<APawn> It(World); It; ++It)
 		{
-			continue;
-		}
-		UStatsComponent* CandStats = Candidate->FindComponentByClass<UStatsComponent>();
-		if (!CandStats || CandStats->IsDead())
-		{
-			continue;
-		}
-		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
-		if (DistSq < BestDistSq)
-		{
-			BestDistSq = DistSq;
-			Nearest = Candidate;
+			APawn* Candidate = *It;
+			if (!IsValid(Candidate) || Candidate == ControlledPawn)
+			{
+				continue;
+			}
+			UStatsComponent* CandStats = Candidate->FindComponentByClass<UStatsComponent>();
+			if (!CandStats || CandStats->IsDead())
+			{
+				continue;
+			}
+			const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				Target = Candidate;
+			}
 		}
 	}
 
-	if (!IsValid(Nearest))
+	if (!IsValid(Target))
 	{
 		FQADebug::QA(this, TEXT("QA: FORCEKILL skipped - no living enemy"), /*bScreen=*/true);
 		return;
 	}
 
-	const FString EnemyName = Nearest->GetName();
-	const float Dist = FMath::Sqrt(BestDistSq);
+	const FString EnemyName = Target->GetName();
+	const float Dist = FVector::Dist(PawnLoc, Target->GetActorLocation());
+	const bool bWasLocked = (Target == CurrentTarget);
 
 	// Летальный урон через штатный TakeDamage (как ARangedWeapon: FDamageEvent + инстигатор).
 	// Большое число гарантирует смерть даже после брони (ArmorReductionCap всегда пропускает часть).
 	FDamageEvent DamageEvent;
-	Nearest->TakeDamage(1000000.0f, DamageEvent, this, ControlledPawn);
+	Target->TakeDamage(1000000.0f, DamageEvent, this, ControlledPawn);
 
-	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEKILL %s (dist %.0f)"), *EnemyName, Dist), /*bScreen=*/true);
+	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEKILL %s (dist %.0f, %s)"),
+		*EnemyName, Dist, bWasLocked ? TEXT("locked") : TEXT("nearest")), /*bScreen=*/true);
 }
 
 void AContrarySurvivorPlayerController::OnQATeleportToWolfDen()

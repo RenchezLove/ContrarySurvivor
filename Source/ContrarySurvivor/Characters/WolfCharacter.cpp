@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства волка в квест
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
 #include "AConsumableItem.h"
 #include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
 #include "Components/CapsuleComponent.h"
@@ -257,16 +258,18 @@ void AWolfCharacter::DropLoot()
 	const FVector Loc = GetActorLocation();
 	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
 
-	// 1) КВЕСТОВЫЙ ДРОП (Фаза 5): «Шкура волка» гарантированно (dropChance=1.0) + деньги.
-	//    Имя предмета задаём явно, чтобы он читался в рюкзаке/UI как «Шкура волка».
+	// КВЕСТОВЫЙ ДРОП (Фаза 5): «Шкура волка» гарантированно (dropChance=1.0) + деньги.
+	// Имя задаётся ЯВНО на проспавненном экземпляре (APickup::DropLoot -> DroppedItem->ItemName),
+	// поэтому в логе подбора волчьего лута читается name 'Шкура волка', а не дефолт класса.
+	//
+	// БАГ QA (исправлено): раньше волк ронял ВТОРОЙ, безымянный generic-consumable пикап
+	// вплотную к шкуре. Под force-drop (U) спавнились ОБА, и при подборе ближайшего игрок
+	// часто брал безымянный generic ('Canned Food'-подобный), а не шкуру. Шкура — единственный
+	// предмет-лут волка (тематично, GDD §7.8): второй generic-дроп убран, шкура детерминирована.
 	APickup::DropLoot(World, Loc, Money,
 		QuestLootItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestLootItemName);
 
-	// 2) ПРОЧИЙ ЛУТ (по шансу, как раньше) — отдельным пикапом рядом, без денег
-	//    (деньги уже отданы квестовым пикапом). Force-drop (клавиша U) поднимет шанс до 100%.
-	if (LootItemClass && LootItemDropChance > 0.0f)
-	{
-		APickup::DropLoot(World, Loc + FVector(45.0f, 0.0f, 0.0f), 0.0f,
-			LootItemClass, LootItemDropChance, PickupClass);
-	}
+	FQADebug::QA(World, FString::Printf(
+		TEXT("QA: wolf loot = '%s' (guaranteed, money=%.0f)"), *QuestLootItemName, Money),
+		/*bScreen=*/true);
 }
