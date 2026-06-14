@@ -9,6 +9,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"     // QA god-mode (заморозка деградации) + MONEY-лог
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // #2: флаг спринта владельца
 
 UStatsComponent::UStatsComponent()
 {
@@ -341,7 +342,16 @@ void UStatsComponent::TickThirstDrain()
 	{
 		return;
 	}
-	ModifyThirst(-SurvivalDrainStep);
+	// #2: при спринте расход жажды множится на SprintDrainMultiplier.
+	float Step = SurvivalDrainStep;
+	const AMasterHumanoidCharacter* OwnerChar = Cast<AMasterHumanoidCharacter>(GetOwner());
+	if (OwnerChar && OwnerChar->GetIsSprinting())
+	{
+		Step *= SprintDrainMultiplier;
+		UE_LOG(LogQA, Display, TEXT("QA: sprint thirst drain -%.1f (x%.1f) -> %.0f/%.0f"),
+			Step, SprintDrainMultiplier, FMath::Max(Thirst - Step, 0.0f), SurvivalMax);
+	}
+	ModifyThirst(-Step);
 }
 
 void UStatsComponent::TickHungerDrain()
@@ -350,7 +360,16 @@ void UStatsComponent::TickHungerDrain()
 	{
 		return;
 	}
-	ModifyHunger(-SurvivalDrainStep);
+	// #2: при спринте расход голода множится на SprintDrainMultiplier.
+	float Step = SurvivalDrainStep;
+	const AMasterHumanoidCharacter* OwnerChar = Cast<AMasterHumanoidCharacter>(GetOwner());
+	if (OwnerChar && OwnerChar->GetIsSprinting())
+	{
+		Step *= SprintDrainMultiplier;
+		UE_LOG(LogQA, Display, TEXT("QA: sprint hunger drain -%.1f (x%.1f) -> %.0f/%.0f"),
+			Step, SprintDrainMultiplier, FMath::Max(Hunger - Step, 0.0f), SurvivalMax);
+	}
+	ModifyHunger(-Step);
 }
 
 void UStatsComponent::TickHungerHealthDrain()

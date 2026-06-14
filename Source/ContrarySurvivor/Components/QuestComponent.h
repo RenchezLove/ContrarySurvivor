@@ -164,6 +164,10 @@ public:
 
 	const TArray<FQuest>& GetQuests() const { return Quests; }
 
+	// Сколько квестов сдано (State == TurnedIn) — для экрана смерти (#26 «сколько квестов выполнено»).
+	UFUNCTION(BlueprintPure, Category = "Quest")
+	int32 GetTurnedInQuestCount() const;
+
 	// Выполнены ли ОБЕ цели квеста (kill + item). Цель с нулевым требованием считается выполненной.
 	static bool AreObjectivesMet(const FQuest& Quest);
 

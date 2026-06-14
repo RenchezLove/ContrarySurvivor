@@ -3,6 +3,7 @@
 #include "EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства бандита в квест
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "AConsumableItem.h"
 #include "Components/CapsuleComponent.h"
@@ -150,6 +151,11 @@ void AEnemyCharacter::HandleDeath()
 		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
 		{
 			PlayerQuests->NotifyKill(FName(TEXT("Bandit")));
+		}
+		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
+		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
+		{
+			PlayerChar->RegisterEnemyKill();
 		}
 	}
 

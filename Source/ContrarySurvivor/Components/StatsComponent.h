@@ -121,6 +121,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
 	float SurvivalDrainStep = 1.0f;
 
+	// DRAFT (#2): множитель расхода голода/жажды, пока владелец спринтит (GetIsSprinting()).
+	// Применяется к шагу убыли в TickHunger/ThirstDrain (бОльший декремент при той же
+	// каденции таймера = быстрее убывает). Дефолт 1.8 — на тюнинг Рината.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning", meta = (ClampMin = "1.0"))
+	float SprintDrainMultiplier = 1.8f;
+
 	// Критический порог: при значении <= этого начинает падать HP (GDD §7.3: <= 20).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
 	float CriticalThreshold = 20.0f;

@@ -279,6 +279,29 @@ public:
     UFUNCTION(BlueprintPure, Category = "Quest")
     UQuestComponent* GetQuests() const { return Quests; }
 
+    // --- Экран смерти (#26) — статистика последней жизни для HUD ---
+
+    // Сколько секунд прожил игрок в последней жизни (момент смерти − старт жизни/респаун).
+    UFUNCTION(BlueprintPure, Category = "Death")
+    float GetLastLifeDuration() const { return LastLifeDuration; }
+
+    // От кого погиб (читаемое имя последнего нанёсшего урон). «Неизвестно», если урон не от врага.
+    UFUNCTION(BlueprintPure, Category = "Death")
+    FString GetLastDamagerName() const { return LastDamagerName; }
+
+    // Сколько врагов убито за сессию (инкремент при смерти врага от игрока).
+    UFUNCTION(BlueprintPure, Category = "Death")
+    int32 GetEnemyKillCount() const { return EnemyKillCount; }
+
+    // Засчитать убийство врага игроком (зовётся из HandleDeath врага/волка). +1 к счётчику киллов.
+    UFUNCTION(BlueprintCallable, Category = "Death")
+    void RegisterEnemyKill();
+
+    // Возрождение по кнопке экрана смерти / клавише: респаун у костра (сейв) + потеря доли
+    // рюкзака + возврат управления + скрытие экрана смерти. Вынесено из старого HandleDeath.
+    UFUNCTION(BlueprintCallable, Category = "Death")
+    void Respawn();
+
     // Переключение между дальним (пистолет) и ближним (нож) оружием.
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
     UFUNCTION(BlueprintCallable, Category = "Equipment")
@@ -360,6 +383,19 @@ protected:
 private:
     // Стартовый трансформ (фолбэк-точка респауна, если сейва ещё нет).
     FTransform InitialSpawnTransform;
+
+    // --- Экран смерти (#26): трекинг текущей жизни ---
+    // Момент (World time) начала текущей жизни: ставится в BeginPlay и сбрасывается в Respawn.
+    float LifeStartTime = 0.0f;
+
+    // Длительность последней жизни (сек) — фиксируется в HandleDeath для экрана смерти.
+    float LastLifeDuration = 0.0f;
+
+    // Читаемое имя последнего нанёсшего урон (для «от кого погиб»). Обновляется в TakeDamage.
+    FString LastDamagerName = TEXT("Неизвестно");
+
+    // Счётчик убитых игроком врагов за сессию (инкремент RegisterEnemyKill).
+    int32 EnemyKillCount = 0;
 
     // Инстансы оружия (оба заспавнены в BeginPlay). CurrentWeapon базы указывает на активный.
     UPROPERTY()

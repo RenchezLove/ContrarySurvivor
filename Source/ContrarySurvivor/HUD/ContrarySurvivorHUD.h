@@ -125,6 +125,16 @@ public:
 	// если зона найдена и действие выполнено.
 	bool HandleDialogClick(FVector2D ScreenPos);
 
+	// --- Экран смерти (#26) — immediate-mode, без UMG ---
+
+	// Показать/скрыть экран смерти (вызывается контроллером из ShowDeathScreen/HideDeathScreen).
+	void SetDeathScreenOpen(bool bOpen);
+	bool IsDeathScreenOpen() const { return bDeathScreen; }
+
+	// Обработать клик/тап по экрану смерти. Возвращает true, если попали в кнопку «Возродиться»
+	// (тогда контроллер запускает респаун). Сам респаун HUD не делает (логика — у игрока).
+	bool HandleDeathScreenClick(FVector2D ScreenPos);
+
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
 	// GDD ч.8: «при приближении ближе ~5 м». 5 м ≈ 500 ед, но для top-down-обзора берём с запасом.
@@ -277,6 +287,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
 	FLinearColor QuestTrackerDoneColor = FLinearColor(0.4f, 1.0f, 0.4f, 1.0f);
 
+	// --- Экран смерти (#26) ---
+
+	// Затемнение фона экрана смерти (почти чёрное — фокус на статистике).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	FLinearColor DeathDimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.85f);
+
+	// Цвет заголовка «Вы погибли».
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	FLinearColor DeathTitleColor = FLinearColor(0.9f, 0.12f, 0.1f, 1.0f);
+
+	// Цвет строк статистики.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	FLinearColor DeathStatColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
+
+	// Цвет кнопки «Возродиться».
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	FLinearColor DeathButtonColor = FLinearColor(0.2f, 0.45f, 0.25f, 1.0f);
+
 private:
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
@@ -367,6 +395,19 @@ private:
 
 	// Рисует трекер активного квеста («Волков: X/5») в углу HUD, когда квест Active/Completed.
 	void DrawQuestTracker(UQuestComponent* QuestComp);
+
+	// --- Экран смерти (#26) ---
+
+	// Открыт ли экран смерти (модальный поверх всего, кроме QA-оверлея).
+	bool bDeathScreen = false;
+
+	// Прямоугольник кнопки «Возродиться» (пересобирается каждый DrawDeathScreen) — для hit-теста.
+	FVector2D DeathRespawnBtnMin = FVector2D::ZeroVector;
+	FVector2D DeathRespawnBtnMax = FVector2D::ZeroVector;
+
+	// Рисует экран смерти: затемнение, заголовок «Вы погибли», статистика последней жизни
+	// (прожил / от кого / деньги / квесты / убито) + кнопка «Возродиться» и подсказка-клавиша.
+	void DrawDeathScreen(APlayerCharacter* Player);
 
 	// --- QA-оверлей (Фаза 5, debug под автотестера) ---
 	// Рисует кольцевой буфер последних QA-сообщений (FQADebug) в ПРАВОМ НИЖНЕМ углу:

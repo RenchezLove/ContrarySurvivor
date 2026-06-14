@@ -154,7 +154,93 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// Z — телепорт к базе бандитов (зеркало V/Логово): тестер не доходит на юг (−Y) пешком top-down камерой.
 		InputComponent->BindAction(TEXT("QATeleportToBanditBase"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToBanditBase);
+
+		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
+		InputComponent->BindAction(TEXT("Respawn"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnRespawnPressed);
+
+		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
+		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Экран смерти (#26): показ/скрытие + возрождение по клавише + QA-убийство игрока
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::ShowDeathScreen()
+{
+	bDeathScreen = true;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetDeathScreenOpen(true);
+	}
+
+	// Режим ввода UI (клик уходит в кнопку «Возродиться»); геймплей-экшены подавлены флагом bDeathScreen.
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	FQADebug::QA(this, TEXT("QA: death screen opened (input disabled)"), /*bScreen=*/true);
+}
+
+void AContrarySurvivorPlayerController::HideDeathScreen()
+{
+	if (!bDeathScreen)
+	{
+		return;
+	}
+	bDeathScreen = false;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetDeathScreenOpen(false);
+	}
+
+	SetInputMode(FInputModeGameOnly());
+	bShowMouseCursor = true; // курсор нужен в игре (клик-таргетинг)
+}
+
+void AContrarySurvivorPlayerController::OnRespawnPressed()
+{
+	// Дубль кнопки «Возродиться» клавишей (Enter / Пробел). Действует только на экране смерти.
+	if (!bDeathScreen)
+	{
+		return;
+	}
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: respawn key pressed"));
+		PlayerChar->Respawn();
+	}
+}
+
+void AContrarySurvivorPlayerController::OnQAKillPlayer()
+{
+	// P: мгновенно убить игрока штатным летальным уроном -> сработает экран смерти.
+	if (FQADebug::bGodMode)
+	{
+		FQADebug::QA(this, TEXT("QA: QAKillPlayer skipped - god mode on"), /*bScreen=*/true);
+		return;
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		FQADebug::QA(this, TEXT("QA: QAKillPlayer skipped - no player pawn"), /*bScreen=*/true);
+		return;
+	}
+
+	// Летальный урон штатным путём (как враг/оружие). DamageCauser = сам игрок, чтобы не
+	// перетереть «от кого погиб» (в TakeDamage само-урон игнорируется для LastDamagerName).
+	FDamageEvent DamageEvent;
+	PlayerChar->TakeDamage(1000000.0f, DamageEvent, this, PlayerChar);
+
+	FQADebug::QA(this, TEXT("QA: QAKillPlayer"), /*bScreen=*/true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,8 +1206,8 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	CurrentInteractActor = nullptr;
 	CurrentInteractKind = EInteractKind::None;
 
-	// Пока открыт модальный экран — подсказку не предлагаем.
-	if (bInventoryOpen || bShopOpen || bDialogOpen)
+	// Пока открыт модальный экран (вкл. экран смерти) — подсказку не предлагаем.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
 	{
 		return;
 	}
@@ -1227,8 +1313,8 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин/диалог — движение подавлено (модальный экран).
-	if (bInventoryOpen || bShopOpen || bDialogOpen)
+	// Пока открыт инвентарь/магазин/диалог/экран смерти — движение подавлено (модальный экран).
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
 	{
 		return;
 	}
@@ -1265,6 +1351,27 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
+	// #26: на экране смерти клик уходит в кнопку «Возродиться» (не в стрельбу). EDGE-схема.
+	if (bDeathScreen)
+	{
+		if (!bUIClickConsumed)
+		{
+			bUIClickConsumed = true;
+			if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+			{
+				float MX = 0.0f, MY = 0.0f;
+				if (GetMousePosition(MX, MY) && CSHUD->HandleDeathScreenClick(FVector2D(MX, MY)))
+				{
+					if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+					{
+						PlayerChar->Respawn();
+					}
+				}
+			}
+		}
+		return;
+	}
+
 	// Если открыт инвентарь — клик уходит в UI инвентаря (надеть/снять/использовать/выбросить),
 	// НЕ в стрельбу/таргетинг. BUG1: обрабатываем как EDGE — одно действие на нажатие. Пока кнопка
 	// зажата (Triggered летит каждый кадр), повторно НЕ реагируем; флаг снимается на отпускании.

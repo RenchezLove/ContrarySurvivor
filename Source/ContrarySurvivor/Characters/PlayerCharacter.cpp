@@ -26,7 +26,9 @@
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
-#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI при смерти
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
+#include "ContrarySurvivor/Characters/WolfCharacter.h"  // #26: читаемое имя «от кого погиб»
+#include "ContrarySurvivor/Characters/EnemyCharacter.h" // #26: читаемое имя «от кого погиб»
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"      // QA god-mode (неуязвимость)
 #include "Kismet/GameplayStatics.h"
@@ -155,6 +157,10 @@ void APlayerCharacter::BeginPlay()
         }
     }
     InitialSpawnTransform = GetActorTransform();
+
+    // #26: засекаем старт текущей жизни (для статистики «сколько прожил» на экране смерти).
+    LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    LastDamagerName = TEXT("Неизвестно");
 
     // Инициализируем HP игрока через UStatsComponent (источник истины).
     if (Stats)
@@ -318,6 +324,24 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
     // GDD §7.2: броня снижает урон. ПРОЦЕНТНАЯ формула (решение Рината):
     // Final = Incoming * (1 - clamp(SumArmorFraction, 0, Cap)). Без min-1 неуязвимости.
     const float Reduced = ComputeArmoredDamage(DamageAmount);
+
+    // #26: запоминаем «от кого погиб» — читаемое имя источника урона. Само-урон (QA-убийство
+    // игрока, DamageCauser == this) и безымянный источник не перетирают последнего врага.
+    if (DamageCauser && DamageCauser != this)
+    {
+        if (Cast<AWolfCharacter>(DamageCauser))
+        {
+            LastDamagerName = TEXT("Волк");
+        }
+        else if (Cast<AEnemyCharacter>(DamageCauser))
+        {
+            LastDamagerName = TEXT("Бандит");
+        }
+        else
+        {
+            LastDamagerName = DamageCauser->GetName();
+        }
+    }
 
     const float Applied = Stats->ApplyDamage(Reduced);
 
@@ -919,14 +943,45 @@ void APlayerCharacter::ApplyDeathInventoryPenalty()
 
 void APlayerCharacter::HandleDeath()
 {
-    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> respawn"));
+    // #26: смерть НЕ возрождает сразу — показываем экран смерти, респаун по кнопке/клавише (Respawn()).
 
-    // 0) Закрываем все открытые модальные окна (инвентарь/магазин/диалог), чтобы UI не
-    //    «зависал» поверх экрана после респауна (BUG: окна оставались открытыми при смерти).
-    if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))
+    // Фиксируем длительность жизни для экрана смерти.
+    const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : LifeStartTime;
+    LastLifeDuration = FMath::Max(0.0f, Now - LifeStartTime);
+
+    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
+        LastLifeDuration, *LastDamagerName, EnemyKillCount);
+
+    // Останавливаем персонажа (анимации смерти нет — просто гасим движение; тело остаётся).
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
-        PC->CloseAllUI();
+        Move->StopMovementImmediately();
     }
+
+    AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController());
+    if (PC)
+    {
+        // Закрываем открытые окна (инвентарь/магазин/диалог) — UI не должен висеть под экраном смерти.
+        PC->CloseAllUI();
+        // Показываем экран смерти и выключаем геймплей-ввод (InputMode UI + гейт движения/огня).
+        PC->ShowDeathScreen();
+    }
+
+    const float Money = Stats ? Stats->GetMoney() : 0.0f;
+    const int32 QuestsDone = Quests ? Quests->GetTurnedInQuestCount() : 0;
+    UE_LOG(LogQA, Display, TEXT("QA: DEATH SCREEN shown - lived %.0fs, killer '%s', money %.0f, quests %d, kills %d"),
+        LastLifeDuration, *LastDamagerName, Money, QuestsDone, EnemyKillCount);
+}
+
+void APlayerCharacter::RegisterEnemyKill()
+{
+    ++EnemyKillCount;
+    UE_LOG(LogQA, Display, TEXT("QA: enemy kill counted -> total %d"), EnemyKillCount);
+}
+
+void APlayerCharacter::Respawn()
+{
+    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: respawn (from death screen)"));
 
     // 1) Потеря доли расходников рюкзака (экипировка сохраняется).
     ApplyDeathInventoryPenalty();
@@ -961,6 +1016,19 @@ void APlayerCharacter::HandleDeath()
             Stats->GetHealth(), Stats->GetMaxHealth(), Stats->GetHunger(), Stats->GetThirst(),
             RespawnHealthFraction, RespawnSurvivalFraction);
     }
+
+    // 4) Сбрасываем трекинг жизни и врага-убийцу для следующей жизни.
+    LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    LastDamagerName = TEXT("Неизвестно");
+
+    // 5) Возвращаем управление и убираем экран смерти.
+    if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))
+    {
+        PC->HideDeathScreen();
+    }
+
+    UE_LOG(LogQA, Display, TEXT("QA: RESPAWN done - HP %.0f, money %.0f"),
+        Stats ? Stats->GetHealth() : 0.0f, Stats ? Stats->GetMoney() : 0.0f);
 }
 
 void APlayerCharacter::SetUpMovement()

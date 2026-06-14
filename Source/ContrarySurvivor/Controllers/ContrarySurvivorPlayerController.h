@@ -64,6 +64,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void CloseAllUI();
 
+	// --- Экран смерти (#26) — вызываются APlayerCharacter (смерть/респаун) ---
+
+	// Показать экран смерти: HUD-флаг + режим ввода UI (геймплей-ввод подавлен флагом bDeathScreen).
+	UFUNCTION(BlueprintCallable, Category = "Death")
+	void ShowDeathScreen();
+
+	// Скрыть экран смерти и вернуть геймплейный режим ввода (зовётся в конце APlayerCharacter::Respawn).
+	UFUNCTION(BlueprintCallable, Category = "Death")
+	void HideDeathScreen();
+
 	// --- Контекстная подсказка взаимодействия (E) — для HUD ---
 
 	// Есть ли рядом интерактив (пикап/торговец), по которому E что-то сделает.
@@ -278,6 +288,16 @@ protected:
 	UFUNCTION()
 	void OnQATeleportToBanditBase();
 
+	// Возрождение по клавише (Enter / Пробел) на экране смерти (#26): дубль кнопки «Возродиться»
+	// (CU-мышь по HUD ненадёжна). Если экран смерти открыт — запускает APlayerCharacter::Respawn.
+	UFUNCTION()
+	void OnRespawnPressed();
+
+	// P (QA, #26): мгновенно убить ИГРОКА штатным летальным уроном (для теста экрана смерти).
+	// Учитывает god-mode (J): при god-mode не убивает (лог-skip).
+	UFUNCTION()
+	void OnQAKillPlayer();
+
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
 	float TestMoneyGrant = 100.0f;
@@ -313,6 +333,10 @@ private:
 
 	// Открыт ли экран диалога (модальный, как магазин): клик уходит в диалог, движение подавлено.
 	bool bDialogOpen = false;
+
+	// Открыт ли экран смерти (#26): геймплей-ввод (движение/огонь/интеракт) подавлен,
+	// клик уходит в кнопку «Возродиться». Источник — ShowDeathScreen/HideDeathScreen.
+	bool bDeathScreen = false;
 
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()

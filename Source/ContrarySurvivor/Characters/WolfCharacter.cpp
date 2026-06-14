@@ -3,6 +3,7 @@
 #include "WolfCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства волка в квест
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
@@ -248,6 +249,11 @@ void AWolfCharacter::HandleDeath()
 		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
 		{
 			PlayerQuests->NotifyKill(FName(TEXT("Wolf")));
+		}
+		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
+		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
+		{
+			PlayerChar->RegisterEnemyKill();
 		}
 	}
 

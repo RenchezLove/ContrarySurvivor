@@ -106,7 +106,7 @@ void AContrarySurvivorHUD::DrawHUD()
 
 			// --- Трекер активного квеста («Волков: X/5») — GDD §7.7 ---
 			// Только вне модальных экранов (на них квест виден в самом диалоге).
-			if (!bInventoryOpen && !bShopOpen && !bDialogOpen)
+			if (!bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
 			{
 				DrawQuestTracker(PlayerChar->GetQuests());
 			}
@@ -128,12 +128,18 @@ void AContrarySurvivorHUD::DrawHUD()
 			{
 				DrawDialog(PlayerChar);
 			}
+
+			// --- Экран смерти (#26): поверх всего, респаун по кнопке/клавише ---
+			if (bDeathScreen)
+			{
+				DrawDeathScreen(PlayerChar);
+			}
 		}
 	}
 
 	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец/староста (BUG3) ---
 	// Только когда модальные экраны закрыты (иначе перекрывает панель).
-	if (!bInventoryOpen && !bShopOpen && !bDialogOpen)
+	if (!bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
 	{
 		if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
 		{
@@ -960,6 +966,146 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 	// Фоновая плашка для читаемости.
 	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.55f), X - 8.0f, Y - 4.0f, TextW + 16.0f, TextH + 8.0f);
 	DrawText(Text, bDone ? QuestTrackerDoneColor : QuestTrackerColor, X, Y, Font);
+}
+
+// ===========================================================================
+// Экран смерти (#26) — immediate-mode, без UMG
+// ===========================================================================
+
+void AContrarySurvivorHUD::SetDeathScreenOpen(bool bOpen)
+{
+	bDeathScreen = bOpen;
+	if (!bOpen)
+	{
+		DeathRespawnBtnMin = FVector2D::ZeroVector;
+		DeathRespawnBtnMax = FVector2D::ZeroVector;
+	}
+}
+
+bool AContrarySurvivorHUD::HandleDeathScreenClick(FVector2D ScreenPos)
+{
+	if (!bDeathScreen)
+	{
+		return false;
+	}
+	const bool bInside =
+		ScreenPos.X >= DeathRespawnBtnMin.X && ScreenPos.X <= DeathRespawnBtnMax.X &&
+		ScreenPos.Y >= DeathRespawnBtnMin.Y && ScreenPos.Y <= DeathRespawnBtnMax.Y;
+	if (bInside)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: death screen RESPAWN button clicked"));
+	}
+	return bInside;
+}
+
+void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
+{
+	if (!Player || !Canvas)
+	{
+		return;
+	}
+
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+
+	// Позиция курсора (подсветка кнопки).
+	FVector2D Mouse(-1.0f, -1.0f);
+	if (APlayerController* PCc = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PCc->GetMousePosition(MX, MY))
+		{
+			Mouse = FVector2D(MX, MY);
+		}
+	}
+
+	const float SX = static_cast<float>(Canvas->SizeX);
+	const float SY = static_cast<float>(Canvas->SizeY);
+
+	// Затемнение всего экрана.
+	DrawRect(DeathDimColor, 0.0f, 0.0f, SX, SY);
+
+	// Заголовок «Вы погибли» по центру сверху панели (крупно через Scale).
+	const FString Title = TEXT("ВЫ ПОГИБЛИ");
+	float TitleW = 0.0f, TitleH = 0.0f;
+	if (Font)
+	{
+		GetTextSize(Title, TitleW, TitleH, Font);
+	}
+	const float TitleScale = 2.4f;
+	const float TitleX = (SX - TitleW * TitleScale) * 0.5f;
+	const float TitleY = SY * 0.18f;
+	DrawShadowedText(Title, DeathTitleColor, TitleX, TitleY, Font, TitleScale);
+
+	// --- Статистика последней жизни ---
+	const float LifeSec = Player->GetLastLifeDuration();
+	const int32 Minutes = FMath::FloorToInt(LifeSec / 60.0f);
+	const int32 Seconds = FMath::FloorToInt(LifeSec) % 60;
+	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
+	const int32 QuestsDone = Player->GetQuests() ? Player->GetQuests()->GetTurnedInQuestCount() : 0;
+	const int32 Kills = Player->GetEnemyKillCount();
+
+	TArray<FString> Lines;
+	Lines.Add(FString::Printf(TEXT("Прожито:  %02d:%02d"), Minutes, Seconds));
+	Lines.Add(FString::Printf(TEXT("Убийца:  %s"), *Player->GetLastDamagerName()));
+	Lines.Add(FString::Printf(TEXT("Деньги:  %.0f"), Money));
+	Lines.Add(FString::Printf(TEXT("Квестов выполнено:  %d"), QuestsDone));
+	Lines.Add(FString::Printf(TEXT("Врагов убито:  %d"), Kills));
+
+	const float StatScale = 1.3f;
+	float LineH = 26.0f;
+	if (Font)
+	{
+		float PW = 0.0f, PH = 0.0f;
+		GetTextSize(TEXT("Ag"), PW, PH, Font);
+		LineH = (PH > 0.0f ? PH : 18.0f) * StatScale + 10.0f;
+	}
+
+	float StatY = SY * 0.40f;
+	for (const FString& Line : Lines)
+	{
+		float LW = 0.0f, LH = 0.0f;
+		if (Font)
+		{
+			GetTextSize(Line, LW, LH, Font);
+		}
+		const float LX = (SX - LW * StatScale) * 0.5f;
+		DrawShadowedText(Line, DeathStatColor, LX, StatY, Font, StatScale);
+		StatY += LineH;
+	}
+
+	// --- Кнопка «Возродиться» (рисованный прямоугольник + hit-test) ---
+	const float BtnW = FMath::Min(360.0f, SX * 0.5f);
+	const float BtnH = 56.0f;
+	const float BtnX = (SX - BtnW) * 0.5f;
+	const float BtnY = StatY + 24.0f;
+
+	const bool bHover =
+		Mouse.X >= BtnX && Mouse.X <= BtnX + BtnW && Mouse.Y >= BtnY && Mouse.Y <= BtnY + BtnH;
+	DrawRect(bHover ? FLinearColor(0.3f, 0.6f, 0.35f, 1.0f) : DeathButtonColor, BtnX, BtnY, BtnW, BtnH);
+
+	const FString BtnLabel = TEXT("ВОЗРОДИТЬСЯ");
+	float BLW = 0.0f, BLH = 0.0f;
+	if (Font)
+	{
+		GetTextSize(BtnLabel, BLW, BLH, Font);
+	}
+	const float BtnScale = 1.4f;
+	DrawShadowedText(BtnLabel, FLinearColor::White,
+		BtnX + (BtnW - BLW * BtnScale) * 0.5f, BtnY + (BtnH - BLH * BtnScale) * 0.5f, Font, BtnScale);
+
+	// Запоминаем прямоугольник кнопки для hit-теста (CU-мышь по HUD).
+	DeathRespawnBtnMin = FVector2D(BtnX, BtnY);
+	DeathRespawnBtnMax = FVector2D(BtnX + BtnW, BtnY + BtnH);
+
+	// Подсказка-клавиша (дублирование, т.к. клик мышью по HUD ненадёжен).
+	const FString Hint = TEXT("Enter / Пробел — возродиться");
+	float HW = 0.0f, HH = 0.0f;
+	if (Font)
+	{
+		GetTextSize(Hint, HW, HH, Font);
+	}
+	DrawShadowedText(Hint, FLinearColor(0.8f, 0.8f, 0.8f, 1.0f),
+		(SX - HW) * 0.5f, BtnY + BtnH + 16.0f, Font, 1.0f);
 }
 
 void AContrarySurvivorHUD::DrawShadowedText(const FString& Text, const FLinearColor& Color, float X, float Y,

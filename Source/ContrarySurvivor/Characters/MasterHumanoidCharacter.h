@@ -22,6 +22,12 @@ public:
 	UFUNCTION(BlueprintCallable)
     void SetSprint(bool bIsSprinting);
 
+	// Спринтит ли персонаж сейчас (буст MaxWalkSpeed активен). Читается UStatsComponent
+	// для повышенного расхода голода/жажды при спринте (#2). Источник истины — флаг IsSprinting,
+	// выставляемый SetSprint из контроллера по Enhanced Input (Shift).
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	FORCEINLINE bool GetIsSprinting() const { return IsSprinting; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -201,7 +207,7 @@ protected:
 private:
     float BaseWalkSpeed;
     float SprintMultiplier = 2.0f;
-    bool IsSprinting;
+    bool IsSprinting = false;
 
     // Базовые меши слотов (тело без брони) — снимок BeginPlay для UnequipArmor.
     UPROPERTY()

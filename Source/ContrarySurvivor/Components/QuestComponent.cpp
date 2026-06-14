@@ -49,6 +49,19 @@ const FQuest* UQuestComponent::GetTrackedQuest() const
 	return nullptr;
 }
 
+int32 UQuestComponent::GetTurnedInQuestCount() const
+{
+	int32 Count = 0;
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.State == EQuestState::TurnedIn)
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
 bool UQuestComponent::AreObjectivesMet(const FQuest& Quest)
 {
 	const bool bKillMet = (Quest.TargetCount <= 0) || (Quest.Progress >= Quest.TargetCount);
