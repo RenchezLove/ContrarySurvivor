@@ -30,6 +30,25 @@ class CONTRARYSURVIVOR_API AEnemyAIController : public AAIController
 public:
 	AEnemyAIController();
 
+	// --- QA headless-автотест погони (cs.TestWolfChase) ---
+	// Аксессоры для CU-free теста: НЕ дублируют логику AI, а возвращают её реальные решения
+	// (анти-галлюцинация: пороги/состояние берутся из самого контроллера, не выдумываются).
+
+	// true, если враг СЕЙЧАС в Chase и последняя итерация погони шла по навмешу (mode=nav),
+	// а не fallback-прямым ходом (mode=direct). Источник — то же решение bUseDirect в Tick.
+	bool IsChaseModeNavForQA() const
+	{
+		return CurrentState == EEnemyAIState::Chase && !bLastChaseUsedDirect;
+	}
+
+	// Эффективная дальность атаки центр-к-центру (см) против конкретной цели: реальный
+	// AttackRange (поверхность-к-поверхности) + сумма радиусов капсул врага и цели.
+	// Тот же расчёт, что в Tick (EffectiveAttackRange) — это и есть «контакт достигнут».
+	float GetEffectiveAttackRangeForQA(APawn* Target) const
+	{
+		return AttackRange + GetCombinedCapsuleRadius(Target);
+	}
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;
@@ -107,6 +126,11 @@ private:
 
 	// Время последнего QA-лога погони (дроссель). -1000 — чтобы первый Chase залогировался сразу.
 	float LastChaseLogTime = -1000.0f;
+
+	// Последнее решение Tick'а: шла ли погоня прямым ходом (direct, fallback) или по навмешу (nav).
+	// Зеркалит bUseDirect; читается аксессором IsChaseModeNavForQA() для headless-теста погони.
+	// true по умолчанию — пока враг не вошёл в Chase, «nav» не утверждаем.
+	bool bLastChaseUsedDirect = true;
 
 	// Время последней отдачи MoveToActor в Chase. -1000 — чтобы первый Chase отдал move сразу.
 	float LastMoveIssueTime = -1000.0f;

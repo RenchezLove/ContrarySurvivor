@@ -28,6 +28,9 @@
 #include "ContrarySurvivor/Subsystems/WolfSpawnSubsystem.h" // QA: телепорт к Логову (клавиша V)
 #include "ContrarySurvivor/Subsystems/BanditSpawnSubsystem.h" // QA: телепорт к базе бандитов (клавиша Z)
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
+#include "ContrarySurvivor/Controllers/EnemyAIController.h" // QA headless-тест погони: режим/дальность
+#include "NavigationSystem.h"  // QA headless-тест: проекция враг/игрок на навмеш (selfNav/targetNav)
+#include "TimerManager.h"      // QA headless-тест: таймер-сэмплинг
 #include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O/N/V)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
@@ -524,6 +527,226 @@ void AContrarySurvivorPlayerController::OnQATeleportToBanditBase()
 	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
 
 	FQADebug::QA(this, FString::Printf(TEXT("QA: teleported to BanditBase at %s"), *Dest.ToCompactString()), /*bScreen=*/true);
+}
+
+// ---------------------------------------------------------------------------
+// QA headless-автотест погони волков (cs.TestWolfChase, CU-free)
+// ---------------------------------------------------------------------------
+//
+// НАЗНАЧЕНИЕ. Ночью live-PIE через Computer Use недоступен. Эта команда headless (-game)
+// воспроизводит боевой сценарий и логирует ассерты QA-TEST: телепорт игрока к Логову (как
+// клавиша V), принудительный спавн волков, затем 0.5с-сэмплинг ~15с с вердиктом PASS/FAIL.
+//
+// КРИТЕРИИ PASS (все три): (a) хотя бы один волк в Chase mode=nav (по решению самого
+// AEnemyAIController, не по нашей реимплементации); (b) дистанция до ближайшего волка убывает
+// монотонно (>=70% сэмплов фазы сближения «падают»); (c) контакт — dist<=эффективная дальность
+// атаки (AttackRange+радиусы капсул, из кода врага) ИЛИ HP игрока упал.
+//
+// Дизайн-пороги НЕ выдуманы: AttackRange волка = 70 (AWolfAIController), эффективная дальность
+// берётся методом GetEffectiveAttackRangeForQA() контроллера. Порог монотонности 70% — из ТЗ
+// game-lead (повторяет логику chase-конвергенции AI).
+
+void AContrarySurvivorPlayerController::QA_RunWolfChaseTest()
+{
+	UWorld* World = GetWorld();
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!World || !PlayerChar)
+	{
+		FQADebug::QA(this, TEXT("QA-TEST: WOLF-CHASE FAIL (no player pawn/world)"), /*bScreen=*/true);
+		return;
+	}
+
+	// 1) Телепорт игрока к Логову — ПЕРЕИСПОЛЬЗУЕМ логику клавиши V (не дублируем).
+	OnQATeleportToWolfDen();
+
+	// 2) Принудительная активация Логова (спавн волков), как при приближении игрока.
+	if (UWolfSpawnSubsystem* WolfSys = World->GetSubsystem<UWolfSpawnSubsystem>())
+	{
+		WolfSys->QAForceSpawnWolves();
+	}
+	else
+	{
+		FQADebug::QA(this, TEXT("QA-TEST: WOLF-CHASE FAIL (no WolfSpawnSubsystem)"), /*bScreen=*/true);
+		return;
+	}
+
+	// 3) Базовые значения + запуск сэмплинга.
+	QAChaseDistSamples.Reset();
+	QAChaseSampleCount = 0;
+	QAChaseAnyNavChase = false;
+	QAChaseContact = false;
+	QAChaseEffAttackRange = 0.0f;
+	QAChaseStartTime = World->GetTimeSeconds();
+
+	UStatsComponent* St = PlayerChar->GetStats();
+	QAChaseStartPlayerHP = St ? St->GetHealth() : 0.0f;
+
+	FQADebug::QA(this, FString::Printf(
+		TEXT("QA-TEST: WOLF-CHASE START (player HP=%.0f, sampling 0.5s x30 ~15s)"),
+		QAChaseStartPlayerHP), /*bScreen=*/true);
+
+	// Зацикленный таймер сэмплинга (первый сэмпл через 0.5с — волкам нужен тик на агр/move).
+	World->GetTimerManager().SetTimer(
+		QAChaseTimerHandle, this, &AContrarySurvivorPlayerController::QA_WolfChaseSample,
+		0.5f, /*bLoop=*/true, /*FirstDelay=*/0.5f);
+}
+
+void AContrarySurvivorPlayerController::QA_WolfChaseSample()
+{
+	UWorld* World = GetWorld();
+	++QAChaseSampleCount;
+	const float TElapsed = World ? (World->GetTimeSeconds() - (float)QAChaseStartTime) : 0.0f;
+
+	APawn* PlayerPawn = GetPawn();
+	const FVector PlayerLoc = PlayerPawn ? PlayerPawn->GetActorLocation() : FVector::ZeroVector;
+
+	// Ближайший ЖИВОЙ волк.
+	AWolfCharacter* Nearest = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	if (World && PlayerPawn)
+	{
+		for (TActorIterator<AWolfCharacter> It(World); It; ++It)
+		{
+			AWolfCharacter* W = *It;
+			if (!IsValid(W))
+			{
+				continue;
+			}
+			UStatsComponent* WS = W->FindComponentByClass<UStatsComponent>();
+			if (WS && WS->IsDead())
+			{
+				continue;
+			}
+			const float D2 = FVector::DistSquared(PlayerLoc, W->GetActorLocation());
+			if (D2 < BestDistSq)
+			{
+				BestDistSq = D2;
+				Nearest = W;
+			}
+		}
+	}
+
+	float Dist = -1.0f;
+	bool bSelfNav = false;
+	bool bTargetNav = false;
+	bool bNavChaseThis = false;
+
+	if (Nearest)
+	{
+		Dist = FMath::Sqrt(BestDistSq);
+		QAChaseDistSamples.Add(Dist);
+
+		// Проекция враг/игрок на навмеш (для строки лога) — тот же подход, что в AI.Tick.
+		if (UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World))
+		{
+			const FVector QueryExtent(100.0f, 100.0f, 200.0f);
+			FNavLocation Proj;
+			bSelfNav = Nav->ProjectPointToNavigation(Nearest->GetActorLocation(), Proj, QueryExtent);
+			if (PlayerPawn)
+			{
+				bTargetNav = Nav->ProjectPointToNavigation(PlayerLoc, Proj, QueryExtent);
+			}
+		}
+
+		// Режим погони и эффективная дальность — из САМОГО контроллера врага (не реимплементация).
+		if (AEnemyAIController* Ctrl = Cast<AEnemyAIController>(Nearest->GetController()))
+		{
+			if (Ctrl->IsChaseModeNavForQA())
+			{
+				bNavChaseThis = true;
+				QAChaseAnyNavChase = true;
+			}
+			QAChaseEffAttackRange = Ctrl->GetEffectiveAttackRangeForQA(PlayerPawn);
+		}
+
+		// Контакт по дистанции.
+		if (QAChaseEffAttackRange > 0.0f && Dist <= QAChaseEffAttackRange)
+		{
+			QAChaseContact = true;
+		}
+	}
+
+	// Контакт по падению HP игрока (волк укусил).
+	if (APlayerCharacter* PC = Cast<APlayerCharacter>(PlayerPawn))
+	{
+		if (UStatsComponent* St = PC->GetStats())
+		{
+			if (St->GetHealth() < QAChaseStartPlayerHP - 0.01f)
+			{
+				QAChaseContact = true;
+			}
+		}
+	}
+	else if (!PlayerPawn)
+	{
+		// Пешка игрока исчезла (вероятно, волки убили) — максимальное доказательство контакта.
+		QAChaseContact = true;
+	}
+
+	FQADebug::QA(this, FString::Printf(
+		TEXT("QA-TEST: t=%.1f nearestWolfDist=%.0f selfNav=%s targetNav=%s navChase=%s effRange=%.0f"),
+		TElapsed, Dist,
+		bSelfNav ? TEXT("yes") : TEXT("no"),
+		bTargetNav ? TEXT("yes") : TEXT("no"),
+		bNavChaseThis ? TEXT("yes") : TEXT("no"),
+		QAChaseEffAttackRange), /*bScreen=*/true);
+
+	// Завершение: контакт достигнут / исчерпан бюджет сэмплов (~15с) / пропала пешка игрока.
+	if (QAChaseContact || QAChaseSampleCount >= 30 || !PlayerPawn)
+	{
+		QA_FinalizeWolfChaseTest();
+	}
+}
+
+void AContrarySurvivorPlayerController::QA_FinalizeWolfChaseTest()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(QAChaseTimerHandle);
+	}
+
+	const int32 N = QAChaseDistSamples.Num();
+
+	// Доля «сближающих» сэмплов: сосед-к-соседу падение дистанции больше эпсилон-шума (5 см,
+	// как ChaseConvergeEpsilon в AI). Монотонность сближения = >=70% переходов «вниз».
+	const float Epsilon = 5.0f;
+	int32 Falling = 0;
+	for (int32 i = 1; i < N; ++i)
+	{
+		if (QAChaseDistSamples[i] < QAChaseDistSamples[i - 1] - Epsilon)
+		{
+			++Falling;
+		}
+	}
+	const float FallingRatio = (N > 1) ? ((float)Falling / (float)(N - 1)) : 0.0f;
+	const bool bMonotonic = (N > 1) && (FallingRatio >= 0.70f);
+
+	FQADebug::QA(this, FString::Printf(
+		TEXT("QA-TEST: SUMMARY samples=%d fallingRatio=%.2f navChase=%s contact=%s effRange=%.0f"),
+		N, FallingRatio,
+		QAChaseAnyNavChase ? TEXT("yes") : TEXT("no"),
+		QAChaseContact ? TEXT("yes") : TEXT("no"),
+		QAChaseEffAttackRange), /*bScreen=*/true);
+
+	if (QAChaseAnyNavChase && bMonotonic && QAChaseContact)
+	{
+		FQADebug::QA(this, TEXT("QA-TEST: WOLF-CHASE PASS"), /*bScreen=*/true);
+	}
+	else
+	{
+		FString Reason;
+		if (N == 0)
+		{
+			Reason = TEXT("no-wolves-sampled");
+		}
+		else
+		{
+			if (!QAChaseAnyNavChase) { Reason += TEXT("no-nav-chase; "); }
+			if (!bMonotonic)         { Reason += TEXT("dist-not-monotonic; "); }
+			if (!QAChaseContact)     { Reason += TEXT("no-contact; "); }
+		}
+		FQADebug::QA(this, FString::Printf(TEXT("QA-TEST: WOLF-CHASE FAIL (%s)"), *Reason), /*bScreen=*/true);
+	}
 }
 
 // ---------------------------------------------------------------------------

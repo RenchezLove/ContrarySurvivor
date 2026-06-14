@@ -215,6 +215,9 @@ void AEnemyAIController::Tick(float DeltaTime)
 			(LastMoveResult == EPathFollowingRequestResult::Failed) ||
 			!bSelfOnNav || !bTargetOnNav || bNotConverging;
 
+		// Запоминаем режим для headless QA-теста погони (IsChaseModeNavForQA).
+		bLastChaseUsedDirect = bUseDirect;
+
 		if (bUseDirect)
 		{
 			// FALLBACK: прямой steering к игроку, игнорируя навмеш. AddMovementInput на пешке

@@ -72,6 +72,31 @@ void UWolfSpawnSubsystem::CheckActivation()
 	}
 }
 
+bool UWolfSpawnSubsystem::QAForceSpawnWolves()
+{
+	if (bWolvesSpawned)
+	{
+		return false; // уже заспавнены (идемпотентно)
+	}
+
+	if (!WolfClass)
+	{
+		WolfClass = AWolfCharacter::StaticClass();
+	}
+
+	SpawnWolvesAtDen();
+	bWolvesSpawned = true; // одноразово (как штатная активация)
+
+	// Гасим таймер проверки дистанции — активация отработана принудительно.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ActivationTimerHandle);
+	}
+
+	FQADebug::QA(GetWorld(), TEXT("QA-TEST: WolfDen force-activated (cs.TestWolfChase)"), /*bScreen=*/true);
+	return true;
+}
+
 void UWolfSpawnSubsystem::SpawnWolvesAtDen()
 {
 	UWorld* World = GetWorld();

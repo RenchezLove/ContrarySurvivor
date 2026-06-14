@@ -39,6 +39,12 @@ public:
 	// точную высоту берёт трасса до пола; XY = место выполнения kill-квеста.
 	FVector GetWolfDenLocation() const { return WolfDenLocation; }
 
+	// QA headless-автотест (cs.TestWolfChase): принудительно активировать Логово (спавн волков),
+	// как при приближении игрока, БЕЗ ожидания таймера проверки дистанции. Идемпотентно: если
+	// волки уже заспавнены (bWolvesSpawned) — ничего не делает. Возвращает true, если спавн
+	// действительно выполнен этим вызовом. Переиспользует штатный SpawnWolvesAtDen (не дублирует).
+	bool QAForceSpawnWolves();
+
 protected:
 	// Класс волка для спавна (по умолчанию AWolfCharacter — без BP/редактора).
 	UPROPERTY()
