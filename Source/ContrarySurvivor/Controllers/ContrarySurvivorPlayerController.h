@@ -231,6 +231,17 @@ protected:
 	UFUNCTION()
 	void OnQACreditWolfKill();
 
+	// C: выдать игроку 5 «Шкур волка» в рюкзак (тест сдачи кв.1 без фарма волков).
+	UFUNCTION()
+	void OnQAGiveWolfHides();
+
+	// X: выдать игроку «Ноутбук» в рюкзак (тест сдачи кв.2).
+	UFUNCTION()
+	void OnQAGiveNotebook();
+
+	// Общий хелпер C/X: спавнит Count квест-предметов (AQuestItem) с заданным ItemName и кладёт в рюкзак.
+	void GiveQuestItems(const FString& ItemName, int32 Count);
+
 	// --- QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay на клавишах J/U/B/O ---
 	// Глобальные флаги в FQADebug, читаются в точках урона/деградации/дропа.
 

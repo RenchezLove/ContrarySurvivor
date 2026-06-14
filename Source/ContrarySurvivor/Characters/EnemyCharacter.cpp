@@ -2,11 +2,13 @@
 
 #include "EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства бандита в квест
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "AConsumableItem.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
 #include "AIController.h"
 
 AEnemyCharacter::AEnemyCharacter()
@@ -140,6 +142,16 @@ void AEnemyCharacter::HandleDeath()
 
 	// 5) Лут: деньги + шанс предмета на земле в позиции трупа (GDD §7.8).
 	DropLoot();
+
+	// 5b) Фаза 5: засчитываем убийство бандита в kill-цель квеста игрока (тег "Bandit").
+	// Журнал квестов живёт на пешке игрока (UQuestComponent).
+	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
+	{
+		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+		{
+			PlayerQuests->NotifyKill(FName(TEXT("Bandit")));
+		}
+	}
 
 	// 6) Снимаем тело с задержкой (даём отыграть рэгдолл).
 	SetLifeSpan(CorpseLifeSpan);

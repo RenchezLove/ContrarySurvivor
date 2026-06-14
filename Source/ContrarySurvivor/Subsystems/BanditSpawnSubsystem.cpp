@@ -2,7 +2,9 @@
 
 #include "BanditSpawnSubsystem.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "ContrarySurvivor/Actors/Pickup.h"   // пикап-носитель ноутбука
 #include "ContrarySurvivor/Debug/QADebug.h"
+#include "AQuestItem.h"                         // класс квест-предмета «Ноутбук»
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -21,6 +23,10 @@ UBanditSpawnSubsystem::UBanditSpawnSubsystem()
 	{
 		BanditClass = BanditBP.Class;
 	}
+
+	// Квест-предмет «Ноутбук» и пикап-носитель — голые C++-классы (editor-независимо).
+	QuestItemClass = AQuestItem::StaticClass();
+	PickupClass = APickup::StaticClass();
 }
 
 void UBanditSpawnSubsystem::OnWorldBeginPlay(UWorld& InWorld)
@@ -79,6 +85,7 @@ void UBanditSpawnSubsystem::CheckActivation()
 	if (DistSqXY <= RadiusSq)
 	{
 		SpawnBanditsAtBase();
+		SpawnQuestNotebookAtBase(); // Фаза 5: ноутбук (кв.2) появляется на базе вместе с бандитами
 		bBanditsSpawned = true; // одноразово
 
 		// Активация отработала — гасим таймер проверки.
@@ -141,4 +148,36 @@ void UBanditSpawnSubsystem::SpawnBanditsAtBase()
 	FQADebug::QA(World,
 		FString::Printf(TEXT("QA: BanditBase activated, spawned %d bandits"), Spawned),
 		true);
+}
+
+void UBanditSpawnSubsystem::SpawnQuestNotebookAtBase()
+{
+	UWorld* World = GetWorld();
+	if (!World || !QuestItemClass)
+	{
+		return;
+	}
+
+	// Ноутбук кладём в центр базы. XY проецируем на навмеш (чтобы лежал в проходимой точке),
+	// высоту — трассой до пола (как у бандитов). Кладём чуть выше пола (+20), как «лут на земле».
+	FVector Loc = BanditBaseLocation;
+	FVector ProjectedOut;
+	const bool bProjected = UNavigationSystemV1::K2_ProjectPointToNavigation(
+		World, BanditBaseLocation, ProjectedOut, /*NavData=*/nullptr, /*FilterClass=*/nullptr,
+		FVector(600.0f, 600.0f, 600.0f));
+	if (bProjected)
+	{
+		Loc.X = ProjectedOut.X;
+		Loc.Y = ProjectedOut.Y;
+	}
+	Loc.Z = SpawnPlacement::ResolveSpawnZ(World, Loc.X, Loc.Y, /*ZOffset=*/20.0f, TEXT("Notebook"));
+
+	// Пикап-носитель с гарантированным предметом (chance=1.0), без денег. Имя предмета = QuestItemName
+	// («Ноутбук»), совпадает с RequiredItemName кв.2 у старосты. Подбор — по E (как любой пикап).
+	APickup* Pickup = APickup::DropLoot(World, Loc, /*Money=*/0.0f,
+		QuestItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestItemName);
+
+	FQADebug::QA(World, Pickup
+		? FString::Printf(TEXT("QA: quest notebook '%s' spawned at base %s"), *QuestItemName, *Loc.ToCompactString())
+		: TEXT("QA: quest notebook spawn FAILED"), /*bScreen=*/true);
 }

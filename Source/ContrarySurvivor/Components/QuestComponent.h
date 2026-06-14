@@ -7,11 +7,17 @@
 #include "QuestComponent.generated.h"
 
 class UStatsComponent;
+class UInventoryComponent;
 
 /**
- * Тип квеста (GDD §7.7: «типы Kill/Collect/Deliver»). В MVP реализован ТОЛЬКО Kill
- * («уничтожить стаю волков»); Collect/Deliver — задел расширяемости (значения enum есть,
- * прогресс по ним пока ничем не инкрементируется).
+ * Тип квеста (GDD §7.7: «типы Kill/Collect/Deliver»). Фаза 5 (демка): реализованы все три
+ * через ОБОБЩЁННУЮ модель из двух целей у квеста — KILL-цель (KillTargetTag/TargetCount/
+ * Progress) и ITEM-цель (RequiredItemName/RequiredItemCount/ItemProgress). Type теперь
+ * описательный (для текста/иконки); завершённость считается по обеим целям независимо от Type
+ * (см. UQuestComponent::AreObjectivesMet). Это позволяет:
+ *   - Kill    — только KILL-цель (волки/бандиты);
+ *   - Collect — только ITEM-цель (собрать N предметов в рюкзак, напр. шкуры);
+ *   - Deliver — ITEM-цель (+ опц. KILL-цель), напр. «убить N бандитов и принести ноутбук».
  */
 UENUM(BlueprintType)
 enum class EQuestType : uint8
@@ -60,19 +66,34 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	EQuestType Type = EQuestType::Kill;
 
-	// Для Kill: тег цели, чьи убийства засчитываются (например, "Wolf"). Пусто = любая цель.
+	// --- KILL-цель ---
+	// Тег цели, чьи убийства засчитываются (например, "Wolf"/"Bandit"). Пусто = любая цель.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	FName KillTargetTag = NAME_None;
 
-	// Сколько нужно (убить/собрать/доставить).
+	// Сколько целей нужно убить. 0 = у квеста НЕТ kill-цели (только сбор/доставка).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	int32 TargetCount = 5;
 
-	// Текущий прогресс.
+	// Текущий прогресс убийств (инкрементит NotifyKill).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	int32 Progress = 0;
 
-	// Награда деньгами при сдаче (TurnedIn). MVP: 150 (ключи-от-дома — позже, решение Рината).
+	// --- ITEM-цель (Collect/Deliver, Фаза 5 демка) ---
+	// Имя предмета (AMasterInventoryItem::ItemName), который нужно собрать/принести
+	// (например, "Шкура волка"/"Ноутбук"). Пусто = у квеста нет item-цели.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FString RequiredItemName;
+
+	// Сколько таких предметов нужно сдать. 0 = item-цели нет. При сдаче они ИЗЫМАЮТСЯ из рюкзака.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	int32 RequiredItemCount = 0;
+
+	// Текущий прогресс по предметам в рюкзаке (пересчитывает SyncInventoryQuests; min с RequiredItemCount).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
+	int32 ItemProgress = 0;
+
+	// Награда деньгами при сдаче (TurnedIn). DRAFT (решение Рината): 150. Тюнингуется на старосте/квесте.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	float RewardMoney = 150.0f;
 
@@ -115,13 +136,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool AcceptQuest(FName QuestId);
 
-	// Уведомить журнал об убийстве цели с тегом TargetTag: для всех Active Kill-квестов с
-	// совпадающим KillTargetTag инкрементит Progress; при достижении TargetCount -> Completed.
+	// Уведомить журнал об убийстве цели с тегом TargetTag: для всех Active квестов с kill-целью
+	// (TargetCount>0) и совпадающим KillTargetTag инкрементит Progress; пересчитывает завершённость.
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void NotifyKill(FName TargetTag);
 
-	// Сдать выполненный квест (Completed -> TurnedIn): начисляет RewardMoney в UStatsComponent
-	// владельца. true при успехе (квест найден и был Completed).
+	// Пересчитать ITEM-прогресс Active/Completed квестов по содержимому рюкзака игрока
+	// (считает предметы с ItemName == RequiredItemName). Вызывается реактивно (контроллер в Tick).
+	// Меняет ItemProgress/State и шлёт OnQuestChanged ТОЛЬКО при реальном изменении (без спама).
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	void SyncInventoryQuests(UInventoryComponent* Inventory);
+
+	// Сдать выполненный квест (Completed -> TurnedIn): если у квеста есть item-цель — проверяет
+	// наличие RequiredItemCount предметов «RequiredItemName» в рюкзаке владельца и ИЗЫМАЕТ их
+	// (RemoveItem + Destroy), затем начисляет RewardMoney в UStatsComponent владельца.
+	// true при успехе (квест найден, был Completed и предметы изъяты).
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool TurnInQuest(FName QuestId);
 
@@ -135,6 +164,9 @@ public:
 
 	const TArray<FQuest>& GetQuests() const { return Quests; }
 
+	// Выполнены ли ОБЕ цели квеста (kill + item). Цель с нулевым требованием считается выполненной.
+	static bool AreObjectivesMet(const FQuest& Quest);
+
 private:
 	// Журнал квестов игрока (расширяемо — массив).
 	UPROPERTY()
@@ -142,4 +174,8 @@ private:
 
 	// Изменяемый поиск (внутренний).
 	FQuest* FindQuestMutable(FName QuestId);
+
+	// Пересчитать состояние одной активной фазы квеста (Active<->Completed) по целям.
+	// Возвращает true, если состояние изменилось (тогда вызывающий шлёт OnQuestChanged).
+	bool RecomputeState(FQuest& Quest);
 };

@@ -12,6 +12,7 @@ class USphereComponent;
 class UStaticMeshComponent;
 class USkeletalMeshComponent;
 class UMaterialInterface;
+class UQuestComponent;
 
 /**
  * Староста деревни (Фаза 5, GDD §7.7 — квестодатель MVP).
@@ -35,8 +36,15 @@ class CONTRARYSURVIVOR_API AElderNPC : public AActor, public IInteractableNPCInt
 public:
 	AElderNPC();
 
-	// Квест, который предлагает староста (для диалога/журнала). Заполняется в конструкторе.
+	// Первый квест старосты (DRAFT: «Шкуры волков»). Заполняется в конструкторе.
 	const FQuest& GetOfferedQuest() const { return OfferedQuest; }
+
+	// Квест, актуальный для игрока СЕЙЧАС (выдача по порядку, Фаза 5):
+	//  - пока кв.1 не сдан (TurnedIn) — возвращает кв.1;
+	//  - после сдачи кв.1 — возвращает кв.2 («Зачистить базу бандитов»).
+	// Возвращается ссылка на член (валидна, пока жив актор). PlayerQuests может быть null
+	// (тогда возвращается кв.1).
+	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
 	virtual FString GetNPCMarkerLabel() const override { return TEXT("Elder"); }
@@ -74,9 +82,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
 	float InteractRadius = 220.0f;
 
-	// Предлагаемый квест (DRAFT: убить 5 волков, награда 150). Тюнингуется в редакторе.
+	// Квест 1 (DRAFT: «Шкуры волков» — собрать 5 шкур, награда 150). Тюнингуется в редакторе.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest OfferedQuest;
+
+	// Квест 2 (DRAFT: «Зачистить базу бандитов» — убить 3 бандитов + принести Ноутбук, награда 250).
+	// Выдаётся ПОСЛЕ сдачи кв.1 (GetQuestForPlayer). Тюнингуется в редакторе.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
+	FQuest SecondQuest;
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,

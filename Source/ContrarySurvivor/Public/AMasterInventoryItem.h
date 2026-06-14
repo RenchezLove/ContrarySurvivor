@@ -17,7 +17,8 @@ enum class EItemCategory : uint8
 	Consumable UMETA(DisplayName = "Consumable"), // Еда/вода/аптечки — расходуются при Use()
 	Resource   UMETA(DisplayName = "Resource"),   // Крафт-ресурсы/материалы
 	Armor      UMETA(DisplayName = "Armor"),       // Броня (AArmor и наследники)
-	Weapon     UMETA(DisplayName = "Weapon")       // Оружие (AMasterWeapon и наследники)
+	Weapon     UMETA(DisplayName = "Weapon"),      // Оружие (AMasterWeapon и наследники)
+	Quest      UMETA(DisplayName = "Quest")        // Квест-предметы (шкуры/ноутбук): НЕ теряются при смерти, не используются/не едятся (Фаза 5)
 };
 
 UCLASS(Abstract, Blueprintable)

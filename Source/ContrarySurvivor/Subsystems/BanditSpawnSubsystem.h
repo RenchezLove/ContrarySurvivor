@@ -7,6 +7,8 @@
 #include "BanditSpawnSubsystem.generated.h"
 
 class AEnemyCharacter;
+class AMasterInventoryItem;
+class APickup;
 
 /**
  * Зональный спавнер бандитов (Фаза 5, квест «зачистить базу») — зеркало UWolfSpawnSubsystem.
@@ -64,6 +66,21 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "BanditSpawn")
 	bool bBanditsSpawned = false;
 
+	// --- Квест-предмет «Ноутбук» (Фаза 5, кв.2 старосты) ---
+	// Класс квест-предмета, который кладётся в пикап на базе (по умолчанию AQuestItem, категория
+	// Quest — не теряется при смерти, не используется). Подбирается игроком по E (как любой пикап).
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn|Quest")
+	TSubclassOf<AMasterInventoryItem> QuestItemClass;
+
+	// Класс пикапа-носителя (по умолчанию APickup, без BP/редактора).
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn|Quest")
+	TSubclassOf<APickup> PickupClass;
+
+	// Имя квест-предмета (выставляется заспавненному ItemName -> должно совпадать с RequiredItemName
+	// кв.2 у старосты: «Ноутбук»).
+	UPROPERTY(EditAnywhere, Category = "BanditSpawn|Quest")
+	FString QuestItemName = TEXT("Ноутбук");
+
 	// Период проверки дистанции игрока до базы (сек).
 	float ActivationCheckPeriod = 0.5f;
 
@@ -75,4 +92,7 @@ private:
 
 	// Спавнит NumBandits бандитов вокруг BanditBaseLocation (высота каждого — трасса до пола).
 	void SpawnBanditsAtBase();
+
+	// Спавнит пикап с квест-предметом «Ноутбук» в центре базы (высота — трасса до пола).
+	void SpawnQuestNotebookAtBase();
 };

@@ -7,6 +7,7 @@
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
 #include "AConsumableItem.h"
+#include "AQuestItem.h" // Фаза 5: «Шкура волка» — квест-предмет (категория Quest, не теряется при смерти)
 #include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -31,9 +32,10 @@ AWolfCharacter::AWolfCharacter()
 	LootItemClass = AConsumableItem::StaticClass();
 	PickupClass   = APickup::StaticClass();
 
-	// Квестовый дроп: гарантированная «Шкура волка». По умолчанию тот же концертный
-	// AMasterInventoryItem-наследник (расходник-плейсхолдер), тюнингуется на BP шкуры.
-	QuestLootItemClass = AConsumableItem::StaticClass();
+	// Квестовый дроп: гарантированная «Шкура волка». КВЕСТ-предмет (AQuestItem, категория Quest):
+	// не теряется при смерти игрока и не «съедается» из рюкзака; изымается при сдаче квеста старосте.
+	// Тюнингуется на BP шкуры при необходимости.
+	QuestLootItemClass = AQuestItem::StaticClass();
 
 	// AI: волк управляется AWolfAIController (chase/attack), авто-поссесс при спавне.
 	AIControllerClass = AWolfAIController::StaticClass();

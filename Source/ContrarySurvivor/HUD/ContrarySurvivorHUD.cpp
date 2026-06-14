@@ -731,7 +731,8 @@ bool AContrarySurvivorHUD::HandleDialogClick(FVector2D ScreenPos)
 
 	UQuestComponent* Quests = Player->GetQuests();
 	AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC);
-	const FName QuestId = DialogElder->GetOfferedQuest().QuestId;
+	// Актуальный квест старосты по порядку (кв.1, затем кв.2 после сдачи кв.1).
+	const FName QuestId = DialogElder->GetQuestForPlayer(Quests).QuestId;
 
 	for (const FDialogHitRegion& R : DialogHitRegions)
 	{
@@ -803,12 +804,12 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 
 	const float Pad = 18.0f;
 
-	// Определяем текст и кнопки по состоянию квеста в журнале игрока.
-	const FQuest& Offered = DialogElder->GetOfferedQuest();
+	// Определяем текст и кнопки по состоянию АКТУАЛЬНОГО квеста (по порядку) в журнале игрока.
+	const FQuest& Offered = DialogElder->GetQuestForPlayer(Player->GetQuests());
 	const FQuest* InLog = Player->GetQuests() ? Player->GetQuests()->FindQuest(Offered.QuestId) : nullptr;
 	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
-	const int32 Progress = InLog ? InLog->Progress : 0;
-	const int32 Target = Offered.TargetCount;
+	// Источник данных квеста: журнал (если уже в нём) либо предложение старосты (ещё не принят).
+	const FQuest& QData = InLog ? *InLog : Offered;
 
 	// Заголовок — имя NPC.
 	if (Font)
@@ -816,21 +817,35 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		DrawText(TEXT("СТАРОСТА"), FLinearColor(0.6f, 0.85f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font);
 	}
 
+	// Строка прогресса целей (kill и/или item), обобщённо по полям квеста.
+	FString ObjStr;
+	if (QData.TargetCount > 0)
+	{
+		ObjStr += FString::Printf(TEXT("%s: %d/%d"),
+			*QData.KillTargetTag.ToString(), QData.Progress, QData.TargetCount);
+	}
+	if (QData.RequiredItemCount > 0)
+	{
+		if (!ObjStr.IsEmpty()) { ObjStr += TEXT(", "); }
+		ObjStr += FString::Printf(TEXT("%s: %d/%d"),
+			*QData.RequiredItemName, QData.ItemProgress, QData.RequiredItemCount);
+	}
+
 	// Реплика старосты (зависит от состояния).
 	FString NPCText;
 	switch (State)
 	{
 		case EQuestState::NotStarted:
-			NPCText = Offered.Description; // «Волки одолели деревню. Перебей стаю - пять волков...»
+			NPCText = Offered.Description; // полное описание задания
 			break;
 		case EQuestState::Active:
-			NPCText = FString::Printf(TEXT("Ты ещё не закончил. Перебей стаю. Волков: %d/%d."), Progress, Target);
+			NPCText = FString::Printf(TEXT("Ты ещё не закончил. %s — %s."), *QData.Title, *ObjStr);
 			break;
 		case EQuestState::Completed:
-			NPCText = TEXT("Стая перебита! Ты спас деревню. Вот твоя награда.");
+			NPCText = TEXT("Отлично! Задание выполнено. Вот твоя награда.");
 			break;
 		case EQuestState::TurnedIn:
-			NPCText = TEXT("Спасибо тебе ещё раз. Деревня теперь в безопасности.");
+			NPCText = TEXT("Спасибо тебе ещё раз. Деревня тебе благодарна.");
 			break;
 		default:
 			break;
@@ -874,7 +889,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		}
 		case EQuestState::Completed:
 		{
-			AddButton(BtnX, 240.0f, TEXT("[ Сдать (+150) ]"), EDialogAction::TurnIn, InvSlotFilledColor);
+			const FString TurnInLabel = FString::Printf(TEXT("[ Сдать (+%.0f) ]"), QData.RewardMoney);
+			AddButton(BtnX, 240.0f, TurnInLabel, EDialogAction::TurnIn, InvSlotFilledColor);
 			break;
 		}
 		case EQuestState::TurnedIn:
@@ -908,17 +924,30 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 
 	const float SX = static_cast<float>(Canvas->SizeX);
 
-	// Текст прогресса. Для Kill-квеста (волки) — «Волков: X/5».
+	// Обобщённая строка прогресса целей (kill и/или item).
+	FString ObjStr;
+	if (Tracked->TargetCount > 0)
+	{
+		ObjStr += FString::Printf(TEXT("%s %d/%d"),
+			*Tracked->KillTargetTag.ToString(), Tracked->Progress, Tracked->TargetCount);
+	}
+	if (Tracked->RequiredItemCount > 0)
+	{
+		if (!ObjStr.IsEmpty()) { ObjStr += TEXT(", "); }
+		ObjStr += FString::Printf(TEXT("%s %d/%d"),
+			*Tracked->RequiredItemName, Tracked->ItemProgress, Tracked->RequiredItemCount);
+	}
+
 	const bool bDone = (Tracked->State == EQuestState::Completed);
 	FString Text;
 	if (bDone)
 	{
-		Text = FString::Printf(TEXT("Квест выполнен: Волков %d/%d - вернись к старосте"),
-			Tracked->Progress, Tracked->TargetCount);
+		Text = FString::Printf(TEXT("Квест выполнен: %s (%s) - вернись к старосте"),
+			*Tracked->Title, *ObjStr);
 	}
 	else
 	{
-		Text = FString::Printf(TEXT("Квест: Волков %d/%d"), Tracked->Progress, Tracked->TargetCount);
+		Text = FString::Printf(TEXT("Квест: %s — %s"), *Tracked->Title, *ObjStr);
 	}
 
 	float TextW = 0.0f, TextH = 0.0f;

@@ -10,6 +10,7 @@
 #include "ARangedWeapon.h"
 #include "UInventoryComponent.h"      // QA-харнесс: рюкзак (использовать/выбросить/продать)
 #include "AMasterInventoryItem.h"     // QA-харнесс: предмет + EItemCategory
+#include "AQuestItem.h"               // QA-харнесс (Фаза 5): выдача квест-предметов (C/X)
 #include "Kismet/GameplayStatics.h"   // QA-харнесс: DeleteGameInSlot (очистка сейва)
 #include "Engine/HitResult.h"
 #include "Engine/DamageEvents.h" // QA: FDamageEvent (force-kill N через TakeDamage)
@@ -134,6 +135,11 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QAAcceptQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAAcceptQuest);
 		InputComponent->BindAction(TEXT("QATurnInQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATurnInQuest);
 		InputComponent->BindAction(TEXT("QACreditWolfKill"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQACreditWolfKill);
+
+			// QA-харнесс (Фаза 5, демка-квесты): C — выдать игроку 5 «Шкур волка» (тест сдачи кв.1);
+			// X — выдать «Ноутбук» (тест сдачи кв.2). Сборщик не может фармить лут вручную.
+			InputComponent->BindAction(TEXT("QAGiveWolfHides"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveWolfHides);
+			InputComponent->BindAction(TEXT("QAGiveNotebook"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveNotebook);
 
 		// QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay (J/U/B/O), legacy ActionMapping.
 		InputComponent->BindAction(TEXT("QAGodMode"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleGodMode);
@@ -669,7 +675,8 @@ void AContrarySurvivorPlayerController::OnQAAcceptQuest()
 		return;
 	}
 
-	const FQuest& Offered = NearbyElder->GetOfferedQuest();
+	// Выдаём квест по порядку (кв.1, затем кв.2 после сдачи кв.1).
+	const FQuest& Offered = NearbyElder->GetQuestForPlayer(PlayerQuests);
 	PlayerQuests->OfferQuest(Offered);              // OFFERED (один раз)
 	PlayerQuests->AcceptQuest(Offered.QuestId);     // ACCEPTED
 }
@@ -690,10 +697,11 @@ void AContrarySurvivorPlayerController::OnQATurnInQuest()
 		return;
 	}
 
-	const FQuest& Offered = NearbyElder->GetOfferedQuest();
-	if (!PlayerQuests->TurnInQuest(Offered.QuestId)) // TURNED IN (или skip, если не Completed)
+	const FQuest& Offered = NearbyElder->GetQuestForPlayer(PlayerQuests);
+	if (!PlayerQuests->TurnInQuest(Offered.QuestId)) // TURNED IN (или skip, если не Completed/нет предметов)
 	{
-		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - quest not completed"));
+		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - quest %s not completed or items missing"),
+			*Offered.QuestId.ToString());
 	}
 }
 
@@ -708,6 +716,62 @@ void AContrarySurvivorPlayerController::OnQACreditWolfKill()
 		return;
 	}
 	PlayerQuests->NotifyKill(FName(TEXT("Wolf"))); // QA: quest progress X/5 (+ COMPLETED)
+}
+
+void AContrarySurvivorPlayerController::OnQAGiveWolfHides()
+{
+	// C: выдать игроку 5 «Шкур волка» в рюкзак (тест сдачи кв.1 без фарма волков). Предметы —
+	// квест-категории (AQuestItem), как и реальный дроп волка. Имя ДОЛЖНО совпадать с
+	// RequiredItemName кв.1 («Шкура волка»). Tick-синхронизация подхватит прогресс/Completed.
+	GiveQuestItems(TEXT("Шкура волка"), 5);
+}
+
+void AContrarySurvivorPlayerController::OnQAGiveNotebook()
+{
+	// X: выдать игроку «Ноутбук» (тест сдачи кв.2). Имя совпадает с RequiredItemName кв.2.
+	GiveQuestItems(TEXT("Ноутбук"), 1);
+}
+
+void AContrarySurvivorPlayerController::GiveQuestItems(const FString& ItemName, int32 Count)
+{
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UWorld* World = GetWorld();
+	if (!PlayerChar || !World)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: give quest items skipped - no pawn/world"));
+		return;
+	}
+
+	UInventoryComponent* Inv = PlayerChar->GetInventory();
+	if (!Inv)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: give quest items skipped - no inventory"));
+		return;
+	}
+
+	FActorSpawnParameters Sp;
+	Sp.Owner = PlayerChar;
+	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	int32 Given = 0;
+	for (int32 i = 0; i < Count; ++i)
+	{
+		AQuestItem* Item = World->SpawnActor<AQuestItem>(
+			AQuestItem::StaticClass(), PlayerChar->GetActorLocation(), PlayerChar->GetActorRotation(), Sp);
+		if (!Item)
+		{
+			continue;
+		}
+		// Предмет рюкзака — данные, не объект сцены: прячем визуал/коллизию (как GiveTestItems).
+		Item->SetActorHiddenInGame(true);
+		Item->SetActorEnableCollision(false);
+		Item->ItemName = ItemName;
+		Inv->AddItem(Item);
+		++Given;
+	}
+
+	FQADebug::QA(this, FString::Printf(TEXT("QA: gave %d x '%s' (quest item) to backpack"), Given, *ItemName),
+		/*bScreen=*/true);
 }
 
 void AContrarySurvivorPlayerController::SetNearbyTrader(ATraderNPC* Trader)
@@ -755,12 +819,13 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 		return;
 	}
 
-	// Предлагаем квест старосты журналу игрока (идемпотентно; OFFERED логируется один раз).
+	// Предлагаем АКТУАЛЬНЫЙ квест старосты журналу игрока (по порядку: кв.1, затем кв.2 после
+	// сдачи кв.1). Идемпотентно; OFFERED логируется один раз.
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
 		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
 		{
-			PlayerQuests->OfferQuest(Elder->GetOfferedQuest());
+			PlayerQuests->OfferQuest(Elder->GetQuestForPlayer(PlayerQuests));
 		}
 	}
 
@@ -967,6 +1032,17 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 
 	// Поддерживаем ближайший контекстный интерактив (E): пикап/торговец (BUG3).
 	UpdateNearbyInteractable();
+
+	// Фаза 5: синхронизируем ITEM-прогресс квестов (Collect/Deliver) с содержимым рюкзака —
+	// число «Шкур волка»/«Ноутбук» в инвентаре. SyncInventoryQuests меняет состояние/шлёт
+	// событие ТОЛЬКО при реальном изменении (без спама на каждый тик).
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
+		{
+			PlayerQuests->SyncInventoryQuests(PlayerChar->GetInventory());
+		}
+	}
 
 	// QA-харнесс: логируем СМЕНУ залоченной цели один раз (не каждый тик), чтобы тестер
 	// видел по логу, на кого сейчас наведён лок (авто-ближайший или ручной фокус).

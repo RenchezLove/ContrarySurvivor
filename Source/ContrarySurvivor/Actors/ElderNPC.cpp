@@ -82,15 +82,48 @@ AElderNPC::AElderNPC()
 		PlaceholderBaseMaterial = BaseMat.Object;
 	}
 
-	// Дефолтный квест старосты (DRAFT, решение Рината): убить 5 волков, награда 150 денег.
+	// КВЕСТ 1 (DRAFT, замысел Рината): убить волков у Логова, собрать 5 ШКУР и принести старосте.
+	// Тип Collect: завершённость считается по ITEM-цели (5 шкур в рюкзаке); kill-цели нет
+	// (TargetCount=0) — шкуры падают с волков, прогресс идёт по собранным шкурам. При сдаче
+	// шкуры ИЗЫМАЮТСЯ (UQuestComponent::TurnInQuest). Награда 150 монет (DRAFT).
 	OfferedQuest.QuestId = FName(TEXT("KillWolves"));
-	OfferedQuest.Title = TEXT("Стая волков");
-	OfferedQuest.Description = TEXT("Волки одолели деревню. Перебей стаю - пять волков. Награда: 150 монет.");
-	OfferedQuest.Type = EQuestType::Kill;
-	OfferedQuest.KillTargetTag = FName(TEXT("Wolf"));
-	OfferedQuest.TargetCount = 5;
+	OfferedQuest.Title = TEXT("Шкуры волков");
+	OfferedQuest.Description = TEXT("Волки одолели деревню. Перебей стаю у логова на севере и принеси мне пять волчьих шкур. Награда: 150 монет.");
+	OfferedQuest.Type = EQuestType::Collect;
+	OfferedQuest.KillTargetTag = NAME_None;
+	OfferedQuest.TargetCount = 0;                 // kill-цели нет: гейт — по шкурам
+	OfferedQuest.RequiredItemName = TEXT("Шкура волка"); // имя предмета совпадает с дропом волка (WolfCharacter)
+	OfferedQuest.RequiredItemCount = 5;
 	OfferedQuest.RewardMoney = 150.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
+
+	// КВЕСТ 2 (DRAFT): зачистить базу бандитов на юге (убить 3 бандитов) и принести Ноутбук.
+	// Тип Deliver: завершённость = KILL-цель (3 бандита) И ITEM-цель (1 Ноутбук в рюкзаке).
+	// Ноутбук изымается при сдаче. Награда 250 монет (DRAFT — больше за более тяжёлый квест).
+	SecondQuest.QuestId = FName(TEXT("ClearBanditBase"));
+	SecondQuest.Title = TEXT("Зачистить базу бандитов");
+	SecondQuest.Description = TEXT("Бандиты засели на базе к югу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
+	SecondQuest.Type = EQuestType::Deliver;
+	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
+	SecondQuest.TargetCount = 3;
+	SecondQuest.RequiredItemName = TEXT("Ноутбук"); // имя предмета совпадает со спавном ноутбука (BanditSpawnSubsystem)
+	SecondQuest.RequiredItemCount = 1;
+	SecondQuest.RewardMoney = 250.0f;
+	SecondQuest.State = EQuestState::NotStarted;
+}
+
+const FQuest& AElderNPC::GetQuestForPlayer(const UQuestComponent* PlayerQuests) const
+{
+	// Выдача по порядку: кв.2 становится актуальным только после сдачи кв.1 (TurnedIn).
+	if (PlayerQuests)
+	{
+		const FQuest* Q1 = PlayerQuests->FindQuest(OfferedQuest.QuestId);
+		if (Q1 && Q1->State == EQuestState::TurnedIn)
+		{
+			return SecondQuest;
+		}
+	}
+	return OfferedQuest;
 }
 
 void AElderNPC::BeginPlay()
