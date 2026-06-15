@@ -1613,6 +1613,21 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 	if (Right.IsNearlyZero())   { Right   = FVector::RightVector; }
 
 	const FVector MoveDir = (Forward * MovementVector.Y) + (Right * MovementVector.X);
+
+	// === BugReport12 Этап1 (ДОБИВ): ввод движения ИГНОРИРУЕТСЯ ============================
+	// PIE-лог показал: MoveDir валиден (0,1,0), mode=Walking, onGround=1, maxWS=600 — но vel2D=0.
+	// Значит AddMovementInput(валидный вектор) копит НОЛЬ → IsMoveInputIgnored()==true: где-то
+	// остался SetIgnoreMoveInput(true) без парного сброса (god/lock/телепорт/debug-камера/BP).
+	// APawn::Internal_AddMovementInput отбрасывает ввод при IsMoveInputIgnored() && !bForce →
+	// ControlInputVector=0 → CMC не ускоряется. СНИМАЕМ игнор перед применением ввода (демке
+	// move-lock не нужен — модальные экраны уже гейтятся ранним return по флагам UI выше).
+	const bool bWasMoveIgnored = IsMoveInputIgnored();
+	if (bWasMoveIgnored)
+	{
+		ResetIgnoreMoveInput(); // обнуляет счётчик IgnoreMoveInput (надёжнее, чем SetIgnoreMoveInput(false))
+		UE_LOG(LogTemp, Warning, TEXT("QA: MOVE input was IGNORED (stuck SetIgnoreMoveInput) -> ResetIgnoreMoveInput()"));
+	}
+
 	ControlledPawn->AddMovementInput(MoveDir, 1.0f);
 
 	// === TEMP ДИАГНОСТИКА (BugReport 12, Этап 1) ===========================================
@@ -1633,23 +1648,23 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 			const FVector Vel = ControlledPawn->GetVelocity();
 			const int32 Mode = CM ? (int32)CM->MovementMode.GetValue() : -1;
 
-			float CamYaw = 0.0f, CamPitch = 0.0f;
+			float CamYaw = 0.0f;
 			if (PlayerCameraManager)
 			{
-				const FRotator CamRot = PlayerCameraManager->GetCameraRotation();
-				CamYaw = CamRot.Yaw;
-				CamPitch = CamRot.Pitch;
+				CamYaw = PlayerCameraManager->GetCameraRotation().Yaw;
 			}
 			const FRotator CtrlRot = GetControlRotation();
+			const float CtrlInputSize = ControlledPawn->GetPendingMovementInputVector().Size();
 
 			FQADebug::QA(this, FString::Printf(
-				TEXT("QA: MOVE in=(%.2f,%.2f) MoveDir=(%.2f,%.2f,%.2f) basisYaw=%.0f camYaw=%.0f camPitch=%.0f ctrlYaw=%.0f vel2D=%.0f mode=%d maxWS=%.0f onGround=%d pawn=%s"),
+				TEXT("QA: MOVE in=(%.2f,%.2f) MoveDir=(%.2f,%.2f,%.2f) ignoreMove=%d ctrlInput=%.2f vel=%.0f vel2D=%.0f mode=%d maxWS=%.0f onGround=%d basisYaw=%.0f camYaw=%.0f ctrlYaw=%.0f pawn=%s"),
 				MovementVector.X, MovementVector.Y,
 				MoveDir.X, MoveDir.Y, MoveDir.Z,
-				MovementBasisYaw, CamYaw, CamPitch, CtrlRot.Yaw,
-				Vel.Size2D(), Mode,
+				bWasMoveIgnored ? 1 : 0, CtrlInputSize,
+				Vel.Size(), Vel.Size2D(), Mode,
 				CM ? CM->MaxWalkSpeed : -1.0f,
 				(CM && CM->IsMovingOnGround()) ? 1 : 0,
+				MovementBasisYaw, CamYaw, CtrlRot.Yaw,
 				*ControlledPawn->GetName()), /*bScreen=*/true);
 		}
 	}
