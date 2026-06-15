@@ -29,8 +29,12 @@
 #include "APantsArmor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
-#include "Engine/EngineBaseTypes.h" // FURL
+#include "Engine/EngineBaseTypes.h" // FURL, ELevelTick
 #include "GameFramework/Actor.h"
+#include "GameFramework/CharacterMovementComponent.h" // MOVE_Walking/MOVE_NavWalking, тест движения
+#include "Components/CapsuleComponent.h"
+#include "Components/BoxComponent.h"                   // пол для теста трансляции
+#include "Kismet/GameplayStatics.h"                    // FinishSpawningActor (deferred spawn)
 
 // Контекст всех приложений (editor/client/commandlet) + продуктовый фильтр (это игровые тесты).
 static constexpr EAutomationTestFlags CombatTestFlags =
@@ -357,6 +361,120 @@ bool FCombatQuestRewardTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	CombatTestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 8. Movement.NavWalkingFixed — ПРЯМОЙ пруф защитного фикса BugReport12.
+//    Воспроизводим BP-мисконфиг: MovementMode=NavWalking ДО BeginPlay (deferred spawn),
+//    затем проверяем, что после BeginPlay режим стал Walking (guard сработал).
+//    Без репродукции тест был бы тривиален (C++-класс по дефолту уже Walking).
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovementNavWalkingFixedTest,
+	"ContrarySurvivor.Movement.NavWalkingFixed", CombatTestFlags)
+bool FMovementNavWalkingFixedTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = CombatTestWorld::Create();
+	TestNotNull(TEXT("Test world"), World);
+	if (!World) { return false; }
+
+	bool bOk = true;
+	{
+		const FTransform T(FRotator::ZeroRotator, FVector(0.f, 0.f, 200.f));
+		// Deferred spawn: ctor отработал (CMC есть), но PostInitializeComponents/BeginPlay ещё нет.
+		APlayerCharacter* P = World->SpawnActorDeferred<APlayerCharacter>(
+			APlayerCharacter::StaticClass(), T, nullptr, nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		TestNotNull(TEXT("Player deferred-spawned"), P);
+
+		if (P && P->GetCharacterMovement())
+		{
+			// Имитация BP-мисконфига (DefaultLandMovementMode=NavWalking / галка NavWalking):
+			// ставим режим NavWalking ДО BeginPlay. Без контроллера PostInitializeComponents его
+			// не сбросит (SetDefaultMovementMode зовётся лишь при bRunPhysicsWithNoController).
+			P->GetCharacterMovement()->MovementMode = MOVE_NavWalking;
+
+			UGameplayStatics::FinishSpawningActor(P, T); // -> PostInitializeComponents + BeginPlay (guard)
+
+			UCharacterMovementComponent* CM = P->GetCharacterMovement();
+			AddInfo(FString::Printf(TEXT("MovementMode after BeginPlay = %d (1=Walking,2=NavWalking)"),
+				(int32)CM->MovementMode.GetValue()));
+			TestTrue(TEXT("BeginPlay guard converted NavWalking -> Walking"), CM->MovementMode == MOVE_Walking);
+			TestFalse(TEXT("Not NavWalking anymore"), CM->MovementMode == MOVE_NavWalking);
+		}
+		else { bOk = false; }
+	}
+	CombatTestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 9. Movement.TranslatesOnInput — перс РЕАЛЬНО едет по вводу (горизонтальное смещение > 0).
+//    Ставим блокирующий пол-бокс, спавним игрока сверху, включаем bRunPhysicsWithNoController
+//    (без контроллера CMC иначе не обрабатывает ввод — CMC.cpp:1677), тикаем мир, шлём
+//    AddMovementInput ~0.5с и проверяем горизонтальное смещение. Прямой пруф «едет, а не только крутится».
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovementTranslatesOnInputTest,
+	"ContrarySurvivor.Movement.TranslatesOnInput", CombatTestFlags)
+bool FMovementTranslatesOnInputTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = CombatTestWorld::Create();
+	TestNotNull(TEXT("Test world"), World);
+	if (!World) { return false; }
+
+	bool bOk = true;
+	{
+		// Пол: большой блокирующий бокс (верх на Z=+50).
+		AActor* Floor = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
+		TestNotNull(TEXT("Floor actor"), Floor);
+		if (Floor)
+		{
+			UBoxComponent* Box = NewObject<UBoxComponent>(Floor);
+			Box->InitBoxExtent(FVector(5000.f, 5000.f, 50.f));
+			Box->SetCollisionProfileName(TEXT("BlockAll"));
+			Box->RegisterComponent();
+			Floor->SetRootComponent(Box);
+			Box->SetWorldLocation(FVector::ZeroVector);
+		}
+
+		// Игрок чуть выше пола (верх бокса +50, капсула hh~88).
+		APlayerCharacter* P = CombatTestWorld::Spawn<APlayerCharacter>(World, FVector(0.f, 0.f, 160.f));
+		TestNotNull(TEXT("Player spawned"), P);
+		UCharacterMovementComponent* CM = P ? P->GetCharacterMovement() : nullptr;
+		TestNotNull(TEXT("CMC"), CM);
+
+		if (P && CM)
+		{
+			// Без контроллера ввод обрабатывается только при bRunPhysicsWithNoController.
+			CM->bRunPhysicsWithNoController = true;
+			CM->SetMovementMode(MOVE_Walking);
+
+			// Приземление/устаканивание.
+			for (int32 i = 0; i < 40; ++i) { World->Tick(LEVELTICK_All, 1.0f / 60.0f); }
+
+			const FVector Start = P->GetActorLocation();
+			const int32 ModeBefore = (int32)CM->MovementMode.GetValue();
+			const bool bOnGround = CM->IsMovingOnGround();
+
+			// Ввод «вперёд» ~0.5с (30 кадров).
+			for (int32 i = 0; i < 30; ++i)
+			{
+				P->AddMovementInput(FVector(1.f, 0.f, 0.f), 1.0f);
+				World->Tick(LEVELTICK_All, 1.0f / 60.0f);
+			}
+			const FVector End = P->GetActorLocation();
+			const float HorizDisp = FVector::Dist2D(Start, End);
+
+			AddInfo(FString::Printf(
+				TEXT("modeBefore=%d onGround=%d start=%s end=%s horizDisp=%.1f vel2D=%.1f maxWS=%.0f"),
+				ModeBefore, bOnGround ? 1 : 0, *Start.ToCompactString(), *End.ToCompactString(),
+				HorizDisp, P->GetVelocity().Size2D(), CM->MaxWalkSpeed));
+
+			TestTrue(TEXT("Player translated horizontally on input (>10 units)"), HorizDisp > 10.0f);
+		}
+		else { bOk = false; }
+	}
 	CombatTestWorld::Destroy(World);
 	return bOk;
 }
