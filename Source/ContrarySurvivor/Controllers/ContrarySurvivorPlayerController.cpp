@@ -1594,20 +1594,26 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 	APawn* ControlledPawn = GetPawn();
 	if (!ControlledPawn) return;
 
-	APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
-	FRotator CameraRot = CameraManager->GetCameraRotation();
-	FRotator FlatRot(0.0f, CameraRot.Yaw, 0.0f);
+	// БАЗИС ДВИЖЕНИЯ (BugReport12 Этап1, ФИКС). Камера — ФИКСИРОВАННАЯ изометрия (pitch −60, без
+	// вращения игроком), поэтому направление движения НЕ должно зависеть от камеры/control rotation.
+	// БЫЛО: forward/right строились из GetCameraRotation().Yaw — единственная внешняя зависимость,
+	// способная вернуть вырожденный/нулевой горизонтальный вектор (PIE-лог: in=(0,1), но accel/vel=0
+	// при mode=Walking/onGround/maxWS=600 → в CMC уходил нулевой MoveDir). СТАЛО: строим базис от
+	// ПОСТОЯННОГО горизонтального yaw (MovementBasisYaw, дефолт 90 = совпадает с CameraBoomRotation.Yaw,
+	// экранное «вверх» сохраняется), forward/right строго в плоскости Z=0, нормализованы — ненулевой
+	// горизонтальный вектор гарантирован независимо от pitch/состояния камеры.
+	const FRotator BasisRot(0.0f, MovementBasisYaw, 0.0f);
+	FVector Forward = BasisRot.Vector();                             // forward (ось X yaw-базиса)
+	FVector Right   = BasisRot.RotateVector(FVector::RightVector);   // right (ось Y yaw-базиса)
+	Forward.Z = 0.0f;
+	Right.Z   = 0.0f;
+	Forward = Forward.GetSafeNormal();
+	Right   = Right.GetSafeNormal();
+	if (Forward.IsNearlyZero()) { Forward = FVector::ForwardVector; } // фолбэк (теоретически не нужен)
+	if (Right.IsNearlyZero())   { Right   = FVector::RightVector; }
 
-	FVector ScreenForward = FlatRot.Vector();
-	FVector ScreenRight = FlatRot.RotateVector(FVector::RightVector);
-
-	ScreenForward.Z = 0.0f;
-	ScreenRight.Z = 0.0f;
-	ScreenForward = ScreenForward.GetSafeNormal();
-	ScreenRight = ScreenRight.GetSafeNormal();
-
-	ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);
-	ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);
+	const FVector MoveDir = (Forward * MovementVector.Y) + (Right * MovementVector.X);
+	ControlledPawn->AddMovementInput(MoveDir, 1.0f);
 
 	// === TEMP ДИАГНОСТИКА (BugReport 12, Этап 1) ===========================================
 	// «Перс поворачивается, но не едет»: фикс MaxWalkSpeed не помог → корень не в скорости.
@@ -1624,26 +1630,26 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 
 			ACharacter* AsChar = Cast<ACharacter>(ControlledPawn);
 			UCharacterMovementComponent* CM = AsChar ? AsChar->GetCharacterMovement() : nullptr;
-			UCapsuleComponent* Capsule = AsChar ? AsChar->GetCapsuleComponent() : nullptr;
-
 			const FVector Vel = ControlledPawn->GetVelocity();
-			const FVector Accel = CM ? CM->GetCurrentAcceleration() : FVector::ZeroVector;
 			const int32 Mode = CM ? (int32)CM->MovementMode.GetValue() : -1;
 
-			int32 PlayerCount = 0;
-			for (TActorIterator<APlayerCharacter> It(GetWorld()); It; ++It) { ++PlayerCount; }
+			float CamYaw = 0.0f, CamPitch = 0.0f;
+			if (PlayerCameraManager)
+			{
+				const FRotator CamRot = PlayerCameraManager->GetCameraRotation();
+				CamYaw = CamRot.Yaw;
+				CamPitch = CamRot.Pitch;
+			}
+			const FRotator CtrlRot = GetControlRotation();
 
 			FQADebug::QA(this, FString::Printf(
-				TEXT("QA: MOVE in=(%.2f,%.2f) accel=%.0f vel2D=%.0f velZ=%.0f mode=%d maxWS=%.0f maxAcc=%.0f onGround=%d coll=%d simPhys=%d nPlayers=%d pawn=%s"),
+				TEXT("QA: MOVE in=(%.2f,%.2f) MoveDir=(%.2f,%.2f,%.2f) basisYaw=%.0f camYaw=%.0f camPitch=%.0f ctrlYaw=%.0f vel2D=%.0f mode=%d maxWS=%.0f onGround=%d pawn=%s"),
 				MovementVector.X, MovementVector.Y,
-				Accel.Size2D(), Vel.Size2D(), Vel.Z,
-				Mode,
+				MoveDir.X, MoveDir.Y, MoveDir.Z,
+				MovementBasisYaw, CamYaw, CamPitch, CtrlRot.Yaw,
+				Vel.Size2D(), Mode,
 				CM ? CM->MaxWalkSpeed : -1.0f,
-				CM ? CM->GetMaxAcceleration() : -1.0f,
 				(CM && CM->IsMovingOnGround()) ? 1 : 0,
-				(Capsule && Capsule->IsCollisionEnabled()) ? 1 : 0,
-				(Capsule && Capsule->IsSimulatingPhysics()) ? 1 : 0,
-				PlayerCount,
 				*ControlledPawn->GetName()), /*bScreen=*/true);
 		}
 	}

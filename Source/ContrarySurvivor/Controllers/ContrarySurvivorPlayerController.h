@@ -338,6 +338,14 @@ private:
 	// TEMP (BugReport 12, Этап 1): дроссель диаг-лога движения (раз в ~0.5с). УДАЛИТЬ после диагноза.
 	double LastMoveDiagTime = -1000.0;
 
+	// BugReport12 Этап1 (ФИКС движения): постоянный горизонтальный yaw для базиса WASD при
+	// ФИКСИРОВАННОЙ изометрической камере. Дефолт 90 = совпадает с CameraBoomRotation.Yaw игрока
+	// (экранное «вверх» сохраняется). Forward/right строятся от него в плоскости Z=0, а НЕ от
+	// GetCameraRotation() — убирает зависимость от состояния камеры. Тюнингуется, если экранная
+	// ориентация движения не совпадёт с камерой.
+	UPROPERTY(EditAnywhere, Category = "Movement", meta = (AllowPrivateAccess = "true"))
+	float MovementBasisYaw = 90.0f;
+
 	// Открыт ли экран инвентаря (модальный): пока true — клик уходит в инвентарь (не стрельба),
 	// движение подавлено. Зеркалит состояние HUD; источник переключения — OnToggleInventory.
 	bool bInventoryOpen = false;
