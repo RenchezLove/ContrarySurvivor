@@ -1608,6 +1608,46 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 
 	ControlledPawn->AddMovementInput(ScreenForward, MovementVector.Y);
 	ControlledPawn->AddMovementInput(ScreenRight, MovementVector.X);
+
+	// === TEMP ДИАГНОСТИКА (BugReport 12, Этап 1) ===========================================
+	// «Перс поворачивается, но не едет»: фикс MaxWalkSpeed не помог → корень не в скорости.
+	// Раз поворот ЕСТЬ — AddMovementInput зовётся с ненулевым вектором (accel применяется), но
+	// трансляции нет. Логируем ИСТИННОЕ состояние CMC контролируемой пешки, чтобы Сборщик увидел
+	// корень в PIE: MovementMode (1=Walking,2=NavWalking,3=Falling,0=None...), скорость, onGround,
+	// коллизия/симуляция капсулы, и сколько вообще APlayerCharacter в мире (детект дубля).
+	// Дросселируем ~0.5с (Move зовётся каждый кадр при удержании WASD). УДАЛИТЬ после диагноза.
+	{
+		const double NowDiag = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		if (NowDiag - LastMoveDiagTime >= 0.5)
+		{
+			LastMoveDiagTime = NowDiag;
+
+			ACharacter* AsChar = Cast<ACharacter>(ControlledPawn);
+			UCharacterMovementComponent* CM = AsChar ? AsChar->GetCharacterMovement() : nullptr;
+			UCapsuleComponent* Capsule = AsChar ? AsChar->GetCapsuleComponent() : nullptr;
+
+			const FVector Vel = ControlledPawn->GetVelocity();
+			const FVector Accel = CM ? CM->GetCurrentAcceleration() : FVector::ZeroVector;
+			const int32 Mode = CM ? (int32)CM->MovementMode.GetValue() : -1;
+
+			int32 PlayerCount = 0;
+			for (TActorIterator<APlayerCharacter> It(GetWorld()); It; ++It) { ++PlayerCount; }
+
+			FQADebug::QA(this, FString::Printf(
+				TEXT("QA: MOVE in=(%.2f,%.2f) accel=%.0f vel2D=%.0f velZ=%.0f mode=%d maxWS=%.0f maxAcc=%.0f onGround=%d coll=%d simPhys=%d nPlayers=%d pawn=%s"),
+				MovementVector.X, MovementVector.Y,
+				Accel.Size2D(), Vel.Size2D(), Vel.Z,
+				Mode,
+				CM ? CM->MaxWalkSpeed : -1.0f,
+				CM ? CM->GetMaxAcceleration() : -1.0f,
+				(CM && CM->IsMovingOnGround()) ? 1 : 0,
+				(Capsule && Capsule->IsCollisionEnabled()) ? 1 : 0,
+				(Capsule && Capsule->IsSimulatingPhysics()) ? 1 : 0,
+				PlayerCount,
+				*ControlledPawn->GetName()), /*bScreen=*/true);
+		}
+	}
+	// === КОНЕЦ TEMP ДИАГНОСТИКИ ============================================================
 }
 
 void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)

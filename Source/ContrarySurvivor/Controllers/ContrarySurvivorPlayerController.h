@@ -335,6 +335,9 @@ private:
 	double LastGodModeToggleTime = -1000.0;
 	static constexpr double GodModeToggleDebounce = 0.30;
 
+	// TEMP (BugReport 12, Этап 1): дроссель диаг-лога движения (раз в ~0.5с). УДАЛИТЬ после диагноза.
+	double LastMoveDiagTime = -1000.0;
+
 	// Открыт ли экран инвентаря (модальный): пока true — клик уходит в инвентарь (не стрельба),
 	// движение подавлено. Зеркалит состояние HUD; источник переключения — OnToggleInventory.
 	bool bInventoryOpen = false;
