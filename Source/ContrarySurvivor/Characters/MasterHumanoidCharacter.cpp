@@ -51,7 +51,28 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
 void AMasterHumanoidCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-    BaseWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+
+    // КОРЕНЬ БАГА «поворачивается, но не едет» (BugReport 12). Раньше здесь было безусловно
+    // `BaseWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;`. Если CMC/BP стартует с MaxWalkSpeed=0
+    // (наследие спринт-рефактора / оверрайд в BP), BaseWalkSpeed становился 0, а SetSprint(false)
+    // затем держал MaxWalkSpeed=0 → AddMovementInput копит Acceleration (поэтому персонаж
+    // поворачивается в сторону ввода), но скорость капается в 0 → трансляции нет. Прошлый фикс
+    // (дефолт члена BaseWalkSpeed=600) не помогал, т.к. эта строка перетирала его нулём.
+    //
+    // ФИКС: если CMC несёт валидную (>0) скорость — уважаем её как BaseWalkSpeed (тюнинг из BP);
+    // иначе оставляем дефолт BaseWalkSpeed (600). В ЛЮБОМ случае жёстко применяем ненулевую
+    // BaseWalkSpeed обратно в MaxWalkSpeed, гарантируя, что персонаж реально едет на старте.
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        const float ConfiguredSpeed = Move->MaxWalkSpeed;
+        if (ConfiguredSpeed > 0.0f)
+        {
+            BaseWalkSpeed = ConfiguredSpeed;
+        }
+        Move->MaxWalkSpeed = BaseWalkSpeed;
+        UE_LOG(LogTemp, Log, TEXT("%s: movement init MaxWalkSpeed=%.0f (BaseWalkSpeed=%.0f)"),
+            *GetName(), Move->MaxWalkSpeed, BaseWalkSpeed);
+    }
 
     // Снимок базовых мешей слотов (тело без брони). Делаем ДО любой авто-экипировки
     // (дефолтная броня экипируется позже в APlayerCharacter::BeginPlay), чтобы UnequipArmor

@@ -7,6 +7,7 @@
 #include "EnemyAIController.generated.h"
 
 class UStatsComponent;
+class UNavigationQueryFilter;
 
 // Состояния примитивного state-machine (MVP без Behavior Tree, ADR/tech-design Фаза 1).
 UENUM(BlueprintType)
@@ -71,6 +72,13 @@ protected:
 	// (с учётом радиусов капсул обоих). 60 < AttackRange(90) поверхность-к-поверхности.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
 	float MoveAcceptanceRadius = 60.0f;
+
+	// Навигационный фильтр поиска пути врага (BugReport 12): ИСКЛЮЧАЕТ зону деревни
+	// (UNavArea_Village) — бандиты и волки строят путь В ОБХОД деревни. Дефолт задаётся в
+	// конструкторе = UNavQueryFilter_ExcludeVillage. Передаётся в каждый MoveToActor.
+	// Нейтралы этот контроллер не используют → ходят нормально (без фильтра).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
+	TSubclassOf<UNavigationQueryFilter> MoveFilterClass;
 
 	// Урон одной атаки.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")

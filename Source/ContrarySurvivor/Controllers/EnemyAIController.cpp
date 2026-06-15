@@ -11,6 +11,7 @@
 #include "Navigation/PathFollowingComponent.h" // EPathFollowingStatus (GetMoveStatus в Chase), EPathFollowingRequestResult
 #include "NavigationSystem.h" // UNavigationSystemV1::GetCurrent / ProjectPointToNavigation + FNavLocation (QA-диагностика навмеша)
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
+#include "ContrarySurvivor/Navigation/NavQueryFilter_ExcludeVillage.h" // BugReport 12: обход деревни
 
 AEnemyAIController::AEnemyAIController()
 {
@@ -18,6 +19,10 @@ AEnemyAIController::AEnemyAIController()
 
 	// До первого реального MoveToActor считаем запрос непроведённым (Failed).
 	LastMoveResult = EPathFollowingRequestResult::Failed;
+
+	// BugReport 12: путь врага (бандит/волк) ИСКЛЮЧАЕТ зону деревни (UNavArea_Village).
+	// Дефолтный фильтр; можно переопределить в BP-контроллере. Передаётся в MoveToActor.
+	MoveFilterClass = UNavQueryFilter_ExcludeVillage::StaticClass();
 }
 
 void AEnemyAIController::BeginPlay()
@@ -240,7 +245,9 @@ void AEnemyAIController::Tick(float DeltaTime)
 			if (Now - LastMoveIssueTime >= RepathInterval)
 			{
 				LastMoveIssueTime = Now;
-				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
+				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius,
+				/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true, /*bCanStrafe=*/true,
+				MoveFilterClass);
 			}
 		}
 		else
@@ -255,7 +262,9 @@ void AEnemyAIController::Tick(float DeltaTime)
 				LastMoveIssueTime = Now;
 				// ЗАХВАТЫВАЕМ результат запроса move. Если путь к игроку не строится (пешка/цель вне
 				// навмеша или навмеш не запечён) — здесь будет Failed → со следующего тика fallback.
-				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius);
+				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius,
+				/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true, /*bCanStrafe=*/true,
+				MoveFilterClass);
 			}
 		}
 

@@ -52,12 +52,16 @@ protected:
     // прицел — он работает через deproject экрана, угол-агностичен).
 
     // Угол наклона камеры вниз (Pitch) и направление обзора (Yaw). DRAFT LDoE-ракурс.
+    // BugReport 12: фиксированная изометрия СВЕРХУ — делаем угол круче к вертикали (-60),
+    // чтобы вид был обзорнее «сверху-сбоку», как в Last Day on Earth. Yaw 90 сохранён
+    // (ориентация обзора уровня). Игрок камеру НЕ вращает (bUsePawnControlRotation/inherit=false).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-    FRotator CameraBoomRotation = FRotator(-55.0f, 90.0f, 0.0f);
+    FRotator CameraBoomRotation = FRotator(-60.0f, 90.0f, 0.0f);
 
-    // Дистанция камеры от персонажа.
+    // Дистанция камеры от персонажа. BugReport 12: «камера вплотную почти к ГГ» → отодвигаем
+    // далеко/обзорно, как в Last Day on Earth (было 1000 — близко). DRAFT, Ринат подкрутит.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-    float CameraArmLength = 1000.0f;
+    float CameraArmLength = 1800.0f;
 
     // Угол обзора камеры (перспектива). Узкий FOV ~40 даёт «сжатый» LDoE-вид.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -94,9 +98,11 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel")
     bool bEnableCameraLookAhead = true;
 
-    // Максимальное смещение look-ahead (см). Небольшое — чтобы игрок оставался в центре.
+    // Максимальное смещение look-ahead (см) — камера ведёт таргет в сторону движения, чтобы
+    // игрок видел больше по ходу (BugReport 12). При отодвинутой обзорной камере 70 см незаметно,
+    // поэтому заметный «лид» ~300 см. DRAFT, Ринат подкрутит (игрок всё ещё близко к центру).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
-    float LookAheadAmount = 70.0f;
+    float LookAheadAmount = 300.0f;
 
     // Скорость плавного подмешивания look-ahead (VInterpTo). Меньше = плавнее/ленивее.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
