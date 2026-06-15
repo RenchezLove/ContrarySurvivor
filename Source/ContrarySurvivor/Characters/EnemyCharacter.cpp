@@ -77,6 +77,17 @@ void AEnemyCharacter::BeginPlay()
 		Stats->InitHealth(BanditMaxHealth, /*bSetToMax=*/true);
 		Stats->OnDeath.AddDynamic(this, &AEnemyCharacter::HandleDeath);
 	}
+
+	// Скорость погони (TUNING): детерминированно поверх Super (Super выставил MaxWalkSpeed из CMC/
+	// BaseWalkSpeed). Чуть выше ходьбы игрока, ниже спринта — бандит догоняет шагающего, но от
+	// спринта можно оторваться. Не зависит от дефолта CMC / оверрайда BP.
+	if (BanditWalkSpeed > 0.0f)
+	{
+		if (UCharacterMovementComponent* Move = GetCharacterMovement())
+		{
+			Move->MaxWalkSpeed = BanditWalkSpeed;
+		}
+	}
 }
 
 float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)

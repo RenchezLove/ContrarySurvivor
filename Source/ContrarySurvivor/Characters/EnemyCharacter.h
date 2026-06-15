@@ -40,6 +40,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
 	float BanditMaxHealth = 80.0f;
 
+	// Скорость погони бандита (см/с). TUNING. Чуть ВЫШЕ скорости ходьбы игрока (~600), чтобы
+	// бандит реально догонял шагающего игрока, но НИЖЕ спринта игрока (~1200) — от спринта можно
+	// оторваться ценой расхода голода/жажды (бой остаётся проходимым). Применяется детерминированно
+	// в BeginPlay (после Super), чтобы не зависеть от дефолта CMC/возможного оверрайда в BP.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement")
+	float BanditWalkSpeed = 650.0f;
+
 	// Через сколько секунд после смерти Destroy тела (даём отыграть рэгдолл).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death")
 	float CorpseLifeSpan = 5.0f;

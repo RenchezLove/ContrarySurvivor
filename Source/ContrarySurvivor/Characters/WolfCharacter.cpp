@@ -206,8 +206,11 @@ float AWolfCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		Stats->PlayHurtSound();
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("%s (wolf) took %.1f damage. Health: %.1f/%.1f"),
-		*GetName(), Applied, Stats->GetHealth(), Stats->GetMaxHealth());
+	// Лог показывает И запрошенный (requested), И реально применённый (applied) урон: на
+	// добивающем хите applied < requested (клампится остатком HP) — «took 5.0» на запросе 25
+	// больше не путает. Формат согласован с логами бандита/игрока.
+	UE_LOG(LogTemp, Log, TEXT("%s (wolf) took %.1f dmg (requested %.1f). Health: %.1f/%.1f"),
+		*GetName(), Applied, DamageAmount, Stats->GetHealth(), Stats->GetMaxHealth());
 
 	return Applied;
 }
