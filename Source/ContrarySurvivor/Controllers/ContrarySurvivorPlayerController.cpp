@@ -1719,6 +1719,37 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 				RootMM, bExtractRM ? 1 : 0, bHasAnyRM ? 1 : 0,
 				CmcVel, CmcAcc, PlaneC, PlaneN.X, PlaneN.Y, PlaneN.Z, GFric, BrakeW),
 				/*bScreen=*/true);
+
+			// === ДОБИВ-3 ДИАГ input-пайплайна =================================================
+			// Новые данные: cmcAcc=0 ПРИ ctrlInput=1.00, rootMM/plane/friction в норме. По исходнику
+			// UE 5.5 (CharacterMovementComponent.cpp): Acceleration = MaxAcc * consumed(InputVector),
+			// причём ControlledCharacterMove (где Acceleration строится) вызывается ТОЛЬКО при
+			// IsLocallyControlled() || (!Controller && bRunPhysicsWithNoController/IsPlayingRootMotion).
+			// ConsumeInputVector дренит ControlInputVector КАЖДЫЙ тик в любом случае.
+			//  → Два сценария cmcAcc=0: (A) IsLocallyControlled()==false на владеемой пешке
+			//    (ControlledCharacterMove пропущен, accel НИКОГДА не строится; lastInput при этом
+			//    ненулевой, т.к. consume всё равно сработал) — СИЛЬНЕЙШИЙ кандидат; (B) consumed-ввод
+			//    реально 0 (порядок тика/дубль дренит CIV до тика CMC) — тогда lastInput≈0.
+			// Логируем ИМЕННО различитель: lastInput(consumed), maxAcc, locCtrl, класс контроллера,
+			// число APlayerCharacter на уровне (детект дубля Фазы 0).
+			const float LastInput = ControlledPawn->GetLastMovementInputVector().Size();
+			const float MaxAcc    = CM ? CM->GetMaxAcceleration() : -1.0f;
+			const int32 bLocCtrl  = ControlledPawn->IsLocallyControlled() ? 1 : 0;
+			AController* PawnCtrl  = ControlledPawn->GetController();
+			const FString CtrlInfo = PawnCtrl
+				? FString::Printf(TEXT("%s(local=%d,==this=%d)"), *PawnCtrl->GetClass()->GetName(),
+					PawnCtrl->IsLocalController() ? 1 : 0, (PawnCtrl == this) ? 1 : 0)
+				: FString(TEXT("NONE"));
+			int32 NumPlayerChars = 0;
+			if (UWorld* W = GetWorld())
+			{
+				for (TActorIterator<APlayerCharacter> It(W); It; ++It) { ++NumPlayerChars; }
+			}
+			FQADebug::QA(this, FString::Printf(
+				TEXT("QA: PIPELINE lastInput=%.2f maxAcc=%.0f locCtrl=%d ctrl=%s numPlayerChars=%d"),
+				LastInput, MaxAcc, bLocCtrl, *CtrlInfo, NumPlayerChars),
+				/*bScreen=*/true);
+			// === КОНЕЦ ДИАГ input-пайплайна ===================================================
 			// === КОНЕЦ ДИАГ velkill ===========================================================
 		}
 	}
