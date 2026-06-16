@@ -22,6 +22,8 @@
 #include "Components/SkeletalMeshComponent.h"         // QA velkill: лидер-меш -> AnimInstance
 #include "Animation/AnimInstance.h"                   // QA velkill: ShouldExtractRootMotion()
 #include "UObject/UnrealType.h"                        // QA velkill: чтение RootMotionMode рефлексией
+#include "Engine/OverlapResult.h"                      // QA блок-капсула: FOverlapResult
+#include "CollisionQueryParams.h"                      // QA блок-капсула: FCollisionObjectQueryParams
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
@@ -1750,6 +1752,65 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 				LastInput, MaxAcc, bLocCtrl, *CtrlInfo, NumPlayerChars),
 				/*bScreen=*/true);
 			// === КОНЕЦ ДИАГ input-пайплайна ===================================================
+
+			// === ДОБИВ-4 ДИАГ блокировки тела =================================================
+			// Новые данные (УДЕРЖАНИЕ W): cmcAcc=2048 (ускорение строится ПОЛНОСТЬЮ), lastInput=1.00,
+			// locCtrl=1, grounded, friction норм — но vel=0 КАЖДЫЙ кадр. Ввод-пайплайн исправен,
+			// тело НЕ транслируется. Известное поведение CMC: в конце PhysWalking Velocity
+			// пересчитывается из ФАКТИЧЕСКОГО смещения — если капсула заблокирована (не сдвинулась),
+			// Velocity → 0. Различаем за 1 проход: (1) капсула penetrating/заблокирована (locDelta≈0
+			// + overlap=true) vs (2) внешнее обнуление Velocity (locDelta≈0 + overlap=false).
+			const FVector CurLoc = ControlledPawn->GetActorLocation();
+			const float LocDelta = bHasLastMoveDiagLoc ? (CurLoc - LastMoveDiagActorLoc).Size() : -1.0f;
+			LastMoveDiagActorLoc = CurLoc;
+			bHasLastMoveDiagLoc = true;
+
+			float FloorDist = -1.0f;
+			int32 FloorPen = -1;   // bStartPenetrating пола
+			int32 FloorBlock = -1; // bBlockingHit пола
+			if (CM)
+			{
+				FloorDist  = CM->CurrentFloor.FloorDist;
+				FloorPen   = CM->CurrentFloor.HitResult.bStartPenetrating ? 1 : 0;
+				FloorBlock = CM->CurrentFloor.bBlockingHit ? 1 : 0;
+			}
+
+			// Overlap капсулой в текущей позиции (ignore self) по WorldStatic+WorldDynamic+Pawn —
+			// во что упёрлось тело. ObjectType-запрос (как в SpawnPlacementUtils): ловит реальное
+			// пересечение объёмов независимо от настроек блок/оверлап-ответа канала.
+			int32 OverlapCount = 0;
+			FString OverlapWho = TEXT("none");
+			if (UWorld* W = GetWorld())
+			{
+				if (UCapsuleComponent* Cap = ControlledPawn->FindComponentByClass<UCapsuleComponent>())
+				{
+					const FCollisionShape CapShape = FCollisionShape::MakeCapsule(
+						Cap->GetScaledCapsuleRadius(), Cap->GetScaledCapsuleHalfHeight());
+					FCollisionObjectQueryParams ObjParams;
+					ObjParams.AddObjectTypesToQuery(ECC_WorldStatic);
+					ObjParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+					ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+					FCollisionQueryParams QParams(FName(TEXT("QAMoveBlockProbe")), /*bTraceComplex=*/false);
+					QParams.AddIgnoredActor(ControlledPawn);
+					TArray<FOverlapResult> Overlaps;
+					W->OverlapMultiByObjectType(Overlaps, CurLoc, Cap->GetComponentQuat(), ObjParams, CapShape, QParams);
+					OverlapCount = Overlaps.Num();
+					for (const FOverlapResult& Ov : Overlaps)
+					{
+						if (AActor* OvActor = Ov.GetActor())
+						{
+							OverlapWho = FString::Printf(TEXT("%s[%s]"), *OvActor->GetName(), *OvActor->GetClass()->GetName());
+							break;
+						}
+					}
+				}
+			}
+
+			FQADebug::QA(this, FString::Printf(
+				TEXT("QA: BLOCK locDelta=%.2f floorDist=%.1f floorPen=%d floorBlock=%d overlapN=%d overlapWho=%s"),
+				LocDelta, FloorDist, FloorPen, FloorBlock, OverlapCount, *OverlapWho),
+				/*bScreen=*/true);
+			// === КОНЕЦ ДИАГ блокировки тела ===================================================
 			// === КОНЕЦ ДИАГ velkill ===========================================================
 		}
 	}

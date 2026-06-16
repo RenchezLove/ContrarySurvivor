@@ -338,6 +338,11 @@ private:
 	// TEMP (BugReport 12, Этап 1): дроссель диаг-лога движения (раз в ~0.5с). УДАЛИТЬ после диагноза.
 	double LastMoveDiagTime = -1000.0;
 
+	// TEMP (BugReport 12 ДОБИВ-4): прошлая позиция актора для locDelta (двигается ли тело при
+	// accel=2048, vel=0). NaN-флаг через bHasLastDiagLoc. УДАЛИТЬ после диагноза.
+	FVector LastMoveDiagActorLoc = FVector::ZeroVector;
+	bool bHasLastMoveDiagLoc = false;
+
 	// BugReport12 Этап1 (ФИКС движения): постоянный горизонтальный yaw для базиса WASD при
 	// ФИКСИРОВАННОЙ изометрической камере. Дефолт 90 = совпадает с CameraBoomRotation.Yaw игрока
 	// (экранное «вверх» сохраняется). Forward/right строятся от него в плоскости Z=0, а НЕ от
