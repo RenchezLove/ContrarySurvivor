@@ -81,6 +81,17 @@ APlayerCharacter::APlayerCharacter()
 
     //Sets that camera is not rotates whith controller
 
+    // Игра ОДИНОЧНАЯ: репликация не нужна. ACharacter по умолчанию реплицируется и сглаживает
+    // движение сетевого прокси (NetworkSmoothingMode=Exponential); это сглаживание/коррекция
+    // может давать «резиновый» откат локального персонажа на пару см. Глушим репликацию и
+    // сетевое сглаживание, чтобы движение было чисто локальным и без коррекций.
+    bReplicates = false;
+    SetReplicateMovement(false);
+    if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+    {
+        MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+    }
+
     //Parameters initialasation (устаревшие инлайн-поля, см. заголовок)
     Hunger = 100.0f;
     Thirst = 100.0f;
@@ -134,8 +145,8 @@ void APlayerCharacter::BeginPlay()
 
     UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
 
-    // Применяем тюнингуемые параметры камеры (#20) — учитывает BP-оверрайды, не только дефолты ctor.
-    ApplyCameraSettings();
+    // Камера НЕ настраивается в BeginPlay: knob-параметры применяются один раз в OnConstruction
+    // (см. ApplyCameraSettings). Это убирает анти-паттерн «BeginPlay перетирает правки камеры».
 
     // Запоминаем стартовый трансформ — фолбэк-точка респауна, если сейва ещё нет.
     // BUG (демка неиграбельна): если игрок появился под картой (Z=-4055 — битый
@@ -259,6 +270,16 @@ void APlayerCharacter::StartAmbience()
     // bAutoDestroy=false — держим компонент живым (зациклен), храним ссылку.
     AmbienceComponent = UGameplayStatics::SpawnSound2D(
         this, AmbienceSound, AmbienceVolume, 1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
+}
+
+void APlayerCharacter::OnConstruction(const FTransform& Transform)
+{
+    Super::OnConstruction(Transform);
+
+    // Применяем knob-параметры камеры после сериализации BP-оверрайдов: меняешь CameraArmLength
+    // (и др. Camera-поля) в дефолтах BP → значение применяется к SpringArm/Camera здесь, видно
+    // в редакторе сразу и в игре, без перетирания в рантайме (BeginPlay/Tick камеру не трогают).
+    ApplyCameraSettings();
 }
 
 void APlayerCharacter::ApplyCameraSettings()

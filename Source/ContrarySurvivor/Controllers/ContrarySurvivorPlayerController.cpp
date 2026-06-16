@@ -1768,11 +1768,21 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 			float FloorDist = -1.0f;
 			int32 FloorPen = -1;   // bStartPenetrating пола
 			int32 FloorBlock = -1; // bBlockingHit пола
+			FString FloorActor = TEXT("none"); // актёр, который CMC считает текущим полом
+			FString FloorComp  = TEXT("none"); // его компонент (ровно та поверхность, дающая floorDist<0)
 			if (CM)
 			{
 				FloorDist  = CM->CurrentFloor.FloorDist;
 				FloorPen   = CM->CurrentFloor.HitResult.bStartPenetrating ? 1 : 0;
 				FloorBlock = CM->CurrentFloor.bBlockingHit ? 1 : 0;
+				if (AActor* FA = CM->CurrentFloor.HitResult.GetActor())
+				{
+					FloorActor = FString::Printf(TEXT("%s[%s]"), *FA->GetName(), *FA->GetClass()->GetName());
+				}
+				if (UPrimitiveComponent* FC = CM->CurrentFloor.HitResult.GetComponent())
+				{
+					FloorComp = FC->GetName();
+				}
 			}
 
 			// Overlap капсулой в текущей позиции (ignore self) по WorldStatic+WorldDynamic+Pawn —
@@ -1780,6 +1790,7 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 			// пересечение объёмов независимо от настроек блок/оверлап-ответа канала.
 			int32 OverlapCount = 0;
 			FString OverlapWho = TEXT("none");
+			FString OverlapList = TEXT("none"); // ВСЕ overlap-актёры (а не только первый)
 			if (UWorld* W = GetWorld())
 			{
 				if (UCapsuleComponent* Cap = ControlledPawn->FindComponentByClass<UCapsuleComponent>())
@@ -1795,21 +1806,32 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 					TArray<FOverlapResult> Overlaps;
 					W->OverlapMultiByObjectType(Overlaps, CurLoc, Cap->GetComponentQuat(), ObjParams, CapShape, QParams);
 					OverlapCount = Overlaps.Num();
+					bool bFirst = true;
+					TArray<FString> OverlapNames;
 					for (const FOverlapResult& Ov : Overlaps)
 					{
 						if (AActor* OvActor = Ov.GetActor())
 						{
-							OverlapWho = FString::Printf(TEXT("%s[%s]"), *OvActor->GetName(), *OvActor->GetClass()->GetName());
-							break;
+							if (bFirst)
+							{
+								OverlapWho = FString::Printf(TEXT("%s[%s]"), *OvActor->GetName(), *OvActor->GetClass()->GetName());
+								bFirst = false;
+							}
+							OverlapNames.Add(OvActor->GetName());
 						}
+					}
+					if (OverlapNames.Num() > 0)
+					{
+						OverlapList = FString::Join(OverlapNames, TEXT(","));
 					}
 				}
 			}
 
 			FQADebug::QA(this, FString::Printf(
-				TEXT("QA: BLOCK locDelta=%.2f floorDist=%.1f floorPen=%d floorBlock=%d overlapN=%d overlapWho=%s"),
-				LocDelta, FloorDist, FloorPen, FloorBlock, OverlapCount, *OverlapWho),
+				TEXT("QA: BLOCK locDelta=%.2f floorDist=%.1f floorPen=%d floorBlock=%d overlapN=%d overlapWho=%s floorActor=%s floorComp=%s"),
+				LocDelta, FloorDist, FloorPen, FloorBlock, OverlapCount, *OverlapWho, *FloorActor, *FloorComp),
 				/*bScreen=*/true);
+			FQADebug::QA(this, FString::Printf(TEXT("QA: OVERLAPLIST %s"), *OverlapList), /*bScreen=*/true);
 			// === КОНЕЦ ДИАГ блокировки тела ===================================================
 			// === КОНЕЦ ДИАГ velkill ===========================================================
 		}

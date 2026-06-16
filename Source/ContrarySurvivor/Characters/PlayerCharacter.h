@@ -58,10 +58,11 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
     FRotator CameraBoomRotation = FRotator(-60.0f, 90.0f, 0.0f);
 
-    // Дистанция камеры от персонажа. BugReport 12: «камера вплотную почти к ГГ» → отодвигаем
-    // далеко/обзорно, как в Last Day on Earth (было 1000 — близко). DRAFT, Ринат подкрутит.
+    // Дистанция камеры от персонажа. Единственный источник истины по длине арма: меняется
+    // ЗДЕСЬ (Camera-категория в дефолтах BP), применяется в OnConstruction (живой knob,
+    // виден в редакторе сразу, не перетирается в рантайме). DRAFT, Ринат подкрутит.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-    float CameraArmLength = 1800.0f;
+    float CameraArmLength = 3000.0f;
 
     // Угол обзора камеры (перспектива). Узкий FOV ~40 даёт «сжатый» LDoE-вид.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -250,8 +251,14 @@ protected:
     // Процедурные эффекты камеры (#28): дыхание + look-ahead через SpringArm->TargetOffset.
     virtual void Tick(float DeltaTime) override;
 
-    // Применяет тюнингуемые параметры камеры (#20) к SpringArm/Camera. Зовётся в BeginPlay,
-    // чтобы оверрайды из BP/инстанса тоже учитывались (не только конструкторные дефолты).
+    // Применяет тюнингуемые knob-параметры камеры (#20) к компонентам SpringArm/Camera один раз
+    // на этапе конструирования. ВАЖНО: не зовём в BeginPlay/Tick — иначе перетирались бы правки
+    // и рантайм-эффекты. Источник истины по камере = Camera-категория UPROPERTY (CameraArmLength
+    // и т.д.), а не «сырые» поля компонента; их и редактирует дизайнер в дефолтах BP.
+    virtual void OnConstruction(const FTransform& Transform) override;
+
+    // Применяет knob-значения камеры к SpringArm/Camera. Зовётся из конструктора (дефолты CDO)
+    // и из OnConstruction (после сериализации BP-оверрайдов → они применяются и видны в редакторе).
     void ApplyCameraSettings();
 
     // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).

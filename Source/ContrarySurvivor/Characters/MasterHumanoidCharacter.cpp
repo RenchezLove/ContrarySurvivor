@@ -213,12 +213,22 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     // Устанавливаем владельца оружия
     CurrentWeapon->SetInstigator(this);
 
+    // Надетое оружие — визуальное: гасим мировую коллизию. Иначе актёр оружия (root=ItemMesh
+    // с дефолтной БЛОКИРУЮЩЕЙ коллизией), привязанный к кости R_Hand, едет вместе с
+    // персонажем и упирается в капсулу/пол → персонаж крутится, но не движется
+    // (vel=0, floorDist отрицательный). Парно коллизия возвращается в UnequipWeapon.
+    CurrentWeapon->SetActorEnableCollision(false);
+
     UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: Equipped %s"), *CurrentWeapon->GetName());
 }
 
 void AMasterHumanoidCharacter::UnequipWeapon()
 {
     if (!CurrentWeapon) return;
+
+    // Возвращаем мировую коллизию (гасилась в EquipWeapon): отстёгнутое/выброшенное
+    // оружие снова должно сталкиваться с миром и подбираться.
+    CurrentWeapon->SetActorEnableCollision(true);
 
     CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
     CurrentWeapon = nullptr;

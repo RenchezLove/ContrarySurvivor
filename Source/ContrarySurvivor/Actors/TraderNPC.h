@@ -72,7 +72,7 @@ struct FShopEntry
  *
  * Взаимодействие: при входе игрока в радиус (overlap) торговец регистрируется у
  * AContrarySurvivorPlayerController (NearbyTrader). Клавиша Interact открывает магазин
- * (immediate-mode экран на AContrarySurvivorHUD). Спавн — кодом (UTraderSpawnSubsystem).
+ * (immediate-mode экран на AContrarySurvivorHUD). Ставится актёром на уровень в редакторе.
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API ATraderNPC : public AActor, public IInteractableNPCInterface
