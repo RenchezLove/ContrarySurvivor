@@ -19,6 +19,9 @@
 #include "GameFramework/Character.h"                  // QA: ACharacter (телепорт V)
 #include "GameFramework/CharacterMovementComponent.h" // QA: StopMovementImmediately (телепорт V)
 #include "Components/CapsuleComponent.h"              // QA: halfHeight капсулы (телепорт V)
+#include "Components/SkeletalMeshComponent.h"         // QA velkill: лидер-меш -> AnimInstance
+#include "Animation/AnimInstance.h"                   // QA velkill: ShouldExtractRootMotion()
+#include "UObject/UnrealType.h"                        // QA velkill: чтение RootMotionMode рефлексией
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "ContrarySurvivor/Actors/TraderNPC.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
@@ -1666,6 +1669,57 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 				(CM && CM->IsMovingOnGround()) ? 1 : 0,
 				MovementBasisYaw, CamYaw, CtrlRot.Yaw,
 				*ControlledPawn->GetName()), /*bScreen=*/true);
+
+			// === TEMP ДИАГ velkill (BugReport12 Этап1 ДОБИВ-2) =================================
+			// Прошлый слой снят: ignoreMove=0 И ctrlInput=1.00 — ввод РЕАЛЬНО доходит до CMC, но
+			// vel=0 при mode=Walking/onGround/maxWS=600. CMC не строит скорость. ЗА ОДИН PIE-проход
+			// различаем 3 гипотезы velocity-killer:
+			//  (1 ГЛАВНАЯ) ROOT MOTION перебивает скорость. Игрок — модульный меш, AnimBP на лидер-
+			//      меше (GetMesh()==HeadMesh). Если RootMotionMode=RootMotionFromEverything(2), idle-
+			//      анима без корневого смещения форсит Velocity≈0 ПОВЕРХ ввода — ровно симптом, и
+			//      почему НИ ОДИН C++-фикс не помог (это asset/AnimBP-сторона). Сигналы: rootMM=2,
+			//      extractRM=1, hasAnyRM=1. (IgnoreRootMotion(1): extractRM=1, НО hasAnyRM=0 — безвреден.)
+			//  (2) Капсула penetrating/заблокирована: cmcAcc>0, cmcVel=0, rootMM!=2.
+			//  (3) Plane constraint / абсурдные friction/braking: planeC=1 (нормаль горизонтальна) или
+			//      gFric/brakeW зашкаливают.
+			int32 RootMM = -1;
+			bool bExtractRM = false;
+			bool bHasAnyRM = false;
+			if (AsChar)
+			{
+				if (USkeletalMeshComponent* LeaderMesh = AsChar->GetMesh())
+				{
+					if (UAnimInstance* AnimInst = LeaderMesh->GetAnimInstance())
+					{
+						bExtractRM = AnimInst->ShouldExtractRootMotion();
+						// RootMotionMode — приватный TEnumAsByte UPROPERTY (нет публичного геттера) →
+						// читаем фактическое значение через рефлексию (FindPropertyByName идёт вверх
+						// по иерархии классов и находит свойство, объявленное в базовом UAnimInstance).
+						if (FProperty* Prop = AnimInst->GetClass()->FindPropertyByName(TEXT("RootMotionMode")))
+						{
+							if (FByteProperty* ByteProp = CastField<FByteProperty>(Prop))
+							{
+								RootMM = (int32)ByteProp->GetPropertyValue_InContainer(AnimInst);
+							}
+						}
+					}
+				}
+				bHasAnyRM = AsChar->HasAnyRootMotion();
+			}
+
+			const float CmcVel  = CM ? CM->Velocity.Size()              : -1.0f;
+			const float CmcAcc  = CM ? CM->GetCurrentAcceleration().Size() : -1.0f;
+			const int32 PlaneC  = CM ? (CM->bConstrainToPlane ? 1 : 0)  : -1;
+			const FVector PlaneN = CM ? CM->GetPlaneConstraintNormal()   : FVector::ZeroVector;
+			const float GFric   = CM ? CM->GroundFriction               : -1.0f;
+			const float BrakeW  = CM ? CM->BrakingDecelerationWalking    : -1.0f;
+
+			FQADebug::QA(this, FString::Printf(
+				TEXT("QA: VELKILL rootMM=%d extractRM=%d hasAnyRM=%d cmcVel=%.0f cmcAcc=%.0f planeC=%d planeN=(%.2f,%.2f,%.2f) gFric=%.0f brakeW=%.0f"),
+				RootMM, bExtractRM ? 1 : 0, bHasAnyRM ? 1 : 0,
+				CmcVel, CmcAcc, PlaneC, PlaneN.X, PlaneN.Y, PlaneN.Z, GFric, BrakeW),
+				/*bScreen=*/true);
+			// === КОНЕЦ ДИАГ velkill ===========================================================
 		}
 	}
 	// === КОНЕЦ TEMP ДИАГНОСТИКИ ============================================================
