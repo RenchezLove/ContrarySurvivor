@@ -144,17 +144,45 @@ void APlayerCharacter::BeginPlay()
     // от навмеша) и переставляем. Корректный трансформ запоминаем как фолбэк респауна.
     {
         FVector StartLoc = GetActorLocation();
-        if (StartLoc.Z < SpawnPlacement::BadZThreshold)
+        const float OldZ = StartLoc.Z;
+        const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+        const float GroundClearance = 10.0f; // зазор над полом, чтобы капсула НЕ пенетрировала
+
+        // BugReport12 ФИНАЛ: капсула спавнилась УТОПЛЕННОЙ в пол (PIE-диаг: floorDist=-34,
+        // bStartPenetrating=1, overlap с полом). Penetrating-капсула → горизонтальный свип CMC
+        // упирается в depenetration → Velocity гасится в 0 каждый кадр → «accel=2048, но не едет».
+        // Корень — РАЗМЕЩЕНИЕ (Z игрока в уровне/PlayerStart не учитывает half-height капсулы),
+        // не код движения. Прошлый relocate срабатывал только при Z<-1000 (провал под карту) и
+        // НЕ ловил «слегка утоплен». Обобщаем: трассируем пол под (X,Y) и ставим ЦЕНТР капсулы на
+        // floor + halfHeight + зазор, если игрок (1) под картой ЛИБО (2) утоплен (Z ниже желаемого
+        // центра). Если игрок уже на/над полом — не трогаем (валидное размещение сохраняется).
+        float FloorCenterZ = 0.0f; // желаемый Z ЦЕНТРА капсулы (= impact + halfHeight + зазор)
+        const bool bFoundFloor = SpawnPlacement::TraceFloorZ(
+            GetWorld(), StartLoc.X, StartLoc.Y, HalfHeight + GroundClearance, FloorCenterZ, this, TEXT("Player-start"));
+
+        bool bRelocated = false;
+        if (bFoundFloor && (OldZ < SpawnPlacement::BadZThreshold || OldZ < FloorCenterZ - 1.0f))
         {
-            const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
-            const float SafeZ = SpawnPlacement::ResolveSpawnZ(GetWorld(), StartLoc.X, StartLoc.Y, HalfHeight + 10.0f, TEXT("Player-start"), this);
-            StartLoc.Z = SafeZ;
+            StartLoc.Z = FloorCenterZ;
+            bRelocated = true;
+        }
+        else if (!bFoundFloor && OldZ < SpawnPlacement::BadZThreshold)
+        {
+            // Пол не найден И игрок под картой — безопасный фикс-Z (центр капсулы над SafeDefaultZ).
+            StartLoc.Z = SpawnPlacement::SafeDefaultZ + HalfHeight;
+            bRelocated = true;
+        }
+
+        if (bRelocated)
+        {
             if (UCharacterMovementComponent* Move = GetCharacterMovement())
             {
                 Move->StopMovementImmediately();
             }
             SetActorLocation(StartLoc, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
-            UE_LOG(LogTemp, Warning, TEXT("QA: player start was under map -> relocated to floor Z=%.1f"), SafeZ);
+            UE_LOG(LogTemp, Warning,
+                TEXT("QA: player spawn grounded Z %.1f -> %.1f (halfH=%.1f, foundFloor=%d)"),
+                OldZ, StartLoc.Z, HalfHeight, bFoundFloor ? 1 : 0);
         }
     }
     InitialSpawnTransform = GetActorTransform();
