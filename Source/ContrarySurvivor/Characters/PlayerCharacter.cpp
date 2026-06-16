@@ -143,8 +143,6 @@ void APlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    UE_LOG(LogTemp, Warning, TEXT("Compiler is working correctly"));
-
     // Камера НЕ настраивается в BeginPlay: knob-параметры применяются один раз в OnConstruction
     // (см. ApplyCameraSettings). Это убирает анти-паттерн «BeginPlay перетирает правки камеры».
 
@@ -191,9 +189,6 @@ void APlayerCharacter::BeginPlay()
                 Move->StopMovementImmediately();
             }
             SetActorLocation(StartLoc, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
-            UE_LOG(LogTemp, Warning,
-                TEXT("QA: player spawn grounded Z %.1f -> %.1f (halfH=%.1f, foundFloor=%d)"),
-                OldZ, StartLoc.Z, HalfHeight, bFoundFloor ? 1 : 0);
         }
     }
     InitialSpawnTransform = GetActorTransform();
@@ -226,30 +221,17 @@ void APlayerCharacter::BeginPlay()
     // Фоновый эмбиент леса (Демо), зациклен и тихо.
     StartAmbience();
 
-    // === BugReport 12, Этап 1: движение «крутится, но не едет» ============================
-    // ЗАЩИТНЫЙ ФИКС + ДИАГНОСТИКА. Гипотеза №1: BP_PlayerCharacter использует MovementMode =
-    // NavWalking (или DefaultLandMovementMode=NavWalking). NavWalking двигает пешку ТОЛЬКО по
-    // навмешу; на участке без навмеш-тайла (а навмеш тут invoker-генерируемый и дырявый —
-    // «база-юг в навмеш-дыре») горизонтальной трансляции нет, при этом orient-to-movement всё
-    // равно крутит пешку к вводу → ровно симптом Рината. Walking (физический коллижн-флор)
-    // надёжен и не зависит от навмеша — для top-down это корректный режим. Если режим уже
-    // Walking — ничего не меняем (тогда корень иной, см. диаг-лог из контроллера: mode/onGround/vel).
+    // ЗАЩИТНЫЙ ФИКС движения: NavWalking двигает пешку ТОЛЬКО по навмешу; на участке без
+    // навмеш-тайла горизонтальной трансляции нет, при этом orient-to-movement крутит пешку к
+    // вводу (симптом «крутится, но не едет»). Walking (физический коллижн-флор) не зависит от
+    // навмеша — корректный режим для top-down. Если режим уже Walking — не трогаем.
     if (UCharacterMovementComponent* CM = GetCharacterMovement())
     {
-        const int32 ModeAtStart = (int32)CM->MovementMode.GetValue();
         if (CM->MovementMode == MOVE_NavWalking)
         {
             CM->SetMovementMode(MOVE_Walking);
-            UE_LOG(LogTemp, Warning, TEXT("QA: PLAYER movement was NavWalking -> forced Walking (navmesh-independent). BugReport12"));
         }
-        UE_LOG(LogTemp, Warning, TEXT("QA: PLAYER BeginPlay movement: modeAtStart=%d modeNow=%d maxWS=%.0f maxAcc=%.0f orient=%d ctrlYaw=%d coll=%d simPhys=%d locZ=%.1f"),
-            ModeAtStart, (int32)CM->MovementMode.GetValue(), CM->MaxWalkSpeed, CM->GetMaxAcceleration(),
-            CM->bOrientRotationToMovement ? 1 : 0, bUseControllerRotationYaw ? 1 : 0,
-            GetCapsuleComponent() ? (GetCapsuleComponent()->IsCollisionEnabled() ? 1 : 0) : -1,
-            GetCapsuleComponent() ? (GetCapsuleComponent()->IsSimulatingPhysics() ? 1 : 0) : -1,
-            GetActorLocation().Z);
     }
-    // === КОНЕЦ BugReport 12 Этап 1 =======================================================
 }
 
 void APlayerCharacter::StartAmbience()
