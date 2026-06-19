@@ -82,6 +82,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
 	float InteractRadius = 220.0f;
 
+	// [ТЕСТ] временное поле — будет удалено
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
+	float TestPingValue = 1.0f;
+
 	// Квест 1 (DRAFT: «Шкуры волков» — собрать 5 шкур, награда 150). Тюнингуется в редакторе.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest OfferedQuest;
