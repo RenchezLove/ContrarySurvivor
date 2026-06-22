@@ -13,7 +13,7 @@ APistol::APistol()
 	if (ItemMesh)
 	{
 		static ConstructorHelpers::FObjectFinder<UStaticMesh> PistolMeshAsset(
-			TEXT("/Game/Meshes/Demo/SM_Pistol.SM_Pistol"));
+			TEXT("/Game/Weapons/SM_Pistol.SM_Pistol"));
 		if (PistolMeshAsset.Succeeded())
 		{
 			ItemMesh->SetStaticMesh(PistolMeshAsset.Object);
