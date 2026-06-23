@@ -239,25 +239,27 @@ void AEnemyAIController::Tick(float DeltaTime)
 				Self->AddMovementInput(ToPlayer, 1.0f);
 			}
 
-			// ПРОБА nav на восстановление: периодически переотдаём MoveToActor. Если навмеш стал
-			// доступен (станет RequestSuccessful, мы на навмеше и снова сближаемся) — со следующего
-			// тика bUseDirect станет false и вернёмся к обычной навигации. Если опять Failed — остаёмся в direct.
-			if (Now - LastMoveIssueTime >= RepathInterval)
-			{
-				LastMoveIssueTime = Now;
-				LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius,
-				/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true, /*bCanStrafe=*/true,
-				MoveFilterClass);
-			}
+			// ПРОБА nav на восстановление: ВРЕМЕННО ОТКЛЮЧЕНА (тест дёргания).
+			// Гипотеза: MoveToActor каждые 0.35с вызывает AbortMove внутри → CMC velocity сбрасывается
+			// → "шаг-стоп-шаг-стоп". При selfNav=no зонд всегда Failed и только мешает.
+			// Если дёрганье исчезнет — убрать насовсем; если нет — искать дальше.
+			// if (Now - LastMoveIssueTime >= RepathInterval)
+			// {
+			// 	LastMoveIssueTime = Now;
+			// 	LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius,
+			// 	/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true, /*bCanStrafe=*/true,
+			// 	MoveFilterClass);
+			// }
 		}
 		else
 		{
-			// НОРМАЛЬНАЯ nav-погоня. Переотдаём MoveToActor непрерывно: сразу, если path-following
-			// не в Moving (завершился/зафейлился/Idle), и периодически раз в RepathInterval (чтобы
-			// цель отслеживала движущегося игрока). НЕ каждый кадр (каждый вызов рестартит запрос —
-			// пешка не успевала продвинуться и стояла; это был баг до фикса 159729d).
-			const bool bNotMoving = (GetMoveStatus() != EPathFollowingStatus::Moving);
-			if (bNotMoving || (Now - LastMoveIssueTime >= RepathInterval))
+			// НОРМАЛЬНАЯ nav-погоня. Запускаем MoveToActor только когда path-following реально
+			// завершился (Idle). Пока враг в Moving/Waiting — не прерываем: каждый перезапуск
+			// отменял текущее движение и вызывал 1-2 кадра Waiting → рывки (дёрганье).
+			// Движущийся игрок отслеживается автоматически: бандит достигает старой позиции
+			// → Idle → следующий тик новый MoveToActor с актуальной позицией.
+			const bool bNotMoving = (GetMoveStatus() == EPathFollowingStatus::Idle);
+			if (bNotMoving)
 			{
 				LastMoveIssueTime = Now;
 				// ЗАХВАТЫВАЕМ результат запроса move. Если путь к игроку не строится (пешка/цель вне

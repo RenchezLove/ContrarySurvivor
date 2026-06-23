@@ -124,9 +124,11 @@ protected:
 	float StuckConvergeTime = 1.5f;
 
 	// Минимальное убывание дистанции (см), считающееся реальным прогрессом сближения.
-	// Меньше — считаем шумом, прогресс не засчитываем (иначе микродрожь сбросит таймер застревания).
+	// Поднято с 5 до 50: малый порог (5 см) = уровень шума, при кружащемся игроке
+	// дистанция не падала даже на 5 см → ложный direct-fallback → рывки. 50 см = ~полметра
+	// реального сближения, шум не триггерит застревание.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
-	float ChaseConvergeEpsilon = 5.0f;
+	float ChaseConvergeEpsilon = 50.0f;
 
 private:
 	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
