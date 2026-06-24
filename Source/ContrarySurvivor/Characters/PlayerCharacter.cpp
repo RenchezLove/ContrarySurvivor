@@ -25,7 +25,7 @@
 #include "AConsumableItem.h"
 #include "AAmmoItem.h" // патроны как стак-предмет рюкзака (Фаза 5)
 #include "ARangedWeapon.h"
-#include "ContrarySurvivor/Actors/TraderNPC.h" // FShopEntry, EShopEntryKind
+#include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry, EShopEntryKind (A2)
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Characters/WolfCharacter.h"  // #26: читаемое имя «от кого погиб»

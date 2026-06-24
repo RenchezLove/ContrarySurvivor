@@ -4,13 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (источник каталога/цен магазина, A2)
 #include "ContrarySurvivorHUD.generated.h"
 
 class UStatsComponent;
 class UQuestComponent;
 class APlayerCharacter;
 class AMasterInventoryItem;
-class ATraderNPC;
 class AElderNPC;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
@@ -112,8 +112,8 @@ public:
 
 	// --- Экран магазина (Фаза 4, экономика — GDD §7.6) — immediate-mode, без UMG/.uasset ---
 
-	// Открыть/закрыть магазин конкретного торговца (вызывается контроллером по клавише).
-	void SetShopOpen(bool bOpen, ATraderNPC* Trader);
+	// Открыть/закрыть магазин конкретного вендора (вызывается контроллером по клавише).
+	void SetShopOpen(bool bOpen, TScriptInterface<IShopVendor> Trader);
 	bool IsShopOpen() const { return bShopOpen; }
 
 	// Обработать клик мыши/тап по экрану магазина (купить/продать/закрыть). Возвращает true,
@@ -432,9 +432,10 @@ private:
 
 	bool bShopOpen = false;
 
-	// Торговец, чей каталог отрисовываем (источник цен/товаров).
+	// Вендор, чей каталог отрисовываем (источник цен/товаров). Интерфейс — развязка от
+	// конкретного класса торговца (A2). TScriptInterface держит и UObject, и интерфейс-указатель.
 	UPROPERTY()
-	ATraderNPC* ShopTrader = nullptr;
+	TScriptInterface<IShopVendor> ShopTrader;
 
 	// Кликабельные зоны магазина, пересобираются каждый DrawShop.
 	TArray<FShopHitRegion> ShopHitRegions;

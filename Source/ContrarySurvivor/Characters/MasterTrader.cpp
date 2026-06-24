@@ -4,6 +4,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "PlayerCharacter.h" // APlayerCharacter (тот же каталог Characters/) — для каста overlap'а
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // регистрация ближайшего вендора (A2)
 #include "AMasterInventoryItem.h"
 #include "AConsumableItem.h"
 #include "AHeadArmor.h"
@@ -110,29 +111,40 @@ void AMasterTrader::OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, 
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	// Реагируем только на игрока.
-	if (!Cast<APlayerCharacter>(OtherActor))
+	APlayerCharacter* Player = Cast<APlayerCharacter>(OtherActor);
+	if (!Player)
 	{
 		return;
 	}
 
 	bPlayerInRange = true;
 
-	// ЗАМЕЧАНИЕ ПО ИНТЕГРАЦИИ: открытие магазина в AContrarySurvivorPlayerController жёстко
-	// типизировано под ATraderNPC* (SetNearbyTrader/OpenShop/NearbyTrader). Регистрацию этого
-	// (нового) типа в контроллере НЕ делаем здесь — это правка контроллера, выходящая за рамки
-	// «нового класса» и требующая согласования (см. отчёт). Пока — детект + флаг + лог.
-	UE_LOG(LogTemp, Log, TEXT("MasterTrader '%s': player in range (shop wiring pending controller integration)"), *GetName());
+	// A2: контроллер развязан от конкретного класса — NearbyTrader теперь TScriptInterface<IShopVendor>.
+	// 'this' (AMasterTrader реализует IShopVendor) регистрируется как ближайший вендор; клавиша
+	// Interact открывает магазин через интерфейс. По образцу overlap'а бывшего ATraderNPC.
+	if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController()))
+	{
+		PC->SetNearbyTrader(this);
+		UE_LOG(LogTemp, Log, TEXT("MasterTrader '%s': player in range (press Interact to trade)"), *GetName());
+	}
 }
 
 void AMasterTrader::OnInteractEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	if (!Cast<APlayerCharacter>(OtherActor))
+	APlayerCharacter* Player = Cast<APlayerCharacter>(OtherActor);
+	if (!Player)
 	{
 		return;
 	}
 
 	bPlayerInRange = false;
+
+	// A2: снимаем регистрацию ближайшего вендора (контроллер сам закроет магазин, если был открыт).
+	if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController()))
+	{
+		PC->ClearNearbyTrader(this);
+	}
 }
 
 float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const

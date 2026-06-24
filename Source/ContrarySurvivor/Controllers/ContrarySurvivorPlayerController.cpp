@@ -20,7 +20,8 @@
 #include "GameFramework/CharacterMovementComponent.h" // QA: StopMovementImmediately (телепорт V)
 #include "Components/CapsuleComponent.h"              // QA: halfHeight капсулы (телепорт V)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
-#include "ContrarySurvivor/Actors/TraderNPC.h"
+#include "ContrarySurvivor/Actors/ShopTypes.h"          // FShopEntry (каталог в OnQABuyCheapest, A2)
+#include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
@@ -818,13 +819,15 @@ void AContrarySurvivorPlayerController::OnQATeleportToTrader()
 		return;
 	}
 
-	ATraderNPC* Trader = nullptr;
+	// A2: ищем ближайшего вендора по интерфейсу (IShopVendor), а не по конкретному классу —
+	// торговцем может быть любой актёр, реализующий UShopVendor (сейчас AMasterTrader / BP_Trader).
+	AActor* Trader = nullptr;
 	float BestDistSq = TNumericLimits<float>::Max();
 	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-	for (TActorIterator<ATraderNPC> It(World); It; ++It)
+	for (TActorIterator<AActor> It(World); It; ++It)
 	{
-		ATraderNPC* Candidate = *It;
-		if (!IsValid(Candidate))
+		AActor* Candidate = *It;
+		if (!IsValid(Candidate) || !Candidate->Implements<UShopVendor>())
 		{
 			continue;
 		}
@@ -941,7 +944,7 @@ void AContrarySurvivorPlayerController::OnQABuyCheapest()
 {
 	// F9: купить самый дешёвый товар у БЛИЖАЙШЕГО торговца. Без торговца рядом — пропуск с логом.
 	// Shop_BuyEntry сам пишет QA-строку BUY (баланс/цена) при успехе.
-	if (!IsValid(NearbyTrader))
+	if (!IsValid(NearbyTrader.GetObject()))
 	{
 		UE_LOG(LogQA, Display, TEXT("QA: BUY skipped - no trader near"));
 		return;
@@ -979,7 +982,7 @@ void AContrarySurvivorPlayerController::OnQASellFirstItem()
 	// F10: продать ПЕРВЫЙ предмет рюкзака ближайшему торговцу. Цена выкупа = trader->GetSellValue.
 	// Без торговца рядом продавать некому — пропуск с логом (допущение: продажа требует торговца).
 	// Shop_SellItem сам пишет QA-строку SELL (баланс/цена).
-	if (!IsValid(NearbyTrader))
+	if (!IsValid(NearbyTrader.GetObject()))
 	{
 		UE_LOG(LogQA, Display, TEXT("QA: SELL skipped - no trader near"));
 		return;
@@ -1184,12 +1187,12 @@ void AContrarySurvivorPlayerController::GiveQuestItems(const FString& ItemName, 
 		/*bScreen=*/true);
 }
 
-void AContrarySurvivorPlayerController::SetNearbyTrader(ATraderNPC* Trader)
+void AContrarySurvivorPlayerController::SetNearbyTrader(TScriptInterface<IShopVendor> Trader)
 {
 	NearbyTrader = Trader;
 }
 
-void AContrarySurvivorPlayerController::ClearNearbyTrader(ATraderNPC* Trader)
+void AContrarySurvivorPlayerController::ClearNearbyTrader(TScriptInterface<IShopVendor> Trader)
 {
 	// Сбрасываем, только если уходим именно от текущего торговца.
 	if (NearbyTrader == Trader)
@@ -1340,9 +1343,11 @@ void AContrarySurvivorPlayerController::OnInteract()
 		}
 		case EInteractKind::Trader:
 		{
-			if (ATraderNPC* Trader = Cast<ATraderNPC>(CurrentInteractActor))
+			// A2: вендор определяется по интерфейсу, не по классу. CurrentInteractActor (AActor*)
+			// неявно сворачивается в TScriptInterface<IShopVendor> — интерфейс резолвится кастом.
+			if (CurrentInteractActor && CurrentInteractActor->Implements<UShopVendor>())
 			{
-				OpenShop(Trader);
+				OpenShop(CurrentInteractActor);
 			}
 			break;
 		}
@@ -1360,7 +1365,7 @@ void AContrarySurvivorPlayerController::OnInteract()
 	}
 }
 
-void AContrarySurvivorPlayerController::OpenShop(ATraderNPC* Trader)
+void AContrarySurvivorPlayerController::OpenShop(TScriptInterface<IShopVendor> Trader)
 {
 	if (!Trader || bShopOpen)
 	{
@@ -1381,7 +1386,7 @@ void AContrarySurvivorPlayerController::OpenShop(ATraderNPC* Trader)
 	SetInputMode(Mode);
 	bShowMouseCursor = true;
 
-	UE_LOG(LogTemp, Log, TEXT("Shop OPEN (trader %s)"), *Trader->GetName());
+	UE_LOG(LogTemp, Log, TEXT("Shop OPEN (trader %s)"), *GetNameSafe(Trader.GetObject()));
 }
 
 void AContrarySurvivorPlayerController::CloseShop()
@@ -1492,11 +1497,12 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	const FVector Loc = ControlledPawn->GetActorLocation();
 	float BestDistSq = TNumericLimits<float>::Max();
 
-	// Торговец: проксимити уже задана его overlap-триггером (NearbyTrader).
-	if (IsValid(NearbyTrader))
+	// Торговец: проксимити уже задана его overlap-триггером (NearbyTrader). Вендор хранится как
+	// интерфейс (A2) — для дистанции/идентичности берём его UObject как актёра (GetObject).
+	if (AActor* TraderActor = Cast<AActor>(NearbyTrader.GetObject()))
 	{
-		BestDistSq = FVector::DistSquared(Loc, NearbyTrader->GetActorLocation());
-		CurrentInteractActor = NearbyTrader;
+		BestDistSq = FVector::DistSquared(Loc, TraderActor->GetActorLocation());
+		CurrentInteractActor = TraderActor;
 		CurrentInteractKind = EInteractKind::Trader;
 	}
 

@@ -9,10 +9,10 @@
 #include "InputMappingContext.h"
 #include "InputAction.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
+#include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (ближайший вендор/магазин развязан от класса, A2)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
-class ATraderNPC;
 class AElderNPC;
 class APickup;
 
@@ -40,9 +40,9 @@ public:
 
 	// --- Торговец/магазин (Фаза 4) — вызываются торговцем (overlap) и HUD (кнопка Close) ---
 
-	// Регистрирует/сбрасывает ближайшего торговца (вызывает ATraderNPC при overlap).
-	void SetNearbyTrader(ATraderNPC* Trader);
-	void ClearNearbyTrader(ATraderNPC* Trader);
+	// Регистрирует/сбрасывает ближайшего вендора (вызывает торговец-актёр через IShopVendor при overlap).
+	void SetNearbyTrader(TScriptInterface<IShopVendor> Trader);
+	void ClearNearbyTrader(TScriptInterface<IShopVendor> Trader);
 
 	// Закрыть магазин (кнопка Close в UI / уход от торговца): вернуть режим ввода в Game.
 	UFUNCTION(BlueprintCallable, Category = "Shop")
@@ -167,8 +167,8 @@ protected:
 	UFUNCTION()
 	void OnInteract();
 
-	// Открывает магазин конкретного торговца (вынесено из OnInteract): HUD + режим ввода UI.
-	void OpenShop(ATraderNPC* Trader);
+	// Открывает магазин конкретного вендора (вынесено из OnInteract): HUD + режим ввода UI.
+	void OpenShop(TScriptInterface<IShopVendor> Trader);
 
 	// Открывает диалог с конкретным старостой (Фаза 5): предлагает квест журналу игрока
 	// (OfferQuest), включает HUD-окно диалога и режим ввода UI.
@@ -351,9 +351,11 @@ private:
 	// движение подавлено. Источник переключения — OnInteract/CloseShop.
 	bool bShopOpen = false;
 
-	// Ближайший торговец (выставляется его overlap-триггером). null — торговца рядом нет.
+	// Ближайший вендор (выставляется его overlap-триггером). Пусто — торговца рядом нет.
+	// Интерфейс — развязка от конкретного класса торговца (A2). TScriptInterface держит и
+	// UObject (для IsValid/GetActorLocation через GetObject), и интерфейс-указатель (каталог/цены).
 	UPROPERTY()
-	ATraderNPC* NearbyTrader = nullptr;
+	TScriptInterface<IShopVendor> NearbyTrader;
 
 	// Открыт ли экран диалога (модальный, как магазин): клик уходит в диалог, движение подавлено.
 	bool bDialogOpen = false;

@@ -3,33 +3,32 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
-#include "InteractableNPCInterface.h" // HUD-маркер находимости
-#include "ContrarySurvivor/Components/QuestComponent.h" // FQuest (предлагаемый квест)
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // база: модульный гуманоид (как AMasterTrader)
+#include "InteractableNPCInterface.h"                            // HUD-маркер находимости
+#include "ContrarySurvivor/Components/QuestComponent.h"          // FQuest (предлагаемый квест)
 #include "ElderNPC.generated.h"
 
 class USphereComponent;
-class UStaticMeshComponent;
-class USkeletalMeshComponent;
-class UMaterialInterface;
 class UQuestComponent;
 
 /**
  * Староста деревни (Фаза 5, GDD §7.7 — квестодатель MVP).
  *
- * По образцу ATraderNPC: обычный AActor (НЕ Pawn), без UStatsComponent — поэтому не
- * попадает в авто-лок/хелсбары игрока (двойная защита: не Pawn + нет Stats). Меш без
- * коллизии. Реализует IInteractableNPCInterface -> над ним HUD рисует маркер находимости
- * (метка "Elder"). Ставится актёром на уровень (в деревне) в редакторе.
+ * A3: переведён с болванки AActor на AMasterHumanoidCharacter (модульный гуманоид, как
+ * AMasterTrader). Визуал (Head/Torso/Legs + AnimBP) назначается в BP_Elder оператором —
+ * C++ больше НЕ хардкодит меш/ABP. Не несёт UStatsComponent и НЕ блокирует ECC_Visibility,
+ * как и торговец, поэтому не попадает в авто-лок/хелсбары игрока и простреливается насквозь.
  *
- * Отличие от торговца: ЯРКО-ГОЛУБОЙ плейсхолдер (торговец — маджента), и взаимодействие
- * (E) открывает ДИАЛОГ (а не магазин). Диалог предлагает Kill-квест «убить 5 волков».
+ * Взаимодействие (E) открывает ДИАЛОГ (а не магазин). Диалог предлагает Collect-квест
+ * «3 шкуры волков» (без kill-цели — гейт по собранным шкурам), после сдачи — «зачистить базу
+ * бандитов». При входе игрока в радиус (overlap) староста регистрируется у
+ * AContrarySurvivorPlayerController (NearbyElder).
  *
- * Регистрация: при входе игрока в радиус (overlap) староста регистрируется у
- * AContrarySurvivorPlayerController (NearbyElder). Клавиша Interact открывает диалог.
+ * Риски модульного гуманоида (проверить в PIE): капсула Character'а ТВЁРДАЯ (может загородить
+ * проход) — приемлемо для статичного NPC; авто-AIController подавлен AutoPossessAI=Disabled.
  */
 UCLASS(Blueprintable)
-class CONTRARYSURVIVOR_API AElderNPC : public AActor, public IInteractableNPCInterface
+class CONTRARYSURVIVOR_API AElderNPC : public AMasterHumanoidCharacter, public IInteractableNPCInterface
 {
 	GENERATED_BODY()
 
@@ -51,42 +50,17 @@ public:
 	virtual float GetNPCMarkerZOffset() const override { return 320.0f; }
 
 protected:
-	virtual void BeginPlay() override;
+	virtual void PostInitializeComponents() override;
 
-	// Триггер диалоговой зоны: overlap по Pawn (игроку).
+	// Триггер диалоговой зоны: overlap по Pawn (игроку). По образцу AMasterTrader::InteractTrigger.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
 	USphereComponent* InteractTrigger;
 
-	// Визуал старосты: скелет-меш SK_Elder на общем гуманоидном скелете (Head_Skeleton)
-	// + AnimBP ABP_HumanoidCharacter (idle/walk/run). Заменил кислотный плейсхолдер.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
-	USkeletalMeshComponent* CharMesh;
-
-	// Плейсхолдер-меш тела (без коллизии). СКРЫТ (визуал-пасс): заменён на CharMesh.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
-	UStaticMeshComponent* MeshComponent;
-
-	// Яркий «маяк»-шар над телом — заметная макушка, чтобы старосту было видно издалека.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
-	UStaticMeshComponent* BeaconComponent;
-
-	// Базовый материал плейсхолдера (BasicShapeMaterial: вектор-параметр "Color").
-	UPROPERTY()
-	UMaterialInterface* PlaceholderBaseMaterial = nullptr;
-
-	// Яркий цвет плейсхолдера: ярко-голубой (ОТЛИЧЕН от торговца — мадженты), решение Рината.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
-	FLinearColor PlaceholderColor = FLinearColor(0.1f, 0.7f, 1.0f, 1.0f); // ярко-голубой
-
 	// Радиус, в котором доступно взаимодействие (см). DRAFT.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Elder")
 	float InteractRadius = 220.0f;
 
-	// [ТЕСТ] временное поле — будет удалено
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Elder")
-	float TestPingValue = 1.0f;
-
-	// Квест 1 (DRAFT: «Шкуры волков» — собрать 5 шкур, награда 150). Тюнингуется в редакторе.
+	// Квест 1 (DRAFT: «Шкуры волков» — собрать 3 шкуры, награда 150). Тюнингуется в редакторе.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest OfferedQuest;
 

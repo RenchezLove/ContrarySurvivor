@@ -5,7 +5,8 @@
 #include "CoreMinimal.h"
 #include "MasterHumanoidCharacter.h"                          // база (тот же каталог Characters/)
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // HUD-маркер находимости
-#include "ContrarySurvivor/Actors/TraderNPC.h"                // ПЕРЕИСПОЛЬЗУЕМ FShopEntry / EShopEntryKind (без дублирования USTRUCT/UENUM)
+#include "ContrarySurvivor/Actors/ShopTypes.h"                // FShopEntry / EShopEntryKind (нейтральный тип, A2)
+#include "ContrarySurvivor/Actors/ShopVendor.h"               // IShopVendor (магазин развязан от конкретного класса, A2)
 #include "MasterTrader.generated.h"
 
 class USphereComponent;
@@ -14,9 +15,10 @@ class AMasterInventoryItem;
 /**
  * NPC-торговец на базе модульного гуманоида (Фаза «чистка деревни»).
  *
- * В ОТЛИЧИЕ от старого ATraderNPC (обычный AActor, не Pawn) — это полноценный
- * AMasterHumanoidCharacter (Pawn). Старый ATraderNPC НАМЕРЕННО оставлен на месте (откат);
- * этот класс — новый родитель для BP_Trader, перенимающий магазин/торговлю по его образцу.
+ * Это полноценный AMasterHumanoidCharacter (Pawn) и ЕДИНСТВЕННЫЙ вендор магазина: родитель
+ * BP_Trader, реализует IShopVendor (каталог/цены). До A2 существовал старый ATraderNPC
+ * (обычный AActor, не Pawn), под который были жёстко типизированы PlayerController/HUD; в A2
+ * он удалён, а магазин развязан от класса через интерфейс IShopVendor.
  *
  * --- Почему стрельба игрока остаётся «как раньше» (подтверждено исходниками) ---
  *  1) НЕ несёт UStatsComponent. Авто-лок и хелсбары игрока
@@ -37,21 +39,23 @@ class AMasterInventoryItem;
  * Реализует IInteractableNPCInterface → HUD сам рисует над ним маркер «Trader».
  */
 UCLASS(Blueprintable)
-class CONTRARYSURVIVOR_API AMasterTrader : public AMasterHumanoidCharacter, public IInteractableNPCInterface
+class CONTRARYSURVIVOR_API AMasterTrader : public AMasterHumanoidCharacter, public IInteractableNPCInterface, public IShopVendor
 {
 	GENERATED_BODY()
 
 public:
 	AMasterTrader();
 
-	// Каталог товаров (для отрисовки магазина и покупки) — по образцу ATraderNPC.
-	const TArray<FShopEntry>& GetCatalog() const { return Catalog; }
+	// --- IShopVendor (магазин: каталог/цены; вызывается из PlayerController и HUD) ---
+
+	// Каталог товаров (для отрисовки магазина и покупки).
+	virtual const TArray<FShopEntry>& GetCatalog() const override { return Catalog; }
 
 	// Цена выкупа предмета у игрока (DRAFT ~50% от цены покупки, по категории).
-	float GetSellValue(const AMasterInventoryItem* Item) const;
+	virtual float GetSellValue(const AMasterInventoryItem* Item) const override;
 
 	// Цена выкупа ОДНОГО патрона (для слайдера продажи стака патронов).
-	float GetAmmoSellPerRound() const { return SellValueAmmoPerRound; }
+	virtual float GetAmmoSellPerRound() const override { return SellValueAmmoPerRound; }
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
 	virtual FString GetNPCMarkerLabel() const override { return TEXT("Trader"); }

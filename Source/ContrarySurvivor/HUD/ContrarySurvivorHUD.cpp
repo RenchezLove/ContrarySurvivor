@@ -18,7 +18,7 @@
 #include "ARangedWeapon.h"        // патроны экипированного дальнобоя в HUD (#5)
 #include "UInventoryComponent.h"  // рюкзак
 #include "AAmmoItem.h"            // стак патронов (слайдер продажи)
-#include "ContrarySurvivor/Actors/TraderNPC.h" // каталог/цены магазина
+#include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry / EShopEntryKind (каталог/цены магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 
@@ -489,10 +489,10 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 // Экран магазина (immediate-mode, без UMG/.uasset) — GDD §7.6
 // ===========================================================================
 
-void AContrarySurvivorHUD::SetShopOpen(bool bOpen, ATraderNPC* Trader)
+void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor> Trader)
 {
 	bShopOpen = bOpen;
-	ShopTrader = bOpen ? Trader : nullptr;
+	ShopTrader = bOpen ? Trader : TScriptInterface<IShopVendor>();
 	CancelShopSlider(); // закрытие/открытие магазина сбрасывает активную транзакцию
 	if (!bOpen)
 	{
