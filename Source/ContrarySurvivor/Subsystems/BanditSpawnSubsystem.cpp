@@ -18,7 +18,7 @@ UBanditSpawnSubsystem::UBanditSpawnSubsystem()
 	// BP_EnemyBandit несёт модульный визуал (меши Head/Torso/Legs назначены в редакторе) и AI.
 	// FClassFinder без дота сам добавляет ".<name>_C".
 	static ConstructorHelpers::FClassFinder<AEnemyCharacter> BanditBP(
-		TEXT("/Game/Blueprints/Enemies/BP_EnemyBandit"));
+		TEXT("/Game/Characters/Bandit/BP_EnemyBandit"));
 	if (BanditBP.Succeeded())
 	{
 		BanditClass = BanditBP.Class;
