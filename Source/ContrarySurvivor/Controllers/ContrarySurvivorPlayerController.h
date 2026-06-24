@@ -82,15 +82,6 @@ public:
 	// Текст подсказки («E — подобрать» / «E — торговать») для отрисовки на HUD.
 	FString GetInteractPromptText() const;
 
-	// --- QA headless-автотест погони волков (cs.TestWolfChase, CU-free) ---
-	// Запускается консольной командой cs.TestWolfChase (см. Debug/QAChaseTest.cpp). Сценарий:
-	// 1) телепорт игрока к Логову (переиспользует OnQATeleportToWolfDen — логику клавиши V),
-	// 2) принудительный спавн волков (UWolfSpawnSubsystem::QAForceSpawnWolves),
-	// 3) таймер-сэмплинг каждые 0.5с (~15с): лог QA-TEST: dist/selfNav/targetNav,
-	// 4) вердикт WOLF-CHASE PASS/FAIL по критериям (nav-погоня + монотонное сближение + контакт).
-	// Публичный — вызывается из консольной команды через PlayerController 0.
-	void QA_RunWolfChaseTest();
-
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
@@ -286,17 +277,6 @@ protected:
 	UFUNCTION()
 	void OnQAForceKillNearest();
 
-	// V: телепорт игрока к Логову волков (WolfDenLocation из UWolfSpawnSubsystem) — чтобы
-	// тестер дошёл до места kill-квеста (навигация CU на +Y ненадёжна). Высота — трасса до пола.
-	UFUNCTION()
-	void OnQATeleportToWolfDen();
-
-	// Z: телепорт игрока к базе бандитов (BanditBaseLocation из UBanditSpawnSubsystem) — зеркало V.
-	// Тестер не доходит до базы (юг, −Y) пешком top-down камерой; телепорт активирует спавн бандитов
-	// «по приближению» (квест-2 «зачистить базу»). Высота — трасса до пола.
-	UFUNCTION()
-	void OnQATeleportToBanditBase();
-
 	// Возрождение по клавише (Enter / Пробел) на экране смерти (#26): дубль кнопки «Возродиться»
 	// (CU-мышь по HUD ненадёжна). Если экран смерти открыт — запускает APlayerCharacter::Respawn.
 	UFUNCTION()
@@ -422,22 +402,4 @@ private:
 	// возвращает в авто. Живой ручной lock сохраняется (не перекидывается авто).
 	void UpdateAutoTarget();
 
-	// --- QA headless-автотест погони волков (cs.TestWolfChase): состояние и шаги сэмплинга ---
-
-	// Один сэмпл (по таймеру 0.5с): мерит дистанцию до ближайшего живого волка, проецирует
-	// враг/игрок на навмеш, фиксирует nav-погоню и контакт, пишет строку QA-TEST. Завершает
-	// тест при контакте / 30 сэмплах / пропаже пешки игрока.
-	void QA_WolfChaseSample();
-
-	// Подводит итог теста: считает долю «сближающих» сэмплов и печатает вердикт PASS/FAIL.
-	void QA_FinalizeWolfChaseTest();
-
-	FTimerHandle QAChaseTimerHandle;
-	double QAChaseStartTime = 0.0;
-	float QAChaseStartPlayerHP = 0.0f;     // HP игрока на старте теста (контакт = HP упал)
-	float QAChaseEffAttackRange = 0.0f;    // последняя эффективная дальность атаки ближайшего волка
-	int32 QAChaseSampleCount = 0;
-	bool QAChaseAnyNavChase = false;       // хоть один сэмпл видел волка в Chase mode=nav
-	bool QAChaseContact = false;           // достигнут контакт (dist<=effRange ИЛИ HP игрока упал)
-	TArray<float> QAChaseDistSamples;      // дистанции до ближайшего волка по сэмплам (фаза сближения)
 };

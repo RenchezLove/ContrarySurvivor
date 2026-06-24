@@ -64,7 +64,7 @@ AElderNPC::AElderNPC()
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
-	SecondQuest.RequiredItemName = TEXT("Ноутбук"); // имя предмета совпадает со спавном ноутбука (BanditSpawnSubsystem)
+	SecondQuest.RequiredItemName = TEXT("Ноутбук"); // имя предмета совпадает со спавном ноутбука (AMasterEnemyBase, BP_BanditBase)
 	SecondQuest.RequiredItemCount = 1;
 	SecondQuest.RewardMoney = 250.0f;
 	SecondQuest.State = EQuestState::NotStarted;
