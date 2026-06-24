@@ -360,7 +360,7 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	// Деньги / голод / жажда (GDD §7.7) — крупно, золотой, на плашке (#18).
 	if (UStatsComponent* St = Player->GetStats())
 	{
-		const FString StatStr = FString::Printf(TEXT("Money %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
+		const FString StatStr = FString::Printf(TEXT("Монеты %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
 			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
 		DrawLabelWithPlate(StatStr, UIMoneyColor, PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 	}
@@ -718,7 +718,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 
 	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
 	// Деньги — крупно, золотой, на плашке (#18).
-	DrawLabelWithPlate(FString::Printf(TEXT("Money %.0f"), Money), UIMoneyColor,
+	DrawLabelWithPlate(FString::Printf(TEXT("Монеты %.0f"), Money), UIMoneyColor,
 		PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 
 	// Кнопка Close (правый верх панели).
@@ -1283,7 +1283,7 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 	TArray<FString> Lines;
 	Lines.Add(FString::Printf(TEXT("Прожито:  %02d:%02d"), Minutes, Seconds));
 	Lines.Add(FString::Printf(TEXT("Убийца:  %s"), *Player->GetLastDamagerName()));
-	Lines.Add(FString::Printf(TEXT("Деньги:  %.0f"), Money));
+	Lines.Add(FString::Printf(TEXT("Монеты:  %.0f"), Money));
 	Lines.Add(FString::Printf(TEXT("Квестов выполнено:  %d"), QuestsDone));
 	Lines.Add(FString::Printf(TEXT("Врагов убито:  %d"), Kills));
 
@@ -1307,6 +1307,29 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 		const float LX = (SX - LW * StatScale) * 0.5f;
 		DrawShadowedText(Line, DeathStatColor, LX, StatY, Font, StatScale);
 		StatY += LineH;
+	}
+
+	// --- A4/ADR-027: штраф смерти (правка Рината: показываем ВСЕГДА — штраф безусловный) ---
+	// Текст финальный, согласован с макетом docs/contrary-survivor/ui/death-penalty-popup.final.png.
+	{
+		StatY += 14.0f;
+		const FLinearColor PenaltyColor(0.95f, 0.55f, 0.15f, 1.0f); // оранжевый акцент (−40%)
+		const FLinearColor SavedColor(0.45f, 0.85f, 0.45f, 1.0f);   // зелёный «сохранено»
+		const float PenScale = 1.15f;
+
+		auto DrawDeathPenaltyLine = [&](const FString& Text, const FLinearColor& Color)
+		{
+			float TW = 0.0f, TH = 0.0f;
+			if (Font) { GetTextSize(Text, TW, TH, Font); }
+			const float TX = (SX - TW * PenScale) * 0.5f;
+			DrawShadowedText(Text, Color, TX, StatY, Font, PenScale);
+			StatY += LineH;
+		};
+
+		DrawDeathPenaltyLine(TEXT("Возрождение у костра в деревне."), DeathStatColor);
+		DrawDeathPenaltyLine(TEXT("−40% монет — часть монет утрачена при гибели."), PenaltyColor);
+		DrawDeathPenaltyLine(TEXT("Расходники обронены мешком на месте гибели — их можно забрать."), DeathStatColor);
+		DrawDeathPenaltyLine(TEXT("Снаряжение, оружие и важные предметы сохранены."), SavedColor);
 	}
 
 	// --- Кнопка «Возродиться» (рисованный прямоугольник + hit-test) ---
@@ -1473,7 +1496,7 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	}
 
 	// --- Деньги (всегда) + подложка-плашка под текстом (#18) ---
-	const FString MoneyStr = FString::Printf(TEXT("Money %.0f"), Stats->GetMoney());
+	const FString MoneyStr = FString::Printf(TEXT("Монеты %.0f"), Stats->GetMoney());
 	float MoneyW = 0.0f, MoneyH = 0.0f;
 	if (Font)
 	{

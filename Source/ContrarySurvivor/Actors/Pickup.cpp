@@ -43,9 +43,15 @@ void APickup::InitLoot(float Money, AMasterInventoryItem* InCarriedItem)
 	CarriedItem = InCarriedItem;
 }
 
+void APickup::InitLootBag(const TArray<AMasterInventoryItem*>& Items)
+{
+	// A4/ADR-027: «мешок» из нескольких предметов (предметы уже сняты из рюкзака и скрыты).
+	CarriedItems = Items;
+}
+
 bool APickup::HasLoot() const
 {
-	return MoneyAmount > 0.0f || IsValid(CarriedItem);
+	return MoneyAmount > 0.0f || IsValid(CarriedItem) || CarriedItems.Num() > 0;
 }
 
 bool APickup::Collect(APlayerCharacter* Player)
@@ -87,12 +93,28 @@ bool APickup::Collect(APlayerCharacter* Player)
 		bItemDone = true;
 	}
 
+	// A4/ADR-027: «мешок» из нескольких предметов (дроп расходников при смерти) — отдаём ВСЕ.
+	bool bBagDone = (CarriedItems.Num() == 0);
+	if (CarriedItems.Num() > 0 && Inv)
+	{
+		int32 Given = 0;
+		for (AMasterInventoryItem* It : CarriedItems)
+		{
+			if (IsValid(It)) { Inv->AddItem(It); ++Given; }
+		}
+		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted bag of %d items"), *GetName(), Given);
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP bag of %d items into backpack"), Given);
+		CarriedItems.Reset(); // переданы игроку, EndPlay их не уничтожит
+		bBagDone = true;
+	}
+
 	// BUG2-фикс: НЕ уничтожаем пикап, если что-то из лута не удалось начислить — иначе деньги/
 	// предмет «терялись». Пикап остаётся на земле; игрок может нажать E ещё раз.
-	if (!bMoneyDone || !bItemDone)
+	if (!bMoneyDone || !bItemDone || !bBagDone)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': collect partial (money %s, item %s) — kept on ground"),
-			*GetName(), bMoneyDone ? TEXT("ok") : TEXT("FAIL"), bItemDone ? TEXT("ok") : TEXT("FAIL"));
+		UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': collect partial (money %s, item %s, bag %s) — kept on ground"),
+			*GetName(), bMoneyDone ? TEXT("ok") : TEXT("FAIL"), bItemDone ? TEXT("ok") : TEXT("FAIL"),
+			bBagDone ? TEXT("ok") : TEXT("FAIL"));
 		return false;
 	}
 
@@ -109,6 +131,16 @@ void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		CarriedItem->Destroy();
 		CarriedItem = nullptr;
+	}
+
+	// A4/ADR-027: то же для предметов «мешка» (дроп расходников), если не подобрали.
+	if (!bCollected)
+	{
+		for (AMasterInventoryItem* It : CarriedItems)
+		{
+			if (IsValid(It)) { It->Destroy(); }
+		}
+		CarriedItems.Reset();
 	}
 
 	Super::EndPlay(EndPlayReason);

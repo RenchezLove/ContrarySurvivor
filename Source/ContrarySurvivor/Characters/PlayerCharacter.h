@@ -172,12 +172,6 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
     int32 SaveUserIndex = 0;
 
-    // ЧЕРНОВИК (на тюнинг): доля теряемых при смерти НЕэкипированных предметов
-    // категорий Consumable/Resource (GDD §7.8). Надетая броня и оружие в руках —
-    // сохраняются (Фаза 4: UInventoryComponent различает экип/неэкип и категории).
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float DeathItemLossPercent = 0.25f;
-
     // Куда падает выброшенный из рюкзака предмет (мировой пикап): вперёд от игрока и вниз
     // к ногам (см). DRAFT-тюнинг (BUG3: выброс = пикап, а не Destroy).
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
@@ -412,11 +406,15 @@ public:
 
 protected:
     // Смерть игрока (привязана к Stats->OnDeath): респаун на последней точке сейва
-    // (костёр) + потеря доли расходников рюкзака. Экипированное оружие сохраняется.
+    // (костёр) + штраф «вне деревни» (ADR-027). Экипировка/оружие/квест-предметы сохраняются.
     virtual void HandleDeath() override;
 
-    // Применяет потерю предметов рюкзака при смерти (DeathItemLossPercent).
-    void ApplyDeathInventoryPenalty();
+    // A4/ADR-027: роняет ВСЕ неэкипированные расходники (Consumable) ОДНИМ возвращаемым «мешком»
+    // (мульти-предмет APickup) на месте гибели. Квест-предметы/ресурсы/экипировка не трогаются.
+    void DropConsumablesAsBag(const FVector& DeathLoc);
+
+    // A4/ADR-027: −40% денег игрока ПОСЛЕ загрузки сейва + пере-сохранение (анти-reload-эксплойт).
+    void ApplyMoneyDeathPenalty();
 
     // Применяет загруженный сейв к игроку (статы + телепорт в точку респауна).
     void ApplySaveData(const UContrarySaveGame* Save);
@@ -437,6 +435,9 @@ private:
 
     // Счётчик убитых игроком врагов за сессию (инкремент RegisterEnemyKill).
     int32 EnemyKillCount = 0;
+
+    // A4/ADR-027: место гибели (для «мешка» расходников) — снимок в HandleDeath ДО телепорта респауна.
+    FVector DeathDropLocation = FVector::ZeroVector;
 
     // Инстансы оружия (оба заспавнены в BeginPlay). CurrentWeapon базы указывает на активный.
     UPROPERTY()

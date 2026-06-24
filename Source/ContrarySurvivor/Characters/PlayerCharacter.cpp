@@ -1126,37 +1126,80 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
         /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 }
 
-void APlayerCharacter::ApplyDeathInventoryPenalty()
+void APlayerCharacter::DropConsumablesAsBag(const FVector& DeathLoc)
 {
-    // GDD §7.8 (Фаза 4, тех-долг Фазы 2 закрыт): при смерти теряется только доля
-    // НЕэкипированных предметов категорий Consumable/Resource. Надетая броня (экип-слоты)
-    // и оружие в руках (CurrentWeapon, хранится отдельно от InventoryItems) сохраняются.
-    if (!Inventory || DeathItemLossPercent <= 0.0f)
+    // A4/ADR-027: ВСЕ неэкипированные расходники (Consumable) выпадают ОДНИМ возвращаемым «мешком»
+    // (мульти-предмет APickup) на месте гибели — их можно забрать. Квест-предметы, ресурсы, надетая
+    // броня и оружие в руках (CurrentWeapon) НЕ трогаются (старое удаление 25% полностью заменено).
+    if (!Inventory)
     {
         return;
     }
 
-    // Кандидаты на потерю: неэкипированные расходники + ресурсы.
-    TArray<AMasterInventoryItem*> Candidates = Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable);
-    Candidates.Append(Inventory->GetUnequippedItemsOfCategory(EItemCategory::Resource));
-
-    const int32 Total = Candidates.Num();
-    if (Total <= 0)
+    TArray<AMasterInventoryItem*> Consumables = Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable);
+    if (Consumables.Num() == 0)
     {
-        UE_LOG(LogTemp, Log, TEXT("Death penalty: no unequipped consumables/resources to lose."));
+        UE_LOG(LogTemp, Log, TEXT("Death penalty: no unequipped consumables to drop."));
         return;
     }
 
-    const int32 LoseCount = FMath::FloorToInt(Total * DeathItemLossPercent);
-    for (int32 i = 0; i < LoseCount; ++i)
+    UWorld* World = GetWorld();
+    if (!World)
     {
-        // Снимаем с конца списка кандидатов (без выпадения лут-мешка — MVP).
-        AMasterInventoryItem* Item = Candidates[Total - 1 - i];
+        return;
+    }
+
+    // Снимаем расходники из рюкзака и прячем (данные мешка, как при обычном Inv_DropItem).
+    for (AMasterInventoryItem* Item : Consumables)
+    {
+        if (!IsValid(Item))
+        {
+            continue;
+        }
         Inventory->RemoveItem(Item);
+        Item->SetActorHiddenInGame(true);
+        Item->SetActorEnableCollision(false);
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Death penalty: lost %d of %d unequipped consumable/resource items (%.0f%%). Equipped armor/weapons kept."),
-        LoseCount, Total, DeathItemLossPercent * 100.0f);
+    FActorSpawnParameters Sp;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    APickup* Bag = World->SpawnActor<APickup>(APickup::StaticClass(), DeathLoc, FRotator::ZeroRotator, Sp);
+    if (Bag)
+    {
+        Bag->InitLootBag(Consumables);
+        UE_LOG(LogTemp, Log, TEXT("Death penalty: dropped %d consumables as recoverable bag at %s."),
+            Consumables.Num(), *DeathLoc.ToCompactString());
+        UE_LOG(LogQA, Display, TEXT("QA: DEATH-DROP %d consumables (bag) at %s"),
+            Consumables.Num(), *DeathLoc.ToCompactString());
+    }
+    else
+    {
+        // Мешок не заспавнился — не оставляем висящие предметы в мире.
+        for (AMasterInventoryItem* Item : Consumables)
+        {
+            if (IsValid(Item)) { Item->Destroy(); }
+        }
+        UE_LOG(LogTemp, Warning, TEXT("Death penalty: failed to spawn loot bag; consumables destroyed."));
+    }
+}
+
+void APlayerCharacter::ApplyMoneyDeathPenalty()
+{
+    // A4/ADR-027: −40% денег ПОСЛЕ загрузки сейва (иначе LoadGame перезапишет баланс), затем
+    // пере-сохранение — чтобы штраф пережил quit/reload (анти-эксплойт «reload вернёт деньги»).
+    if (!Stats)
+    {
+        return;
+    }
+    const float Before = Stats->GetMoney();
+    const float Penalty = Before * 0.40f;
+    if (Penalty > 0.0f)
+    {
+        Stats->SpendMoney(Penalty); // clamp >=0 + бродкаст HUD (OnMoneyChanged)
+    }
+    SaveGame(); // пере-сохраняем сниженный баланс (+ текущую точку костра)
+    UE_LOG(LogTemp, Log, TEXT("Death penalty: money -40%% (%.0f -> %.0f), re-saved."), Before, Stats->GetMoney());
+    UE_LOG(LogQA, Display, TEXT("QA: DEATH-MONEY -40%% (%.0f -> %.0f)"), Before, Stats->GetMoney());
 }
 
 void APlayerCharacter::HandleDeath()
@@ -1166,6 +1209,10 @@ void APlayerCharacter::HandleDeath()
     // Фиксируем длительность жизни для экрана смерти.
     const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : LifeStartTime;
     LastLifeDuration = FMath::Max(0.0f, Now - LifeStartTime);
+
+    // A4/ADR-027 (правка Рината): штраф БЕЗУСЛОВНЫЙ при ЛЮБОЙ смерти — гейт «вне деревни» убран.
+    // Фиксируем место гибели для «мешка» расходников (используется в Respawn до телепорта).
+    DeathDropLocation = GetActorLocation();
 
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
         LastLifeDuration, *LastDamagerName, EnemyKillCount);
@@ -1201,8 +1248,9 @@ void APlayerCharacter::Respawn()
 {
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: respawn (from death screen)"));
 
-    // 1) Потеря доли расходников рюкзака (экипировка сохраняется).
-    ApplyDeathInventoryPenalty();
+    // 1) Штраф (ADR-027, правка Рината: БЕЗУСЛОВНО при любой смерти), часть 1: расходники выпадают
+    //    мешком НА МЕСТЕ ГИБЕЛИ — ДО телепорта респауна (снимок DeathDropLocation из HandleDeath).
+    DropConsumablesAsBag(DeathDropLocation);
 
     // 2) Респаун: восстановление из последнего сейва (костёр). Если сейва нет —
     //    фолбэк на стартовый трансформ + полные статы.
@@ -1220,6 +1268,10 @@ void APlayerCharacter::Respawn()
         SetActorTransform(InitialSpawnTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
         UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
     }
+
+    // 2b) Штраф (ADR-027), часть 2: −40% денег ПОСЛЕ загрузки (LoadGame перезаписал баланс из
+    //     сейва) + пере-сохранение, чтобы штраф пережил quit/reload (анти-эксплойт). Безусловно.
+    ApplyMoneyDeathPenalty();
 
     // 3) Death-респаун = полные HP/Голод/Жажда (решение game-lead). Деньги — из сейва (шаг 2).
     //    Автосейв костра пишет ЖИВЫЕ значения голода/жажды (жажда деградирует быстрее),

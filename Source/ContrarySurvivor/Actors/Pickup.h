@@ -35,6 +35,11 @@ public:
 	// CarriedItem — предмет (уже заспавненный, скрытый, без коллизии) либо nullptr.
 	void InitLoot(float Money, AMasterInventoryItem* InCarriedItem);
 
+	// A4/ADR-027: «мешок» из НЕСКОЛЬКИХ предметов (дроп расходников при смерти). Предметы уже
+	// сняты из рюкзака и скрыты/без коллизии. Collect отдаёт ВСЕ в рюкзак; EndPlay (если не
+	// подобран) их уничтожает. Совместимо с одиночным CarriedItem (обрабатываются оба).
+	void InitLootBag(const TArray<AMasterInventoryItem*>& Items);
+
 	// Подбор по КЛАВИШЕ E (контекстный interact, Фаза 4 — решение Рината/game-lead): надёжно
 	// начисляет деньги (UStatsComponent) и кладёт предмет в рюкзак (UInventoryComponent), затем
 	// уничтожает пикап. Возвращает true ТОЛЬКО если весь имеющийся лут реально начислен — иначе
@@ -72,6 +77,11 @@ protected:
 	// Предмет, который пикап отдаёт в рюкзак при подборе (nullptr = только деньги).
 	UPROPERTY()
 	AMasterInventoryItem* CarriedItem = nullptr;
+
+	// A4/ADR-027: несколько предметов в «мешке» (дроп расходников при смерти). Отдаются все при
+	// Collect; уничтожаются в EndPlay, если мешок не подобрали. UPROPERTY — держит их живыми (GC).
+	UPROPERTY()
+	TArray<AMasterInventoryItem*> CarriedItems;
 
 private:
 	// true, если лут уже подобран игроком (чтобы EndPlay не уничтожил отданный предмет).

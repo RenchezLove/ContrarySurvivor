@@ -10,8 +10,8 @@
  * Квест-предмет (Фаза 5, GDD §7.7): «Шкура волка», «Ноутбук» и т.п.
  *
  * Категория = Quest (EItemCategory::Quest). Следствия:
- *  - НЕ теряется при смерти игрока (потеря рюкзака берёт только Consumable/Resource —
- *    APlayerCharacter::ApplyDeathInventoryPenalty);
+ *  - НЕ теряется при смерти игрока (штраф смерти роняет мешком только Consumable —
+ *    APlayerCharacter::DropConsumablesAsBag, ADR-027);
  *  - Use() — намеренно пустой (квест-предмет нельзя «съесть»/применить из рюкзака);
  *  - изымается из инвентаря при сдаче квеста старосте (UQuestComponent::TurnInQuest).
  *
