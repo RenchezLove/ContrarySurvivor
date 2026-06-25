@@ -3,6 +3,7 @@
 #include "Campfire.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PointLightComponent.h" // точечный свет огня (яркость/цвет/радиус из настроек)
 #include "Engine/World.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 
@@ -28,6 +29,40 @@ ACampfire::ACampfire()
 	SafeZoneTrigger->SetGenerateOverlapEvents(true);
 
 	SafeZoneTrigger->OnComponentBeginOverlap.AddDynamic(this, &ACampfire::OnSafeZoneBeginOverlap);
+
+	// Точечный свет огня: тёплое свечение костра. Параметры (яркость/цвет/радиус) берутся из
+	// полей FireLight* и применяются здесь + в OnConstruction (правка на размещённом костре).
+	FireLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("FireLight"));
+	FireLight->SetupAttachment(SceneRoot);
+	FireLight->SetRelativeLocation(FVector(0.0f, 0.0f, 60.0f)); // чуть над костром
+	// Movable: иначе SetIntensity/SetLightColor/SetAttenuationRadius в OnConstruction — no-op
+	// (они гейтятся AreDynamicDataChangesAllowed: для Static-света правки игнорируются). Костёр
+	// должен менять свет на размещённом экземпляре, поэтому свет подвижный.
+	FireLight->SetMobility(EComponentMobility::Movable);
+	FireLight->SetIntensity(FireLightIntensity);
+	FireLight->SetLightColor(FireLightColor);
+	FireLight->SetAttenuationRadius(FireLightAttenuationRadius);
+}
+
+void ACampfire::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// Синхронизируем сферу-триггер с SafeZoneRadius — чтобы правка радиуса на РАЗМЕЩЁННОМ костре
+	// сразу меняла отображаемую зону (фикс бага «радиус не влияет»: раньше радиус ставился только
+	// в конструкторе через InitSphereRadius и не пересчитывался при изменении поля в Details).
+	if (SafeZoneTrigger)
+	{
+		SafeZoneTrigger->SetSphereRadius(SafeZoneRadius, /*bUpdateOverlaps=*/false);
+	}
+
+	// Применяем параметры огня к свету — чтобы менять яркость/цвет/радиус прямо на размещённом костре.
+	if (FireLight)
+	{
+		FireLight->SetIntensity(FireLightIntensity);
+		FireLight->SetLightColor(FireLightColor);
+		FireLight->SetAttenuationRadius(FireLightAttenuationRadius);
+	}
 }
 
 void ACampfire::OnSafeZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
