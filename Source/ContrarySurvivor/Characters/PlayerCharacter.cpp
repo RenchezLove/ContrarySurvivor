@@ -1191,15 +1191,17 @@ void APlayerCharacter::ApplyMoneyDeathPenalty()
     {
         return;
     }
+    const float LossFraction = FMath::Clamp(DeathMoneyLossFraction, 0.0f, 1.0f);
     const float Before = Stats->GetMoney();
-    const float Penalty = Before * 0.40f;
+    const float Penalty = Before * LossFraction;
     if (Penalty > 0.0f)
     {
         Stats->SpendMoney(Penalty); // clamp >=0 + бродкаст HUD (OnMoneyChanged)
     }
     SaveGame(); // пере-сохраняем сниженный баланс (+ текущую точку костра)
-    UE_LOG(LogTemp, Log, TEXT("Death penalty: money -40%% (%.0f -> %.0f), re-saved."), Before, Stats->GetMoney());
-    UE_LOG(LogQA, Display, TEXT("QA: DEATH-MONEY -40%% (%.0f -> %.0f)"), Before, Stats->GetMoney());
+    const float LossPct = LossFraction * 100.0f;
+    UE_LOG(LogTemp, Log, TEXT("Death penalty: money -%.0f%% (%.0f -> %.0f), re-saved."), LossPct, Before, Stats->GetMoney());
+    UE_LOG(LogQA, Display, TEXT("QA: DEATH-MONEY -%.0f%% (%.0f -> %.0f)"), LossPct, Before, Stats->GetMoney());
 }
 
 void APlayerCharacter::HandleDeath()

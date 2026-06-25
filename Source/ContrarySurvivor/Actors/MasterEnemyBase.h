@@ -11,6 +11,7 @@ class ACharacter;
 class AMasterInventoryItem;
 class APickup;
 class USceneComponent;
+class UEnemySpawnPointComponent;
 
 /**
  * Размещаемая зона спавна врагов «по приближению» (A5: замена UWolfSpawnSubsystem +
@@ -22,13 +23,20 @@ class USceneComponent;
  * размещённого актора (хардкод координат ±3500 убран — место задаёт оператор расстановкой).
  *
  * Активация: повторяющийся таймер (ActivationCheckPeriod) проверяет дистанцию игрока; при
- * входе в радиус — пауза SpawnDelay (Nav Invoker достраивает тайлы), затем спавн NumToSpawn
- * врагов по кругу (SpreadRadius), навмеш-проекция + floor-trace Z (SpawnPlacement). Опц.
- * квест-предмет (ноутбук кв.2) кладётся пикапом в центре.
+ * входе в радиус — пауза SpawnDelay (Nav Invoker достраивает тайлы), затем спавн врагов,
+ * навмеш-проекция + floor-trace Z (SpawnPlacement). Опц. квест-предмет (ноутбук кв.2) кладётся
+ * пикапом в центре.
  *
- * BP-наследники (editor): BP_WolfDen (EnemyClass=BP_Wolf, NumToSpawn=4, север),
- * BP_BanditBase (EnemyClass=BP_EnemyBandit, NumToSpawn=3, bSpawnQuestItem, юг). Числа/классы
- * задаёт BP — в C++ нейтральные дефолты (NumToSpawn=1, EnemyClass пуст).
+ * ТОЧКИ СПАВНА (задача Рината): позиции врагов берутся из компонентов-маркеров
+ * UEnemySpawnPointComponent, которые дизайнер расставляет/двигает во вьюпорте BP. Сколько
+ * точек размещено — столько врагов и спавнится (в позициях точек, лицом по стрелке точки).
+ * Если в BP не размещено ни одной точки — fallback на старое поведение: NumToSpawn врагов по
+ * кругу (SpreadRadius) вокруг центра актора. C++ создаёт одну дефолтную точку, чтобы базовый
+ * актор уже имел видимый перемещаемый маркер.
+ *
+ * BP-наследники (editor): BP_WolfDen (EnemyClass=BP_Wolf, 4 точки, север),
+ * BP_BanditBase (EnemyClass=BP_EnemyBandit, 3 точки, bSpawnQuestItem, юг). Классы и точки
+ * задаёт BP — в C++ нейтральные дефолты (EnemyClass пуст, одна точка-образец).
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AMasterEnemyBase : public AActor
@@ -45,48 +53,56 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
 	USceneComponent* SceneRoot;
 
+	// Дефолтная точка спавна — образец, чтобы у базового актора уже был видимый перемещаемый
+	// маркер. Дизайнер двигает её и/или добавляет ещё точек (Enemy Spawn Point) в дереве BP.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	UEnemySpawnPointComponent* DefaultSpawnPoint;
+
 	// Класс врага для спавна (BP_Wolf / BP_EnemyBandit назначает оператор в BP-наследнике).
-	// Нейтральный дефолт — пусто (без BP спавна не будет; число/класс не хардкодим в C++).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	// Нейтральный дефолт — пусто (без BP спавна не будет; класс не хардкодим в C++).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase")
 	TSubclassOf<ACharacter> EnemyClass;
 
-	// Сколько врагов спавнить. Нейтральный дефолт 1; 4 (волки) / 3 (бандиты) ставит BP.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	// Дистанция спавна (см): первый вход игрока (XY) в этот радиус от актора → спавн. Чем больше,
+	// тем дальше игрок, когда враги появляются (чтобы не видеть спавн вблизи). Тюнинг per-instance
+	// в BP. 3500 ≈ 35 м (спавн вне зоны видимости, до подхода игрока к базе).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "100.0", UIMin = "100.0"))
+	float ActivationRadius = 3500.0f;
+
+	// FALLBACK (только если в BP НЕ размещено ни одной точки спавна): сколько врагов спавнить по
+	// кругу вокруг центра. Если точки расставлены — число врагов = число точек, это поле не используется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Fallback")
 	int32 NumToSpawn = 1;
 
-	// Радиус активации (см): первый вход игрока (XY) в радиус от актора → спавн. ~1200 ≈ 12 м.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
-	float ActivationRadius = 1200.0f;
-
-	// Разброс врагов по кругу вокруг центра зоны (см).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	// FALLBACK: радиус круговой раскладки врагов вокруг центра (см). Используется только без точек спавна.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Fallback")
 	float SpreadRadius = 400.0f;
 
 	// Задержка (сек) между входом игрока в радиус и фактическим спавном — Nav Invoker на игроке
 	// успевает достроить навмеш-тайлы вокруг зоны (бандиты/волки садятся navmesh=yes). Тюнинг в BP.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase")
 	float SpawnDelay = 0.5f;
 
 	// Период проверки дистанции игрока до зоны (сек).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase")
 	float ActivationCheckPeriod = 0.5f;
 
 	// --- Опц. квест-предмет (напр. «Ноутбук» на базе бандитов, кв.2 старосты) ---
 
 	// Класть ли квест-предмет в центре зоны при активации (BP_BanditBase ставит true).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	bool bSpawnQuestItem = false;
 
 	// Класс квест-предмета (дефолт AQuestItem — категория Quest, не теряется при смерти).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	TSubclassOf<AMasterInventoryItem> QuestItemClass;
 
 	// Класс пикапа-носителя (дефолт APickup).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	TSubclassOf<APickup> PickupClass;
 
 	// Имя квест-предмета (должно совпадать с RequiredItemName квеста старосты, напр. «Ноутбук»).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "EnemyBase|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	FString QuestItemName = TEXT("Ноутбук");
 
 private:
@@ -102,8 +118,16 @@ private:
 	// Отложенный спавн (после паузы на построение навмеша): враги + опц. квест-предмет.
 	void DoSpawn();
 
-	// Спавнит NumToSpawn врагов по кругу вокруг центра зоны (высота — трасса до пола).
+	// Спавнит врагов: по одному в позиции каждой размещённой точки спавна
+	// (UEnemySpawnPointComponent); если точек нет — fallback на круговую раскладку NumToSpawn.
 	void SpawnEnemies();
+
+	// Собирает мировые трансформы всех размещённых точек спавна (UEnemySpawnPointComponent).
+	// Пусто, если дизайнер не оставил ни одной точки в BP (тогда работает fallback).
+	void CollectSpawnPointTransforms(TArray<FTransform>& OutTransforms) const;
+
+	// Спавнит одного врага в позиции SpawnTransform (XY на навмеш + floor-trace Z, Yaw из точки).
+	void SpawnOneEnemy(const FTransform& SpawnTransform);
 
 	// Спавнит пикап с квест-предметом в центре зоны (если bSpawnQuestItem).
 	void SpawnQuestItem();

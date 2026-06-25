@@ -975,7 +975,18 @@ bool AContrarySurvivorHUD::HandleDialogClick(FVector2D ScreenPos)
 	UQuestComponent* Quests = Player->GetQuests();
 	AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC);
 	// Актуальный квест старосты по порядку (кв.1, затем кв.2 после сдачи кв.1).
-	const FName QuestId = DialogElder->GetQuestForPlayer(Quests).QuestId;
+	const FQuest& ActiveQuest = DialogElder->GetQuestForPlayer(Quests);
+	const FName QuestId = ActiveQuest.QuestId;
+
+	// Когда актуальный квест сменился ВНУТРИ той же сессии диалога (сдали кв.1 -> старостой
+	// предлагается кв.2), новый квест ещё мог не попасть в журнал: OfferQuest вызывается только
+	// при ОТКРЫТИИ диалога. Без записи в журнал AcceptQuest не найдёт квест (FindQuestMutable ==
+	// nullptr) и [Принять] «не прожмётся» до переоткрытия диалога. Предлагаем актуальный квест в
+	// журнал прямо здесь (идемпотентно — если он уже там, ничего не меняется).
+	if (Quests)
+	{
+		Quests->OfferQuest(ActiveQuest);
+	}
 
 	for (const FDialogHitRegion& R : DialogHitRegions)
 	{
@@ -1051,6 +1062,13 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 
 	// Определяем текст и кнопки по состоянию АКТУАЛЬНОГО квеста (по порядку) в журнале игрока.
 	const FQuest& Offered = DialogElder->GetQuestForPlayer(Player->GetQuests());
+	// Синхронизируем журнал с актуальным квестом старосты КАЖДЫЙ кадр отрисовки: если внутри той же
+	// сессии диалога квест сменился (сдали кв.1 -> предлагается кв.2), запись в журнал появится сразу,
+	// и кнопка [Принять] сработает с первого клика без переоткрытия диалога. Идемпотентно.
+	if (UQuestComponent* PlayerQuests = Player->GetQuests())
+	{
+		PlayerQuests->OfferQuest(Offered);
+	}
 	const FQuest* InLog = Player->GetQuests() ? Player->GetQuests()->FindQuest(Offered.QuestId) : nullptr;
 	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
 	// Источник данных квеста: журнал (если уже в нём) либо предложение старосты (ещё не принят).
@@ -1326,8 +1344,14 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 			StatY += LineH;
 		};
 
+		// Процент монет берём из игрока (DeathMoneyLossFraction), чтобы текст не расходился с
+		// фактическим штрафом при смене параметра в BP. Остальные строки попапа — финальные.
+		const int32 MoneyLossPct = FMath::RoundToInt(Player->GetDeathMoneyLossFraction() * 100.0f);
+		const FString MoneyPenaltyLine = FString::Printf(
+			TEXT("−%d%% монет — часть монет утрачена при гибели."), MoneyLossPct);
+
 		DrawDeathPenaltyLine(TEXT("Возрождение у костра в деревне."), DeathStatColor);
-		DrawDeathPenaltyLine(TEXT("−40% монет — часть монет утрачена при гибели."), PenaltyColor);
+		DrawDeathPenaltyLine(MoneyPenaltyLine, PenaltyColor);
 		DrawDeathPenaltyLine(TEXT("Расходники обронены мешком на месте гибели — их можно забрать."), DeathStatColor);
 		DrawDeathPenaltyLine(TEXT("Снаряжение, оружие и важные предметы сохранены."), SavedColor);
 	}

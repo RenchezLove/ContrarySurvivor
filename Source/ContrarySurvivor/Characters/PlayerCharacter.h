@@ -164,6 +164,11 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float RespawnSurvivalFraction = 1.0f;
 
+    // Доля денег, изымаемая при ЛЮБОЙ смерти (ADR-027, баланс Рината = 40%). 0.40 -> теряется 40%
+    // монет. Тюнинг из BP. Применяется в ApplyMoneyDeathPenalty (после загрузки сейва, затем пере-сейв).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DeathMoneyLossFraction = 0.40f;
+
     // --- Сейв/респаун (GDD §7.8) ---
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
@@ -313,6 +318,11 @@ public:
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
     UFUNCTION(BlueprintCallable, Category = "Equipment")
     void SwitchWeapon();
+
+    // Доля денег, теряемая при смерти (для текста попапа смерти на HUD — чтобы не расходился
+    // с фактическим штрафом при смене параметра). 0.40 = 40%.
+    UFUNCTION(BlueprintPure, Category = "Death")
+    float GetDeathMoneyLossFraction() const { return DeathMoneyLossFraction; }
 
     // --- Сейв/респаун API (GDD §7.8) ---
 

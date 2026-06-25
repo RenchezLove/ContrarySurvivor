@@ -206,9 +206,17 @@ protected:
 	// снятии брони. Вызывается в BeginPlay (после применения дефолтов BP).
 	void CacheBaseSlotMeshes();
 
-private:
+protected:
+    // Базовая скорость ходьбы (см/с). Если CharacterMovement в BP несёт валидную (>0) MaxWalkSpeed —
+    // она уважается как BaseWalkSpeed (см. конструктор/init движения). Тюнинг из BP.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.0"))
     float BaseWalkSpeed = 600.0f;   // дефолт, чтобы SetSprint никогда не выставил MaxWalkSpeed=0 (фикс «поворачивается, но не идёт»)
+
+    // Множитель скорости при спринте (Shift): MaxWalkSpeed = BaseWalkSpeed * SprintMultiplier. Тюнинг из BP.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "1.0"))
     float SprintMultiplier = 2.0f;
+
+private:
     bool IsSprinting = false;
 
     // Базовые меши слотов (тело без брони) — снимок BeginPlay для UnequipArmor.

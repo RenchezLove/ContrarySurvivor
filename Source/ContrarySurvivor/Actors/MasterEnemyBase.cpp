@@ -11,6 +11,7 @@
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // floor-trace/ResolveSpawnZ (переиспользуем)
 #include "Pickup.h"        // пикап-носитель квест-предмета (тот же каталог Actors/)
 #include "AQuestItem.h"    // дефолтный класс квест-предмета «Ноутбук»
+#include "EnemySpawnPointComponent.h" // видимые/перемещаемые в BP точки спавна
 
 AMasterEnemyBase::AMasterEnemyBase()
 {
@@ -19,6 +20,12 @@ AMasterEnemyBase::AMasterEnemyBase()
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
+
+	// Дефолтная точка спавна-образец: видимый перемещаемый маркер на базовом акторе. Смещаем от
+	// центра, чтобы стрелка не сливалась с корнем. Дизайнер двигает её и добавляет ещё точек в BP.
+	DefaultSpawnPoint = CreateDefaultSubobject<UEnemySpawnPointComponent>(TEXT("SpawnPoint0"));
+	DefaultSpawnPoint->SetupAttachment(SceneRoot);
+	DefaultSpawnPoint->SetRelativeLocation(FVector(200.0f, 0.0f, 0.0f));
 
 	// Дефолтные классы опц. квест-предмета (editor-независимо; bSpawnQuestItem выключен по умолчанию).
 	QuestItemClass = AQuestItem::StaticClass();
@@ -93,6 +100,64 @@ void AMasterEnemyBase::DoSpawn()
 	}
 }
 
+void AMasterEnemyBase::CollectSpawnPointTransforms(TArray<FTransform>& OutTransforms) const
+{
+	OutTransforms.Reset();
+
+	// Берём ВСЕ размещённые точки спавна актора (дефолтную из C++ + добавленные дизайнером в BP).
+	// Тип-маркер UEnemySpawnPointComponent гарантирует, что не зацепим меш базы/триггеры/прочее.
+	TArray<UEnemySpawnPointComponent*> Points;
+	GetComponents<UEnemySpawnPointComponent>(Points);
+	for (const UEnemySpawnPointComponent* Point : Points)
+	{
+		if (Point)
+		{
+			OutTransforms.Add(Point->GetComponentTransform());
+		}
+	}
+}
+
+void AMasterEnemyBase::SpawnOneEnemy(const FTransform& SpawnTransform)
+{
+	UWorld* World = GetWorld();
+	if (!World || !EnemyClass)
+	{
+		return;
+	}
+
+	const FVector DesiredLoc = SpawnTransform.GetLocation();
+
+	// Проецируем XY на навмеш, чтобы враг встал в проходимой точке (не в стволе/стене).
+	FVector ProjectedLoc = DesiredLoc;
+	FVector ProjectedOut;
+	const bool bProjected = UNavigationSystemV1::K2_ProjectPointToNavigation(
+		World, DesiredLoc, ProjectedOut, /*NavData=*/nullptr, /*FilterClass=*/nullptr,
+		FVector(600.0f, 600.0f, 600.0f));
+	if (bProjected)
+	{
+		// Высоту НЕ берём от навмеш-проекции: трасса до пола в этой XY (надёжный Z).
+		ProjectedLoc.X = ProjectedOut.X;
+		ProjectedLoc.Y = ProjectedOut.Y;
+	}
+	ProjectedLoc.Z = SpawnPlacement::ResolveSpawnZ(
+		World, ProjectedLoc.X, ProjectedLoc.Y, /*ZOffset=*/90.0f, TEXT("EnemyBase"));
+
+	// Поворот врага = Yaw точки спавна (куда смотрит стрелка маркера; дизайнер задаёт направление).
+	const float SpawnYaw = SpawnTransform.GetRotation().Rotator().Yaw;
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	ACharacter* Enemy = World->SpawnActor<ACharacter>(
+		EnemyClass, ProjectedLoc, FRotator(0.0f, SpawnYaw, 0.0f), SpawnParams);
+
+	if (Enemy)
+	{
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s)"),
+			*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"));
+	}
+}
+
 void AMasterEnemyBase::SpawnEnemies()
 {
 	UWorld* World = GetWorld();
@@ -102,51 +167,38 @@ void AMasterEnemyBase::SpawnEnemies()
 		return;
 	}
 
+	// Источник позиций — размещённые в BP точки спавна (задача Рината: позиции из компонентов).
+	TArray<FTransform> SpawnTransforms;
+	CollectSpawnPointTransforms(SpawnTransforms);
+
+	if (SpawnTransforms.Num() > 0)
+	{
+		// Один враг на каждую точку спавна. Число врагов = число точек, расставленных дизайнером в BP.
+		for (const FTransform& T : SpawnTransforms)
+		{
+			SpawnOneEnemy(T);
+		}
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d enemies from spawn points"),
+			*GetName(), SpawnTransforms.Num());
+		return;
+	}
+
+	// FALLBACK: точек спавна нет — старое поведение (NumToSpawn врагов по кругу вокруг центра).
 	const int32 Count = FMath::Max(1, NumToSpawn);
 	const FVector Center = GetActorLocation();
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-	int32 Spawned = 0;
 	for (int32 i = 0; i < Count; ++i)
 	{
-		// Раскладываем врагов равномерно по кругу вокруг центра зоны.
 		const float AngleRad = FMath::DegreesToRadians((360.0f / Count) * i);
-		FVector DesiredLoc = Center + FVector(
+		const FVector DesiredLoc = Center + FVector(
 			FMath::Cos(AngleRad) * SpreadRadius,
 			FMath::Sin(AngleRad) * SpreadRadius,
 			0.0f);
-
-		// Проецируем XY на навмеш, чтобы враг встал в проходимой точке (не в стволе/стене).
-		FVector ProjectedLoc = DesiredLoc;
-		FVector ProjectedOut;
-		const bool bProjected = UNavigationSystemV1::K2_ProjectPointToNavigation(
-			World, DesiredLoc, ProjectedOut, /*NavData=*/nullptr, /*FilterClass=*/nullptr,
-			FVector(600.0f, 600.0f, 600.0f));
-		if (bProjected)
-		{
-			// Высоту НЕ берём от навмеш-проекции/игрока: трасса до пола в этой XY (надёжный Z).
-			ProjectedLoc.X = ProjectedOut.X;
-			ProjectedLoc.Y = ProjectedOut.Y;
-		}
-		ProjectedLoc.Z = SpawnPlacement::ResolveSpawnZ(
-			World, ProjectedLoc.X, ProjectedLoc.Y, /*ZOffset=*/90.0f, TEXT("EnemyBase"));
-
-		// Разворачиваем врага лицом к центру зоны.
-		const FRotator SpawnRot = (Center - ProjectedLoc).Rotation();
-		ACharacter* Enemy = World->SpawnActor<ACharacter>(
-			EnemyClass, ProjectedLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
-
-		if (Enemy)
-		{
-			++Spawned;
-			UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s)"),
-				*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"));
-		}
+		// Лицом к центру зоны (как раньше для круговой раскладки).
+		const float Yaw = (Center - DesiredLoc).Rotation().Yaw;
+		SpawnOneEnemy(FTransform(FRotator(0.0f, Yaw, 0.0f), DesiredLoc));
 	}
-
-	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d/%d enemies"), *GetName(), Spawned, Count);
+	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d enemies (fallback circle, no spawn points)"),
+		*GetName(), Count);
 }
 
 void AMasterEnemyBase::SpawnQuestItem()
