@@ -21,6 +21,7 @@ class AMasterInventoryItem;
 class USoundBase;
 class UAudioComponent;
 class UNavigationInvokerComponent;
+class USphereComponent; // визуализатор дальности отрисовки (каркас-сфера во вьюпорте)
 struct FShopEntry;
 
 /**
@@ -36,6 +37,23 @@ public:
 
 
 protected:
+
+    // --- Дальность отрисовки мира (единый параметр оптимизации) ---
+    // ЕДИНЫЙ источник истины по дальности прорисовки: одно число задаёт, на каком расстоянии (см)
+    // обрезаются ВСЕ видимые объекты мира — дома/пропы (обычные меши) и растительность (инстансы/Foliage).
+    // Применяется в BeginPlay через ApplyRenderDistance, заменяя пообъектную настройку (Max Draw Distance
+    // у домов, Cull Distance у Foliage-типов). 7000 см ≈ 70 м. Тюнинг из дефолтов BP игрока.
+    // ВАЖНО (калибровка): обрезка считается ОТ КАМЕРЫ, а камера ~30 м позади/выше игрока, поэтому
+    // сфера-визуализатор вокруг игрока — близкий ОРИЕНТИР, а не точная граница (отстаёт примерно на длину арма).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optimization", meta = (ClampMin = "100.0", UIMin = "100.0", DisplayPriority = "1"))
+    float RenderDistance = 7000.0f;
+
+    // Визуализатор дальности отрисовки: каркас-сфера радиусом RenderDistance вокруг игрока, видимая
+    // во вьюпорте редактора и СКРЫТАЯ в игре (SetHiddenInGame(true)). Коллизии/навмеша нет — чистая
+    // визуальная подсказка границы прорисовки. Цвет бирюзовый (отличать от оранжевой сферы баз врагов).
+    // Радиус синхронизируется с RenderDistance в OnConstruction (как ActivationVisualizer у баз).
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Optimization")
+    USphereComponent* RenderRadiusVisualizer;
 
     // Spring Arm
     // meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
@@ -260,6 +278,10 @@ protected:
     // Применяет knob-значения камеры к SpringArm/Camera. Зовётся из конструктора (дефолты CDO)
     // и из OnConstruction (после сериализации BP-оверрайдов → они применяются и видны в редакторе).
     void ApplyCameraSettings();
+
+    // Применяет RenderDistance как ЕДИНУЮ дальность отрисовки ко ВСЕМ видимым объектам мира:
+    // обычным мешам (SetCullDistance) и инстанс-мешам/Foliage (SetCullDistances). Зовётся из BeginPlay.
+    void ApplyRenderDistance();
 
     // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).
     void EquipDefaultWeapon();
