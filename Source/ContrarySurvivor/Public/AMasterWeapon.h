@@ -26,7 +26,8 @@ protected:
 
 	// --- Параметры оружия ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Stats")
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Stats", meta = (DisplayPriority = "1"))
 	float Damage;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Stats")
@@ -40,7 +41,7 @@ protected:
 
 	// --- Патроны ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (DisplayPriority = "2"))
 	int32 MaxAmmoInClip;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Ammo")
@@ -54,7 +55,7 @@ protected:
 
 	// --- Состояние ---
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|State")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|State", meta = (DisplayPriority = "3"))
 	bool bIsReloading;
 
 	// Таймер между выстрелами

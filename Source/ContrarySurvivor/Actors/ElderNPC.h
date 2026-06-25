@@ -53,7 +53,8 @@ protected:
 	virtual void PostInitializeComponents() override;
 
 	// Триггер диалоговой зоны: overlap по Pawn (игроку). По образцу AMasterTrader::InteractTrigger.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder")
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Elder", meta = (DisplayPriority = "1"))
 	USphereComponent* InteractTrigger;
 
 	// Радиус, в котором доступно взаимодействие (см). DRAFT.
@@ -61,7 +62,7 @@ protected:
 	float InteractRadius = 220.0f;
 
 	// Квест 1 (DRAFT: «Шкуры волков» — собрать 3 шкуры, награда 150). Тюнингуется в редакторе.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest", meta = (DisplayPriority = "2"))
 	FQuest OfferedQuest;
 
 	// Квест 2 (DRAFT: «Зачистить базу бандитов» — убить 3 бандитов + принести Ноутбук, награда 250).

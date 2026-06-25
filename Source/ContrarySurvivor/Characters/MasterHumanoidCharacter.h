@@ -33,7 +33,9 @@ protected:
 
 	// --- Статы ---
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats")
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината); базовый класс
+	// держит бОльшие номера (50+), чтобы категории конкретного класса-наследника шли выше унаследованных.
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats", meta = (DisplayPriority = "50"))
     float Health;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
@@ -41,13 +43,13 @@ protected:
 
 	// --- Состояние боя ---
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (DisplayPriority = "52"))
     bool bIsAttacking;
 
 	// --- Меши ---
 	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
-	USkeletalMeshComponent* HeadMesh; 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true", DisplayPriority = "54"))
+	USkeletalMeshComponent* HeadMesh;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* TorsoMesh;
@@ -62,7 +64,7 @@ protected:
 
 	// --- Оружие ---
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Equipment", meta = (DisplayPriority = "53"))
 	AMasterWeapon* CurrentWeapon;
 
 	// УСТАРЕЛО: имя сокета (на TorsoMesh такого сокета нет — оружие падало в origin).
@@ -209,7 +211,7 @@ protected:
 protected:
     // Базовая скорость ходьбы (см/с). Если CharacterMovement в BP несёт валидную (>0) MaxWalkSpeed —
     // она уважается как BaseWalkSpeed (см. конструктор/init движения). Тюнинг из BP.
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.0", DisplayPriority = "51"))
     float BaseWalkSpeed = 600.0f;   // дефолт, чтобы SetSprint никогда не выставил MaxWalkSpeed=0 (фикс «поворачивается, но не идёт»)
 
     // Множитель скорости при спринте (Shift): MaxWalkSpeed = BaseWalkSpeed * SprintMultiplier. Тюнинг из BP.

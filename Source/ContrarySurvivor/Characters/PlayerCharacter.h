@@ -37,8 +37,9 @@ public:
 
 protected:
 
-    // Spring Arm 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera", meta = (AllowPrivateAccess = "true"))
+    // Spring Arm
+    // meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera", meta = (AllowPrivateAccess = "true", DisplayPriority = "1"))
     USpringArmComponent* SpringArmComponent;
 
     // Camera Component
@@ -116,12 +117,12 @@ protected:
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
     // как и у врага: TakeDamage роутится в Stats.
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true", DisplayPriority = "2"))
     UStatsComponent* Stats;
 
     // Журнал квестов игрока (Фаза 5, GDD §7.7). C++-сабобъект — добавляется детерминированно,
     // без BP. Староста предлагает квест, убийства целей инкрементят прогресс, сдача даёт деньги.
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true"))
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true", DisplayPriority = "3"))
     UQuestComponent* Quests;
 
     // Navigation Invoker (Фаза 5): навмеш генерится ТОЛЬКО вокруг игрока и следует за ним
@@ -129,7 +130,7 @@ protected:
     // тайлы навмеша у боевых зон (база бандитов/Логово), куда бы игрок ни пришёл, и не требует
     // строить весь огромный пол — важно для Android. Радиусы задаются в конструкторе
     // (NavInvokerGenerationRadius/NavInvokerRemovalRadius) через SetGenerationRadii.
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (AllowPrivateAccess = "true"))
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (AllowPrivateAccess = "true", DisplayPriority = "4"))
     UNavigationInvokerComponent* NavInvoker;
 
     // Радиус генерации тайлов навмеша вокруг игрока (см). Должен покрывать зону деревни +
@@ -155,7 +156,7 @@ protected:
 
     // Доля MaxHealth, до которой восстанавливается HP при респауне (решение game-lead:
     // респаун = полный HP). 1.0 -> Health = MaxHealth. Остальные статы — из сейва.
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
     float RespawnHealthFraction = 1.0f;
 
     // Доля SurvivalMax, до которой восстанавливаются Голод/Жажда при death-респауне
@@ -179,7 +180,7 @@ protected:
 
     // Куда падает выброшенный из рюкзака предмет (мировой пикап): вперёд от игрока и вниз
     // к ногам (см). DRAFT-тюнинг (BUG3: выброс = пикап, а не Destroy).
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory", meta = (DisplayPriority = "6"))
     float DropForwardOffset = 120.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
@@ -198,7 +199,7 @@ protected:
     // Звуки шагов: при ходьбе по земле проигрывается СЛУЧАЙНЫЙ из списка по таймеру.
     // Дефолты грузятся в конструкторе из /Game/Audio/Demo/footstep_soft_1..4 (FObjectFinder).
     // Анимаций нет — поэтому шаги по таймеру/скорости в Tick, без AnimNotify.
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio|Footsteps", meta = (DisplayPriority = "8"))
     TArray<USoundBase*> FootstepSounds;
 
     // Интервал между шагами (сек) при движении. Тюнингуется.
@@ -223,7 +224,7 @@ protected:
 
     // Класс стартового оружия. Если задан — спавнится и экипируется в BeginPlay.
     // Значение (например, BP_Pistol) выставляется в дефолтах BP игрока.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment", meta = (DisplayPriority = "7"))
     TSubclassOf<AMasterWeapon> DefaultWeaponClass;
 
     // Класс стартового ближнего оружия (нож). По умолчанию AMeleeWeapon (конкретный класс),

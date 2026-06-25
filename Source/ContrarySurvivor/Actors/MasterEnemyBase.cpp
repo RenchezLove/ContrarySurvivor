@@ -2,6 +2,7 @@
 
 #include "MasterEnemyBase.h"
 #include "Components/SceneComponent.h"
+#include "Components/SphereComponent.h" // визуализатор радиуса активации (каркас-сфера во вьюпорте)
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "GameFramework/Pawn.h"
@@ -21,6 +22,17 @@ AMasterEnemyBase::AMasterEnemyBase()
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
 
+	// Визуализатор радиуса активации (фидбек Рината): каркас-сфера радиусом ActivationRadius,
+	// видимая во вьюпорте редактора и скрытая в игре (bHiddenInGame у UShapeComponent = true).
+	// Это чисто визуальная подсказка — НЕ триггер: активацию ведёт таймер+XY-дистанция (CheckActivation),
+	// поэтому коллизию и влияние на навмеш отключаем. Радиус синхронизируется в OnConstruction.
+	ActivationVisualizer = CreateDefaultSubobject<USphereComponent>(TEXT("ActivationVisualizer"));
+	ActivationVisualizer->SetupAttachment(SceneRoot);
+	ActivationVisualizer->InitSphereRadius(ActivationRadius);
+	ActivationVisualizer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ActivationVisualizer->SetCanEverAffectNavigation(false);
+	ActivationVisualizer->ShapeColor = FColor(255, 140, 0, 255); // оранжевый — заметная граница спавна
+
 	// Дефолтная точка спавна-образец: видимый перемещаемый маркер на базовом акторе. Смещаем от
 	// центра, чтобы стрелка не сливалась с корнем. Дизайнер двигает её и добавляет ещё точек в BP.
 	DefaultSpawnPoint = CreateDefaultSubobject<UEnemySpawnPointComponent>(TEXT("SpawnPoint0"));
@@ -30,6 +42,19 @@ AMasterEnemyBase::AMasterEnemyBase()
 	// Дефолтные классы опц. квест-предмета (editor-независимо; bSpawnQuestItem выключен по умолчанию).
 	QuestItemClass = AQuestItem::StaticClass();
 	PickupClass = APickup::StaticClass();
+}
+
+void AMasterEnemyBase::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// Держим радиус сферы-визуализатора равным ActivationRadius — чтобы при правке ActivationRadius
+	// в Details граница сразу обновлялась во вьюпорте (превью BP и размещённый актор реконструируются
+	// при изменении свойства, что снова вызывает OnConstruction).
+	if (ActivationVisualizer)
+	{
+		ActivationVisualizer->SetSphereRadius(ActivationRadius, /*bUpdateOverlaps=*/false);
+	}
 }
 
 void AMasterEnemyBase::BeginPlay()
@@ -173,13 +198,20 @@ void AMasterEnemyBase::SpawnEnemies()
 
 	if (SpawnTransforms.Num() > 0)
 	{
-		// Один враг на каждую точку спавна. Число врагов = число точек, расставленных дизайнером в BP.
-		for (const FTransform& T : SpawnTransforms)
+		// ADR-029: число врагов НЕЗАВИСИМО от числа точек — спавним min(NumToSpawn, число точек)
+		// врагов в СЛУЧАЙНОМ подмножестве точек. Перемешиваем (Fisher–Yates) и берём первые N.
+		for (int32 i = SpawnTransforms.Num() - 1; i > 0; --i)
 		{
-			SpawnOneEnemy(T);
+			SpawnTransforms.Swap(i, FMath::RandRange(0, i));
 		}
-		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d enemies from spawn points"),
-			*GetName(), SpawnTransforms.Num());
+
+		const int32 Count = FMath::Min(FMath::Max(1, NumToSpawn), SpawnTransforms.Num());
+		for (int32 i = 0; i < Count; ++i)
+		{
+			SpawnOneEnemy(SpawnTransforms[i]);
+		}
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d enemies (NumToSpawn=%d, points=%d)"),
+			*GetName(), Count, NumToSpawn, SpawnTransforms.Num());
 		return;
 	}
 

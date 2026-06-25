@@ -52,12 +52,13 @@ protected:
 	virtual void BeginPlay() override;
 
 	// Источник истины по HP волка (как у бандита — через компонент, минуя инлайн-логику).
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true", DisplayPriority = "1"))
 	UStatsComponent* Stats;
 
 	// --- Анимации (Single Node, без AnimBP). Тюнингуются/переопределяются в редакторе. ---
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (DisplayPriority = "2"))
 	UAnimSequence* IdleAnim;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
@@ -73,7 +74,7 @@ protected:
 	// --- Звук атаки волка (Демо) ---
 	// При укусе проигрывается СЛУЧАЙНЫЙ рык из списка. Дефолты грузятся в конструкторе
 	// из /Game/Audio/Demo/wolf_growl_* через FObjectFinder; можно переопределить в BP.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio", meta = (DisplayPriority = "3"))
 	TArray<USoundBase*> AttackGrowlSounds;
 
 	// Громкость рыка. Тюнингуется.
@@ -85,15 +86,15 @@ protected:
 	float WolfMaxHealth = 40.0f;
 
 	// Множитель скорости относительно базовой скорости бандита (~600). ЧЕРНОВОЕ (draft).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "4"))
 	float SpeedMultiplierVsBandit = 1.3f;
 
 	// Через сколько секунд после смерти убрать тело.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death", meta = (DisplayPriority = "5"))
 	float CorpseLifeSpan = 5.0f;
 
 	// --- Лут при смерти (GDD §7.8). Волк DRAFT: деньги 5-15, ниже шанс предмета, чем у бандита. ---
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (DisplayPriority = "6"))
 	float LootMoneyMin = 5.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
@@ -127,7 +128,7 @@ protected:
 	// слишком высокий (меш «парит»). Задаём размеры под квадрупеда: half-height ~ половина
 	// высоты в холке (~75-80 см → hh40), radius ~ полширины корпуса. Значения чистовые
 	// подберём по факту в редакторе; меш садится на дно капсулы (RelativeLocation.Z = -hh).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (DisplayPriority = "7"))
 	float WolfCapsuleHalfHeight = 40.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision")

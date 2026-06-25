@@ -70,7 +70,8 @@ protected:
 	virtual void PostInitializeComponents() override;
 
 	// Триггер диалоговой зоны: overlap по Pawn (игроку). По образцу ATraderNPC::InteractTrigger.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader")
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trader", meta = (DisplayPriority = "1"))
 	USphereComponent* InteractTrigger;
 
 	// Радиус, в котором доступно взаимодействие (см). DRAFT.
@@ -95,7 +96,7 @@ protected:
 
 	// --- Прайс-лист и выкуп (как у ATraderNPC, GDD §7.6 — DRAFT на тюнинг) ---
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop", meta = (DisplayPriority = "2"))
 	TArray<FShopEntry> Catalog;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")

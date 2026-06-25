@@ -11,6 +11,7 @@ class ACharacter;
 class AMasterInventoryItem;
 class APickup;
 class USceneComponent;
+class USphereComponent;
 class UEnemySpawnPointComponent;
 
 /**
@@ -28,11 +29,16 @@ class UEnemySpawnPointComponent;
  * пикапом в центре.
  *
  * ТОЧКИ СПАВНА (задача Рината): позиции врагов берутся из компонентов-маркеров
- * UEnemySpawnPointComponent, которые дизайнер расставляет/двигает во вьюпорте BP. Сколько
- * точек размещено — столько врагов и спавнится (в позициях точек, лицом по стрелке точки).
- * Если в BP не размещено ни одной точки — fallback на старое поведение: NumToSpawn врагов по
- * кругу (SpreadRadius) вокруг центра актора. C++ создаёт одну дефолтную точку, чтобы базовый
- * актор уже имел видимый перемещаемый маркер.
+ * UEnemySpawnPointComponent, которые дизайнер расставляет/двигает во вьюпорте BP (видимые
+ * перемещаемые стрелки = позиция + направление врага).
+ *
+ * ЧИСЛО ВРАГОВ НЕЗАВИСИМО ОТ ЧИСЛА ТОЧЕК (ADR-029, фидбек Рината 2026-06-25): дизайнер держит
+ * в BP БОЛЬШЕ точек, чем нужно (ёмкость, ориентир ~7), а отдельный параметр NumToSpawn задаёт,
+ * сколько врагов реально спавнить. Спавнятся min(NumToSpawn, число точек) врагов в СЛУЧАЙНОМ
+ * подмножестве размещённых точек. Так число врагов меняется на КАЖДОМ размещённом экземпляре
+ * базы одним числом, без добавления/удаления точек. Если в BP не размещено ни одной точки —
+ * fallback на старое поведение: NumToSpawn врагов по кругу (SpreadRadius) вокруг центра актора.
+ * C++ создаёт одну дефолтную точку, чтобы базовый актор уже имел видимый перемещаемый маркер.
  *
  * BP-наследники (editor): BP_WolfDen (EnemyClass=BP_Wolf, 4 точки, север),
  * BP_BanditBase (EnemyClass=BP_EnemyBandit, 3 точки, bSpawnQuestItem, юг). Классы и точки
@@ -49,9 +55,22 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	// Подгоняет радиус сферы-визуализатора ActivationRadius под текущее значение поля — чтобы
+	// граница активации обновлялась во вьюпорте сразу при правке ActivationRadius в Details
+	// (и в превью BP, и на размещённом акторе). См. ActivationVisualizer.
+	virtual void OnConstruction(const FTransform& Transform) override;
+
 	// Корень-трансформ (placeable). Меш/иконку задаёт BP при желании.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
 	USceneComponent* SceneRoot;
+
+	// Визуализатор радиуса активации (ADR-029, фидбек Рината): сфера-каркас радиусом
+	// ActivationRadius, видимая во вьюпорте редактора (превью BP И размещённый на уровне актор),
+	// скрытая в игре (bHiddenInGame у UShapeComponent = true по умолчанию). Коллизии/навмеша нет —
+	// чистая визуальная подсказка «где граница, при пересечении которой спавнятся враги». Радиус
+	// синхронизируется с ActivationRadius в OnConstruction.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	USphereComponent* ActivationVisualizer;
 
 	// Дефолтная точка спавна — образец, чтобы у базового актора уже был видимый перемещаемый
 	// маркер. Дизайнер двигает её и/или добавляет ещё точек (Enemy Spawn Point) в дереве BP.
@@ -60,21 +79,25 @@ protected:
 
 	// Класс врага для спавна (BP_Wolf / BP_EnemyBandit назначает оператор в BP-наследнике).
 	// Нейтральный дефолт — пусто (без BP спавна не будет; класс не хардкодим в C++).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase")
+	// meta DisplayPriority — поднять наши тюнинг-настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (DisplayPriority = "1"))
 	TSubclassOf<ACharacter> EnemyClass;
 
 	// Дистанция спавна (см): первый вход игрока (XY) в этот радиус от актора → спавн. Чем больше,
 	// тем дальше игрок, когда враги появляются (чтобы не видеть спавн вблизи). Тюнинг per-instance
-	// в BP. 3500 ≈ 35 м (спавн вне зоны видимости, до подхода игрока к базе).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "100.0", UIMin = "100.0"))
+	// в BP. 3500 ≈ 35 м (спавн вне зоны видимости, до подхода игрока к базе). Граница видна во
+	// вьюпорте сферой ActivationVisualizer.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "100.0", UIMin = "100.0", DisplayPriority = "2"))
 	float ActivationRadius = 3500.0f;
 
-	// FALLBACK (только если в BP НЕ размещено ни одной точки спавна): сколько врагов спавнить по
-	// кругу вокруг центра. Если точки расставлены — число врагов = число точек, это поле не используется.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Fallback")
-	int32 NumToSpawn = 1;
+	// Сколько врагов реально спавнить при активации (ADR-029). НЕЗАВИСИМО от числа размещённых
+	// точек: берётся min(NumToSpawn, число точек) случайных точек. Если точек нет вовсе — fallback:
+	// NumToSpawn врагов по кругу (SpreadRadius). Дефолт C++ = 3; в BP_WolfDen=4, BP_BanditBase=3.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "1", UIMin = "1", DisplayPriority = "3"))
+	int32 NumToSpawn = 3;
 
-	// FALLBACK: радиус круговой раскладки врагов вокруг центра (см). Используется только без точек спавна.
+	// FALLBACK: радиус круговой раскладки врагов вокруг центра (см). Используется ТОЛЬКО если в BP
+	// не размещено ни одной точки спавна (иначе позиции берутся из точек, см. NumToSpawn).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Fallback")
 	float SpreadRadius = 400.0f;
 
@@ -118,8 +141,9 @@ private:
 	// Отложенный спавн (после паузы на построение навмеша): враги + опц. квест-предмет.
 	void DoSpawn();
 
-	// Спавнит врагов: по одному в позиции каждой размещённой точки спавна
-	// (UEnemySpawnPointComponent); если точек нет — fallback на круговую раскладку NumToSpawn.
+	// Спавнит врагов (ADR-029): min(NumToSpawn, число точек) врагов в случайном подмножестве
+	// размещённых точек спавна (UEnemySpawnPointComponent); если точек нет — fallback на круговую
+	// раскладку NumToSpawn вокруг центра.
 	void SpawnEnemies();
 
 	// Собирает мировые трансформы всех размещённых точек спавна (UEnemySpawnPointComponent).

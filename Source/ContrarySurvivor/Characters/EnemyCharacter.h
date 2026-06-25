@@ -32,7 +32,8 @@ protected:
 	virtual void PostInitializeComponents() override;
 
 	// Компонент статов (Health/смерть). Источник истины по HP для врага.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true"))
+	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats", meta = (AllowPrivateAccess = "true", DisplayPriority = "1"))
 	UStatsComponent* Stats;
 
 	// Стартовое здоровье бандита. Черновое тюнингуемое значение.
@@ -44,16 +45,16 @@ protected:
 	// бандит реально догонял шагающего игрока, но НИЖЕ спринта игрока (~1200) — от спринта можно
 	// оторваться ценой расхода голода/жажды (бой остаётся проходимым). Применяется детерминированно
 	// в BeginPlay (после Super), чтобы не зависеть от дефолта CMC/возможного оверрайда в BP.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "2"))
 	float BanditWalkSpeed = 650.0f;
 
 	// Через сколько секунд после смерти Destroy тела (даём отыграть рэгдолл).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death", meta = (DisplayPriority = "3"))
 	float CorpseLifeSpan = 5.0f;
 
 	// --- Лут при смерти (GDD §7.8: «враги дают деньги, изношенное оружие») ---
 	// Деньги: случайно в [LootMoneyMin..Max]. Бандит DRAFT 10-30 (GDD §7.6 экономика).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (DisplayPriority = "4"))
 	float LootMoneyMin = 10.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
