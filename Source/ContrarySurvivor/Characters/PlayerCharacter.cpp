@@ -16,10 +16,6 @@
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "Components/CapsuleComponent.h"
-#include "Components/SphereComponent.h"               // визуализатор дальности отрисовки (каркас-сфера)
-#include "Components/StaticMeshComponent.h"           // дома/пропы: SetCullDistance
-#include "Components/InstancedStaticMeshComponent.h"  // Foliage/инстансы: SetCullDistances
-#include "EngineUtils.h"                              // TActorIterator (обход актеров мира)
 #include "UInventoryComponent.h"
 #include "AMasterInventoryItem.h"
 #include "AMeleeWeapon.h"
@@ -78,18 +74,7 @@ APlayerCharacter::APlayerCharacter()
     CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
     CameraComponent->SetFieldOfView(CameraFieldOfView);                                    // Узкий FOV (LDoE-сжатие)
 
-    // Визуализатор дальности отрисовки (единый параметр RenderDistance): каркас-сфера вокруг игрока,
-    // видимая в редакторе и скрытая в игре. Радиус = RenderDistance, синхронизируется в OnConstruction.
-    // Коллизию и влияние на навмеш отключаем — это чистая визуальная подсказка, не триггер.
-    RenderRadiusVisualizer = CreateDefaultSubobject<USphereComponent>(TEXT("RenderRadiusVisualizer"));
-    RenderRadiusVisualizer->SetupAttachment(RootComponent); // к капсуле (как SpringArm)
-    RenderRadiusVisualizer->InitSphereRadius(RenderDistance);
-    RenderRadiusVisualizer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    RenderRadiusVisualizer->SetCanEverAffectNavigation(false);
-    RenderRadiusVisualizer->ShapeColor = FColor(0, 200, 200, 255); // бирюзовый — отличать от оранжевой сферы баз
-    RenderRadiusVisualizer->SetHiddenInGame(true);                 // в редакторе каркас виден, в PIE/игре скрыт
-
-
+    
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
     bUseControllerRotationRoll = false;
@@ -247,10 +232,6 @@ void APlayerCharacter::BeginPlay()
             CM->SetMovementMode(MOVE_Walking);
         }
     }
-
-    // Единая дальность отрисовки: применяем RenderDistance ко всем видимым объектам мира
-    // (дома/пропы + растительность), чтобы реальная обрезка совпадала с видимой сферой.
-    ApplyRenderDistance();
 }
 
 void APlayerCharacter::StartAmbience()
@@ -281,13 +262,6 @@ void APlayerCharacter::OnConstruction(const FTransform& Transform)
     // (и др. Camera-поля) в дефолтах BP → значение применяется к SpringArm/Camera здесь, видно
     // в редакторе сразу и в игре, без перетирания в рантайме (BeginPlay/Tick камеру не трогают).
     ApplyCameraSettings();
-
-    // Держим радиус сферы-визуализатора равным RenderDistance — правка числа в Details сразу меняет
-    // отрисованную границу прорисовки во вьюпорте (как ActivationVisualizer у баз врагов).
-    if (RenderRadiusVisualizer)
-    {
-        RenderRadiusVisualizer->SetSphereRadius(RenderDistance, /*bUpdateOverlaps=*/false);
-    }
 }
 
 void APlayerCharacter::ApplyCameraSettings()
@@ -310,64 +284,6 @@ void APlayerCharacter::ApplyCameraSettings()
         CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
         CameraComponent->SetFieldOfView(CameraFieldOfView);
     }
-}
-
-void APlayerCharacter::ApplyRenderDistance()
-{
-    UWorld* World = GetWorld();
-    if (!World)
-    {
-        return;
-    }
-
-    // ЕДИНЫЙ источник истины по дальности прорисовки (вместо пообъектной настройки домов/Foliage):
-    // одно число RenderDistance обрезает ВСЕ видимые объекты мира на одной дистанции.
-    //   - обычные меши (дома/пропы) -> UPrimitiveComponent::SetCullDistance(float) [PrimitiveComponent.h:2884]
-    //   - инстанс-меши и Foliage (ISM/HISM) -> UInstancedStaticMeshComponent::SetCullDistances(int32 Start, int32 End)
-    //     [InstancedStaticMeshComponent.h:389]: Start ~ 0.8*R (начало фейда), End = R (полная обрезка).
-    // ВАЖНО: UInstancedStaticMeshComponent НАСЛЕДУЕТ UStaticMeshComponent (а Foliage — это HISM-наследник),
-    // поэтому при обходе сперва проверяем инстанс-каст (он покрывает ISM/HISM/Foliage), и лишь иначе
-    // трогаем обычный меш. Каверзность стриминга: охватываем объекты, уже загруженные на момент BeginPlay
-    // (для нестримингового L_World этого достаточно); подгружаемые позже саблевелы здесь не затрагиваются.
-    const float EndCull = RenderDistance;
-    const int32 EndCullInt = FMath::Max(1, FMath::RoundToInt(RenderDistance));
-    const int32 StartCullInt = FMath::Max(0, FMath::RoundToInt(RenderDistance * 0.8f));
-
-    int32 NumStatic = 0;
-    int32 NumInstanced = 0;
-
-    for (TActorIterator<AActor> It(World); It; ++It)
-    {
-        AActor* Actor = *It;
-        if (!Actor)
-        {
-            continue;
-        }
-
-        TArray<UStaticMeshComponent*> MeshComps;
-        Actor->GetComponents(MeshComps);
-        for (UStaticMeshComponent* Mesh : MeshComps)
-        {
-            if (!Mesh)
-            {
-                continue;
-            }
-            // Инстанс-компоненты (включая Foliage HISM) — отдельный путь: парные дистанции фейда/обрезки.
-            if (UInstancedStaticMeshComponent* ISM = Cast<UInstancedStaticMeshComponent>(Mesh))
-            {
-                ISM->SetCullDistances(StartCullInt, EndCullInt);
-                ++NumInstanced;
-            }
-            else
-            {
-                Mesh->SetCullDistance(EndCull);
-                ++NumStatic;
-            }
-        }
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("ApplyRenderDistance: R=%.0f applied to %d static + %d instanced mesh components"),
-        RenderDistance, NumStatic, NumInstanced);
 }
 
 void APlayerCharacter::Tick(float DeltaTime)
