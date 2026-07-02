@@ -106,7 +106,7 @@ APlayerCharacter::APlayerCharacter()
 
     // Navigation Invoker (Фаза 5): навмеш генерится локально вокруг игрока и следует за ним.
     // Вместе с bGenerateNavigationOnlyAroundNavigationInvokers=true (DefaultEngine.ini) это
-    // гарантирует тайлы навмеша у боевых зон (база бандитов на юге, Логово) в момент, когда
+    // гарантирует тайлы навмеша у боевых зон (база бандитов на севере, Логово на западе) в момент, когда
     // игрок туда приходит -> враги получают навигацию (navmesh=yes) и преследуют. Радиусы —
     // через SetGenerationRadii (поля TileGeneration/RemovalRadius protected в компоненте).
     // API сверено по UE 5.5: NavigationInvokerComponent.h:45 SetGenerationRadii(Gen, Removal).

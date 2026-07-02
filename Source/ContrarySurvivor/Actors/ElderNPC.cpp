@@ -46,7 +46,7 @@ AElderNPC::AElderNPC()
 	// A1: число шкур 5 -> 3 (баланс демки).
 	OfferedQuest.QuestId = FName(TEXT("KillWolves"));
 	OfferedQuest.Title = TEXT("Шкуры волков");
-	OfferedQuest.Description = TEXT("Волки одолели деревню. Перебей стаю у логова на севере и принеси мне три волчьих шкуры. Награда: 150 монет.");
+	OfferedQuest.Description = TEXT("Волки одолели деревню. Перебей стаю у логова на западе и принеси мне три волчьих шкуры. Награда: 150 монет.");
 	OfferedQuest.Type = EQuestType::Collect;
 	OfferedQuest.KillTargetTag = NAME_None;
 	OfferedQuest.TargetCount = 0;                 // kill-цели нет: гейт — по шкурам
@@ -55,12 +55,13 @@ AElderNPC::AElderNPC()
 	OfferedQuest.RewardMoney = 150.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
 
-	// КВЕСТ 2 (DRAFT): зачистить базу бандитов на юге (убить 3 бандитов) и принести Ноутбук.
+	// КВЕСТ 2 (DRAFT): зачистить базу бандитов на севере (убить 3 бандитов) и принести Ноутбук.
+	// Стороны света — по камере игрока (верх кадра при спауне ГГ = север; конвенция Рината 07-02).
 	// Тип Deliver: завершённость = KILL-цель (3 бандита) И ITEM-цель (1 Ноутбук в рюкзаке).
 	// Ноутбук изымается при сдаче. Награда 250 монет (DRAFT — больше за более тяжёлый квест).
 	SecondQuest.QuestId = FName(TEXT("ClearBanditBase"));
 	SecondQuest.Title = TEXT("Зачистить базу бандитов");
-	SecondQuest.Description = TEXT("Бандиты засели на базе к югу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
+	SecondQuest.Description = TEXT("Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
