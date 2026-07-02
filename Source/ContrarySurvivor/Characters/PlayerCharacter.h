@@ -56,27 +56,27 @@ protected:
     // BugReport 12: фиксированная изометрия СВЕРХУ — делаем угол круче к вертикали (-60),
     // чтобы вид был обзорнее «сверху-сбоку», как в Last Day on Earth. Yaw 90 сохранён
     // (ориентация обзора уровня). Игрок камеру НЕ вращает (bUsePawnControlRotation/inherit=false).
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayPriority = "12"))
     FRotator CameraBoomRotation = FRotator(-60.0f, 90.0f, 0.0f);
 
     // Дистанция камеры от персонажа. Единственный источник истины по длине арма: меняется
     // ЗДЕСЬ (Camera-категория в дефолтах BP), применяется в OnConstruction (живой knob,
     // виден в редакторе сразу, не перетирается в рантайме). DRAFT, Ринат подкрутит.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayPriority = "10"))
     float CameraArmLength = 3000.0f;
 
     // Угол обзора камеры (перспектива). Узкий FOV ~40 даёт «сжатый» LDoE-вид.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayPriority = "11"))
     float CameraFieldOfView = 40.0f;
 
     // Плавное отставание камеры (lag) — оживляет движение, чтобы камера не была «приклеена».
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (DisplayPriority = "13"))
     bool bEnableCameraLag = true;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0", DisplayPriority = "14"))
     float CameraLagSpeed = 7.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0.0", DisplayPriority = "15"))
     float CameraLagMaxDistance = 150.0f;
 
     // --- «Дыхание» камеры + look-ahead по ходу движения (#28) ---
@@ -85,33 +85,33 @@ protected:
     // вектору скорости пешки + крошечный синусный боб.
 
     // «Дыхание»: лёгкий постоянный вертикальный боб камеры (амплитуда в см — крошечная).
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (DisplayPriority = "16"))
     bool bEnableCameraBreathing = true;
 
     // Амплитуда дыхания (см). Держать малой (~1-2), иначе заметно/укачивает.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "17"))
     float BreathingAmplitude = 1.5f;
 
     // Скорость дыхания (рад/сек ~ циклов). Медленно = «живо», не нервно.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "18"))
     float BreathingSpeed = 1.1f;
 
     // Look-ahead: при движении камера чуть смещается в сторону движения.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (DisplayPriority = "19"))
     bool bEnableCameraLookAhead = true;
 
     // Максимальное смещение look-ahead (см) — камера ведёт таргет в сторону движения, чтобы
     // игрок видел больше по ходу (BugReport 12). При отодвинутой обзорной камере 70 см незаметно,
     // поэтому заметный «лид» ~300 см. DRAFT, Ринат подкрутит (игрок всё ещё близко к центру).
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "20"))
     float LookAheadAmount = 300.0f;
 
     // Скорость плавного подмешивания look-ahead (VInterpTo). Меньше = плавнее/ленивее.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "21"))
     float LookAheadInterpSpeed = 2.5f;
 
     // Порог скорости пешки (см/с), выше которого включается look-ahead (отсекает дрожь покоя).
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "22"))
     float LookAheadSpeedThreshold = 50.0f;
 
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам

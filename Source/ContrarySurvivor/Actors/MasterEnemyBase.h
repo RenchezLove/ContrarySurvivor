@@ -40,8 +40,8 @@ class UEnemySpawnPointComponent;
  * fallback на старое поведение: NumToSpawn врагов по кругу (SpreadRadius) вокруг центра актора.
  * C++ создаёт одну дефолтную точку, чтобы базовый актор уже имел видимый перемещаемый маркер.
  *
- * BP-наследники (editor): BP_WolfDen (EnemyClass=BP_Wolf, 4 точки, север),
- * BP_BanditBase (EnemyClass=BP_EnemyBandit, 3 точки, bSpawnQuestItem, юг). Классы и точки
+ * BP-наследники (editor): BP_WolfDen (EnemyClass=BP_Wolf, 4 точки, запад),
+ * BP_BanditBase (EnemyClass=BP_EnemyBandit, 3 точки, bSpawnQuestItem, север). Классы и точки
  * задаёт BP — в C++ нейтральные дефолты (EnemyClass пуст, одна точка-образец).
  */
 UCLASS(Blueprintable)
