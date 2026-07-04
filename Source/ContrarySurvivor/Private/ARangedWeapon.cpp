@@ -1,11 +1,17 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ARangedWeapon.h"
-#include "DrawDebugHelpers.h" // Для отладочной визуализации LineTrace
 #include "Engine/DamageEvents.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "TimerManager.h"
 #include "Sound/SoundBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // D5: лёгкая тряска камеры при выстреле игрока
 
 ARangedWeapon::ARangedWeapon()
 {
@@ -22,6 +28,152 @@ ARangedWeapon::ARangedWeapon()
 	if (FireSoundAsset.Succeeded())
 	{
 		FireSound = FireSoundAsset.Object;
+	}
+
+	// --- Вспышка + след пули (D2): переиспользуемые компоненты, скрыты до выстрела ---
+	// Меши — базовые фигуры движка; материал — BasicShapeMaterial (параметр Color),
+	// оператор может заменить FXMaterial на светящийся без правок кода.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> FlashSphereAsset(
+		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> TracerCylinderAsset(
+		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FXMaterialAsset(
+		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (FXMaterialAsset.Succeeded())
+	{
+		FXMaterial = FXMaterialAsset.Object;
+	}
+
+	MuzzleFlashMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MuzzleFlash"));
+	MuzzleFlashMesh->SetupAttachment(RootComponent); // ItemMesh — корень AMasterInventoryItem
+	MuzzleFlashMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	MuzzleFlashMesh->SetGenerateOverlapEvents(false);
+	MuzzleFlashMesh->SetCanEverAffectNavigation(false);
+	MuzzleFlashMesh->SetCastShadow(false);
+	MuzzleFlashMesh->SetVisibility(false);
+	if (FlashSphereAsset.Succeeded())
+	{
+		MuzzleFlashMesh->SetStaticMesh(FlashSphereAsset.Object);
+	}
+
+	TracerMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Tracer"));
+	TracerMesh->SetupAttachment(RootComponent);
+	// След позиционируется в МИРОВЫХ координатах (линия дуло->цель), не следует за оружием.
+	TracerMesh->SetAbsolute(/*bNewAbsoluteLocation=*/true, /*bNewAbsoluteRotation=*/true, /*bNewAbsoluteScale=*/true);
+	TracerMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	TracerMesh->SetGenerateOverlapEvents(false);
+	TracerMesh->SetCanEverAffectNavigation(false);
+	TracerMesh->SetCastShadow(false);
+	TracerMesh->SetVisibility(false);
+	if (TracerCylinderAsset.Succeeded())
+	{
+		TracerMesh->SetStaticMesh(TracerCylinderAsset.Object);
+	}
+}
+
+FVector ARangedWeapon::GetMuzzleLocation() const
+{
+	if (ItemMesh)
+	{
+		// Сокет дула, если моделлер/оператор добавил его на меш оружия.
+		if (ItemMesh->DoesSocketExist(MuzzleSocketName))
+		{
+			return ItemMesh->GetSocketLocation(MuzzleSocketName);
+		}
+		// Иначе — параметрический офсет от меша (подбирается в Details).
+		return ItemMesh->GetComponentTransform().TransformPosition(MuzzleOffset);
+	}
+	return GetActorLocation();
+}
+
+void ARangedWeapon::EnsureFXMaterial()
+{
+	if (FXMID || !FXMaterial)
+	{
+		return;
+	}
+
+	// Один динамический материал на оба меша; цвет — параметр "Color" (BasicShapeMaterial).
+	// Если у заменённого материала параметра нет — SetVectorParameterValue просто ничего
+	// не изменит (не ошибка).
+	FXMID = UMaterialInstanceDynamic::Create(FXMaterial, this);
+	if (FXMID)
+	{
+		FXMID->SetVectorParameterValue(FName("Color"), FireFXColor);
+		if (MuzzleFlashMesh)
+		{
+			MuzzleFlashMesh->SetMaterial(0, FXMID);
+		}
+		if (TracerMesh)
+		{
+			TracerMesh->SetMaterial(0, FXMID);
+		}
+	}
+}
+
+void ARangedWeapon::PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Звук выстрела (для ИИ бандита; игрок проигрывает его сам в Fire()).
+	if (bPlaySound && FireSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), FireSoundVolume);
+	}
+
+	if (!bEnableFireVisuals)
+	{
+		return;
+	}
+
+	EnsureFXMaterial();
+
+	const FVector Muzzle = GetMuzzleLocation();
+
+	// Вспышка: сфера у дула на MuzzleFlashDuration (таймер переиспользуется — повторный
+	// выстрел просто продлевает показ).
+	if (MuzzleFlashMesh)
+	{
+		MuzzleFlashMesh->SetWorldLocation(Muzzle);
+		MuzzleFlashMesh->SetWorldScale3D(FVector(MuzzleFlashSize));
+		MuzzleFlashMesh->SetVisibility(true);
+		World->GetTimerManager().SetTimer(MuzzleFlashTimerHandle,
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				if (MuzzleFlashMesh)
+				{
+					MuzzleFlashMesh->SetVisibility(false);
+				}
+			}),
+			MuzzleFlashDuration, /*bLoop=*/false);
+	}
+
+	// След пули: цилиндр (100 см по Z у базового меша) растягивается от дула до TraceEnd.
+	if (TracerMesh)
+	{
+		const FVector Segment = TraceEnd - Muzzle;
+		const float Length = Segment.Size();
+		if (Length > 1.0f)
+		{
+			const FVector Dir = Segment / Length;
+			TracerMesh->SetWorldLocation(Muzzle + Segment * 0.5f);
+			TracerMesh->SetWorldRotation(FRotationMatrix::MakeFromZ(Dir).Rotator());
+			TracerMesh->SetWorldScale3D(FVector(TracerThickness / 100.0f, TracerThickness / 100.0f, Length / 100.0f));
+			TracerMesh->SetVisibility(true);
+			World->GetTimerManager().SetTimer(TracerTimerHandle,
+				FTimerDelegate::CreateWeakLambda(this, [this]()
+				{
+					if (TracerMesh)
+					{
+						TracerMesh->SetVisibility(false);
+					}
+				}),
+				TracerDuration, /*bLoop=*/false);
+		}
 	}
 }
 
@@ -62,8 +214,10 @@ void ARangedWeapon::Fire(AActor* Target)
 	}
 
 	FHitResult HitResult;
+	FVector TracerEnd = FiringTarget->GetActorLocation(); // дефолт следа — к цели
 	if (PerformLineTrace(FiringTarget, HitResult))
 	{
+		TracerEnd = HitResult.ImpactPoint; // след до реальной точки попадания
 		AActor* HitActor = HitResult.GetActor();
 		if (HitActor)
 		{
@@ -71,8 +225,20 @@ void ARangedWeapon::Fire(AActor* Target)
 			FDamageEvent DamageEvent;
 			HitActor->TakeDamage(Damage, DamageEvent, GetInstigatorController(), this);
 
-			UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s for %.1f damage"), 
+			UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s for %.1f damage"),
 				*HitActor->GetName(), Damage);
+		}
+	}
+
+	// Вспышка у дула + след пули (D2). Звук здесь свой (ниже) — не дублируем.
+	PlayFireVisuals(TracerEnd, /*bPlaySound=*/false);
+
+	// Лёгкая тряска камеры при выстреле ИГРОКА (D5). У бандита instigator — не игрок.
+	if (FireShakeTrauma > 0.0f)
+	{
+		if (APlayerCharacter* PlayerWielder = Cast<APlayerCharacter>(GetInstigator()))
+		{
+			PlayerWielder->AddCameraShake(FireShakeTrauma);
 		}
 	}
 
@@ -138,9 +304,7 @@ bool ARangedWeapon::PerformLineTrace(AActor* Target, FHitResult& OutHit)
 		QueryParams
 	);
 
-	// Отладочная линия (убери когда не нужна)
-	DrawDebugLine(GetWorld(), StartLocation, TargetLocation,
-		bHit ? FColor::Red : FColor::Green, false, 1.0f);
+	// Отладочная DrawDebugLine убрана (Этап D): её заменил реальный след пули (PlayFireVisuals).
 
 	return bHit;
 }
