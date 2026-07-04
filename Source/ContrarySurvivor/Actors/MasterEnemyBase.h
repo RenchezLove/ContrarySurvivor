@@ -52,6 +52,9 @@ class CONTRARYSURVIVOR_API AMasterEnemyBase : public AActor
 public:
 	AMasterEnemyBase();
 
+	// Тег цели квеста этой базы (читает HUD для метки на цель активного квеста).
+	FName GetQuestMarkerTag() const { return QuestMarkerTag; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -95,6 +98,19 @@ protected:
 	// NumToSpawn врагов по кругу (SpreadRadius). Дефолт C++ = 3; в BP_WolfDen=4, BP_BanditBase=3.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "1", UIMin = "1", DisplayPriority = "3"))
 	int32 NumToSpawn = 3;
+
+	// D7 (ADR-036): радиус поводка (см) — как далеко враги ЭТОЙ базы гонятся за игроком от её
+	// центра; дальше — разворачиваются и возвращаются. Передаётся контроллеру каждого
+	// заспавненного врага (SetLeash). 0 = поводок выключен. «Часто граница поводка и граница
+	// деревни совпадают» — совмещение подбирается ЭТИМ числом на размещённом экземпляре.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (ClampMin = "0.0", DisplayPriority = "4"))
+	float LeashRadius = 2500.0f;
+
+	// D6/квест-метка (Этап D): тег цели квеста. HUD находит базу по совпадению с
+	// FQuest::MapMarkerTag активного квеста и рисует метку/краевую стрелку на неё.
+	// Выставляется в BP-наследниках: BP_WolfDen="WolfDen", BP_BanditBase="BanditBase".
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase", meta = (DisplayPriority = "5"))
+	FName QuestMarkerTag;
 
 	// FALLBACK: радиус круговой раскладки врагов вокруг центра (см). Используется ТОЛЬКО если в BP
 	// не размещено ни одной точки спавна (иначе позиции берутся из точек, см. NumToSpawn).

@@ -14,6 +14,9 @@ AWolfAIController::AWolfAIController()
 	// Перцепция/преследование — наследуем разумные дефолты бандита; чуть ближе порог приёмки.
 	DetectionRange       = 1800.0f; // волк агрессивнее/зорче (draft)
 	MoveAcceptanceRadius = 50.0f;   // < AttackRange, чтобы доставал укусом
+
+	// D6: огнестрел — только у бандитов. Волк дерётся исключительно укусом.
+	bRangedAttacker = false;
 }
 
 bool AWolfAIController::PerformAttack(APawn* Player)

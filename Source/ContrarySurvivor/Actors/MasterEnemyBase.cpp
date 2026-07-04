@@ -13,6 +13,7 @@
 #include "Pickup.h"        // пикап-носитель квест-предмета (тот же каталог Actors/)
 #include "AQuestItem.h"    // дефолтный класс квест-предмета «Ноутбук»
 #include "EnemySpawnPointComponent.h" // видимые/перемещаемые в BP точки спавна
+#include "ContrarySurvivor/Controllers/EnemyAIController.h" // D7: SetLeash заспавненным врагам
 
 AMasterEnemyBase::AMasterEnemyBase()
 {
@@ -178,8 +179,20 @@ void AMasterEnemyBase::SpawnOneEnemy(const FTransform& SpawnTransform)
 
 	if (Enemy)
 	{
-		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s)"),
-			*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"));
+		// D7 (ADR-036): поводок — дом врага = центр ЭТОЙ базы, радиус — с экземпляра базы.
+		// Контроллер уже существует: AutoPossessAI поссессит пешку в ходе SpawnActor.
+		if (AEnemyAIController* AI = Cast<AEnemyAIController>(Enemy->GetController()))
+		{
+			AI->SetLeash(GetActorLocation(), LeashRadius);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("EnemyBase '%s': %s has no AEnemyAIController yet — leash NOT set (default leash from OnPossess applies)"),
+				*GetName(), *Enemy->GetName());
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s, leash=%.0f)"),
+			*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"), LeashRadius);
 	}
 }
 

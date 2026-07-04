@@ -6,6 +6,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
 #include "AConsumableItem.h"
 #include "AQuestItem.h" // Фаза 5: «Шкура волка» — квест-предмет (категория Quest, не теряется при смерти)
@@ -204,6 +205,15 @@ float AWolfCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 	if (Applied > 0.0f)
 	{
 		Stats->PlayHurtSound();
+
+		// D5: всплывающая цифра урона над врагом (только по врагам — решение Рината).
+		if (APlayerController* PC0 = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+		{
+			if (AContrarySurvivorHUD* HUD = Cast<AContrarySurvivorHUD>(PC0->GetHUD()))
+			{
+				HUD->AddDamageNumber(GetActorLocation(), Applied);
+			}
+		}
 	}
 
 	// Лог показывает И запрошенный (requested), И реально применённый (applied) урон: на

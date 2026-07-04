@@ -10,18 +10,25 @@ class UStatsComponent;
 class UNavigationQueryFilter;
 
 // Состояния примитивного state-machine (MVP без Behavior Tree, ADR/tech-design Фаза 1).
+// Этап D добавил: Return (возврат к дому по поводку, ADR-036), VillagePause (замер у границы
+// деревни перед уходом), Standoff (ждёт поодаль — лимит одновременных атакующих, ADR-037).
 UENUM(BlueprintType)
 enum class EEnemyAIState : uint8
 {
-	Idle    UMETA(DisplayName = "Idle"),     // нет цели / цель не видна
-	Chase   UMETA(DisplayName = "Chase"),    // движется к игроку
-	Attack  UMETA(DisplayName = "Attack")    // в радиусе, атакует с кулдауном
+	Idle         UMETA(DisplayName = "Idle"),          // нет цели / цель не видна
+	Chase        UMETA(DisplayName = "Chase"),         // движется к игроку
+	Attack       UMETA(DisplayName = "Attack"),        // в радиусе (ближний или огнестрел), атакует с кулдауном
+	Return       UMETA(DisplayName = "Return"),        // возвращается к точке дома (поводок/после паузы у деревни)
+	VillagePause UMETA(DisplayName = "VillagePause"),  // стоит у границы деревни пару секунд, затем уходит
+	Standoff     UMETA(DisplayName = "Standoff")       // держится поодаль: атакующие слоты заняты (ADR-037)
 };
 
 /**
- * Простой AI-контроллер врага: Idle -> Chase -> Attack.
+ * Простой AI-контроллер врага: Idle -> Chase -> Attack (+ Return/VillagePause/Standoff, Этап D).
  * Обнаружение: дистанция + линия видимости (LineOfSightTo).
- * Движение: MoveToActor. Атака: урон игроку через TakeDamage по кулдауну.
+ * Движение: MoveToActor (навмеш) с fallback прямого хода. Атака: ближняя по кулдауну;
+ * бандит дополнительно стреляет с дистанции (ADR-035: не стреляет, пока сам вне кадра камеры).
+ * Поводок (ADR-036): дом задаёт спавнер (AMasterEnemyBase::SetLeash) либо точка спавна.
  */
 UCLASS()
 class CONTRARYSURVIVOR_API AEnemyAIController : public AAIController
@@ -30,6 +37,36 @@ class CONTRARYSURVIVOR_API AEnemyAIController : public AAIController
 
 public:
 	AEnemyAIController();
+
+	// --- Поводок (ADR-036, Этап D) ---
+
+	// Задаёт точку дома и радиус поводка (см). Зовёт спавнер (AMasterEnemyBase) сразу после
+	// спавна врага. Radius <= 0 отключает поводок. Для врагов без базы дом = позиция пешки
+	// на OnPossess, радиус = DefaultLeashRadius.
+	void SetLeash(const FVector& InHomeLocation, float InLeashRadius);
+
+	// --- Опрос состояния для камеры/HUD (Этап D) ---
+
+	// Враг сейчас «ведёт бой» с игроком (боевая камера ADR-035 считает его угрозой).
+	bool IsEngagingPlayer() const
+	{
+		return CurrentState == EEnemyAIState::Chase
+			|| CurrentState == EEnemyAIState::Attack
+			|| CurrentState == EEnemyAIState::Standoff
+			|| CurrentState == EEnemyAIState::VillagePause;
+	}
+
+	// Враг — стрелок, ведущий бой (HUD рисует красную краевую стрелку, если он за кадром).
+	bool IsRangedThreat() const
+	{
+		return bRangedAttacker && IsEngagingPlayer();
+	}
+
+	// Реестр живых контроллеров врагов (для боевой камеры игрока и лимита атакующих).
+	static const TArray<TWeakObjectPtr<AEnemyAIController>>& GetActiveControllers()
+	{
+		return ActiveControllers;
+	}
 
 	// --- QA headless-автотест погони (cs.TestWolfChase) ---
 	// Аксессоры для CU-free теста: НЕ дублируют логику AI, а возвращают её реальные решения
@@ -53,6 +90,8 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void OnUnPossess() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaTime) override;
 
 	// --- Параметры восприятия/боя (тюнингуемые) ---
@@ -80,7 +119,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
 	TSubclassOf<UNavigationQueryFilter> MoveFilterClass;
 
-	// Урон одной атаки.
+	// Урон одной атаки (ближний удар).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
 	float AttackDamage = 10.0f;
 
@@ -88,14 +127,101 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
 	float AttackCooldown = 1.5f;
 
+	// --- Огнестрел (D6, ADR-035). Бандит стреляет с дистанции; в упор остаётся ближний удар.
+	// Волк (AWolfAIController) выключает bRangedAttacker в конструкторе. Все числа DRAFT,
+	// соизмерены с HP игрока (100): урон 12 = укус волка; при текущей броне игрока
+	// (кап 0.75) эффективно ~3 HP/попадание. Директива Рината 06-25: EditAnywhere+BRW+наверх.
+
+	// Есть ли у врага огнестрел (стрельба с дистанции). Визуал — пистолет в руке (AEnemyCharacter).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (DisplayPriority = "1"))
+	bool bRangedAttacker = true;
+
+	// Максимальная дистанция выстрела центр-к-центру (см). Дальше — сближается (Chase).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (ClampMin = "0.0", DisplayPriority = "2"))
+	float RangedAttackRange = 1100.0f;
+
+	// Урон одного попадания.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (ClampMin = "0.0", DisplayPriority = "3"))
+	float RangedAttackDamage = 12.0f;
+
+	// Кулдаун между выстрелами (сек).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (ClampMin = "0.05", DisplayPriority = "4"))
+	float RangedAttackCooldown = 1.6f;
+
+	// Шанс попадания [0..1] (разброс как вероятность, дешевле честной баллистики).
+	// Промах уводит след пули мимо игрока (RangedMissOffset).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
+	float RangedHitChance = 0.7f;
+
+	// Насколько (см) промах уходит вбок от игрока (визуал следа пули мимо).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (ClampMin = "0.0", DisplayPriority = "6"))
+	float RangedMissOffset = 140.0f;
+
+	// «Правило честности» (ADR-035): враг НЕ стреляет, пока он сам вне кадра камеры игрока.
+	// Вне кадра он продолжает сближаться, HUD ведёт на него красную краевую стрелку.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Ranged", meta = (DisplayPriority = "7"))
+	bool bHonorCameraFairness = true;
+
+	// --- Поводок (D7, ADR-036) ---
+
+	// Радиус поводка для врага БЕЗ базы (см): дом = позиция на OnPossess. Врагам от базы
+	// радиус задаёт спавнер (AMasterEnemyBase::LeashRadius -> SetLeash). 0 = поводок выкл.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Leash", meta = (ClampMin = "0.0", DisplayPriority = "8"))
+	float DefaultLeashRadius = 4000.0f;
+
+	// Радиус приёмки возврата домой (см): ближе — считаем «дома», снова Idle.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Leash", meta = (ClampMin = "50.0", DisplayPriority = "9"))
+	float ReturnAcceptRadius = 250.0f;
+
+	// Если игрок потерян (не обнаружен), а враг дальше этого от дома — идёт домой, не стоит
+	// посреди карты (ADR-036 «уходят обратно»). 0 = не возвращаться (стоит где потерял).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Leash", meta = (ClampMin = "0.0", DisplayPriority = "10"))
+	float ReturnHomeWhenIdleBeyond = 800.0f;
+
+	// --- Деревня — безопасная зона (D7, ADR-036). Границу даёт AVillageZone (оба режима погони). ---
+
+	// Соблюдать запрет на вход в деревню (выключатель для отладки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Village", meta = (DisplayPriority = "11"))
+	bool bRespectVillageSafeZone = true;
+
+	// На сколько см вперёд по ходу движения проверяется граница деревни: точка-впереди в
+	// зоне → стоп у границы (VillagePause). Работает и в направлении прямой погони (fallback).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Village", meta = (ClampMin = "0.0", DisplayPriority = "12"))
+	float VillageStopLookAhead = 250.0f;
+
+	// Дистанция (см) впереди, с которой враг начинает ЗАМЕДЛЯТЬСЯ, приближаясь к границе деревни.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Village", meta = (ClampMin = "0.0", DisplayPriority = "13"))
+	float VillageSlowdownLookAhead = 700.0f;
+
+	// Множитель скорости при замедлении у границы деревни [0..1].
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Village", meta = (ClampMin = "0.05", ClampMax = "1.0", DisplayPriority = "14"))
+	float VillageSlowdownSpeedFactor = 0.45f;
+
+	// Сколько секунд враг стоит у границы деревни, «глядя» на игрока, прежде чем уйти домой.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Village", meta = (ClampMin = "0.0", DisplayPriority = "15"))
+	float VillagePauseSeconds = 2.0f;
+
+	// --- Плотность боя (D7, ADR-037: «≤2-3 активных врага одновременно») ---
+
+	// Сколько врагов МАКСИМУМ одновременно ведут бой (Chase/Attack). Ближайшие к игроку
+	// занимают слоты; остальные — Standoff: стоят поодаль, смотрят на игрока и атакуют,
+	// только если игрок сам подошёл вплотную (решение game-lead, Этап D).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Density", meta = (ClampMin = "1", DisplayPriority = "16"))
+	int32 MaxSimultaneousAttackers = 3;
+
 	// Текущее состояние (для отладки/привязок).
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|State")
 	EEnemyAIState CurrentState = EEnemyAIState::Idle;
 
-	// Выполняет атаку по игроку (урон через TakeDamage по кулдауну).
+	// Выполняет ближнюю атаку по игроку (урон через TakeDamage по кулдауну).
 	// Возвращает true, если удар реально нанесён (не на кулдауне) — наследник (волк)
 	// использует это, чтобы проиграть анимацию укуса только в момент удара.
 	virtual bool PerformAttack(APawn* Player);
+
+	// Выстрел по игроку (D6): кулдаун + правило честности (в кадре ли враг) + шанс попадания.
+	// Урон штатным TakeDamage; след пули/вспышка/звук — через ARangedWeapon::PlayFireVisuals
+	// пистолета в руке пешки. Возвращает true, если выстрел реально произошёл.
+	virtual bool PerformRangedAttack(APawn* Player);
 
 	// Интервал дросселирования QA-лога погони (сек). Лог пишется не чаще раза в этот период,
 	// чтобы не спамить каждый тик. Только для верификации QA по логу.
@@ -130,9 +256,34 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
 	float ChaseConvergeEpsilon = 50.0f;
 
+	// --- Хелперы Этапа D (доступны наследнику-волку) ---
+
+	// Перевод в состояние возврата домой (стоп, снять фокус). Причина — в QA-лог.
+	void StartReturnHome(const TCHAR* Reason);
+
+	// Тик возврата домой: MoveToLocation по навмешу, при Failed — прямой ход. Дома → Idle.
+	void TickReturnHome(float Now);
+
+	// Точка-впереди пешки по направлению Dir на дистанции Dist — внутри деревни?
+	bool IsAheadInVillage(const FVector& Dir, float Dist) const;
+
+	// Врагу доступен атакующий слот? (ADR-037: не больше MaxSimultaneousAttackers ближайших
+	// к игроку врагов одновременно в Chase/Attack; остальные — Standoff.)
+	bool HasAttackSlot(APawn* Player) const;
+
+	// Замедление у границы деревни: true → MaxWalkSpeed * VillageSlowdownSpeedFactor,
+	// false → восстановить базовую скорость пешки (кэш CachedBaseWalkSpeed).
+	void SetVillageSlowdown(bool bSlow);
+
+	// Враг в кадре камеры игрока? (проекция позиции пешки на экран + границы вьюпорта).
+	bool IsSelfOnPlayerScreen() const;
+
 private:
-	// Время последней атаки (по GetWorld()->GetTimeSeconds()).
+	// Время последней ближней атаки (по GetWorld()->GetTimeSeconds()).
 	float LastAttackTime = -1000.0f;
+
+	// Время последнего выстрела (огнестрел, D6).
+	float LastRangedAttackTime = -1000.0f;
 
 	// Время последнего QA-лога погони (дроссель). -1000 — чтобы первый Chase залогировался сразу.
 	float LastChaseLogTime = -1000.0f;
@@ -156,9 +307,29 @@ private:
 	// доступна лишь форвард-декларация namespace-enum, поэтому инициализатор задаём в .cpp.
 	EPathFollowingRequestResult::Type LastMoveResult;
 
+	// --- Рантайм поводка/деревни/замедления (Этап D) ---
+
+	// Точка дома (центр базы от спавнера либо позиция на OnPossess) и эффективный радиус поводка.
+	FVector HomeLocation = FVector::ZeroVector;
+	float LeashRadius = 0.0f;
+	bool bLeashSet = false;
+
+	// Момент окончания паузы у границы деревни (GetTimeSeconds).
+	float VillagePauseEndTime = 0.0f;
+
+	// Кэш базовой MaxWalkSpeed пешки (ленивая инициализация в Tick: к первому тику пешка
+	// уже применила свою скорость в BeginPlay). <0 = ещё не кэширована.
+	float CachedBaseWalkSpeed = -1.0f;
+
+	// Замедление у деревни сейчас активно (чтобы не переписывать MaxWalkSpeed каждый тик).
+	bool bVillageSlowdownActive = false;
+
 	// Кэш статов своего пешки (для проверки "враг жив").
 	UPROPERTY()
 	UStatsComponent* OwnStats = nullptr;
+
+	// Реестр живых контроллеров врагов (лимит атакующих ADR-037 + боевая камера ADR-035).
+	static TArray<TWeakObjectPtr<AEnemyAIController>> ActiveControllers;
 
 	// Находит игрока-пешку (через PlayerController 0).
 	APawn* GetPlayerPawn() const;
