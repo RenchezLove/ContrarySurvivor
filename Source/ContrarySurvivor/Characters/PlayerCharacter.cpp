@@ -28,6 +28,7 @@
 #include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry, EShopEntryKind (A2)
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
+#include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
 #include "ContrarySurvivor/Characters/WolfCharacter.h"  // #26: читаемое имя «от кого погиб»
 #include "ContrarySurvivor/Characters/EnemyCharacter.h" // #26: читаемое имя «от кого погиб»
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
@@ -300,9 +301,56 @@ void APlayerCharacter::Tick(float DeltaTime)
 
     FVector DesiredOffset = FVector::ZeroVector;
 
-    // Look-ahead: целевое смещение по горизонтали в сторону движения пешки.
-    if (bEnableCameraLookAhead)
+    // --- Боевой режим камеры (D6, ADR-035): угрозы = враги, ведущие бой, в радиусе ---
+    // Пока угрозы есть, камера НЕ смотрит вперёд (look-ahead выключен), а слегка смещается
+    // к центру угроз — «всё, что может стрелять по игроку, в кадре». Без зума.
+    bool bCombatMode = false;
+    FVector CombatTargetOffset = FVector::ZeroVector;
+    if (bEnableCombatCamera)
     {
+        FVector ThreatSum = FVector::ZeroVector;
+        int32 ThreatCount = 0;
+        const float ThreatRadiusSq = CombatCameraThreatRadius * CombatCameraThreatRadius;
+
+        for (const TWeakObjectPtr<AEnemyAIController>& Ptr : AEnemyAIController::GetActiveControllers())
+        {
+            const AEnemyAIController* Enemy = Ptr.Get();
+            if (!Enemy || Enemy->GetWorld() != GetWorld() || !Enemy->IsEngagingPlayer())
+            {
+                continue;
+            }
+            const APawn* EnemyPawn = Enemy->GetPawn();
+            if (!EnemyPawn)
+            {
+                continue;
+            }
+            const FVector EnemyLoc = EnemyPawn->GetActorLocation();
+            if (FVector::DistSquared(EnemyLoc, GetActorLocation()) > ThreatRadiusSq)
+            {
+                continue;
+            }
+            ThreatSum += EnemyLoc;
+            ++ThreatCount;
+        }
+
+        if (ThreatCount > 0)
+        {
+            bCombatMode = true;
+            FVector ToThreats = (ThreatSum / ThreatCount) - GetActorLocation();
+            ToThreats.Z = 0.0f;
+            CombatTargetOffset = (ToThreats * CombatCameraOffsetFactor).GetClampedToMaxSize(CombatCameraMaxOffset);
+        }
+    }
+
+    if (bCombatMode)
+    {
+        // Бой: тот же сглаженный офсет ведём к центру угроз (переход из look-ahead бесшовный).
+        CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, CombatTargetOffset, DeltaTime, CombatCameraInterpSpeed);
+        DesiredOffset += CameraLookAheadOffset;
+    }
+    else if (bEnableCameraLookAhead)
+    {
+        // Исследование: look-ahead по ходу движения (как раньше).
         FVector Velocity = GetVelocity();
         Velocity.Z = 0.0f;
         const float Speed = Velocity.Size();
@@ -327,10 +375,32 @@ void APlayerCharacter::Tick(float DeltaTime)
         DesiredOffset.Z += FMath::Sin(CameraBreathingTime) * BreathingAmplitude;
     }
 
+    // --- Тряска камеры (D5): trauma-модель на шуме Перлина ---
+    // Амплитуда = Max * травма² (квадрат делает слабые тычки мягкими, сильные — заметными).
+    if (bEnableCameraShake && CameraShakeTrauma > 0.0f)
+    {
+        CameraShakeTrauma = FMath::Max(0.0f, CameraShakeTrauma - CameraShakeDecay * DeltaTime);
+        CameraShakeTime += DeltaTime * CameraShakeFrequency;
+        const float Amp = CameraShakeMaxAmplitude * CameraShakeTrauma * CameraShakeTrauma;
+        // Два независимых канала шума (сдвиг аргумента = второй «сид»).
+        DesiredOffset.X += Amp * FMath::PerlinNoise1D(CameraShakeTime);
+        DesiredOffset.Y += Amp * FMath::PerlinNoise1D(CameraShakeTime + 49.7f);
+    }
+
     SpringArmComponent->TargetOffset = DesiredOffset;
 
     // Шаги (Демо): по таймеру при ходьбе по земле (анимаций нет, AnimNotify не используем).
     UpdateFootsteps(DeltaTime);
+}
+
+void APlayerCharacter::AddCameraShake(float Trauma)
+{
+    if (!bEnableCameraShake || Trauma <= 0.0f)
+    {
+        return;
+    }
+    // Травма копится (несколько попаданий подряд трясут сильнее), но не выше 1.
+    CameraShakeTrauma = FMath::Clamp(CameraShakeTrauma + Trauma, 0.0f, 1.0f);
 }
 
 void APlayerCharacter::UpdateFootsteps(float DeltaTime)
@@ -406,6 +476,10 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
     if (Applied > 0.0f)
     {
         Stats->PlayHurtSound();
+
+        // D5: тряска камеры при получении урона (голод/жажда сюда не приходят — они бьют
+        // напрямую в Stats, минуя TakeDamage).
+        AddCameraShake(DamageShakeTrauma);
     }
 
     UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
