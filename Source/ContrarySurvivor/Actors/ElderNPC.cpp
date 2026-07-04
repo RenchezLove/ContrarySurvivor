@@ -54,6 +54,8 @@ AElderNPC::AElderNPC()
 	OfferedQuest.RequiredItemCount = 3;
 	OfferedQuest.RewardMoney = 150.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
+	// Этап D: метка цели квеста на HUD — логово волков (BP_WolfDen несёт QuestMarkerTag="WolfDen").
+	OfferedQuest.MapMarkerTag = FName(TEXT("WolfDen"));
 
 	// КВЕСТ 2 (DRAFT): зачистить базу бандитов на севере (убить 3 бандитов) и принести Ноутбук.
 	// Стороны света — по камере игрока (верх кадра при спауне ГГ = север; конвенция Рината 07-02).
@@ -69,6 +71,8 @@ AElderNPC::AElderNPC()
 	SecondQuest.RequiredItemCount = 1;
 	SecondQuest.RewardMoney = 250.0f;
 	SecondQuest.State = EQuestState::NotStarted;
+	// Этап D: метка цели квеста — база бандитов (BP_BanditBase несёт QuestMarkerTag="BanditBase").
+	SecondQuest.MapMarkerTag = FName(TEXT("BanditBase"));
 }
 
 void AElderNPC::PostInitializeComponents()

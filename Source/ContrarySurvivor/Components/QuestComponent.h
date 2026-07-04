@@ -93,6 +93,12 @@ struct FQuest
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	int32 ItemProgress = 0;
 
+	// Метка цели квеста на карте (Этап D, реюз маркеров NPC): HUD ищет актор-цель по этому
+	// тегу (QuestMarkerTag у AMasterEnemyBase либо стандартный Actor Tag) и рисует метку/
+	// краевую стрелку, пока квест Active/Completed. NAME_None = квест без метки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FName MapMarkerTag = NAME_None;
+
 	// Награда деньгами при сдаче (TurnedIn). DRAFT (решение Рината): 150. Тюнингуется на старосте/квесте.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	float RewardMoney = 150.0f;

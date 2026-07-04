@@ -60,6 +60,7 @@ public:
 		TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName = FString());
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// Триггер подбора: overlap по Pawn (как у костра-сейва).
@@ -70,9 +71,33 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
 	UStaticMeshComponent* MeshComponent;
 
-	// Сумма денег в пикапе (0 = нет денег).
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
+	// Сумма денег в пикапе (0 = нет денег). D8: EditAnywhere — задаётся на РАЗМЕЩЁННОМ
+	// экземпляре (лут точек интереса); рантайм-дроп по-прежнему пишет её через InitLoot.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayPriority = "1"))
 	float MoneyAmount = 0.0f;
+
+	// --- D8: размещаемый лут (заполняет дизайнер на экземпляре на карте) ---
+	// BeginPlay спавнит предметы скрытыми (как DropLoot) и заводит их в стандартный
+	// механизм CarriedItems — подбор той же клавишей E, ничего нового в Collect.
+
+	// Класс стартового предмета (nullptr = предмета нет). Особый случай: класс патронов
+	// (AAmmoItem) спавнится ОДНОЙ пачкой со стаком PlacedItemCount, а не N пустыми копиями.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2"))
+	TSubclassOf<AMasterInventoryItem> PlacedItemClass;
+
+	// Понятное имя предмета в рюкзаке/UI (пусто = имя класса по умолчанию).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "3"))
+	FString PlacedItemDisplayName;
+
+	// Сколько предметов положить (для AAmmoItem — размер стака одной пачки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "1", DisplayPriority = "4"))
+	int32 PlacedItemCount = 1;
+
+	// Патроны В ДОПОЛНЕНИЕ к предмету (одна пачка AAmmoItem с этим стаком; 0 = без патронов).
+	// Отдельное поле, потому что точка интереса несёт «расходник И патроны» одним пикапом,
+	// а слот PlacedItemClass один (аналог поля денег).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0", DisplayPriority = "5"))
+	int32 PlacedAmmoAmount = 0;
 
 	// Предмет, который пикап отдаёт в рюкзак при подборе (nullptr = только деньги).
 	UPROPERTY()
@@ -84,6 +109,10 @@ protected:
 	TArray<AMasterInventoryItem*> CarriedItems;
 
 private:
+	// D8: спавнит размещённый лут (PlacedItemClass/PlacedAmmoAmount) скрытыми предметами
+	// в CarriedItems. Зовётся из BeginPlay только в игровом мире.
+	void SpawnPlacedLoot();
+
 	// true, если лут уже подобран игроком (чтобы EndPlay не уничтожил отданный предмет).
 	bool bCollected = false;
 };
