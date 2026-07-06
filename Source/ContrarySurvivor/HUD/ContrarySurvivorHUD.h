@@ -457,10 +457,19 @@ private:
 	// (реюз механизма краевых стрелок NPC — критерий D6).
 	void DrawOffscreenShooterArrows();
 
-	// Этап D: метка цели активного квеста (Active/Completed, FQuest::MapMarkerTag):
-	// актор ищется по QuestMarkerTag базы (AMasterEnemyBase) или стандартному Actor Tag.
-	// В кадре — золотой ромб с названием квеста, за кадром — краевая стрелка. TurnedIn — гаснет.
+	// Этап D: метка цели активного квеста (FQuest::MapMarkerTag). Пока цели НЕ выполнены (Active) —
+	// на актор-цель (QuestMarkerTag базы AMasterEnemyBase или стандартный Actor Tag); квест готов
+	// к сдаче (Completed) — на квестодателя (старосту), фидбек Рината 07-05. TurnedIn — гаснет.
+	// В кадре — золотой ромб с подписью, за кадром — краевая стрелка.
 	void DrawQuestTargetMarker(APlayerCharacter* Player);
+
+	// Кэш актора-цели метки квеста (qa-фикс: НЕ перебирать все акторы мира каждый кадр).
+	// Инвалидация: смена тега/фазы (цель <-> квестодатель) или гибель актора; неудачный поиск
+	// повторяется не чаще чем раз в полсекунды (QuestMarkerNextSearchTime).
+	TWeakObjectPtr<AActor> QuestMarkerTargetCache;
+	FName QuestMarkerCachedTag = NAME_None;
+	bool bQuestMarkerCachedToGiver = false;
+	float QuestMarkerNextSearchTime = 0.0f;
 
 	// Рисует контекстную подсказку взаимодействия («E — подобрать» / «E — торговать»)
 	// по центру снизу (BUG3). Текст берётся у контроллера (ближайший интерактив).

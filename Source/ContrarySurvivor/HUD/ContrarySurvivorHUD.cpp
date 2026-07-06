@@ -1676,27 +1676,62 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		return; // нет активного квеста с меткой (после сдачи GetTrackedQuest = null — метка гаснет)
 	}
 
-	// Цель: база врагов с совпадающим QuestMarkerTag (BP_WolfDen/BP_BanditBase)…
-	AActor* Target = nullptr;
-	for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+	// Фикс меты (фидбек Рината 07-05): пока цели квеста НЕ выполнены — метка на цель (базу);
+	// квест ГОТОВ К СДАЧЕ (Completed: все убиты/собрано) — метка ведёт к квестодателю (старосте).
+	const bool bToGiver = (Tracked->State == EQuestState::Completed);
+
+	// Кэш цели (qa-фикс): мир сканируется только при инвалидации кэша (смена тега/фазы, гибель
+	// актора), НЕ каждый кадр; повторный поиск ненайденной цели дросселируется по времени.
+	AActor* Target = QuestMarkerTargetCache.Get();
+	if (!Target || QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver)
 	{
-		if (It->GetQuestMarkerTag() == Tracked->MapMarkerTag)
+		const float Now = World->GetTimeSeconds();
+		const bool bSameSearch = (QuestMarkerCachedTag == Tracked->MapMarkerTag
+			&& bQuestMarkerCachedToGiver == bToGiver);
+		if (!Target && bSameSearch && Now < QuestMarkerNextSearchTime)
 		{
-			Target = *It;
-			break;
+			return; // недавно искали и не нашли (цель не размещена/тег не проставлен) — ждём
 		}
-	}
-	// …или ЛЮБОЙ актор со стандартным Actor Tag (гибкость для будущих квестов без правок кода).
-	if (!Target)
-	{
-		for (TActorIterator<AActor> It(World); It; ++It)
+
+		Target = nullptr;
+		if (bToGiver)
 		{
-			if (IsValid(*It) && It->ActorHasTag(Tracked->MapMarkerTag))
+			// Квестодатель MVP — староста (единственный AElderNPC на карте).
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
 			{
 				Target = *It;
 				break;
 			}
 		}
+		else
+		{
+			// Цель: база врагов с совпадающим QuestMarkerTag (BP_WolfDen/BP_BanditBase)…
+			for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+			{
+				if (It->GetQuestMarkerTag() == Tracked->MapMarkerTag)
+				{
+					Target = *It;
+					break;
+				}
+			}
+			// …или ЛЮБОЙ актор со стандартным Actor Tag (гибкость для будущих квестов без правок кода).
+			if (!Target)
+			{
+				for (TActorIterator<AActor> It(World); It; ++It)
+				{
+					if (IsValid(*It) && It->ActorHasTag(Tracked->MapMarkerTag))
+					{
+						Target = *It;
+						break;
+					}
+				}
+			}
+		}
+
+		QuestMarkerTargetCache = Target;
+		QuestMarkerCachedTag = Tracked->MapMarkerTag;
+		bQuestMarkerCachedToGiver = bToGiver;
+		QuestMarkerNextSearchTime = Now + 0.5f; // дроссель следующего поиска, если не нашли
 	}
 
 	if (!Target)
@@ -1704,8 +1739,20 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		return; // цель не размещена/тег не проставлен — метки нет (лог не спамим: каждый кадр)
 	}
 
-	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, QuestTargetMarkerZOffset),
-		Tracked->Title, QuestTargetMarkerColor);
+	// К сдаче метка висит над старостой ВЫШЕ его зелёного NPC-ромба (чтобы не сливались),
+	// подпись — «Сдать: <квест>»; на цели — обычный подъём и название квеста.
+	float ZOff = QuestTargetMarkerZOffset;
+	FString Label = Tracked->Title;
+	if (bToGiver)
+	{
+		if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
+		{
+			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
+		}
+		Label = FString::Printf(TEXT("Сдать: %s"), *Tracked->Title);
+	}
+
+	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor);
 }
 
 void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label,
