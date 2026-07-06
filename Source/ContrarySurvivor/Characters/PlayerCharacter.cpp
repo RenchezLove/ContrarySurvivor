@@ -347,6 +347,7 @@ void APlayerCharacter::Tick(float DeltaTime)
         // Бой: тот же сглаженный офсет ведём к центру угроз (переход из look-ahead бесшовный).
         CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, CombatTargetOffset, DeltaTime, CombatCameraInterpSpeed);
         DesiredOffset += CameraLookAheadOffset;
+        bCombatCameraRecovering = true; // после боя офсет возвращается мягкой скоростью выхода
     }
     else if (bEnableCameraLookAhead)
     {
@@ -359,8 +360,25 @@ void APlayerCharacter::Tick(float DeltaTime)
         {
             TargetLookAhead = Velocity.GetSafeNormal() * LookAheadAmount;
         }
-        // Плавно подмешиваем (в т.ч. возврат к нулю при остановке).
-        CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, TargetLookAhead, DeltaTime, LookAheadInterpSpeed);
+        // Выход из боя — отдельной, заметно более мягкой скоростью (фидбек Рината 07-05);
+        // когда офсет догнал цель исследования — возвращаемся на обычную скорость look-ahead.
+        const float InterpSpeed = bCombatCameraRecovering ? CombatCameraExitInterpSpeed : LookAheadInterpSpeed;
+        CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, TargetLookAhead, DeltaTime, InterpSpeed);
+        if (bCombatCameraRecovering && CameraLookAheadOffset.Equals(TargetLookAhead, 25.0f))
+        {
+            bCombatCameraRecovering = false;
+        }
+        DesiredOffset += CameraLookAheadOffset;
+    }
+    else if (bCombatCameraRecovering)
+    {
+        // Look-ahead выключен: после боя офсет НЕ сбрасываем скачком — мягко ведём к нулю.
+        CameraLookAheadOffset = FMath::VInterpTo(CameraLookAheadOffset, FVector::ZeroVector, DeltaTime, CombatCameraExitInterpSpeed);
+        if (CameraLookAheadOffset.IsNearlyZero(1.0f))
+        {
+            CameraLookAheadOffset = FVector::ZeroVector;
+            bCombatCameraRecovering = false;
+        }
         DesiredOffset += CameraLookAheadOffset;
     }
     else

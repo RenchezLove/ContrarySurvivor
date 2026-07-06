@@ -136,9 +136,15 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.0", DisplayPriority = "26"))
     float CombatCameraMaxOffset = 500.0f;
 
-    // Скорость плавного перехода камеры в/из боевого смещения (VInterpTo, «без рывков»).
+    // Скорость плавного перехода камеры В боевое смещение (VInterpTo, «без рывков»).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.1", DisplayPriority = "27"))
     float CombatCameraInterpSpeed = 2.0f;
+
+    // Скорость ВЫХОДА камеры из боя (возврат к look-ahead исследования). Отдельная и заметно
+    // мягче боевого входа — фидбек Рината 07-05: «при потере противника камера смещается
+    // в сторону движения достаточно резко».
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.1", DisplayPriority = "28"))
+    float CombatCameraExitInterpSpeed = 1.0f;
 
     // --- Тряска камеры (D5) ---
     // Процедурная trauma-модель: AddCameraShake копит «травму» [0..1], затухающую со временем;
@@ -521,6 +527,10 @@ private:
 
     // Текущее сглаженное смещение look-ahead/боевого смещения (world XY), интерполируется в Tick.
     FVector CameraLookAheadOffset = FVector::ZeroVector;
+
+    // Идёт возврат камеры из боя: офсет ведём мягкой CombatCameraExitInterpSpeed, пока он не
+    // догонит цель исследования (иначе выход из боя дёргался бы на скорости look-ahead).
+    bool bCombatCameraRecovering = false;
 
     // --- Рантайм тряски камеры (D5) ---
     // Текущая «травма» [0..1] (копится AddCameraShake, затухает CameraShakeDecay).
