@@ -197,10 +197,10 @@ void AMasterTrader::BuildDefaultCatalog()
 	Catalog.Add(MakeConsumable(TEXT("Bandage"), 12.0f, EConsumableType::Medkit));
 
 	// Патроны: 2/шт (GDD §7.6), покупаются стаком в рюкзак (AAmmoItem).
-	// Имя = ItemName AAmmoItem («Патроны»): в каталоге и в инвентаре предмет зовётся одинаково.
+	// Имя = ItemName AAmmoItem («Патроны 9мм»): в каталоге и в инвентаре предмет зовётся одинаково.
 	{
 		FShopEntry Ammo;
-		Ammo.DisplayName = TEXT("Патроны");
+		Ammo.DisplayName = TEXT("Патроны 9мм");
 		Ammo.Price = 2.0f;
 		Ammo.Kind = EShopEntryKind::Ammo;
 		Ammo.AmmoAmount = 1;

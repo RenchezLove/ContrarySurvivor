@@ -577,7 +577,7 @@ void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInvent
 	SliderItem = Item;
 	SliderUnitPrice = ShopTrader->GetAmmoSellPerRound();
 	SliderUnitAmmo = 0;
-	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны") : Item->ItemName;
+	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны 9мм") : Item->ItemName;
 	SliderQtyMax = FMath::Max(1, Ammo->StackCount);
 	SliderQty = SliderQtyMax; // по умолчанию продать всё (как в STALKER — потом крутишь вниз)
 }
