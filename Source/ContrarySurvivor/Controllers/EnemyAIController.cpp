@@ -467,9 +467,16 @@ void AEnemyAIController::Tick(float DeltaTime)
 		return;
 	}
 
+	// Сенсинг (DetectionRange + LOS) гейтит ТОЛЬКО ВСТУПЛЕНИЕ в бой из Idle. Враг, УЖЕ
+	// ведущий бой (Chase/Attack/Standoff), цель не теряет: по ADR-036 погоню ограничивает
+	// только поводок (проверка ниже). БАГ (приёмка Рината 07-06, лог: return home
+	// (idle-far-from-home) посреди погони): убегающий игрок (sprint 1200 против 650 у бандита)
+	// выходил за DetectionRange(1500) — на глаз это совпадает с выходом врага из кадра — и
+	// враг мгновенно бросал погоню, хотя до границы поводка было далеко.
 	const bool bSensed = CanSensePlayer(Player);
+	const bool bHasTarget = Player && (bSensed || IsEngagingPlayer());
 
-	if (!bSensed)
+	if (!bHasTarget)
 	{
 		SetVillageSlowdown(false);
 
