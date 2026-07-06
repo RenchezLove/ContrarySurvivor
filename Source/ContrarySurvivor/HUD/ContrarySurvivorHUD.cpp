@@ -1740,9 +1740,9 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 	}
 
 	// К сдаче метка висит над старостой ВЫШЕ его зелёного NPC-ромба (чтобы не сливались),
-	// подпись — «Сдать: <квест>»; на цели — обычный подъём и название квеста.
+	// подпись — «Сдать: <квест>»; на цели — обычный подъём и ТЕКУЩАЯ невыполненная цель.
 	float ZOff = QuestTargetMarkerZOffset;
-	FString Label = Tracked->Title;
+	FString Label = Tracked->Title; // фолбэк: целей с подписью нет — название квеста
 	if (bToGiver)
 	{
 		if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
@@ -1750,6 +1750,28 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
 		}
 		Label = FString::Printf(TEXT("Сдать: %s"), *Tracked->Title);
+	}
+	else
+	{
+		// Текст метки = ПЕРВАЯ невыполненная цель квеста (фидбек Рината 07-06), меняется по
+		// ходу: «Перебить бандитов (1/3)» -> «Забрать ноутбук». Порядок целей kill -> item —
+		// тот же, что в трекере верхнего правого угла (DrawQuestTracker). Не хардкод под
+		// конкретный квест: подписи берутся из данных квеста (FQuest::*ObjectiveLabel).
+		if (Tracked->TargetCount > 0 && Tracked->Progress < Tracked->TargetCount)
+		{
+			const FString Obj = !Tracked->KillObjectiveLabel.IsEmpty()
+				? Tracked->KillObjectiveLabel : Tracked->KillTargetTag.ToString();
+			Label = FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->Progress, Tracked->TargetCount);
+		}
+		else if (Tracked->RequiredItemCount > 0 && Tracked->ItemProgress < Tracked->RequiredItemCount)
+		{
+			const FString Obj = !Tracked->ItemObjectiveLabel.IsEmpty()
+				? Tracked->ItemObjectiveLabel : Tracked->RequiredItemName;
+			// Счётчик (x/N) у единичной цели («Забрать ноутбук») — шум, не показываем.
+			Label = (Tracked->RequiredItemCount > 1)
+				? FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->ItemProgress, Tracked->RequiredItemCount)
+				: Obj;
+		}
 	}
 
 	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor);
