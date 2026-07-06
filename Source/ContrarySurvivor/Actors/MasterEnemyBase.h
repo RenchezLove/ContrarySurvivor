@@ -58,9 +58,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	// Подгоняет радиус сферы-визуализатора ActivationRadius под текущее значение поля — чтобы
-	// граница активации обновлялась во вьюпорте сразу при правке ActivationRadius в Details
-	// (и в превью BP, и на размещённом акторе). См. ActivationVisualizer.
+	// Подгоняет радиусы сфер-визуализаторов под текущие значения полей — чтобы границы
+	// активации (ActivationRadius) и поводка (LeashRadius) обновлялись во вьюпорте сразу при
+	// правке в Details (и в превью BP, и на размещённом акторе). См. ActivationVisualizer /
+	// LeashVisualizer.
 	virtual void OnConstruction(const FTransform& Transform) override;
 
 	// Корень-трансформ (placeable). Меш/иконку задаёт BP при желании.
@@ -74,6 +75,13 @@ protected:
 	// синхронизируется с ActivationRadius в OnConstruction.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
 	USphereComponent* ActivationVisualizer;
+
+	// Визуализатор радиуса поводка (фидбек Рината 07-05): вторая каркас-сфера, радиус = LeashRadius,
+	// цвет фиолетовый (отличается от оранжевой границы активации). Как ActivationVisualizer:
+	// видна только в редакторе (bHiddenInGame), без коллизии/навмеша, ОТДЕЛЬНОГО параметра радиуса
+	// НЕТ — радиус синхронизируется с LeashRadius в OnConstruction. LeashRadius=0 — сфера в точку.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase")
+	USphereComponent* LeashVisualizer;
 
 	// Дефолтная точка спавна — образец, чтобы у базового актора уже был видимый перемещаемый
 	// маркер. Дизайнер двигает её и/или добавляет ещё точек (Enemy Spawn Point) в дереве BP.

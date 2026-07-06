@@ -34,6 +34,16 @@ AMasterEnemyBase::AMasterEnemyBase()
 	ActivationVisualizer->SetCanEverAffectNavigation(false);
 	ActivationVisualizer->ShapeColor = FColor(255, 140, 0, 255); // оранжевый — заметная граница спавна
 
+	// Визуализатор радиуса поводка (фидбек Рината 07-05): та же схема, что ActivationVisualizer,
+	// но радиус = LeashRadius и другой цвет, чтобы границы не путались во вьюпорте. Отдельного
+	// параметра радиуса НЕТ — сфера следует за LeashRadius (синк в OnConstruction).
+	LeashVisualizer = CreateDefaultSubobject<USphereComponent>(TEXT("LeashVisualizer"));
+	LeashVisualizer->SetupAttachment(SceneRoot);
+	LeashVisualizer->InitSphereRadius(LeashRadius);
+	LeashVisualizer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	LeashVisualizer->SetCanEverAffectNavigation(false);
+	LeashVisualizer->ShapeColor = FColor(150, 60, 255, 255); // фиолетовый — граница поводка погони
+
 	// Дефолтная точка спавна-образец: видимый перемещаемый маркер на базовом акторе. Смещаем от
 	// центра, чтобы стрелка не сливалась с корнем. Дизайнер двигает её и добавляет ещё точек в BP.
 	DefaultSpawnPoint = CreateDefaultSubobject<UEnemySpawnPointComponent>(TEXT("SpawnPoint0"));
@@ -49,12 +59,16 @@ void AMasterEnemyBase::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
-	// Держим радиус сферы-визуализатора равным ActivationRadius — чтобы при правке ActivationRadius
-	// в Details граница сразу обновлялась во вьюпорте (превью BP и размещённый актор реконструируются
-	// при изменении свойства, что снова вызывает OnConstruction).
+	// Держим радиусы сфер-визуализаторов равными своим полям — чтобы при правке ActivationRadius/
+	// LeashRadius в Details границы сразу обновлялись во вьюпорте (превью BP и размещённый актор
+	// реконструируются при изменении свойства, что снова вызывает OnConstruction).
 	if (ActivationVisualizer)
 	{
 		ActivationVisualizer->SetSphereRadius(ActivationRadius, /*bUpdateOverlaps=*/false);
+	}
+	if (LeashVisualizer)
+	{
+		LeashVisualizer->SetSphereRadius(LeashRadius, /*bUpdateOverlaps=*/false);
 	}
 }
 
