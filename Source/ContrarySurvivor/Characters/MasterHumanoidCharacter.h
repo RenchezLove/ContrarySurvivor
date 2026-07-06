@@ -46,6 +46,25 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (DisplayPriority = "52"))
     bool bIsAttacking;
 
+	// --- Прицеливание корпусом (вариант A, фидбек Рината 07-05 «не целятся») ---
+	// При реальном выстреле/ударе носитель ПЛАВНО доворачивается (yaw) на цель и AimTurnHoldTime
+	// секунд «ведёт» её; окно продлевается каждым выстрелом (StartAimTurnTo). Работает у игрока
+	// и бандита (хуки: ARangedWeapon::Fire, AEnemyAIController::PerformRangedAttack/PerformAttack).
+	// Снап-доворот ножа игрока (AMeleeWeapon::bTurnToLockedTarget) — отдельный механизм, не тронут.
+	// На окно доворота bOrientRotationToMovement выключается и потом восстанавливается —
+	// иначе ориентация бега (BP игрока держит её включённой) борется с прицелом каждый кадр.
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Aim", meta = (DisplayPriority = "55"))
+	bool bAimTurnToTarget = true;
+
+	// Скорость доворота (FMath::RInterpTo, 1/сек): больше = быстрее лицом к цели. Плавно, не снап.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Aim", meta = (ClampMin = "0.5", DisplayPriority = "56"))
+	float AimTurnInterpSpeed = 10.0f;
+
+	// Сколько секунд после выстрела корпус продолжает вести цель (окно продлевается выстрелами).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Aim", meta = (ClampMin = "0.0", DisplayPriority = "57"))
+	float AimTurnHoldTime = 1.0f;
+
 	// --- Меши ---
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true", DisplayPriority = "54"))
@@ -121,6 +140,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void FireCurrentWeapon(AActor* Target);
+
+	// Запустить/продлить плавный доворот корпуса на цель (вариант A прицеливания). Зовётся из
+	// точек РЕАЛЬНОГО выстрела/удара (после кулдаунов/патронов): ARangedWeapon::Fire (игрок),
+	// AEnemyAIController::PerformRangedAttack/PerformAttack (бандит). No-op при bAimTurnToTarget=false.
+	void StartAimTurnTo(AActor* Target);
 
 	// virtual: APlayerCharacter переопределяет, чтобы перед штатной перезарядкой пополнить
 	// резерв оружия из пачки патронов (AAmmoItem) в рюкзаке (Фаза 5, STALKER 2-стиль).
@@ -220,6 +244,25 @@ protected:
 
 private:
     bool IsSprinting = false;
+
+    // --- Рантайм доворота корпуса на цель (вариант A прицеливания) ---
+
+    // Текущая цель доворота (слабый указатель: гибель цели просто завершает доворот).
+    TWeakObjectPtr<AActor> AimTurnTarget;
+
+    // Время конца окна доворота (мировые секунды); продлевается каждым StartAimTurnTo.
+    float AimTurnEndTime = 0.0f;
+
+    bool bAimTurnActive = false;
+
+    // Сохранённый bOrientRotationToMovement на окно доворота (восстанавливается в EndAimTurn).
+    bool bAimTurnSavedOrientToMovement = false;
+
+    // Кадровый шаг доворота (из Tick): плавный yaw на цель, завершение по таймеру/гибели/трупу.
+    void UpdateAimTurn(float DeltaTime);
+
+    // Завершить доворот и восстановить ориентацию бега.
+    void EndAimTurn();
 
     // Базовые меши слотов (тело без брони) — снимок BeginPlay для UnequipArmor.
     UPROPERTY()

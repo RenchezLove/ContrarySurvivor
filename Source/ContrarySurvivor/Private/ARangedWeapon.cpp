@@ -12,6 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // D5: лёгкая тряска камеры при выстреле игрока
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // вариант A прицеливания: доворот корпуса носителя
 
 ARangedWeapon::ARangedWeapon()
 {
@@ -211,6 +212,13 @@ void ARangedWeapon::Fire(AActor* Target)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon::Fire() — no target"));
 		return;
+	}
+
+	// Вариант A прицеливания (фидбек Рината 07-05): носитель плавно доворачивается корпусом
+	// на цель реального выстрела (CanFire/цель уже проверены). Игрок и любой гуманоид.
+	if (AMasterHumanoidCharacter* Wielder = Cast<AMasterHumanoidCharacter>(GetInstigator()))
+	{
+		Wielder->StartAimTurnTo(FiringTarget);
 	}
 
 	FHitResult HitResult;

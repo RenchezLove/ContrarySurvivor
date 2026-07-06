@@ -146,6 +146,14 @@ bool AEnemyAIController::PerformAttack(APawn* Player)
 
 	LastAttackTime = Now;
 
+	// Вариант A прицеливания: гуманоид-носитель плавно доворачивается корпусом на игрока и при
+	// ближнем ударе (SetFocus пешку НЕ вращает: у ACharacter bUseControllerRotation* по умолчанию
+	// false, FaceRotation при них no-op). Волк — не гуманоид, Cast даёт nullptr (его не трогаем).
+	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(GetPawn()))
+	{
+		SelfHumanoid->StartAimTurnTo(Player);
+	}
+
 	// Урон игроку через стандартный пайплайн UE.
 	FDamageEvent DamageEvent;
 	Player->TakeDamage(AttackDamage, DamageEvent, this, GetPawn());
@@ -178,6 +186,15 @@ bool AEnemyAIController::PerformRangedAttack(APawn* Player)
 	}
 
 	LastRangedAttackTime = Now;
+
+	// Вариант A прицеливания (фидбек Рината 07-05): бандит плавно доворачивается корпусом на
+	// игрока при реальном выстреле (кулдаун/честность уже пройдены). До этого корпус бандита
+	// НИЧТО не вращало: SetFocus при выключенных bUseControllerRotation* пешку не поворачивает,
+	// bOrientRotationToMovement у бандита тоже выключен — стрелял «из любой позы».
+	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(Self))
+	{
+		SelfHumanoid->StartAimTurnTo(Player);
+	}
 
 	// Разброс как вероятность попадания (дешевле честной баллистики; Android-бюджет).
 	const bool bHit = FMath::FRand() <= RangedHitChance;
@@ -644,11 +661,6 @@ void AEnemyAIController::Tick(float DeltaTime)
 			{
 				Self->AddMovementInput(ToPlayer, 1.0f);
 			}
-
-			// ПРОБА nav на восстановление: ВРЕМЕННО ОТКЛЮЧЕНА (тест дёргания).
-			// Гипотеза: MoveToActor каждые 0.35с вызывает AbortMove внутри → CMC velocity сбрасывается
-			// → "шаг-стоп-шаг-стоп". При selfNav=no зонд всегда Failed и только мешает.
-			// Если дёрганье исчезнет — убрать насовсем; если нет — искать дальше.
 		}
 		else
 		{
