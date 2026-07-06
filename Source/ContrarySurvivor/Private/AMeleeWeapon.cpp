@@ -237,6 +237,7 @@ void AMeleeWeapon::ApplyHitStop()
 	}
 
 	UGameplayStatics::SetGlobalTimeDilation(World, HitStopTimeDilation);
+	bHitStopPending = true;
 
 	// Таймеры считают ИГРОВОЕ (замедленное) время: чтобы пауза длилась HitStopDuration
 	// РЕАЛЬНЫХ секунд, период таймера = HitStopDuration * dilation. Повторный удар до
@@ -244,10 +245,29 @@ void AMeleeWeapon::ApplyHitStop()
 	World->GetTimerManager().SetTimer(HitStopTimerHandle,
 		FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
+			bHitStopPending = false;
 			if (UWorld* W = GetWorld())
 			{
 				UGameplayStatics::SetGlobalTimeDilation(W, 1.0f);
 			}
 		}),
 		FMath::Max(0.001f, HitStopDuration * HitStopTimeDilation), /*bLoop=*/false);
+}
+
+void AMeleeWeapon::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Страховка (qa): уничтожение/снятие оружия в окно hitstop — таймер с WeakLambda уже
+	// не выполнится, восстанавливаем нормальный ход времени сами. Вне окна — ничего не трогаем
+	// (не сбивать дилатацию, если её меняет кто-то другой).
+	if (bHitStopPending)
+	{
+		bHitStopPending = false;
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(HitStopTimerHandle);
+			UGameplayStatics::SetGlobalTimeDilation(World, 1.0f);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
 }

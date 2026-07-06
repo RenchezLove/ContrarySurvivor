@@ -42,6 +42,11 @@ public:
 	// приоритет лока реализован доворотом носителя (bTurnToLockedTarget). Кулдаун замаха.
 	virtual void Fire(AActor* Target) override;
 
+	// Страховка hitstop (qa): если оружие уничтожают в окно замедления (~HitStopDuration),
+	// таймер восстановления (WeakLambda) уже не сработает и global time dilation залип бы
+	// НАВСЕГДА — восстанавливаем дилатацию здесь.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 protected:
 	// Дальность атаки ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ капсул (см). Эффективная проверка
 	// центр-к-центру = MeleeRange + (радиус капсулы носителя + радиус капсулы цели).
@@ -103,4 +108,8 @@ private:
 	void ApplyHitStop();
 
 	FTimerHandle HitStopTimerHandle;
+
+	// Замедление времени сейчас активно (выставлен ApplyHitStop, ещё не восстановлен таймером).
+	// По нему EndPlay понимает, что дилатацию нужно вернуть к 1.0 (см. комментарий у EndPlay).
+	bool bHitStopPending = false;
 };
