@@ -127,6 +127,11 @@ public:
 	// Изменить выбранное количество слайдера на Delta (клавиши ±1 / Shift ±10 / колесо). Кламп 1..max.
 	void AdjustShopSliderQty(int32 Delta);
 
+	// Прокрутить список каталога «FOR SALE» на Delta строк (колесо/стрелки при НЕактивном
+	// слайдере — те же экшены ShopQtyInc/Dec, маршрутит контроллер). Кламп 0..max, где max
+	// пересчитывается в DrawShop (каталог стал длиннее панели — 18 позиций против ~12 видимых).
+	void ScrollShopList(int32 DeltaRows);
+
 	// Выполнить транзакцию на выбранное qty и закрыть слайдер (Enter/кнопка Confirm).
 	void ConfirmShopSlider(APlayerCharacter* Player);
 
@@ -521,6 +526,12 @@ private:
 
 	// Кликабельные зоны магазина, пересобираются каждый DrawShop.
 	TArray<FShopHitRegion> ShopHitRegions;
+
+	// Прокрутка списка «FOR SALE»: индекс первой видимой позиции каталога. Сбрасывается
+	// при открытии/закрытии магазина, потолок (ShopListMaxScroll) пересчитывается каждый
+	// DrawShop от фактической высоты панели.
+	int32 ShopListScrollOffset = 0;
+	int32 ShopListMaxScroll = 0;
 
 	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
 	// сверху деньги + [Close]. Заполняет ShopHitRegions.

@@ -10,6 +10,7 @@
 #include "AHeadArmor.h"
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
+#include "AArmorTiers.h" // броня Т1-Т3 (9 классов, решение Рината 07-07)
 #include "APistol.h"
 #include "AMeleeWeapon.h"
 
@@ -215,4 +216,17 @@ void AMasterTrader::BuildDefaultCatalog()
 	Catalog.Add(MakeItem(TEXT("Head Armor"), 60.0f, AHeadArmor::StaticClass()));
 	Catalog.Add(MakeItem(TEXT("Pants Armor"), 80.0f, APantsArmor::StaticClass()));
 	Catalog.Add(MakeItem(TEXT("Torso Armor"), 120.0f, ATorsoArmor::StaticClass()));
+
+	// Броня Т1-Т3 (решение Рината 07-07): цена черновая 5 — чтобы дёшево купить и
+	// проверить надевание/снятие в PIE. Имя позиции = ItemName класса (как у «Патроны 9мм»).
+	// Т0 — стартовая одежда, в магазин не кладём.
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — голова"), 5.0f, AHeadArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — торс"), 5.0f, ATorsoArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — штаны"), 5.0f, APantsArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — голова"), 5.0f, AHeadArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — торс"), 5.0f, ATorsoArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — штаны"), 5.0f, APantsArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — голова"), 5.0f, AHeadArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — торс"), 5.0f, ATorsoArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — штаны"), 5.0f, APantsArmorT3::StaticClass()));
 }

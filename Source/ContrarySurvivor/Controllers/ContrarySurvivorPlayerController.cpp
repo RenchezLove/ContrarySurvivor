@@ -248,6 +248,12 @@ void AContrarySurvivorPlayerController::OnShopQtyDec()
 			const bool bShift = IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
 			CSHUD->AdjustShopSliderQty(bShift ? -10 : -1);
 		}
+		else
+		{
+			// Слайдер неактивен: колесо вниз (Dec) листает каталог «FOR SALE» вниз
+			// (каталог перерос панель — 18 позиций). Стрелка Left — тоже, приемлемый бонус.
+			CSHUD->ScrollShopList(1);
+		}
 	}
 }
 
@@ -260,6 +266,11 @@ void AContrarySurvivorPlayerController::OnShopQtyInc()
 		{
 			const bool bShift = IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
 			CSHUD->AdjustShopSliderQty(bShift ? 10 : 1);
+		}
+		else
+		{
+			// Колесо вверх (Inc) листает каталог вверх.
+			CSHUD->ScrollShopList(-1);
 		}
 	}
 }

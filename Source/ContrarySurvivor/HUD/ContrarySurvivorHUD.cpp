@@ -505,10 +505,20 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 	bShopOpen = bOpen;
 	ShopTrader = bOpen ? Trader : TScriptInterface<IShopVendor>();
 	CancelShopSlider(); // закрытие/открытие магазина сбрасывает активную транзакцию
+	ShopListScrollOffset = 0; // каждый визит к торговцу — список с начала
 	if (!bOpen)
 	{
 		ShopHitRegions.Reset();
 	}
+}
+
+void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)
+{
+	if (!bShopOpen)
+	{
+		return;
+	}
+	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset + DeltaRows, 0, ShopListMaxScroll);
 }
 
 void AContrarySurvivorHUD::CancelShopSlider()
@@ -762,7 +772,26 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 
 	float RowY = ContentY + 24.0f;
 	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
-	for (int32 i = 0; i < Catalog.Num(); ++i)
+
+	// Прокрутка каталога: строка рисуется, если её верх <= MaxRowY, отсюда вместимость
+	// панели и потолок смещения. Кламп здесь же — размер окна/каталога мог измениться.
+	const int32 VisibleRows = FMath::Max(1, FMath::FloorToInt((MaxRowY - RowY) / (RowH + RowGap)) + 1);
+	ShopListMaxScroll = FMath::Max(0, Catalog.Num() - VisibleRows);
+	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset, 0, ShopListMaxScroll);
+
+	// Когда список длиннее панели — счётчик «X-Y из N» + подсказка, справа от заголовка FOR SALE.
+	if (ShopListMaxScroll > 0)
+	{
+		const int32 FirstShown = ShopListScrollOffset + 1;
+		const int32 LastShown = FMath::Min(ShopListScrollOffset + VisibleRows, Catalog.Num());
+		const FString ScrollHint = FString::Printf(TEXT("%d-%d из %d (колесо — листать)"),
+			FirstShown, LastShown, Catalog.Num());
+		float HintW = 0.0f, HintH = 0.0f;
+		GetTextSize(ScrollHint, HintW, HintH, Font);
+		DrawShadowedText(ScrollHint, UIHeaderColor, LeftX + LeftColW - HintW, ContentY, Font);
+	}
+
+	for (int32 i = ShopListScrollOffset; i < Catalog.Num(); ++i)
 	{
 		const FShopEntry& E = Catalog[i];
 		const float MainW = LeftColW - BtnW - 6.0f;
@@ -786,7 +815,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		RowY += RowH + RowGap;
 		if (RowY > MaxRowY)
 		{
-			break; // MVP: без прокрутки
+			break; // ниже панели не рисуем; остальное доступно колесом (ScrollShopList)
 		}
 	}
 
