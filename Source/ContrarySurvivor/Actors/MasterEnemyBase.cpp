@@ -13,6 +13,7 @@
 #include "Pickup.h"        // пикап-носитель квест-предмета (тот же каталог Actors/)
 #include "AQuestItem.h"    // дефолтный класс квест-предмета «Ноутбук»
 #include "EnemySpawnPointComponent.h" // видимые/перемещаемые в BP точки спавна
+#include "ContrarySurvivor/Controllers/EnemyAIController.h" // D7: SetLeash заспавненным врагам
 
 AMasterEnemyBase::AMasterEnemyBase()
 {
@@ -33,6 +34,16 @@ AMasterEnemyBase::AMasterEnemyBase()
 	ActivationVisualizer->SetCanEverAffectNavigation(false);
 	ActivationVisualizer->ShapeColor = FColor(255, 140, 0, 255); // оранжевый — заметная граница спавна
 
+	// Визуализатор радиуса поводка (фидбек Рината 07-05): та же схема, что ActivationVisualizer,
+	// но радиус = LeashRadius и другой цвет, чтобы границы не путались во вьюпорте. Отдельного
+	// параметра радиуса НЕТ — сфера следует за LeashRadius (синк в OnConstruction).
+	LeashVisualizer = CreateDefaultSubobject<USphereComponent>(TEXT("LeashVisualizer"));
+	LeashVisualizer->SetupAttachment(SceneRoot);
+	LeashVisualizer->InitSphereRadius(LeashRadius);
+	LeashVisualizer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	LeashVisualizer->SetCanEverAffectNavigation(false);
+	LeashVisualizer->ShapeColor = FColor(150, 60, 255, 255); // фиолетовый — граница поводка погони
+
 	// Дефолтная точка спавна-образец: видимый перемещаемый маркер на базовом акторе. Смещаем от
 	// центра, чтобы стрелка не сливалась с корнем. Дизайнер двигает её и добавляет ещё точек в BP.
 	DefaultSpawnPoint = CreateDefaultSubobject<UEnemySpawnPointComponent>(TEXT("SpawnPoint0"));
@@ -48,12 +59,16 @@ void AMasterEnemyBase::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
-	// Держим радиус сферы-визуализатора равным ActivationRadius — чтобы при правке ActivationRadius
-	// в Details граница сразу обновлялась во вьюпорте (превью BP и размещённый актор реконструируются
-	// при изменении свойства, что снова вызывает OnConstruction).
+	// Держим радиусы сфер-визуализаторов равными своим полям — чтобы при правке ActivationRadius/
+	// LeashRadius в Details границы сразу обновлялись во вьюпорте (превью BP и размещённый актор
+	// реконструируются при изменении свойства, что снова вызывает OnConstruction).
 	if (ActivationVisualizer)
 	{
 		ActivationVisualizer->SetSphereRadius(ActivationRadius, /*bUpdateOverlaps=*/false);
+	}
+	if (LeashVisualizer)
+	{
+		LeashVisualizer->SetSphereRadius(LeashRadius, /*bUpdateOverlaps=*/false);
 	}
 }
 
@@ -178,8 +193,20 @@ void AMasterEnemyBase::SpawnOneEnemy(const FTransform& SpawnTransform)
 
 	if (Enemy)
 	{
-		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s)"),
-			*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"));
+		// D7 (ADR-036): поводок — дом врага = центр ЭТОЙ базы, радиус — с экземпляра базы.
+		// Контроллер уже существует: AutoPossessAI поссессит пешку в ходе SpawnActor.
+		if (AEnemyAIController* AI = Cast<AEnemyAIController>(Enemy->GetController()))
+		{
+			AI->SetLeash(GetActorLocation(), LeashRadius);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("EnemyBase '%s': %s has no AEnemyAIController yet — leash NOT set (default leash from OnPossess applies)"),
+				*GetName(), *Enemy->GetName());
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s, leash=%.0f)"),
+			*GetName(), *Enemy->GetName(), *ProjectedLoc.ToString(), bProjected ? TEXT("yes") : TEXT("floor-trace"), LeashRadius);
 	}
 }
 

@@ -41,6 +41,16 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
 	float BanditMaxHealth = 80.0f;
 
+	// D1/D6: оружие в руке бандита (визуал огнестрела ADR-035). Спавнится и экипируется в
+	// BeginPlay через штатный EquipWeapon (кость R_Hand, как у игрока). Дефолт APistol
+	// задаётся в конструкторе — другого огнестрела в проекте нет. nullptr = бандит без
+	// оружия в руке (стрельба ИИ при этом идёт без визуала — контроллер громко логирует).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment", meta = (DisplayPriority = "2"))
+	TSubclassOf<AMasterWeapon> SidearmWeaponClass;
+
+	// Спавнит SidearmWeaponClass и экипирует в руку (виден пистолет). Зовётся в BeginPlay.
+	void EquipSidearm();
+
 	// Скорость погони бандита (см/с). TUNING. Чуть ВЫШЕ скорости ходьбы игрока (~600), чтобы
 	// бандит реально догонял шагающего игрока, но НИЖЕ спринта игрока (~1200) — от спринта можно
 	// оторваться ценой расхода голода/жажды (бой остаётся проходимым). Применяется детерминированно

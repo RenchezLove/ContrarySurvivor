@@ -127,6 +127,11 @@ public:
 	// Изменить выбранное количество слайдера на Delta (клавиши ±1 / Shift ±10 / колесо). Кламп 1..max.
 	void AdjustShopSliderQty(int32 Delta);
 
+	// Прокрутить список каталога «FOR SALE» на Delta строк (колесо/стрелки при НЕактивном
+	// слайдере — те же экшены ShopQtyInc/Dec, маршрутит контроллер). Кламп 0..max, где max
+	// пересчитывается в DrawShop (каталог стал длиннее панели — 18 позиций против ~12 видимых).
+	void ScrollShopList(int32 DeltaRows);
+
 	// Выполнить транзакцию на выбранное qty и закрыть слайдер (Enter/кнопка Confirm).
 	void ConfirmShopSlider(APlayerCharacter* Player);
 
@@ -149,6 +154,12 @@ public:
 	// Обработать клик/тап по экрану смерти. Возвращает true, если попали в кнопку «Возродиться»
 	// (тогда контроллер запускает респаун). Сам респаун HUD не делает (логика — у игрока).
 	bool HandleDeathScreenClick(FVector2D ScreenPos);
+
+	// --- Всплывающие цифры урона (D5) — ТОЛЬКО по врагам (решение Рината) ---
+
+	// Зарегистрировать цифру урона над мировой точкой (зовут TakeDamage бандита/волка).
+	// Рисуется DrawDamageNumbers: поднимается и гаснет за DamageNumberLifetime.
+	void AddDamageNumber(const FVector& WorldLocation, float Amount);
 
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
@@ -229,6 +240,44 @@ protected:
 	// Длина (px) указывающей стрелки за кадром.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
 	float NPCMarkerArrowLen = 22.0f;
+
+	// --- Всплывающие цифры урона (D5). Директива Рината 06-25: EditAnywhere+BRW, наверх. ---
+
+	// Время жизни цифры (сек): подъём + затухание.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|DamageNumbers", meta = (ClampMin = "0.1", DisplayPriority = "1"))
+	float DamageNumberLifetime = 0.8f;
+
+	// Скорость подъёма цифры (мировых см/сек вверх от точки попадания).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|DamageNumbers", meta = (ClampMin = "0.0", DisplayPriority = "2"))
+	float DamageNumberRiseSpeed = 110.0f;
+
+	// Стартовая высота цифры над точкой попадания (см; над головой врага).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|DamageNumbers", meta = (DisplayPriority = "3"))
+	float DamageNumberZOffset = 130.0f;
+
+	// Масштаб текста цифры (растровый шрифт HUD).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|DamageNumbers", meta = (ClampMin = "0.5", DisplayPriority = "4"))
+	float DamageNumberTextScale = 1.25f;
+
+	// Цвет цифры урона.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|DamageNumbers", meta = (DisplayPriority = "5"))
+	FLinearColor DamageNumberColor = FLinearColor(1.0f, 0.9f, 0.35f, 1.0f);
+
+	// --- Краевые стрелки на стрелков за кадром (D6, ADR-035) ---
+
+	// Цвет стрелки на ВРАГА-стрелка за кадром (враждебный красный; NPC-стрелки зелёные).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EnemyArrow", meta = (DisplayPriority = "6"))
+	FLinearColor EnemyShooterArrowColor = FLinearColor(1.0f, 0.15f, 0.1f, 1.0f);
+
+	// --- Метка цели активного квеста (Этап D, реюз маркеров NPC) ---
+
+	// Цвет метки цели квеста (золотой — в тон трекеру квеста).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|QuestMarker", meta = (DisplayPriority = "7"))
+	FLinearColor QuestTargetMarkerColor = FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
+
+	// Подъём якоря метки над актором-целью (см) — выше визуализаторов базы.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|QuestMarker", meta = (DisplayPriority = "8"))
+	float QuestTargetMarkerZOffset = 300.0f;
 
 	// --- HUD игрока (GDD §7.7) ---
 
@@ -390,24 +439,62 @@ private:
 	// #18: обводка прямоугольника (4 линии) — рамка-акцент вокруг модальных панелей.
 	void DrawRectOutline(float X, float Y, float W, float H, const FLinearColor& Color, float Thickness);
 
-	// --- Маркеры интерактивных NPC (находимость) ---
+	// --- Маркеры интерактивных NPC / врагов / целей квеста (находимость) ---
 
 	// Проходит по актёрам с IInteractableNPCInterface и рисует над каждым маркер
 	// (в кадре — ромб + подпись; за кадром — стрелка по краю экрана к нему).
 	void DrawInteractiveNPCMarkers();
 
-	// Рисует маркер одного NPC по мировому якорю: ромб+подпись в кадре либо краевую стрелку.
-	void DrawNPCMarker(const FVector& WorldAnchor, const FString& Label);
+	// Рисует маркер по мировому якорю: ромб+подпись в кадре либо краевую стрелку за кадром.
+	// Color — цвет маркера (Этап D: NPC зелёный, враг-стрелок красный, цель квеста золотая).
+	// bEdgeArrowOnly — рисовать ТОЛЬКО краевую стрелку за кадром (в кадре ничего): режим
+	// стрелка-за-кадром (у видимого врага и так есть хелсбар).
+	void DrawNPCMarker(const FVector& WorldAnchor, const FString& Label, const FLinearColor& Color,
+		bool bEdgeArrowOnly = false);
 
-	// Ромб-иконка + подпись по экранной точке (NPC в кадре).
-	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label);
+	// Ромб-иконка + подпись по экранной точке (цель в кадре).
+	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color);
 
-	// Краевая стрелка, указывающая в сторону NPC за пределами экрана.
-	void DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir);
+	// Краевая стрелка, указывающая в сторону цели за пределами экрана.
+	void DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir, const FLinearColor& Color);
+
+	// D6 (ADR-035): красные краевые стрелки на врагов-СТРЕЛКОВ, ведущих бой за кадром
+	// (реюз механизма краевых стрелок NPC — критерий D6).
+	void DrawOffscreenShooterArrows();
+
+	// Этап D: метка цели активного квеста (FQuest::MapMarkerTag). Пока цели НЕ выполнены (Active) —
+	// на актор-цель (QuestMarkerTag базы AMasterEnemyBase или стандартный Actor Tag); квест готов
+	// к сдаче (Completed) — на квестодателя (старосту), фидбек Рината 07-05. TurnedIn — гаснет.
+	// В кадре — золотой ромб с подписью, за кадром — краевая стрелка.
+	void DrawQuestTargetMarker(APlayerCharacter* Player);
+
+	// Кэш актора-цели метки квеста (qa-фикс: НЕ перебирать все акторы мира каждый кадр).
+	// Инвалидация: смена тега/фазы (цель <-> квестодатель) или гибель актора; неудачный поиск
+	// повторяется не чаще чем раз в полсекунды (QuestMarkerNextSearchTime).
+	TWeakObjectPtr<AActor> QuestMarkerTargetCache;
+	FName QuestMarkerCachedTag = NAME_None;
+	bool bQuestMarkerCachedToGiver = false;
+	float QuestMarkerNextSearchTime = 0.0f;
 
 	// Рисует контекстную подсказку взаимодействия («E — подобрать» / «E — торговать»)
 	// по центру снизу (BUG3). Текст берётся у контроллера (ближайший интерактив).
 	void DrawInteractPrompt(const FString& Text);
+
+	// --- Всплывающие цифры урона (D5) ---
+
+	// Одна живая цифра урона (не UObject — простая запись, живёт DamageNumberLifetime сек).
+	struct FDamageNumberEntry
+	{
+		FVector WorldLocation = FVector::ZeroVector;
+		float Amount = 0.0f;
+		float SpawnTime = 0.0f;
+	};
+
+	// Живые цифры (чистятся по возрасту в DrawDamageNumbers).
+	TArray<FDamageNumberEntry> DamageNumbers;
+
+	// Рисует и старит цифры урона: подъём вверх + плавное затухание.
+	void DrawDamageNumbers();
 
 	// --- Экран инвентаря (immediate-mode) ---
 
@@ -439,6 +526,12 @@ private:
 
 	// Кликабельные зоны магазина, пересобираются каждый DrawShop.
 	TArray<FShopHitRegion> ShopHitRegions;
+
+	// Прокрутка списка «FOR SALE»: индекс первой видимой позиции каталога. Сбрасывается
+	// при открытии/закрытии магазина, потолок (ShopListMaxScroll) пересчитывается каждый
+	// DrawShop от фактической высоты панели.
+	int32 ShopListScrollOffset = 0;
+	int32 ShopListMaxScroll = 0;
 
 	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
 	// сверху деньги + [Close]. Заполняет ShopHitRegions.

@@ -9,6 +9,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "AMasterInventoryItem.h"
+#include "AAmmoItem.h" // D8: пачка патронов размещаемого пикапа (PlacedAmmoAmount)
 #include "UInventoryComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"    // QA-хелпер (оверлей/флаги/flush)
@@ -35,6 +36,92 @@ APickup::APickup()
 	{
 		MeshComponent->SetStaticMesh(SphereMesh.Object);
 	}
+}
+
+void APickup::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// D8: размещённый на карте пикап сам наполняет себя предметами из Edit-полей.
+	// Только в игровом мире; у рантайм-дропов (DropLoot/мешок смерти) поля пусты — no-op.
+	UWorld* World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		SpawnPlacedLoot();
+	}
+}
+
+void APickup::SpawnPlacedLoot()
+{
+	UWorld* World = GetWorld();
+	if (!World || (!PlacedItemClass && PlacedAmmoAmount <= 0))
+	{
+		return;
+	}
+
+	FActorSpawnParameters Sp;
+	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	// Предмет лута — данные рюкзака, не объект на сцене (тот же приём, что в DropLoot).
+	auto SpawnHiddenItem = [&](TSubclassOf<AMasterInventoryItem> ItemClass) -> AMasterInventoryItem*
+	{
+		AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
+			ItemClass, GetActorLocation(), FRotator::ZeroRotator, Sp);
+		if (Item)
+		{
+			Item->SetActorHiddenInGame(true);
+			Item->SetActorEnableCollision(false);
+			CarriedItems.Add(Item);
+		}
+		return Item;
+	};
+
+	int32 SpawnedCount = 0;
+
+	if (PlacedItemClass)
+	{
+		if (PlacedItemClass->IsChildOf(AAmmoItem::StaticClass()))
+		{
+			// Патроны — стак-предмет: ОДНА пачка со StackCount=PlacedItemCount
+			// (N пустых пачек были бы ошибкой конфигурации).
+			if (AAmmoItem* Pack = Cast<AAmmoItem>(SpawnHiddenItem(PlacedItemClass)))
+			{
+				Pack->StackCount = FMath::Max(1, PlacedItemCount);
+				if (!PlacedItemDisplayName.IsEmpty())
+				{
+					Pack->ItemName = PlacedItemDisplayName;
+				}
+				++SpawnedCount;
+			}
+		}
+		else
+		{
+			for (int32 i = 0; i < FMath::Max(1, PlacedItemCount); ++i)
+			{
+				if (AMasterInventoryItem* Item = SpawnHiddenItem(PlacedItemClass))
+				{
+					if (!PlacedItemDisplayName.IsEmpty())
+					{
+						Item->ItemName = PlacedItemDisplayName;
+					}
+					++SpawnedCount;
+				}
+			}
+		}
+	}
+
+	// Патроны В ДОПОЛНЕНИЕ к предмету (D8: стоянка = расходник + патроны одним пикапом).
+	if (PlacedAmmoAmount > 0)
+	{
+		if (AAmmoItem* Pack = Cast<AAmmoItem>(SpawnHiddenItem(AAmmoItem::StaticClass())))
+		{
+			Pack->StackCount = PlacedAmmoAmount;
+			++SpawnedCount;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Pickup '%s': placed loot ready (money=%.0f, items=%d, ammo=%d)"),
+		*GetName(), MoneyAmount, SpawnedCount, PlacedAmmoAmount);
 }
 
 void APickup::InitLoot(float Money, AMasterInventoryItem* InCarriedItem)

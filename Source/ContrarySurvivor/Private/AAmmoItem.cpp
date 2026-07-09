@@ -5,7 +5,7 @@
 AAmmoItem::AAmmoItem()
 {
 	// Имя по умолчанию + категория Resource (запас): частично теряется при смерти (GDD §7.8).
-	ItemName = TEXT("Патроны");
+	ItemName = TEXT("Патроны 9мм");
 	ItemCategory = EItemCategory::Resource;
 }
 

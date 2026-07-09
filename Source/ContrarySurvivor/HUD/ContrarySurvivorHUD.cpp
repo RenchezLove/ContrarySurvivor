@@ -21,6 +21,8 @@
 #include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry / EShopEntryKind (каталог/цены магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
+#include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
+#include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -98,11 +100,20 @@ void AContrarySurvivorHUD::DrawHUD()
 	// Рисуем до модальных экранов; внутри функция сама пропускает при открытых меню.
 	DrawInteractiveNPCMarkers();
 
+	// D6 (ADR-035): красные краевые стрелки на врагов-стрелков за кадром.
+	DrawOffscreenShooterArrows();
+
+	// D5: всплывающие цифры урона по врагам (живут ~секунду, чистятся по возрасту).
+	DrawDamageNumbers();
+
 	// --- Статы игрока (GDD §7.7) ---
 	if (PC)
 	{
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PC->GetPawn()))
 		{
+			// Этап D: метка цели активного квеста (гаснет после сдачи).
+			DrawQuestTargetMarker(PlayerChar);
+
 			DrawPlayerStats(PlayerChar);
 
 			// --- Трекер активного квеста («Волков: X/5») — GDD §7.7 ---
@@ -494,10 +505,20 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 	bShopOpen = bOpen;
 	ShopTrader = bOpen ? Trader : TScriptInterface<IShopVendor>();
 	CancelShopSlider(); // закрытие/открытие магазина сбрасывает активную транзакцию
+	ShopListScrollOffset = 0; // каждый визит к торговцу — список с начала
 	if (!bOpen)
 	{
 		ShopHitRegions.Reset();
 	}
+}
+
+void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)
+{
+	if (!bShopOpen)
+	{
+		return;
+	}
+	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset + DeltaRows, 0, ShopListMaxScroll);
 }
 
 void AContrarySurvivorHUD::CancelShopSlider()
@@ -566,7 +587,7 @@ void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInvent
 	SliderItem = Item;
 	SliderUnitPrice = ShopTrader->GetAmmoSellPerRound();
 	SliderUnitAmmo = 0;
-	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны") : Item->ItemName;
+	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны 9мм") : Item->ItemName;
 	SliderQtyMax = FMath::Max(1, Ammo->StackCount);
 	SliderQty = SliderQtyMax; // по умолчанию продать всё (как в STALKER — потом крутишь вниз)
 }
@@ -751,7 +772,26 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 
 	float RowY = ContentY + 24.0f;
 	const TArray<FShopEntry>& Catalog = ShopTrader->GetCatalog();
-	for (int32 i = 0; i < Catalog.Num(); ++i)
+
+	// Прокрутка каталога: строка рисуется, если её верх <= MaxRowY, отсюда вместимость
+	// панели и потолок смещения. Кламп здесь же — размер окна/каталога мог измениться.
+	const int32 VisibleRows = FMath::Max(1, FMath::FloorToInt((MaxRowY - RowY) / (RowH + RowGap)) + 1);
+	ShopListMaxScroll = FMath::Max(0, Catalog.Num() - VisibleRows);
+	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset, 0, ShopListMaxScroll);
+
+	// Когда список длиннее панели — счётчик «X-Y из N» + подсказка, справа от заголовка FOR SALE.
+	if (ShopListMaxScroll > 0)
+	{
+		const int32 FirstShown = ShopListScrollOffset + 1;
+		const int32 LastShown = FMath::Min(ShopListScrollOffset + VisibleRows, Catalog.Num());
+		const FString ScrollHint = FString::Printf(TEXT("%d-%d из %d (колесо — листать)"),
+			FirstShown, LastShown, Catalog.Num());
+		float HintW = 0.0f, HintH = 0.0f;
+		GetTextSize(ScrollHint, HintW, HintH, Font);
+		DrawShadowedText(ScrollHint, UIHeaderColor, LeftX + LeftColW - HintW, ContentY, Font);
+	}
+
+	for (int32 i = ShopListScrollOffset; i < Catalog.Num(); ++i)
 	{
 		const FShopEntry& E = Catalog[i];
 		const float MainW = LeftColW - BtnW - 6.0f;
@@ -775,7 +815,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		RowY += RowH + RowGap;
 		if (RowY > MaxRowY)
 		{
-			break; // MVP: без прокрутки
+			break; // ниже панели не рисуем; остальное доступно колесом (ScrollShopList)
 		}
 	}
 
@@ -1606,11 +1646,168 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		const float ZOff = NPC ? NPC->GetNPCMarkerZOffset() : 240.0f;
 		const FString Label = NPC ? NPC->GetNPCMarkerLabel() : FString();
 
-		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label);
+		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, NPCMarkerColor);
 	}
 }
 
-void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label)
+void AContrarySurvivorHUD::DrawOffscreenShooterArrows()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Canvas)
+	{
+		return;
+	}
+
+	// Поверх модальных экранов стрелки не нужны (как маркеры NPC).
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	{
+		return;
+	}
+
+	// D6 (ADR-035): стрелок, ведущий бой ЗА КАДРОМ, помечается красной краевой стрелкой —
+	// игрок знает, откуда прилетит, а правило честности уже не даёт стрелять из-за кадра.
+	for (const TWeakObjectPtr<AEnemyAIController>& Ptr : AEnemyAIController::GetActiveControllers())
+	{
+		const AEnemyAIController* Enemy = Ptr.Get();
+		if (!Enemy || Enemy->GetWorld() != World || !Enemy->IsRangedThreat())
+		{
+			continue;
+		}
+		const APawn* EnemyPawn = Enemy->GetPawn();
+		if (!EnemyPawn)
+		{
+			continue;
+		}
+		// bEdgeArrowOnly: в кадре у врага и так есть хелсбар — рисуем только за кадром.
+		DrawNPCMarker(EnemyPawn->GetActorLocation(), FString(), EnemyShooterArrowColor,
+			/*bEdgeArrowOnly=*/true);
+	}
+}
+
+void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
+{
+	UWorld* World = GetWorld();
+	if (!World || !Canvas || !Player)
+	{
+		return;
+	}
+
+	// Поверх модальных экранов метка не нужна (как маркеры NPC).
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	{
+		return;
+	}
+
+	UQuestComponent* Quests = Player->GetQuests();
+	const FQuest* Tracked = Quests ? Quests->GetTrackedQuest() : nullptr;
+	if (!Tracked || Tracked->MapMarkerTag.IsNone())
+	{
+		return; // нет активного квеста с меткой (после сдачи GetTrackedQuest = null — метка гаснет)
+	}
+
+	// Фикс меты (фидбек Рината 07-05): пока цели квеста НЕ выполнены — метка на цель (базу);
+	// квест ГОТОВ К СДАЧЕ (Completed: все убиты/собрано) — метка ведёт к квестодателю (старосте).
+	const bool bToGiver = (Tracked->State == EQuestState::Completed);
+
+	// Кэш цели (qa-фикс): мир сканируется только при инвалидации кэша (смена тега/фазы, гибель
+	// актора), НЕ каждый кадр; повторный поиск ненайденной цели дросселируется по времени.
+	AActor* Target = QuestMarkerTargetCache.Get();
+	if (!Target || QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver)
+	{
+		const float Now = World->GetTimeSeconds();
+		const bool bSameSearch = (QuestMarkerCachedTag == Tracked->MapMarkerTag
+			&& bQuestMarkerCachedToGiver == bToGiver);
+		if (!Target && bSameSearch && Now < QuestMarkerNextSearchTime)
+		{
+			return; // недавно искали и не нашли (цель не размещена/тег не проставлен) — ждём
+		}
+
+		Target = nullptr;
+		if (bToGiver)
+		{
+			// Квестодатель MVP — староста (единственный AElderNPC на карте).
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
+			{
+				Target = *It;
+				break;
+			}
+		}
+		else
+		{
+			// Цель: база врагов с совпадающим QuestMarkerTag (BP_WolfDen/BP_BanditBase)…
+			for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+			{
+				if (It->GetQuestMarkerTag() == Tracked->MapMarkerTag)
+				{
+					Target = *It;
+					break;
+				}
+			}
+			// …или ЛЮБОЙ актор со стандартным Actor Tag (гибкость для будущих квестов без правок кода).
+			if (!Target)
+			{
+				for (TActorIterator<AActor> It(World); It; ++It)
+				{
+					if (IsValid(*It) && It->ActorHasTag(Tracked->MapMarkerTag))
+					{
+						Target = *It;
+						break;
+					}
+				}
+			}
+		}
+
+		QuestMarkerTargetCache = Target;
+		QuestMarkerCachedTag = Tracked->MapMarkerTag;
+		bQuestMarkerCachedToGiver = bToGiver;
+		QuestMarkerNextSearchTime = Now + 0.5f; // дроссель следующего поиска, если не нашли
+	}
+
+	if (!Target)
+	{
+		return; // цель не размещена/тег не проставлен — метки нет (лог не спамим: каждый кадр)
+	}
+
+	// К сдаче метка висит над старостой ВЫШЕ его зелёного NPC-ромба (чтобы не сливались),
+	// подпись — «Сдать: <квест>»; на цели — обычный подъём и ТЕКУЩАЯ невыполненная цель.
+	float ZOff = QuestTargetMarkerZOffset;
+	FString Label = Tracked->Title; // фолбэк: целей с подписью нет — название квеста
+	if (bToGiver)
+	{
+		if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
+		{
+			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
+		}
+		Label = FString::Printf(TEXT("Сдать: %s"), *Tracked->Title);
+	}
+	else
+	{
+		// Текст метки = ПЕРВАЯ невыполненная цель квеста (фидбек Рината 07-06), меняется по
+		// ходу: «Перебить бандитов (1/3)» -> «Забрать ноутбук». Порядок целей kill -> item —
+		// тот же, что в трекере верхнего правого угла (DrawQuestTracker). Не хардкод под
+		// конкретный квест: подписи берутся из данных квеста (FQuest::*ObjectiveLabel).
+		if (Tracked->TargetCount > 0 && Tracked->Progress < Tracked->TargetCount)
+		{
+			const FString Obj = !Tracked->KillObjectiveLabel.IsEmpty()
+				? Tracked->KillObjectiveLabel : Tracked->KillTargetTag.ToString();
+			Label = FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->Progress, Tracked->TargetCount);
+		}
+		else if (Tracked->RequiredItemCount > 0 && Tracked->ItemProgress < Tracked->RequiredItemCount)
+		{
+			const FString Obj = !Tracked->ItemObjectiveLabel.IsEmpty()
+				? Tracked->ItemObjectiveLabel : Tracked->RequiredItemName;
+			// Счётчик (x/N) у единичной цели («Забрать ноутбук») — шум, не показываем.
+			Label = (Tracked->RequiredItemCount > 1)
+				? FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->ItemProgress, Tracked->RequiredItemCount)
+				: Obj;
+		}
+	}
+
+	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor);
+}
+
+void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label,
+	const FLinearColor& Color, bool bEdgeArrowOnly)
 {
 	if (!Canvas)
 	{
@@ -1640,7 +1837,10 @@ void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FStri
 
 	if (bOnScreen)
 	{
-		DrawNPCIcon(P, Label);
+		if (!bEdgeArrowOnly)
+		{
+			DrawNPCIcon(P, Label, Color);
+		}
 		return;
 	}
 
@@ -1658,16 +1858,16 @@ void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FStri
 	const float Scale = FMath::Min(ScaleX, ScaleY);
 
 	const FVector2D Edge = Center + Dir * Scale;
-	DrawNPCEdgeArrow(Edge, Dir.GetSafeNormal());
+	DrawNPCEdgeArrow(Edge, Dir.GetSafeNormal(), Color);
 }
 
-void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label)
+void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color)
 {
 	const float CX = ScreenPos.X;
 	const float CY = ScreenPos.Y;
 	const float H = NPCMarkerHalfSize;
 	const float T = NPCMarkerThickness;
-	const FLinearColor C = NPCMarkerColor;
+	const FLinearColor C = Color;
 
 	// Ромб (повёрнутый квадрат) — форма, отличная от углового ретикла врага.
 	DrawLine(CX, CY - H, CX + H, CY, C, T); // верх -> право
@@ -1687,9 +1887,9 @@ void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString
 	}
 }
 
-void AContrarySurvivorHUD::DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir)
+void AContrarySurvivorHUD::DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir, const FLinearColor& Color)
 {
-	const FLinearColor C = NPCMarkerColor;
+	const FLinearColor C = Color;
 	const float T = NPCMarkerThickness;
 	const float Len = NPCMarkerArrowLen;
 
@@ -1702,6 +1902,106 @@ void AContrarySurvivorHUD::DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVec
 	DrawLine(EdgePos.X, EdgePos.Y, B1.X, B1.Y, C, T);
 	DrawLine(EdgePos.X, EdgePos.Y, B2.X, B2.Y, C, T);
 	DrawLine(B1.X, B1.Y, B2.X, B2.Y, C, T);
+}
+
+// ===========================================================================
+// Всплывающие цифры урона (D5) — только по врагам (решение Рината)
+// ===========================================================================
+
+void AContrarySurvivorHUD::AddDamageNumber(const FVector& WorldLocation, float Amount)
+{
+	if (Amount <= 0.0f)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	FDamageNumberEntry Entry;
+	// Небольшой случайный сдвиг по XY, чтобы серия попаданий не сливалась в одну точку.
+	Entry.WorldLocation = WorldLocation + FVector(
+		FMath::FRandRange(-15.0f, 15.0f), FMath::FRandRange(-15.0f, 15.0f), 0.0f);
+	Entry.Amount = Amount;
+	Entry.SpawnTime = World->GetTimeSeconds();
+
+	// Страховка от разрастания (спам-урон): старейшие выкидываем.
+	if (DamageNumbers.Num() > 50)
+	{
+		DamageNumbers.RemoveAt(0);
+	}
+	DamageNumbers.Add(Entry);
+}
+
+void AContrarySurvivorHUD::DrawDamageNumbers()
+{
+	if (!Canvas || DamageNumbers.Num() == 0)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!World || !Font)
+	{
+		return;
+	}
+
+	const float Now = World->GetTimeSeconds();
+	const float Lifetime = FMath::Max(0.1f, DamageNumberLifetime);
+
+	// Старение: чистим отжившие (и «из будущего» после смены мира — защита от мусора).
+	for (int32 i = DamageNumbers.Num() - 1; i >= 0; --i)
+	{
+		const float Age = Now - DamageNumbers[i].SpawnTime;
+		if (Age > Lifetime || Age < 0.0f)
+		{
+			DamageNumbers.RemoveAtSwap(i);
+		}
+	}
+
+	// Поверх модальных экранов цифры не рисуем (но возраст выше уже посчитан — истекут сами).
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	{
+		return;
+	}
+
+	for (const FDamageNumberEntry& Entry : DamageNumbers)
+	{
+		const float Age = Now - Entry.SpawnTime;
+		const float LifeT = FMath::Clamp(Age / Lifetime, 0.0f, 1.0f);
+
+		// Подъём вверх в мировых координатах + затухание к концу жизни.
+		const FVector WorldPos = Entry.WorldLocation
+			+ FVector(0.0f, 0.0f, DamageNumberZOffset + DamageNumberRiseSpeed * Age);
+		const FVector Screen = Project(WorldPos, false);
+		if (Screen.Z <= 0.0f)
+		{
+			continue; // за камерой
+		}
+
+		const float Alpha = 1.0f - LifeT;
+		FLinearColor Color = DamageNumberColor;
+		Color.A *= Alpha;
+
+		const FString Text = FString::Printf(TEXT("%.0f"), Entry.Amount);
+		float TW = 0.0f, TH = 0.0f;
+		GetTextSize(Text, TW, TH, Font);
+
+		// Не через DrawShadowedText: тень/обводка там с фиксированной альфой — при затухании
+		// цифры оставался бы «призрак» обводки. Здесь альфа применяется ко всем слоям.
+		FCanvasTextItem Item(
+			FVector2D(Screen.X - TW * DamageNumberTextScale * 0.5f, Screen.Y),
+			FText::FromString(Text), Font, Color);
+		Item.EnableShadow(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f * Alpha), FVector2D(1.5f, 1.5f));
+		Item.bOutlined = true;
+		Item.OutlineColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.85f * Alpha);
+		Item.Scale = FVector2D(DamageNumberTextScale, DamageNumberTextScale);
+		Canvas->DrawItem(Item);
+	}
 }
 
 void AContrarySurvivorHUD::DrawTargetHealthBar(AActor* TargetActor, UStatsComponent* Stats, bool bIsCurrentTarget)

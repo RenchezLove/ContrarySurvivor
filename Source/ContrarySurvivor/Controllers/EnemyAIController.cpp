@@ -3,8 +3,12 @@
 #include "EnemyAIController.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // D6: пистолет в руке (GetCurrentWeapon)
+#include "ContrarySurvivor/Actors/VillageZone.h" // D7: граница деревни (оба режима погони)
+#include "ARangedWeapon.h" // D6: PlayFireVisuals (след пули/вспышка/звук выстрела бандита)
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h" // замедление у границы деревни
 #include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
@@ -12,6 +16,8 @@
 #include "NavigationSystem.h" // UNavigationSystemV1::GetCurrent / ProjectPointToNavigation + FNavLocation (QA-диагностика навмеша)
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
 #include "ContrarySurvivor/Navigation/NavQueryFilter_ExcludeVillage.h" // BugReport 12: обход деревни
+
+TArray<TWeakObjectPtr<AEnemyAIController>> AEnemyAIController::ActiveControllers;
 
 AEnemyAIController::AEnemyAIController()
 {
@@ -40,6 +46,43 @@ void AEnemyAIController::OnPossess(APawn* InPawn)
 	OwnStats = InPawn ? InPawn->FindComponentByClass<UStatsComponent>() : nullptr;
 
 	CurrentState = EEnemyAIState::Idle;
+
+	// Реестр живых контроллеров (лимит атакующих ADR-037 + боевая камера ADR-035).
+	ActiveControllers.AddUnique(this);
+
+	// Кэш скорости сбрасываем: пешка выставит свою MaxWalkSpeed в BeginPlay, кэшируем в Tick.
+	CachedBaseWalkSpeed = -1.0f;
+	bVillageSlowdownActive = false;
+
+	// Поводок по умолчанию (ADR-036): дом = точка спавна/размещения. Спавнер базы
+	// (AMasterEnemyBase) переопределит SetLeash'ем сразу после спавна (центр базы + её радиус).
+	if (!bLeashSet && InPawn)
+	{
+		HomeLocation = InPawn->GetActorLocation();
+		LeashRadius = FMath::Max(0.0f, DefaultLeashRadius);
+		bLeashSet = true;
+	}
+}
+
+void AEnemyAIController::OnUnPossess()
+{
+	// Восстановить скорость пешки, если уходили в замедление у деревни (пешка может пережить контроллер).
+	SetVillageSlowdown(false);
+	ActiveControllers.Remove(this);
+	Super::OnUnPossess();
+}
+
+void AEnemyAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ActiveControllers.Remove(this);
+	Super::EndPlay(EndPlayReason);
+}
+
+void AEnemyAIController::SetLeash(const FVector& InHomeLocation, float InLeashRadius)
+{
+	HomeLocation = InHomeLocation;
+	LeashRadius = FMath::Max(0.0f, InLeashRadius);
+	bLeashSet = true;
 }
 
 APawn* AEnemyAIController::GetPlayerPawn() const
@@ -103,6 +146,14 @@ bool AEnemyAIController::PerformAttack(APawn* Player)
 
 	LastAttackTime = Now;
 
+	// Вариант A прицеливания: гуманоид-носитель плавно доворачивается корпусом на игрока и при
+	// ближнем ударе (SetFocus пешку НЕ вращает: у ACharacter bUseControllerRotation* по умолчанию
+	// false, FaceRotation при них no-op). Волк — не гуманоид, Cast даёт nullptr (его не трогаем).
+	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(GetPawn()))
+	{
+		SelfHumanoid->StartAimTurnTo(Player);
+	}
+
 	// Урон игроку через стандартный пайплайн UE.
 	FDamageEvent DamageEvent;
 	Player->TakeDamage(AttackDamage, DamageEvent, this, GetPawn());
@@ -111,6 +162,248 @@ bool AEnemyAIController::PerformAttack(APawn* Player)
 		GetPawn() ? *GetPawn()->GetName() : TEXT("Enemy"), AttackDamage);
 
 	return true;
+}
+
+bool AEnemyAIController::PerformRangedAttack(APawn* Player)
+{
+	APawn* Self = GetPawn();
+	if (!Player || !Self)
+	{
+		return false;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (Now - LastRangedAttackTime < RangedAttackCooldown)
+	{
+		return false; // на кулдауне
+	}
+
+	// «Правило честности» (ADR-035): вне кадра камеры игрока не стреляем. Основной гейт стоит
+	// в Tick (там враг вместо выстрела сближается); здесь — страховка от прямых вызовов.
+	if (bHonorCameraFairness && !IsSelfOnPlayerScreen())
+	{
+		return false;
+	}
+
+	LastRangedAttackTime = Now;
+
+	// Вариант A прицеливания (фидбек Рината 07-05): бандит плавно доворачивается корпусом на
+	// игрока при реальном выстреле (кулдаун/честность уже пройдены). До этого корпус бандита
+	// НИЧТО не вращало: SetFocus при выключенных bUseControllerRotation* пешку не поворачивает,
+	// bOrientRotationToMovement у бандита тоже выключен — стрелял «из любой позы».
+	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(Self))
+	{
+		SelfHumanoid->StartAimTurnTo(Player);
+	}
+
+	// Разброс как вероятность попадания (дешевле честной баллистики; Android-бюджет).
+	const bool bHit = FMath::FRand() <= RangedHitChance;
+
+	const FVector TargetLoc = Player->GetActorLocation();
+	FVector TraceEnd = TargetLoc;
+	if (!bHit)
+	{
+		// Промах: точка уходит вбок от линии выстрела (след пули летит мимо игрока).
+		const FVector Dir = (TargetLoc - Self->GetActorLocation()).GetSafeNormal2D();
+		const FVector Perp(-Dir.Y, Dir.X, 0.0f);
+		TraceEnd += Perp * RangedMissOffset * (FMath::RandBool() ? 1.0f : -1.0f)
+			+ FVector(0.0f, 0.0f, FMath::FRandRange(-20.0f, 40.0f));
+	}
+	else
+	{
+		// Урон штатным пайплайном (у игрока сработают броня/звук боли/тряска камеры).
+		FDamageEvent DamageEvent;
+		Player->TakeDamage(RangedAttackDamage, DamageEvent, this, Self);
+	}
+
+	// Визуал + звук выстрела — через пистолет в руке пешки (D1/D2: тот же SM_Pistol и
+	// pistol_22_gunshot, что у игрока). Если оружия нет — урон уже нанесён, но громко логируем.
+	ARangedWeapon* Weapon = nullptr;
+	if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(Self))
+	{
+		Weapon = Cast<ARangedWeapon>(Humanoid->GetCurrentWeapon());
+	}
+	if (Weapon)
+	{
+		Weapon->PlayFireVisuals(TraceEnd, /*bPlaySound=*/true);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: ranged attack without ranged weapon in hand (no visuals). Check SidearmWeaponClass."),
+			*Self->GetName());
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("%s shoots player: %s (dmg %.1f, chance %.2f)"),
+		*Self->GetName(), bHit ? TEXT("HIT") : TEXT("miss"), RangedAttackDamage, RangedHitChance);
+
+	return true;
+}
+
+bool AEnemyAIController::IsSelfOnPlayerScreen() const
+{
+	const APawn* Self = GetPawn();
+	if (!Self)
+	{
+		return false;
+	}
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!PC)
+	{
+		return false; // нет камеры игрока — стрелять не по кому
+	}
+
+	int32 SizeX = 0;
+	int32 SizeY = 0;
+	PC->GetViewportSize(SizeX, SizeY);
+	if (SizeX <= 0 || SizeY <= 0)
+	{
+		// Вьюпорта нет (headless-прогон) — правило честности не блокирует бой.
+		return true;
+	}
+
+	FVector2D ScreenPos;
+	if (!PC->ProjectWorldLocationToScreen(Self->GetActorLocation(), ScreenPos, /*bPlayerViewportRelative=*/true))
+	{
+		return false; // за камерой
+	}
+
+	return ScreenPos.X >= 0.0f && ScreenPos.X <= static_cast<float>(SizeX)
+		&& ScreenPos.Y >= 0.0f && ScreenPos.Y <= static_cast<float>(SizeY);
+}
+
+bool AEnemyAIController::HasAttackSlot(APawn* Player) const
+{
+	if (MaxSimultaneousAttackers <= 0 || !Player)
+	{
+		return true;
+	}
+
+	const APawn* Self = GetPawn();
+	if (!Self)
+	{
+		return false;
+	}
+
+	// ADR-037: слоты достаются БЛИЖАЙШИМ к игроку. Считаем врагов, которые УЖЕ ведут бой
+	// (Chase/Attack) и ближе нас; если таких >= лимита — нам слот не положен (Standoff).
+	// Эпсилон 1 см рвёт равенство дистанций (двое на одинаковом расстоянии не мигают).
+	const float MyDist = Self->GetDistanceTo(Player);
+	int32 CloserEngaged = 0;
+
+	for (const TWeakObjectPtr<AEnemyAIController>& Ptr : ActiveControllers)
+	{
+		const AEnemyAIController* Other = Ptr.Get();
+		if (!Other || Other == this || Other->GetWorld() != GetWorld())
+		{
+			continue;
+		}
+		const APawn* OtherPawn = Other->GetPawn();
+		if (!OtherPawn || (Other->OwnStats && Other->OwnStats->IsDead()))
+		{
+			continue;
+		}
+		if (Other->CurrentState != EEnemyAIState::Chase && Other->CurrentState != EEnemyAIState::Attack)
+		{
+			continue;
+		}
+		if (OtherPawn->GetDistanceTo(Player) < MyDist - 1.0f)
+		{
+			++CloserEngaged;
+		}
+	}
+
+	return CloserEngaged < MaxSimultaneousAttackers;
+}
+
+bool AEnemyAIController::IsAheadInVillage(const FVector& Dir, float Dist) const
+{
+	const APawn* Self = GetPawn();
+	if (!Self || !bRespectVillageSafeZone)
+	{
+		return false;
+	}
+	return AVillageZone::IsPointInVillage(GetWorld(), Self->GetActorLocation() + Dir * Dist);
+}
+
+void AEnemyAIController::SetVillageSlowdown(bool bSlow)
+{
+	if (bSlow == bVillageSlowdownActive)
+	{
+		return;
+	}
+
+	ACharacter* SelfChar = Cast<ACharacter>(GetPawn());
+	UCharacterMovementComponent* Move = SelfChar ? SelfChar->GetCharacterMovement() : nullptr;
+	if (!Move || CachedBaseWalkSpeed <= 0.0f)
+	{
+		return; // базовая скорость ещё не кэширована — не портим MaxWalkSpeed
+	}
+
+	bVillageSlowdownActive = bSlow;
+	Move->MaxWalkSpeed = bSlow ? CachedBaseWalkSpeed * VillageSlowdownSpeedFactor : CachedBaseWalkSpeed;
+}
+
+void AEnemyAIController::StartReturnHome(const TCHAR* Reason)
+{
+	StopMovement();
+	ClearFocus(EAIFocusPriority::Gameplay);
+	SetVillageSlowdown(false);
+
+	CurrentState = EEnemyAIState::Return;
+
+	// Переиспользуем трекеры move-запросов погони (Chase и Return взаимоисключающи;
+	// вход в Chase сбрасывает их заново).
+	LastMoveIssueTime = -1000.0f;
+	LastMoveResult = EPathFollowingRequestResult::RequestSuccessful;
+
+	if (const APawn* Self = GetPawn())
+	{
+		FQADebug::QA(GetWorld(), FString::Printf(
+			TEXT("QA: %s return home (%s) distHome=%.0f"),
+			*Self->GetName(), Reason,
+			FVector::DistXY(Self->GetActorLocation(), HomeLocation)), /*bScreen=*/true);
+	}
+}
+
+void AEnemyAIController::TickReturnHome(float Now)
+{
+	APawn* Self = GetPawn();
+	if (!Self)
+	{
+		return;
+	}
+
+	const float DistHome = FVector::DistXY(Self->GetActorLocation(), HomeLocation);
+	if (DistHome <= ReturnAcceptRadius)
+	{
+		StopMovement();
+		CurrentState = EEnemyAIState::Idle;
+		FQADebug::QA(GetWorld(), FString::Printf(
+			TEXT("QA: %s reached home (dist=%.0f)"), *Self->GetName(), DistHome), /*bScreen=*/true);
+		return;
+	}
+
+	// Последний запрос пути домой упал (навмеша нет/не готов) — прямой ход (fallback,
+	// та же дыра, что в погоне: возврат обязан работать и без навмеша).
+	if (LastMoveResult == EPathFollowingRequestResult::Failed)
+	{
+		const FVector Dir = (HomeLocation - Self->GetActorLocation()).GetSafeNormal2D();
+		if (!Dir.IsNearlyZero())
+		{
+			Self->AddMovementInput(Dir, 1.0f);
+		}
+	}
+
+	// Периодически (RepathInterval) пробуем навмеш-путь домой с фильтром обхода деревни.
+	if (Now - LastMoveIssueTime >= RepathInterval && GetMoveStatus() == EPathFollowingStatus::Idle)
+	{
+		LastMoveIssueTime = Now;
+		LastMoveResult = MoveToLocation(HomeLocation, ReturnAcceptRadius * 0.5f,
+			/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true,
+			/*bProjectDestinationToNavigation=*/false, /*bCanStrafe=*/true,
+			MoveFilterClass, /*bAllowPartialPath=*/true);
+	}
 }
 
 void AEnemyAIController::Tick(float DeltaTime)
@@ -129,16 +422,64 @@ void AEnemyAIController::Tick(float DeltaTime)
 		if (CurrentState != EEnemyAIState::Idle)
 		{
 			StopMovement();
+			SetVillageSlowdown(false);
 			CurrentState = EEnemyAIState::Idle;
 		}
 		return;
 	}
 
-	APawn* Player = GetPlayerPawn();
-	const bool bSensed = CanSensePlayer(Player);
+	const float Now = GetWorld()->GetTimeSeconds();
 
-	if (!bSensed)
+	// Ленивый кэш базовой скорости: к первому тику контроллера пешка уже применила свою
+	// MaxWalkSpeed в BeginPlay (бандит 650 / волк ~780). Нужен для замедления у деревни.
+	if (CachedBaseWalkSpeed <= 0.0f)
 	{
+		if (const ACharacter* SelfChar = Cast<ACharacter>(Self))
+		{
+			if (const UCharacterMovementComponent* Move = SelfChar->GetCharacterMovement())
+			{
+				CachedBaseWalkSpeed = Move->MaxWalkSpeed;
+			}
+		}
+	}
+
+	APawn* Player = GetPlayerPawn();
+
+	// --- Состояния «отпустил игрока» (ADR-036) — до сенсинга: враг игнорирует игрока ---
+
+	if (CurrentState == EEnemyAIState::Return)
+	{
+		TickReturnHome(Now);
+		return;
+	}
+
+	if (CurrentState == EEnemyAIState::VillagePause)
+	{
+		// Стоит у границы деревни, смотрит на игрока, затем уходит домой.
+		if (Player)
+		{
+			SetFocus(Player);
+		}
+		if (Now >= VillagePauseEndTime)
+		{
+			StartReturnHome(TEXT("village-pause-over"));
+		}
+		return;
+	}
+
+	// Сенсинг (DetectionRange + LOS) гейтит ТОЛЬКО ВСТУПЛЕНИЕ в бой из Idle. Враг, УЖЕ
+	// ведущий бой (Chase/Attack/Standoff), цель не теряет: по ADR-036 погоню ограничивает
+	// только поводок (проверка ниже). БАГ (приёмка Рината 07-06, лог: return home
+	// (idle-far-from-home) посреди погони): убегающий игрок (sprint 1200 против 650 у бандита)
+	// выходил за DetectionRange(1500) — на глаз это совпадает с выходом врага из кадра — и
+	// враг мгновенно бросал погоню, хотя до границы поводка было далеко.
+	const bool bSensed = CanSensePlayer(Player);
+	const bool bHasTarget = Player && (bSensed || IsEngagingPlayer());
+
+	if (!bHasTarget)
+	{
+		SetVillageSlowdown(false);
+
 		// Игрок не обнаружен — Idle.
 		if (CurrentState != EEnemyAIState::Idle)
 		{
@@ -146,6 +487,28 @@ void AEnemyAIController::Tick(float DeltaTime)
 			ClearFocus(EAIFocusPriority::Gameplay);
 			CurrentState = EEnemyAIState::Idle;
 		}
+
+		// Потерял игрока далеко от дома → идёт домой, а не стоит посреди карты (ADR-036).
+		if (bLeashSet && ReturnHomeWhenIdleBeyond > 0.0f
+			&& FVector::DistXY(Self->GetActorLocation(), HomeLocation) > ReturnHomeWhenIdleBeyond)
+		{
+			StartReturnHome(TEXT("idle-far-from-home"));
+		}
+		return;
+	}
+
+	// --- Поводок (ADR-036): слишком далеко от СВОЕЙ базы → разворот и возврат, не гонится ---
+	if (bLeashSet && LeashRadius > 0.0f
+		&& FVector::DistXY(Self->GetActorLocation(), HomeLocation) > LeashRadius)
+	{
+		StartReturnHome(TEXT("leash"));
+		return;
+	}
+
+	// Краевой случай: враг сам оказался ВНУТРИ деревни (спавн/пуш) → немедленно уходит.
+	if (bRespectVillageSafeZone && AVillageZone::IsPointInVillage(GetWorld(), Self->GetActorLocation()))
+	{
+		StartReturnHome(TEXT("inside-village"));
 		return;
 	}
 
@@ -164,19 +527,51 @@ void AEnemyAIController::Tick(float DeltaTime)
 
 	if (Dist <= EffectiveAttackRange)
 	{
-		// В радиусе атаки.
+		// В радиусе ближней атаки. Бьём и из Standoff — игрок сам подошёл вплотную
+		// (решение game-lead: standoff-враги защищаются при контакте).
+		SetVillageSlowdown(false);
 		if (CurrentState != EEnemyAIState::Attack)
 		{
 			StopMovement();
 			CurrentState = EEnemyAIState::Attack;
 		}
 		PerformAttack(Player);
+		return;
 	}
-	else
-	{
-		// Далеко — преследуем.
-		const float Now = GetWorld()->GetTimeSeconds();
 
+	// --- Плотность боя (ADR-037): без свободного слота — держимся поодаль (Standoff) ---
+	if (!HasAttackSlot(Player))
+	{
+		SetVillageSlowdown(false);
+		if (CurrentState != EEnemyAIState::Standoff)
+		{
+			StopMovement();
+			CurrentState = EEnemyAIState::Standoff;
+			FQADebug::QA(GetWorld(), FString::Printf(
+				TEXT("QA: %s standoff (attack slots full, max=%d)"),
+				*Self->GetName(), MaxSimultaneousAttackers), /*bScreen=*/true);
+		}
+		return;
+	}
+
+	// --- Огнестрел (D6): в дальности и в кадре камеры игрока → стоит и стреляет (ADR-035).
+	// Вне кадра НЕ стреляет (правило честности) — вместо этого сближается (ветка Chase ниже),
+	// что естественно вводит его в кадр; HUD ведёт на него красную краевую стрелку.
+	if (bRangedAttacker && Dist <= RangedAttackRange
+		&& (!bHonorCameraFairness || IsSelfOnPlayerScreen()))
+	{
+		SetVillageSlowdown(false);
+		if (CurrentState != EEnemyAIState::Attack)
+		{
+			StopMovement();
+			CurrentState = EEnemyAIState::Attack;
+		}
+		PerformRangedAttack(Player);
+		return;
+	}
+
+	// Далеко — преследуем.
+	{
 		if (CurrentState != EEnemyAIState::Chase)
 		{
 			CurrentState = EEnemyAIState::Chase;
@@ -223,6 +618,41 @@ void AEnemyAIController::Tick(float DeltaTime)
 		// Запоминаем режим для headless QA-теста погони (IsChaseModeNavForQA).
 		bLastChaseUsedDirect = bUseDirect;
 
+		// --- Барьер деревни (ADR-036) В ОБОИХ режимах погони (nav И direct) ---
+		// Направление фактического движения: в direct — прямо на игрока; в nav — текущая
+		// скорость (путь может огибать), при стоянии — направление на игрока.
+		FVector MoveDir = (Player->GetActorLocation() - Self->GetActorLocation()).GetSafeNormal2D();
+		if (!bUseDirect)
+		{
+			const FVector Velocity = Self->GetVelocity();
+			if (Velocity.SizeSquared2D() > 2500.0f) // > 50 см/с — реально движется
+			{
+				MoveDir = Velocity.GetSafeNormal2D();
+			}
+		}
+
+		if (bRespectVillageSafeZone && !MoveDir.IsNearlyZero())
+		{
+			if (IsAheadInVillage(MoveDir, VillageStopLookAhead))
+			{
+				// Граница деревни прямо по курсу: стоп, пауза «пару секунд», затем домой (ADR-036).
+				StopMovement();
+				SetVillageSlowdown(false);
+				CurrentState = EEnemyAIState::VillagePause;
+				VillagePauseEndTime = Now + VillagePauseSeconds;
+				FQADebug::QA(GetWorld(), FString::Printf(
+					TEXT("QA: %s stopped at village border (pause %.1fs)"),
+					*Self->GetName(), VillagePauseSeconds), /*bScreen=*/true);
+				return;
+			}
+			// Подходит к границе — замедляется (визуально «не хочет» заходить).
+			SetVillageSlowdown(IsAheadInVillage(MoveDir, VillageSlowdownLookAhead));
+		}
+		else
+		{
+			SetVillageSlowdown(false);
+		}
+
 		if (bUseDirect)
 		{
 			// FALLBACK: прямой steering к игроку, игнорируя навмеш. AddMovementInput на пешке
@@ -238,18 +668,6 @@ void AEnemyAIController::Tick(float DeltaTime)
 			{
 				Self->AddMovementInput(ToPlayer, 1.0f);
 			}
-
-			// ПРОБА nav на восстановление: ВРЕМЕННО ОТКЛЮЧЕНА (тест дёргания).
-			// Гипотеза: MoveToActor каждые 0.35с вызывает AbortMove внутри → CMC velocity сбрасывается
-			// → "шаг-стоп-шаг-стоп". При selfNav=no зонд всегда Failed и только мешает.
-			// Если дёрганье исчезнет — убрать насовсем; если нет — искать дальше.
-			// if (Now - LastMoveIssueTime >= RepathInterval)
-			// {
-			// 	LastMoveIssueTime = Now;
-			// 	LastMoveResult = MoveToActor(Player, MoveAcceptanceRadius,
-			// 	/*bStopOnOverlap=*/true, /*bUsePathfinding=*/true, /*bCanStrafe=*/true,
-			// 	MoveFilterClass);
-			// }
 		}
 		else
 		{

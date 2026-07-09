@@ -79,6 +79,12 @@ struct FQuest
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	int32 Progress = 0;
 
+	// Подпись KILL-цели для метки на карте («Перебить бандитов»): метка показывает её с
+	// прогрессом, пока цель не выполнена (фидбек Рината 07-06). Пусто = фолбэк на KillTargetTag
+	// (технический тег, для игрока не годится — заполнять при наличии kill-цели).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FString KillObjectiveLabel;
+
 	// --- ITEM-цель (Collect/Deliver, Фаза 5 демка) ---
 	// Имя предмета (AMasterInventoryItem::ItemName), который нужно собрать/принести
 	// (например, "Шкура волка"/"Ноутбук"). Пусто = у квеста нет item-цели.
@@ -92,6 +98,16 @@ struct FQuest
 	// Текущий прогресс по предметам в рюкзаке (пересчитывает SyncInventoryQuests; min с RequiredItemCount).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	int32 ItemProgress = 0;
+
+	// Подпись ITEM-цели для метки на карте («Забрать ноутбук»). Пусто = фолбэк на RequiredItemName.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FString ItemObjectiveLabel;
+
+	// Метка цели квеста на карте (Этап D, реюз маркеров NPC): HUD ищет актор-цель по этому
+	// тегу (QuestMarkerTag у AMasterEnemyBase либо стандартный Actor Tag) и рисует метку/
+	// краевую стрелку, пока квест Active/Completed. NAME_None = квест без метки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FName MapMarkerTag = NAME_None;
 
 	// Награда деньгами при сдаче (TurnedIn). DRAFT (решение Рината): 150. Тюнингуется на старосте/квесте.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")

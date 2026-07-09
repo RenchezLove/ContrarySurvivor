@@ -52,8 +52,11 @@ AElderNPC::AElderNPC()
 	OfferedQuest.TargetCount = 0;                 // kill-цели нет: гейт — по шкурам
 	OfferedQuest.RequiredItemName = TEXT("Шкура волка"); // имя предмета совпадает с дропом волка (WolfCharacter)
 	OfferedQuest.RequiredItemCount = 3;
+	OfferedQuest.ItemObjectiveLabel = TEXT("Собрать шкуры волков"); // текст метки на карте (с прогрессом x/3)
 	OfferedQuest.RewardMoney = 150.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
+	// Этап D: метка цели квеста на HUD — логово волков (BP_WolfDen несёт QuestMarkerTag="WolfDen").
+	OfferedQuest.MapMarkerTag = FName(TEXT("WolfDen"));
 
 	// КВЕСТ 2 (DRAFT): зачистить базу бандитов на севере (убить 3 бандитов) и принести Ноутбук.
 	// Стороны света — по камере игрока (верх кадра при спауне ГГ = север; конвенция Рината 07-02).
@@ -65,10 +68,14 @@ AElderNPC::AElderNPC()
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
+	SecondQuest.KillObjectiveLabel = TEXT("Перебить бандитов"); // текст метки на карте (с прогрессом x/3)
 	SecondQuest.RequiredItemName = TEXT("Ноутбук"); // имя предмета совпадает со спавном ноутбука (AMasterEnemyBase, BP_BanditBase)
 	SecondQuest.RequiredItemCount = 1;
+	SecondQuest.ItemObjectiveLabel = TEXT("Забрать ноутбук"); // текст метки, когда бандиты перебиты, а ноутбук ещё не взят
 	SecondQuest.RewardMoney = 250.0f;
 	SecondQuest.State = EQuestState::NotStarted;
+	// Этап D: метка цели квеста — база бандитов (BP_BanditBase несёт QuestMarkerTag="BanditBase").
+	SecondQuest.MapMarkerTag = FName(TEXT("BanditBase"));
 }
 
 void AElderNPC::PostInitializeComponents()

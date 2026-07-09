@@ -114,6 +114,62 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Feel", meta = (ClampMin = "0.0", DisplayPriority = "22"))
     float LookAheadSpeedThreshold = 50.0f;
 
+    // --- Боевой режим камеры (D6, ADR-035) ---
+    // «Камера — ДВА режима: 1. Исследование: лёгкий look-ahead (как сейчас). 2. Бой: камера
+    // ПЕРЕСТАЁТ смотреть вперёд и слегка смещается к ближайшей угрозе (или к центру угроз)…
+    // БЕЗ отдаления/зума. Плавно, без рывков». Реализация: пока есть враги, ведущие бой
+    // (AEnemyAIController::IsEngagingPlayer) в радиусе, look-ahead ЗАМЕЩАЕТСЯ смещением к
+    // центру угроз — тот же интерполятор (CameraLookAheadOffset), переход бесшовный. Зум не трогаем.
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (DisplayPriority = "23"))
+    bool bEnableCombatCamera = true;
+
+    // Радиус (см), в котором ведущие бой враги считаются угрозами для смещения камеры.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.0", DisplayPriority = "24"))
+    float CombatCameraThreatRadius = 2200.0f;
+
+    // Доля вектора «игрок -> центр угроз», на которую смещается камера [0..1].
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "25"))
+    float CombatCameraOffsetFactor = 0.45f;
+
+    // Кламп смещения камеры к угрозам (см) — «слегка», без увода игрока из кадра.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.0", DisplayPriority = "26"))
+    float CombatCameraMaxOffset = 500.0f;
+
+    // Скорость плавного перехода камеры В боевое смещение (VInterpTo, «без рывков»).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.1", DisplayPriority = "27"))
+    float CombatCameraInterpSpeed = 2.0f;
+
+    // Скорость ВЫХОДА камеры из боя (возврат к look-ahead исследования). Отдельная и заметно
+    // мягче боевого входа — фидбек Рината 07-05: «при потере противника камера смещается
+    // в сторону движения достаточно резко».
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Combat", meta = (ClampMin = "0.1", DisplayPriority = "28"))
+    float CombatCameraExitInterpSpeed = 1.0f;
+
+    // --- Тряска камеры (D5) ---
+    // Процедурная trauma-модель: AddCameraShake копит «травму» [0..1], затухающую со временем;
+    // смещение = PerlinNoise1D * амплитуда * травма² — подмешивается в SpringArm->TargetOffset.
+    // БЕЗ плагина EngineCameras (паттерны CameraShake живут в плагине) — дёшево для Android.
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (DisplayPriority = "28"))
+    bool bEnableCameraShake = true;
+
+    // Максимальная амплитуда смещения камеры при полной травме (см, world XY).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (ClampMin = "0.0", DisplayPriority = "29"))
+    float CameraShakeMaxAmplitude = 40.0f;
+
+    // Частота дрожи (скорость пробега по шуму Перлина).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (ClampMin = "0.1", DisplayPriority = "30"))
+    float CameraShakeFrequency = 14.0f;
+
+    // Скорость затухания травмы (единиц травмы в секунду).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (ClampMin = "0.1", DisplayPriority = "31"))
+    float CameraShakeDecay = 1.8f;
+
+    // Травма при ПОЛУЧЕНИИ урона игроком (D5: «тряска при получении урона»). 0 = выкл.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "32"))
+    float DamageShakeTrauma = 0.5f;
+
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
     // как и у врага: TakeDamage роутится в Stats.
@@ -315,6 +371,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Death")
     void Respawn();
 
+    // D5: добавить «травму» тряски камеры [0..1] (копится, затухает CameraShakeDecay).
+    // Зовут: TakeDamage игрока (DamageShakeTrauma) и выстрел игрока (ARangedWeapon, лёгкая).
+    UFUNCTION(BlueprintCallable, Category = "Camera|Shake")
+    void AddCameraShake(float Trauma);
+
     // Переключение между дальним (пистолет) и ближним (нож) оружием.
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
     UFUNCTION(BlueprintCallable, Category = "Equipment")
@@ -464,8 +525,19 @@ private:
     // Накопленное время для синусного «дыхания».
     float CameraBreathingTime = 0.0f;
 
-    // Текущее сглаженное смещение look-ahead (world XY), интерполируется к целевому в Tick.
+    // Текущее сглаженное смещение look-ahead/боевого смещения (world XY), интерполируется в Tick.
     FVector CameraLookAheadOffset = FVector::ZeroVector;
+
+    // Идёт возврат камеры из боя: офсет ведём мягкой CombatCameraExitInterpSpeed, пока он не
+    // догонит цель исследования (иначе выход из боя дёргался бы на скорости look-ahead).
+    bool bCombatCameraRecovering = false;
+
+    // --- Рантайм тряски камеры (D5) ---
+    // Текущая «травма» [0..1] (копится AddCameraShake, затухает CameraShakeDecay).
+    float CameraShakeTrauma = 0.0f;
+
+    // Накопленное время пробега по шуму Перлина (масштабируется CameraShakeFrequency).
+    float CameraShakeTime = 0.0f;
 
     // --- Аудио-рантайм (Демо) ---
     // Накопитель времени для интервала шагов.

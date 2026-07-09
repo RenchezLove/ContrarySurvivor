@@ -5,7 +5,9 @@
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства бандита в квест
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
 #include "AConsumableItem.h"
+#include "APistol.h" // D1/D6: пистолет в руке бандита (дефолт SidearmWeaponClass)
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -19,6 +21,10 @@ AEnemyCharacter::AEnemyCharacter()
 	// Лут по умолчанию: расходник + пикап без BP (editor-независимо).
 	LootItemClass = AConsumableItem::StaticClass();
 	PickupClass   = APickup::StaticClass();
+
+	// D1/D6: бандит носит пистолет (визуал огнестрела ADR-035). Конкретный APistol —
+	// editor-независимо; BP может переопределить/обнулить.
+	SidearmWeaponClass = APistol::StaticClass();
 
 	// Враг управляется AI-контроллером. Конкретный класс назначается в BP/дефолтах
 	// (AEnemyAIController), здесь только включаем авто-поссесс при спавне/размещении.
@@ -88,6 +94,43 @@ void AEnemyCharacter::BeginPlay()
 			Move->MaxWalkSpeed = BanditWalkSpeed;
 		}
 	}
+
+	// D1/D6: пистолет в руку (после инициализации статов/скорости; крепление — кость R_Hand).
+	EquipSidearm();
+}
+
+void AEnemyCharacter::EquipSidearm()
+{
+	if (!SidearmWeaponClass)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Тот же путь, что у игрока (APlayerCharacter::EquipDefaultWeapon): спавн + EquipWeapon
+	// (крепление к кости R_Hand лидер-меша, гашение коллизии оружия).
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = this;
+	SpawnParams.Instigator = this;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AMasterWeapon* Sidearm = World->SpawnActor<AMasterWeapon>(
+		SidearmWeaponClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+
+	if (Sidearm)
+	{
+		EquipWeapon(Sidearm);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: failed to spawn sidearm %s"),
+			*GetName(), *SidearmWeaponClass->GetName());
+	}
 }
 
 float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -110,6 +153,15 @@ float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const&
 	if (Applied > 0.0f)
 	{
 		Stats->PlayHurtSound();
+
+		// D5: всплывающая цифра урона над врагом (только по врагам — решение Рината).
+		if (APlayerController* PC0 = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+		{
+			if (AContrarySurvivorHUD* HUD = Cast<AContrarySurvivorHUD>(PC0->GetHUD()))
+			{
+				HUD->AddDamageNumber(GetActorLocation(), Applied);
+			}
+		}
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("%s took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
@@ -168,6 +220,13 @@ void AEnemyCharacter::HandleDeath()
 		{
 			PlayerChar->RegisterEnemyKill();
 		}
+	}
+
+	// 5c) D1/D6: пистолет в руке НЕ переживает труп — attach не уничтожает актор оружия
+	// автоматически, без LifeSpan он остался бы висеть в мире после Destroy тела.
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->SetLifeSpan(CorpseLifeSpan);
 	}
 
 	// 6) Снимаем тело с задержкой (даём отыграть рэгдолл).

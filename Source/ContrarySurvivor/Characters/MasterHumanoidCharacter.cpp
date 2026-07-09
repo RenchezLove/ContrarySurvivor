@@ -125,6 +125,88 @@ void AMasterHumanoidCharacter::RelinkSlotToLeaderPose(EArmorSlot Slot)
 void AMasterHumanoidCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	UpdateAimTurn(DeltaTime);
+}
+
+void AMasterHumanoidCharacter::StartAimTurnTo(AActor* Target)
+{
+	UWorld* World = GetWorld();
+	if (!bAimTurnToTarget || !World || !IsValid(Target) || Target == this)
+	{
+		return;
+	}
+
+	AimTurnTarget = Target;
+	AimTurnEndTime = World->GetTimeSeconds() + AimTurnHoldTime;
+
+	if (!bAimTurnActive)
+	{
+		bAimTurnActive = true;
+		// Ориентацию бега на окно доворота выключаем (BP игрока держит её включённой) — иначе
+		// CMC каждый кадр возвращает корпус в сторону движения и борется с прицелом. Значение
+		// сохраняем и восстанавливаем в EndAimTurn (уважаем настройку BP, не хардкодим).
+		if (UCharacterMovementComponent* Move = GetCharacterMovement())
+		{
+			bAimTurnSavedOrientToMovement = Move->bOrientRotationToMovement;
+			Move->bOrientRotationToMovement = false;
+		}
+	}
+}
+
+void AMasterHumanoidCharacter::UpdateAimTurn(float DeltaTime)
+{
+	if (!bAimTurnActive)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	AActor* Target = AimTurnTarget.Get();
+	if (!World || !IsValid(Target) || World->GetTimeSeconds() > AimTurnEndTime)
+	{
+		EndAimTurn();
+		return;
+	}
+
+	// Труп не доворачиваем: смерть гуманоида отключает движение (HandleDeath -> DisableMovement
+	// -> MOVE_None), сам актор ещё тикает время жизни трупа/рэгдолла.
+	const UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (Move && Move->MovementMode == MOVE_None)
+	{
+		EndAimTurn();
+		return;
+	}
+
+	FVector ToTarget = Target->GetActorLocation() - GetActorLocation();
+	ToTarget.Z = 0.0f;
+	if (ToTarget.IsNearlyZero())
+	{
+		return; // вплотную/друг над другом — направление вырождено, кадр пропускаем
+	}
+
+	// Плавный yaw к цели. RInterpTo идёт по кратчайшей дуге (FInterpTo на «сыром» угле
+	// ломается на переходе ±180°). Pitch/Roll персонажа не трогаем (нули у Character).
+	const FRotator Current(0.0f, GetActorRotation().Yaw, 0.0f);
+	const FRotator Desired(0.0f, ToTarget.Rotation().Yaw, 0.0f);
+	const FRotator Stepped = FMath::RInterpTo(Current, Desired, DeltaTime, AimTurnInterpSpeed);
+	SetActorRotation(FRotator(0.0f, Stepped.Yaw, 0.0f));
+}
+
+void AMasterHumanoidCharacter::EndAimTurn()
+{
+	if (!bAimTurnActive)
+	{
+		return;
+	}
+
+	bAimTurnActive = false;
+	AimTurnTarget = nullptr;
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->bOrientRotationToMovement = bAimTurnSavedOrientToMovement;
+	}
 }
 
 void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
