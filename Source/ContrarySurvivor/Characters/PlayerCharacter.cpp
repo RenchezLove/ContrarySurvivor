@@ -650,6 +650,22 @@ void APlayerCharacter::Inv_UseBackpackItem(AMasterInventoryItem* Item)
             // (чтобы не теряться при смерти и не дублироваться в списке рюкзака).
             if (AArmor* Armor = Cast<AArmor>(Item))
             {
+                // Слот уже занят другой бронёй? Если это отслеживаемый инвентарём предмет
+                // (надет игроком из рюкзака), сперва снять его обратно в рюкзак ТЕМ ЖЕ путём,
+                // что и ручное снятие (Inv_UnequipSlot). Иначе EquipArmor перезапишет ссылку
+                // слота, и старый предмет станет «сиротой» — исчезнет и из paper-doll, и из
+                // рюкзака (баг: «старая броня пропадает, а не перемещается в инвентарь»).
+                // Стартовую одежду Т0 (не помечена экипированной, нет в рюкзаке) не трогаем —
+                // штатная перезапись без возврата, чтобы не захламлять рюкзак базовым слоем.
+                const EArmorSlot TargetSlot = Armor->GetArmorSlot();
+                if (AArmor* PrevArmor = GetEquippedArmor(TargetSlot))
+                {
+                    if (PrevArmor != Armor && Inventory->IsItemEquipped(PrevArmor))
+                    {
+                        Inv_UnequipSlot(TargetSlot);
+                    }
+                }
+
                 EquipArmor(Armor);
                 Inventory->SetItemEquipped(Armor, true);
                 UE_LOG(LogTemp, Log, TEXT("Inv: equipped %s"), *Armor->GetName());
