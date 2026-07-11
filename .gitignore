@@ -20,3 +20,7 @@
 
 # Рабочие headless-скрипты/дампы оператора — не версионируем.
 /logs/
+# Продукты сборки плагинов и мусор macOS
+Plugins/**/Intermediate/
+Plugins/**/Binaries/
+.DS_Store
