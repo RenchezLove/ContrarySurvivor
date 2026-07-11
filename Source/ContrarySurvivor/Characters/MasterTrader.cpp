@@ -7,10 +7,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // регистрация ближайшего вендора (A2)
 #include "AMasterInventoryItem.h"
 #include "AConsumableItem.h"
-#include "AHeadArmor.h"
-#include "ATorsoArmor.h"
-#include "APantsArmor.h"
-#include "AArmorTiers.h" // броня Т1-Т3 (9 классов, решение Рината 07-07)
+#include "AArmorTiers.h" // броня Т1-Т3 (9 классов; старая _01 из каталога убрана — ADR-042)
 #include "APistol.h"
 #include "AMeleeWeapon.h"
 
@@ -44,7 +41,7 @@ AMasterTrader::AMasterTrader()
 	// добавляем UStatsComponent — чтобы торговец оставался непростреливаемым и не попадал в
 	// авто-лок игрока (стрельба «как раньше»). См. шапку класса.
 
-	BuildDefaultCatalog();
+	RebuildCatalog();
 }
 
 void AMasterTrader::PostInitializeComponents()
@@ -74,6 +71,12 @@ void AMasterTrader::BeginPlay()
 	// Применяем огромный запас HP ПОСЛЕ дефолтов BP (в BeginPlay уже видно итоговое
 	// TraderMaxHealth из Class Defaults BP_Trader).
 	ApplyTraderHealth();
+
+	// Пересобираем каталог ЗДЕСЬ же: только сейчас видны цены Price*, выставленные на
+	// размещённом экземпляре BP_Trader (директива Рината: параметры крутятся на экземпляре).
+	// Конструкторная сборка давала бы лишь дефолты CDO, а сериализованный каталог старого
+	// BP мог бы протащить убранные позиции (например, старую броню _01).
+	RebuildCatalog();
 }
 
 void AMasterTrader::ApplyTraderHealth()
@@ -165,7 +168,7 @@ float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const
 	}
 }
 
-void AMasterTrader::BuildDefaultCatalog()
+void AMasterTrader::RebuildCatalog()
 {
 	// Перенос дефолтного каталога ATraderNPC (GDD §7.6 — DRAFT-цены на тюнинг).
 	Catalog.Reset();
@@ -212,21 +215,19 @@ void AMasterTrader::BuildDefaultCatalog()
 	Catalog.Add(MakeItem(TEXT("Knife"), 40.0f, AMeleeWeapon::StaticClass()));
 	Catalog.Add(MakeItem(TEXT("Pistol"), 150.0f, APistol::StaticClass()));
 
-	// Броня: голова 60 / штаны 80 / торс 120 (GDD §7.6).
-	Catalog.Add(MakeItem(TEXT("Head Armor"), 60.0f, AHeadArmor::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Pants Armor"), 80.0f, APantsArmor::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Torso Armor"), 120.0f, ATorsoArmor::StaticClass()));
+	// Старая броня _01 из каталога УБРАНА (ADR-042): ассеты не удаляются, но торговец ей
+	// не торгует (бэклог Рината — возможно, отдать жителям деревни).
 
-	// Броня Т1-Т3 (решение Рината 07-07): цена черновая 5 — чтобы дёшево купить и
-	// проверить надевание/снятие в PIE. Имя позиции = ItemName класса (как у «Патроны 9мм»).
+	// Броня Т1-Т3 (ADR-042): цена за слот из настроек PriceArmorT1/T2/T3 (Т1≈50 / Т2≈120 /
+	// Т3≈250). Имя позиции = ItemName класса (как у «Патроны 9мм»).
 	// Т0 — стартовая одежда, в магазин не кладём.
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — голова"), 5.0f, AHeadArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — торс"), 5.0f, ATorsoArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — штаны"), 5.0f, APantsArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — голова"), 5.0f, AHeadArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — торс"), 5.0f, ATorsoArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — штаны"), 5.0f, APantsArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — голова"), 5.0f, AHeadArmorT3::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — торс"), 5.0f, ATorsoArmorT3::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — штаны"), 5.0f, APantsArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — голова"), PriceArmorT1, AHeadArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — торс"), PriceArmorT1, ATorsoArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — штаны"), PriceArmorT1, APantsArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — голова"), PriceArmorT2, AHeadArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — торс"), PriceArmorT2, ATorsoArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — штаны"), PriceArmorT2, APantsArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — голова"), PriceArmorT3, AHeadArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — торс"), PriceArmorT3, ATorsoArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — штаны"), PriceArmorT3, APantsArmorT3::StaticClass()));
 }
