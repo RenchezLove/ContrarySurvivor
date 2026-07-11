@@ -12,6 +12,7 @@ class UQuestComponent;
 class APlayerCharacter;
 class AMasterInventoryItem;
 class AElderNPC;
+class UTexture2D;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -335,6 +336,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
 	FLinearColor InvDropColor = FLinearColor(0.5f, 0.12f, 0.12f, 1.0f);    // кнопка [X] выброса
 
+	// --- Иконки слотов брони (ADR-043) ---
+	// Иконка ПУСТОГО слота paper-doll (читается как пустой). МЯГКИЕ ссылки: текстур может
+	// ещё не быть в проекте (импорт по этим именам позже) — тогда текстовый фолбэк «(пусто)»,
+	// без крашей и без повторных попыток загрузки каждый кадр (см. ResolveIcon/IconCache).
+	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	TSoftObjectPtr<UTexture2D> EmptySlotIconHead =
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Head.T_Icon_Slot_Head")));
+
+	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	TSoftObjectPtr<UTexture2D> EmptySlotIconTorso =
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Torso.T_Icon_Slot_Torso")));
+
+	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	TSoftObjectPtr<UTexture2D> EmptySlotIconLegs =
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Legs.T_Icon_Slot_Legs")));
+
 	// --- Контекстная подсказка взаимодействия (E) — BUG3 ---
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
@@ -511,6 +528,16 @@ private:
 	// Рисует прямоугольную «плитку» (фон + опц. подсветка под курсором) и текст. Хелпер layout.
 	void DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
 		const FVector2D& MousePos, const FString& Label, class UFont* Font);
+
+	// Разрешает мягкую ссылку на иконку в текстуру С КЭШЕМ: одна попытка LoadSynchronous на
+	// путь за жизнь HUD (nullptr-результат тоже кэшируется). Canvas рисует каждый кадр —
+	// без кэша отсутствующая текстура (их ещё не нарисовал художник) грузилась бы и спамила
+	// лог ежекадрово. Загруженные текстуры держит IconCache (UPROPERTY -> защита от GC).
+	class UTexture2D* ResolveIcon(const TSoftObjectPtr<class UTexture2D>& SoftIcon);
+
+	// Кэш иконок: путь -> текстура (nullptr = грузили, не нашли — больше не пытаемся).
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UTexture2D>> IconCache;
 
 	// Точка внутри прямоугольника зоны?
 	static bool PointInRegion(const FVector2D& P, const FInvHitRegion& R);

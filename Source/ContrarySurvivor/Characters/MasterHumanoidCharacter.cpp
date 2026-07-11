@@ -74,9 +74,10 @@ void AMasterHumanoidCharacter::BeginPlay()
             *GetName(), Move->MaxWalkSpeed, BaseWalkSpeed);
     }
 
-    // Снимок базовых мешей слотов (тело без брони). Делаем ДО любой авто-экипировки
-    // (дефолтная броня экипируется позже в APlayerCharacter::BeginPlay), чтобы UnequipArmor
-    // мог вернуть исходный меш слота.
+    // Снимок базовых мешей слотов (тело без брони) — ДО любой экипировки, чтобы UnequipArmor
+    // мог вернуть исходный меш слота. У игрока к этому моменту в слотах уже стоит одежда Т0
+    // (ADR-042: ApplyStartClothing в PostInitializeComponents) — снимок фиксирует именно её,
+    // поэтому снятие любой брони возвращает одежду, а не белого манекена.
     CacheBaseSlotMeshes();
 }
 
@@ -423,11 +424,16 @@ float AMasterHumanoidCharacter::GetTotalArmorProtection() const
     return Total;
 }
 
+float AMasterHumanoidCharacter::GetEffectiveArmorFraction() const
+{
+    // Фактическое снижение урона [0..Cap] — единая точка клампа (урон и UI считают одинаково).
+    return FMath::Clamp(GetTotalArmorProtection(), 0.0f, ArmorReductionCap);
+}
+
 float AMasterHumanoidCharacter::ComputeArmoredDamage(float Incoming) const
 {
     // Процентная броня (решение Рината): Final = Incoming * (1 - clamp(Sum, 0, Cap)).
-    const float Fraction = FMath::Clamp(GetTotalArmorProtection(), 0.0f, ArmorReductionCap);
-    return Incoming * (1.0f - Fraction);
+    return Incoming * (1.0f - GetEffectiveArmorFraction());
 }
 
 void AMasterHumanoidCharacter::FireCurrentWeapon(AActor* Target)

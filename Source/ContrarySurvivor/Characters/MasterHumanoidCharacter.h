@@ -178,6 +178,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
 	float ComputeArmoredDamage(float Incoming) const;
 
+	// ФАКТИЧЕСКАЯ доля снижения урона с учётом потолка ArmorReductionCap:
+	// clamp(GetTotalArmorProtection(), 0, Cap). Для UI «Защита: N%» (ADR-043) — показываем
+	// реальное снижение, а не сырую сумму слотов, которая может превышать кап.
+	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
+	float GetEffectiveArmorFraction() const;
+
 	// Возвращает экипированную броню в слоте (или nullptr). Для сохранения/UI.
 	UFUNCTION(BlueprintPure, Category = "Equipment|Armor")
 	AArmor* GetEquippedArmor(EArmorSlot Slot) const;
