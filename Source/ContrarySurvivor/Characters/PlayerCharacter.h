@@ -289,20 +289,39 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
     TSubclassOf<AMasterWeapon> DefaultMeleeWeaponClass;
 
-    // Дефолтная броня по слотам (Фаза 3): экипируется в BeginPlay, чтобы снижение урона
-    // (GDD §7.2) было наблюдаемо без экип-UI (UI — Фаза 4). По умолчанию конкретные классы
-    // брони с черновыми значениями защиты. BP игрока может переопределить/обнулить.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
-    TSubclassOf<class AHeadArmor> DefaultHeadArmorClass;
+    // Тест-комплект брони для QA-клавиши F3 (EquipTestArmor). ADR-042: автонадевание брони
+    // при старте УБРАНО (игрок начинает с нулевой защитой), поэтому эти классы используются
+    // ТОЛЬКО тест-клавишей. По умолчанию — полный сет Т3 (0.48 суммарно), верх прогрессии.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Armor", meta = (DisplayPriority = "8"))
+    TSubclassOf<AArmor> TestHeadArmorClass;
 
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
-    TSubclassOf<class ATorsoArmor> DefaultTorsoArmorClass;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Armor", meta = (DisplayPriority = "9"))
+    TSubclassOf<AArmor> TestTorsoArmorClass;
 
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Armor")
-    TSubclassOf<class APantsArmor> DefaultPantsArmorClass;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Armor", meta = (DisplayPriority = "10"))
+    TSubclassOf<AArmor> TestPantsArmorClass;
+
+    // --- Стартовая одежда Т0 (ADR-042) ---
+    // НЕ предмет: базовые меши слотов тела (нельзя снять/продать, защиты не даёт). Назначается
+    // в PostInitializeComponents — ДО снимка базовых мешей CacheBaseSlotMeshes (BeginPlay базы),
+    // поэтому снятие ЛЮБОЙ брони возвращает одежду Т0, а не белого манекена. Пустая ссылка или
+    // недогрузившийся ассет = слот остаётся с мешем из BP (мягкий фолбэк, без краша).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Body", meta = (DisplayPriority = "1"))
+    TSoftObjectPtr<USkeletalMesh> StartClothHeadMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Body", meta = (DisplayPriority = "2"))
+    TSoftObjectPtr<USkeletalMesh> StartClothTorsoMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Body", meta = (DisplayPriority = "3"))
+    TSoftObjectPtr<USkeletalMesh> StartClothLegsMesh;
 
     // Called when the game starts or when spawned
     virtual void BeginPlay() override;
+
+    // Назначает стартовую одежду Т0 в слоты тела (ApplyStartClothing). Зовётся ЗДЕСЬ, а не в
+    // BeginPlay: PostInitializeComponents идёт ПОСЛЕ применения дефолтов BP, но ДО BeginPlay
+    // базы, где CacheBaseSlotMeshes снимает «базовые меши слотов» — снимок должен увидеть Т0.
+    virtual void PostInitializeComponents() override;
 
     // Процедурные эффекты камеры (#28): дыхание + look-ahead через SpringArm->TargetOffset.
     virtual void Tick(float DeltaTime) override;
@@ -323,8 +342,9 @@ protected:
     // Спавнит DefaultMeleeWeaponClass (нож) и держит «в кобуре» (скрыт, не экипирован).
     void SpawnMeleeWeapon();
 
-    // Спавнит и экипирует дефолтную броню по слотам (для наблюдаемости снижения урона).
-    void EquipDefaultArmor();
+    // Грузит меши StartCloth*Mesh (одежда Т0) и ставит их в слоты Head/Torso/Legs.
+    // Мягкий фолбэк: не загрузился ассет — слот не трогаем (остаётся меш из BP).
+    void ApplyStartClothing();
 
     // Запускает зацикленный фоновый эмбиент леса (Демо) тихо. Зовётся в BeginPlay.
     void StartAmbience();
@@ -403,8 +423,8 @@ public:
 
     // --- Тестирование брони без UI (Фаза 4, UI — отдельная волна) ---
     // Консольные команды (открыть консоль `~`, ввести имя). Pawn должен быть под управлением.
-    //   EquipTestArmor   — (пере)спавнит и надевает дефолтную броню всех слотов (подмена меша).
-    //   UnequipTestArmor — снимает броню всех слотов (возврат базовых мешей тела).
+    //   EquipTestArmor   — (пере)спавнит и надевает тест-комплект Test*ArmorClass (дефолт — полный Т3).
+    //   UnequipTestArmor — снимает броню всех слотов (возврат базовых мешей тела = одежды Т0).
     // Позволяют наблюдать смену модульного меша слота и пересчёт суммарной защиты.
 
     UFUNCTION(Exec, Category = "Equipment|Armor|Debug")

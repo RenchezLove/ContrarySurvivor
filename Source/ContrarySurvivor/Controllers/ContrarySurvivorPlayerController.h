@@ -178,7 +178,7 @@ protected:
 	UFUNCTION()
 	void OnTestGiveItems();
 
-	// F3: надеть дефолтную броню всех слотов (= APlayerCharacter::EquipTestArmor).
+	// F3: надеть тест-комплект брони, по умолчанию полный Т3 (= APlayerCharacter::EquipTestArmor).
 	UFUNCTION()
 	void OnTestEquipArmor();
 

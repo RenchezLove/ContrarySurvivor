@@ -22,6 +22,8 @@
 #include "AHeadArmor.h"
 #include "ATorsoArmor.h"
 #include "APantsArmor.h"
+#include "AArmorTiers.h" // тест-комплект Т3 для QA-клавиши F3 (ADR-042)
+#include "Engine/SkeletalMesh.h" // загрузка мешей одежды Т0 (ApplyStartClothing)
 #include "AConsumableItem.h"
 #include "AAmmoItem.h" // патроны как стак-предмет рюкзака (Фаза 5)
 #include "ARangedWeapon.h"
@@ -118,11 +120,17 @@ APlayerCharacter::APlayerCharacter()
     // BP игрока может переопределить (например, на BP_Knife) в дефолтах.
     DefaultMeleeWeaponClass = AMeleeWeapon::StaticClass();
 
-    // Дефолтная броня (Фаза 3, для наблюдаемости снижения урона). Конкретные классы с
-    // черновыми значениями защиты (Head 5 / Torso 12 / Pants 8).
-    DefaultHeadArmorClass  = AHeadArmor::StaticClass();
-    DefaultTorsoArmorClass = ATorsoArmor::StaticClass();
-    DefaultPantsArmorClass = APantsArmor::StaticClass();
+    // Тест-комплект для QA-клавиши F3 (ADR-042: автонадевания при старте больше НЕТ).
+    // Дефолт — полный сет Т3 (верх прогрессии, 0.48 суммарной защиты).
+    TestHeadArmorClass  = AHeadArmorT3::StaticClass();
+    TestTorsoArmorClass = ATorsoArmorT3::StaticClass();
+    TestPantsArmorClass = APantsArmorT3::StaticClass();
+
+    // Стартовая одежда Т0 (ADR-042): мягкие ссылки на меши слотов тела. Применяются в
+    // PostInitializeComponents (до снимка базовых мешей), защиты не дают, не предмет.
+    StartClothHeadMesh  = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Clothing/SK_Cloth_T0_Head.SK_Cloth_T0_Head")));
+    StartClothTorsoMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Clothing/SK_Cloth_T0_Torso.SK_Cloth_T0_Torso")));
+    StartClothLegsMesh  = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Clothing/SK_Cloth_T0_Legs.SK_Cloth_T0_Legs")));
 
     // --- Аудио (Демо): шаги + эмбиент. Дефолты из импортированных ассетов. ---
     static ConstructorHelpers::FObjectFinder<USoundBase> Step1(TEXT("/Game/Audio/Demo/footstep_soft_1.footstep_soft_1"));
@@ -216,8 +224,9 @@ void APlayerCharacter::BeginPlay()
     // Нож держим «в кобуре» (скрыт), переключение по SwitchWeapon (Фаза 3).
     SpawnMeleeWeapon();
 
-    // Дефолтная броня (Фаза 3): снижение урона наблюдаемо без экип-UI.
-    EquipDefaultArmor();
+    // ADR-042: стартовой брони НЕТ — игрок начинает с нулевой защитой (полный урон),
+    // первая цель — накопить на первый комплект. Визуально одет в одежду Т0
+    // (ApplyStartClothing в PostInitializeComponents), она не предмет и защиты не даёт.
 
     // Фоновый эмбиент леса (Демо), зациклен и тихо.
     StartAmbience();
@@ -576,8 +585,51 @@ void APlayerCharacter::SpawnMeleeWeapon()
     }
 }
 
-void APlayerCharacter::EquipDefaultArmor()
+void APlayerCharacter::PostInitializeComponents()
 {
+    Super::PostInitializeComponents();
+
+    // Одежда Т0 (ADR-042) ставится ДО BeginPlay базы: CacheBaseSlotMeshes там снимет
+    // именно её как «базовые меши слотов» -> снятие брони возвращает Т0, не белое тело.
+    ApplyStartClothing();
+}
+
+void APlayerCharacter::ApplyStartClothing()
+{
+    auto ApplyToSlot = [&](const TSoftObjectPtr<USkeletalMesh>& SoftMesh, EArmorSlot Slot)
+    {
+        if (SoftMesh.IsNull())
+        {
+            return; // ссылка не задана — слот остаётся с мешем из BP (осознанный фолбэк)
+        }
+
+        USkeletalMesh* ClothMesh = SoftMesh.LoadSynchronous();
+        if (!ClothMesh)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("ApplyStartClothing: mesh '%s' failed to load, slot %d keeps BP mesh"),
+                *SoftMesh.ToSoftObjectPath().ToString(), (int32)Slot);
+            return;
+        }
+
+        if (USkeletalMeshComponent* SlotComp = GetMeshComponentForSlot(Slot))
+        {
+            SlotComp->SetSkeletalMeshAsset(ClothMesh);
+            // После подмены меша follower-слоты заново привязываются к Leader Pose (Head — no-op).
+            RelinkSlotToLeaderPose(Slot);
+        }
+    };
+
+    ApplyToSlot(StartClothHeadMesh,  EArmorSlot::Head);
+    ApplyToSlot(StartClothTorsoMesh, EArmorSlot::Torso);
+    ApplyToSlot(StartClothLegsMesh,  EArmorSlot::Legs);
+}
+
+void APlayerCharacter::EquipTestArmor()
+{
+    // Консольная команда / QA-клавиша F3: (пере)надеть тест-комплект Test*ArmorClass
+    // (дефолт — полный сет Т3). Тест-броня НЕ кладётся в рюкзак и не помечается equipped —
+    // как и прежний автоэкип; при надевании покупной брони поверх вернётся в рюкзак
+    // штатным путём Inv_UseBackpackItem.
     UWorld* World = GetWorld();
     if (!World)
     {
@@ -588,7 +640,6 @@ void APlayerCharacter::EquipDefaultArmor()
     SpawnParams.Owner = this;
     SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    // Универсальный лямбда-помощник: спавн предмета брони и экип в слот.
     auto SpawnAndEquip = [&](TSubclassOf<AArmor> ArmorClass)
     {
         if (!ArmorClass)
@@ -598,26 +649,18 @@ void APlayerCharacter::EquipDefaultArmor()
         AArmor* Armor = World->SpawnActor<AArmor>(ArmorClass, GetActorLocation(), GetActorRotation(), SpawnParams);
         if (Armor)
         {
-            // Броня — не игровой объект на сцене (Фаза 3): прячем визуал/коллизию,
-            // используем только параметры защиты. Полноценная экип/визуал — Фаза 4.
+            // Предмет брони — данные, не объект сцены: прячем визуал/коллизию.
             Armor->SetActorHiddenInGame(true);
             Armor->SetActorEnableCollision(false);
             EquipArmor(Armor);
         }
     };
 
-    SpawnAndEquip(DefaultHeadArmorClass);
-    SpawnAndEquip(DefaultTorsoArmorClass);
-    SpawnAndEquip(DefaultPantsArmorClass);
-}
+    SpawnAndEquip(TestHeadArmorClass);
+    SpawnAndEquip(TestTorsoArmorClass);
+    SpawnAndEquip(TestPantsArmorClass);
 
-void APlayerCharacter::EquipTestArmor()
-{
-    // Консольная команда: (пере)надеть дефолтную броню всех слотов. Использует тот же путь,
-    // что и автоэкип в BeginPlay (спавн DefaultHead/Torso/PantsArmorClass + EquipArmor),
-    // т.е. подменяет модульные меши слотов на ArmorMesh_Equipped брони.
-    EquipDefaultArmor();
-    UE_LOG(LogTemp, Log, TEXT("EquipTestArmor: equipped default armor. Total armor %.2f"),
+    UE_LOG(LogTemp, Log, TEXT("EquipTestArmor: equipped test set (default T3). Total armor %.2f"),
         GetTotalArmorProtection());
 }
 
@@ -655,11 +698,11 @@ void APlayerCharacter::Inv_UseBackpackItem(AMasterInventoryItem* Item)
                 // новую. Иначе EquipArmor перезапишет ссылку слота, и старый предмет станет
                 // «сиротой»: исчезнет и из paper-doll, и из списка рюкзака (баг: «старая броня
                 // пропадает, а не перемещается в инвентарь»).
-                // Возвращаем ЛЮБУЮ реальную броню, в т.ч. дефолтную стартовую (AHeadArmor/
-                // ATorsoArmor/APantsArmor из EquipDefaultArmor): она не помечена экипированной и
-                // не лежит в рюкзаке, но Inv_UnequipSlot корректно добавит её (внутри guard от
-                // дублирования). Стартовая «одежда Т0» отдельным предметом брони НЕ является —
-                // это базовый меш тела, восстанавливаемый UnequipArmor, — поэтому в этот путь как
+                // Возвращаем ЛЮБУЮ реальную броню, в т.ч. тест-комплект с QA-клавиши F3
+                // (EquipTestArmor): он не помечен экипированным и не лежит в рюкзаке, но
+                // Inv_UnequipSlot корректно добавит его (внутри guard от дублирования).
+                // Стартовая одежда Т0 (ADR-042) отдельным предметом брони НЕ является — это
+                // базовый меш тела, восстанавливаемый UnequipArmor, — поэтому в этот путь как
                 // PrevArmor не попадает и спец-исключения не требует.
                 const EArmorSlot TargetSlot = Armor->GetArmorSlot();
                 if (AArmor* PrevArmor = GetEquippedArmor(TargetSlot))

@@ -484,7 +484,7 @@ void AContrarySurvivorPlayerController::OnTestEquipArmor()
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
 		PlayerChar->EquipTestArmor();
-		UE_LOG(LogQA, Display, TEXT("QA: F3 EquipTestArmor"));
+		UE_LOG(LogQA, Display, TEXT("QA: F3 EquipTestArmor (test set, default T3)"));
 	}
 }
 
