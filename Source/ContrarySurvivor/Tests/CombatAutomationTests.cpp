@@ -479,4 +479,42 @@ bool FMovementTranslatesOnInputTest::RunTest(const FString& Parameters)
 	return bOk;
 }
 
+// ===========================================================================
+// 10. ADR-042 (этап E): игрок стартует БЕЗ брони — защита нулевая, урон проходит полным.
+//     Автонадевание брони _01 в BeginPlay убрано; одежда Т0 — базовые меши слотов,
+//     НЕ предмет брони и в слоты Equipped*Armor не попадает.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCombatPlayerStartsUnarmoredTest,
+	"ContrarySurvivor.Combat.Armor.PlayerStartsWithZeroProtection", CombatTestFlags)
+bool FCombatPlayerStartsUnarmoredTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = CombatTestWorld::Create();
+	TestNotNull(TEXT("Test world"), World);
+	if (!World) { return false; }
+
+	bool bOk = true;
+	{
+		// Полный жизненный цикл спавна (PostInitializeComponents + BeginPlay) — как в игре.
+		APlayerCharacter* Player = CombatTestWorld::Spawn<APlayerCharacter>(World);
+		TestNotNull(TEXT("Player spawned"), Player);
+
+		if (Player)
+		{
+			TestNull(TEXT("Head slot empty on start"), Player->GetEquippedArmor(EArmorSlot::Head));
+			TestNull(TEXT("Torso slot empty on start"), Player->GetEquippedArmor(EArmorSlot::Torso));
+			TestNull(TEXT("Legs slot empty on start"), Player->GetEquippedArmor(EArmorSlot::Legs));
+			TestEqual(TEXT("Total armor protection is 0"), Player->GetTotalArmorProtection(), 0.0f);
+			TestEqual(TEXT("Effective armor fraction is 0"), Player->GetEffectiveArmorFraction(), 0.0f);
+			TestEqual(TEXT("Damage passes in full (100 -> 100)"), Player->ComputeArmoredDamage(100.0f), 100.0f);
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+
+	CombatTestWorld::Destroy(World);
+	return bOk;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
