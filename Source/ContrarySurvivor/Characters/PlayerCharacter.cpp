@@ -15,6 +15,7 @@
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"   // Этап F3: события аналитики
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "Components/CapsuleComponent.h"
@@ -905,6 +906,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
+
+    // F3 (ADR-038): событие аналитики «покупка» (предмет + итоговая цена). Без ключей — no-op.
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordPurchase(Entry.DisplayName, TotalPrice);
+    }
     return true;
 }
 
@@ -1434,12 +1441,24 @@ void APlayerCharacter::HandleDeath()
     const int32 QuestsDone = Quests ? Quests->GetTurnedInQuestCount() : 0;
     UE_LOG(LogQA, Display, TEXT("QA: DEATH SCREEN shown - lived %.0fs, killer '%s', money %.0f, quests %d, kills %d"),
         LastLifeDuration, *LastDamagerName, Money, QuestsDone, EnemyKillCount);
+
+    // F3 (ADR-038): событие аналитики «смерть игрока». Без ключей — no-op.
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordPlayerDeath();
+    }
 }
 
-void APlayerCharacter::RegisterEnemyKill()
+void APlayerCharacter::RegisterEnemyKill(const FString& EnemyType)
 {
     ++EnemyKillCount;
     UE_LOG(LogQA, Display, TEXT("QA: enemy kill counted -> total %d"), EnemyKillCount);
+
+    // F3 (ADR-038): событие аналитики «убийство врага» с типом (Wolf/Bandit). Без ключей — no-op.
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordEnemyKill(EnemyType);
+    }
 }
 
 void APlayerCharacter::Respawn()

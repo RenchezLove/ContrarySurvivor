@@ -394,9 +394,10 @@ public:
     UFUNCTION(BlueprintPure, Category = "Death")
     int32 GetEnemyKillCount() const { return EnemyKillCount; }
 
-    // Засчитать убийство врага игроком (зовётся из HandleDeath врага/волка). +1 к счётчику киллов.
+    // Засчитать убийство врага игроком (зовётся из HandleDeath врага/волка). +1 к счётчику
+    // киллов + событие аналитики F3 с типом врага (Wolf/Bandit; латиницей — id событий GA).
     UFUNCTION(BlueprintCallable, Category = "Death")
-    void RegisterEnemyKill();
+    void RegisterEnemyKill(const FString& EnemyType = TEXT("Unknown"));
 
     // Возрождение по кнопке экрана смерти / клавише: респаун у костра (сейв) + потеря доли
     // рюкзака + возврат управления + скрытие экрана смерти. Вынесено из старого HandleDeath.

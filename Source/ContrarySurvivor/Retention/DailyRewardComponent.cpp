@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h"
 #include "ContrarySurvivor/Retention/DailyRewardLogic.h"
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // F3: событие ежедневного входа
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -65,6 +66,12 @@ void UDailyRewardComponent::EvaluateDailyReward()
 
 	UE_LOG(LogTemp, Log, TEXT("DailyReward: day %d of streak -> +%.0f coins (persisted)"),
 		Result.NewStreak, Result.Reward);
+
+	// F3 (ADR-038): событие «ежедневный вход» (value = день серии). Без ключей — no-op.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordDailyLogin(Result.NewStreak);
+	}
 
 	// Окно «Ежедневная награда». Курсор в игре и так виден; режим GameAndUI — чтобы кнопка
 	// ловила клик (паттерн модалок контроллера: диалог/магазин).

@@ -3,6 +3,7 @@
 #include "QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // F3: события взятия/сдачи квеста
 #include "UInventoryComponent.h"   // изъятие предметов при сдаче / подсчёт прогресса (Фаза 5)
 #include "AMasterInventoryItem.h"  // ItemName
 #include "GameFramework/Actor.h"
@@ -139,6 +140,13 @@ bool UQuestComponent::AcceptQuest(FName QuestId)
 	const bool bChanged = RecomputeState(*Q);
 	OnQuestChanged.Broadcast(*Q);
 	(void)bChanged;
+
+	// F3 (ADR-038): событие «взятие квеста». Хук именно здесь (не на OnQuestChanged): делегат
+	// стреляет и на прогрессе, а нам нужен один факт принятия. Без ключей — no-op.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordQuestAccepted(QuestId);
+	}
 	return true;
 }
 
@@ -287,5 +295,11 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 		*Q->QuestId.ToString(), Q->RewardMoney, Balance);
 
 	OnQuestChanged.Broadcast(*Q);
+
+	// F3 (ADR-038): событие «сдача квеста» (с id квеста). Без ключей — no-op.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordQuestTurnedIn(QuestId);
+	}
 	return true;
 }

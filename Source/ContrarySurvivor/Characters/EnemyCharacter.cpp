@@ -216,9 +216,10 @@ void AEnemyCharacter::HandleDeath()
 			PlayerQuests->NotifyKill(FName(TEXT("Bandit")));
 		}
 		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
+		// Тип "Bandit" — для события аналитики F3 (латиницей, как теги квестов).
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
 		{
-			PlayerChar->RegisterEnemyKill();
+			PlayerChar->RegisterEnemyKill(TEXT("Bandit"));
 		}
 	}
 
