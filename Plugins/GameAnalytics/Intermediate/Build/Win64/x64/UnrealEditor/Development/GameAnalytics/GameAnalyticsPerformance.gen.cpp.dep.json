@@ -1,0 +1,16 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "e:\\contrarysurvior\\contrarysurvivor\\plugins\\gameanalytics\\intermediate\\build\\win64\\unrealeditor\\inc\\gameanalytics\\uht\\gameanalyticsperformance.gen.cpp",
+        "ProvidedModule": "",
+        "PCH": "e:\\contrarysurvior\\contrarysurvivor\\intermediate\\build\\win64\\x64\\contrarysurvivoreditor\\development\\unrealed\\sharedpch.unrealed.project.valapi.cpp20.h.pch",
+        "Includes": [
+            "e:\\contrarysurvior\\contrarysurvivor\\plugins\\gameanalytics\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\gameanalytics\\definitions.gameanalytics.h",
+            "e:\\contrarysurvior\\contrarysurvivor\\plugins\\gameanalytics\\source\\gameanalytics\\private\\gameanalyticsperformance.h",
+            "e:\\contrarysurvior\\contrarysurvivor\\plugins\\gameanalytics\\source\\gameanalytics\\public\\gaenums.h",
+            "e:\\contrarysurvior\\contrarysurvivor\\plugins\\gameanalytics\\intermediate\\build\\win64\\unrealeditor\\inc\\gameanalytics\\uht\\gameanalyticsperformance.generated.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}
