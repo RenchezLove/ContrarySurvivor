@@ -13,6 +13,8 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
+#include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
+#include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "Components/CapsuleComponent.h"
@@ -106,6 +108,11 @@ APlayerCharacter::APlayerCharacter()
 
     // Журнал квестов (Фаза 5). C++-сабобъект — детерминированно, без BP.
     Quests = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComponent"));
+
+    // Этап F: удержание — ежедневная награда (F2) и онбординг-подсказки (F1).
+    // C++-сабобъекты (как Stats/Quests): работают и без правок BP игрока.
+    DailyReward = CreateDefaultSubobject<UDailyRewardComponent>(TEXT("DailyRewardComponent"));
+    Onboarding = CreateDefaultSubobject<UOnboardingComponent>(TEXT("OnboardingComponent"));
 
     // Navigation Invoker (Фаза 5): навмеш генерится локально вокруг игрока и следует за ним.
     // Вместе с bGenerateNavigationOnlyAroundNavigationInvokers=true (DefaultEngine.ini) это
@@ -1220,6 +1227,18 @@ bool APlayerCharacter::SaveGame()
     Save->EquippedTorsoArmorClassPath = ArmorPath(GetEquippedArmor(EArmorSlot::Torso));
     Save->EquippedLegsArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Legs));
 
+    // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
+    // слоте, но заполняются компонентами удержания, а не здесь. Объект Save создан свежим —
+    // переносим их из прежнего сейва, иначе каждый автосейв костра обнулял бы серию и подсказки.
+    if (UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    {
+        if (const UContrarySaveGame* Prev = Cast<UContrarySaveGame>(
+            UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex)))
+        {
+            UContrarySaveGame::CopyRetentionData(Prev, Save);
+        }
+    }
+
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
     UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
         *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
@@ -1229,6 +1248,28 @@ bool APlayerCharacter::SaveGame()
 bool APlayerCharacter::HasSaveGame() const
 {
     return UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex);
+}
+
+UContrarySaveGame* APlayerCharacter::LoadOrCreateSaveObject() const
+{
+    // Этап F: компоненты удержания правят СВОИ поля слота и пишут обратно WriteSaveObject.
+    // Существующий сейв возвращаем как есть (позиция/статы не теряются при перезаписи);
+    // нет сейва — свежий объект с bHasData=false (LoadGame такой игнорирует).
+    if (UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    {
+        if (UContrarySaveGame* Loaded = Cast<UContrarySaveGame>(
+            UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex)))
+        {
+            return Loaded;
+        }
+    }
+    return Cast<UContrarySaveGame>(
+        UGameplayStatics::CreateSaveGameObject(UContrarySaveGame::StaticClass()));
+}
+
+bool APlayerCharacter::WriteSaveObject(UContrarySaveGame* Save) const
+{
+    return Save && UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
 }
 
 bool APlayerCharacter::LoadGame()

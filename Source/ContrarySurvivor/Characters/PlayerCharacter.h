@@ -21,6 +21,8 @@ class AMasterInventoryItem;
 class USoundBase;
 class UAudioComponent;
 class UNavigationInvokerComponent;
+class UDailyRewardComponent;
+class UOnboardingComponent;
 struct FShopEntry;
 
 /**
@@ -180,6 +182,16 @@ protected:
     // без BP. Староста предлагает квест, убийства целей инкрементят прогресс, сдача даёт деньги.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true", DisplayPriority = "3"))
     UQuestComponent* Quests;
+
+    // Ежедневная награда за вход (Этап F2, ADR-044 п.4). Проверка даты/начисление/окно — в
+    // компоненте; числа (база/шаг/потолок) настраиваются на нём в редакторе.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Retention", meta = (AllowPrivateAccess = "true", DisplayPriority = "4"))
+    UDailyRewardComponent* DailyReward;
+
+    // Онбординг первых минут (Этап F1): одноразовые контекстные подсказки. События дёргает
+    // контроллер (подбор/староста/инвентарь/смерть), стартовую — сам компонент.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Retention", meta = (AllowPrivateAccess = "true", DisplayPriority = "5"))
+    UOnboardingComponent* Onboarding;
 
     // Navigation Invoker (Фаза 5): навмеш генерится ТОЛЬКО вокруг игрока и следует за ним
     // (см. DefaultEngine.ini bGenerateNavigationOnlyAroundNavigationInvokers=true). Это даёт
@@ -420,6 +432,20 @@ public:
     // Есть ли сохранение в слоте.
     UFUNCTION(BlueprintPure, Category = "Save")
     bool HasSaveGame() const;
+
+    // --- Этап F: доступ к слоту для полей удержания (ежедневка F2 / подсказки F1) ---
+
+    // Грузит объект сейва из слота либо создаёт свежий (bHasData=false — такой LoadGame
+    // игнорирует, позиция/статы не пострадают). Для компонентов удержания, которые правят
+    // ТОЛЬКО свои поля и пишут обратно WriteSaveObject.
+    UContrarySaveGame* LoadOrCreateSaveObject() const;
+
+    // Пишет объект сейва обратно в слот. true при успехе.
+    bool WriteSaveObject(UContrarySaveGame* Save) const;
+
+    // Компонент онбординга (F1) — контроллер дёргает TryShowHint по событиям.
+    UFUNCTION(BlueprintPure, Category = "Retention")
+    UOnboardingComponent* GetOnboarding() const { return Onboarding; }
 
     // --- Тестирование брони без UI (Фаза 4, UI — отдельная волна) ---
     // Консольные команды (открыть консоль `~`, ввести имя). Pawn должен быть под управлением.

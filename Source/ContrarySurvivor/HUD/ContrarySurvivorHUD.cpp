@@ -1463,7 +1463,8 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 
 		DrawDeathPenaltyLine(TEXT("Возрождение у костра в деревне."), DeathStatColor);
 		DrawDeathPenaltyLine(MoneyPenaltyLine, PenaltyColor);
-		DrawDeathPenaltyLine(TEXT("Расходники обронены мешком на месте гибели — их можно забрать."), DeathStatColor);
+		// ADR-044 п.3 (дополнение Рината): БЕЗ «их можно забрать» — портит атмосферу.
+		DrawDeathPenaltyLine(TEXT("Расходники обронены мешком на месте гибели."), DeathStatColor);
 		DrawDeathPenaltyLine(TEXT("Снаряжение, оружие и важные предметы сохранены."), SavedColor);
 	}
 
