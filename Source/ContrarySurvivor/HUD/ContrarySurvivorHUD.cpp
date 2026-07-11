@@ -1221,7 +1221,10 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 
 	if (!NPCText.IsEmpty())
 	{
-		DrawShadowedText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 36.0f, Font);
+		// Этап F: реплика с переносом по словам — длинный текст (крючок кв.3) в одну строку
+		// панели не влезает.
+		DrawWrappedText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 36.0f, Font,
+			PanelW - Pad * 2.0f);
 	}
 
 	// Кнопки-ответы (внизу панели).
@@ -1532,6 +1535,49 @@ void AContrarySurvivorHUD::DrawLabelWithPlate(const FString& Text, const FLinear
 	const float PadY = 3.0f;
 	DrawRect(UITextPlateColor, X - PadX, Y - PadY, TW * ScaleXY + PadX * 2.0f, TH * ScaleXY + PadY * 2.0f);
 	DrawShadowedText(Text, Color, X, Y, Font, ScaleXY);
+}
+
+float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearColor& Color,
+	float X, float Y, UFont* Font, float MaxWidth, float ScaleXY)
+{
+	if (!Canvas || !Font || Text.IsEmpty() || MaxWidth <= 0.0f)
+	{
+		return Y;
+	}
+
+	// Высота строки — по фактической метрике шрифта (не хардкод под кегль).
+	float LineW = 0.0f, LineH = 0.0f;
+	GetTextSize(TEXT("Ag"), LineW, LineH, Font);
+	const float LineStep = LineH * ScaleXY + 4.0f;
+
+	// Перенос по словам: копим строку, пока следующая влезает в MaxWidth; слово длиннее
+	// строки рисуется как есть (обрезки/дефисов не делаем — для реплик диалога не нужно).
+	TArray<FString> Words;
+	Text.ParseIntoArray(Words, TEXT(" "), /*CullEmpty=*/true);
+
+	FString Line;
+	for (const FString& Word : Words)
+	{
+		const FString Candidate = Line.IsEmpty() ? Word : Line + TEXT(" ") + Word;
+		float CW = 0.0f, CH = 0.0f;
+		GetTextSize(Candidate, CW, CH, Font);
+		if (CW * ScaleXY > MaxWidth && !Line.IsEmpty())
+		{
+			DrawShadowedText(Line, Color, X, Y, Font, ScaleXY);
+			Y += LineStep;
+			Line = Word;
+		}
+		else
+		{
+			Line = Candidate;
+		}
+	}
+	if (!Line.IsEmpty())
+	{
+		DrawShadowedText(Line, Color, X, Y, Font, ScaleXY);
+		Y += LineStep;
+	}
+	return Y;
 }
 
 void AContrarySurvivorHUD::DrawRectOutline(float X, float Y, float W, float H,
