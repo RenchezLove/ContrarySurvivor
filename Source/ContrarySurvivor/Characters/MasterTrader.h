@@ -96,8 +96,22 @@ protected:
 
 	// --- Прайс-лист и выкуп (как у ATraderNPC, GDD §7.6 — DRAFT на тюнинг) ---
 
+	// Каталог пересобирается в BeginPlay (RebuildCatalog) с ценами Price* ниже — так работает
+	// настройка на РАЗМЕЩЁННОМ экземпляре BP_Trader (значения из конструктора её бы не видели).
+	// Ручные правки строк каталога в редакторе рантайм не переживают — цены крутить через Price*.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop", meta = (DisplayPriority = "2"))
 	TArray<FShopEntry> Catalog;
+
+	// Цена СЛОТА брони по тирам (ADR-042, Ринат 2026-07-11: Т1≈50 / Т2≈120 / Т3≈250 за слот).
+	// Тюнинг из редактора без пересборки; применяется ко всем трём слотам тира в RebuildCatalog.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "3", ClampMin = "0.0"))
+	float PriceArmorT1 = 50.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "4", ClampMin = "0.0"))
+	float PriceArmorT2 = 120.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "5", ClampMin = "0.0"))
+	float PriceArmorT3 = 250.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
 	float SellValueConsumable = 6.0f;
@@ -123,8 +137,10 @@ protected:
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-	// Заполняет Catalog DRAFT-товарами по GDD §7.6 (вызывается в конструкторе). Перенос из ATraderNPC.
-	void BuildDefaultCatalog();
+	// (Пере)заполняет Catalog товарами по GDD §7.6 + броня Т1-Т3 по ценам Price* (ADR-042).
+	// Зовётся из конструктора (дефолты CDO — видны в редакторе) И из BeginPlay (значения
+	// с размещённого экземпляра; заодно перетирает устаревший сериализованный каталог BP).
+	void RebuildCatalog();
 
 	// Применяет TraderMaxHealth к инлайн Health/MaxHealth базы (огромный запас).
 	void ApplyTraderHealth();

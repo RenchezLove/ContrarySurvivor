@@ -50,10 +50,16 @@ public:
     FORCEINLINE EArmorSlot GetArmorSlot() const { return ArmorSlot; }
 
     // Доля снижения урона этим предметом брони [0..1] (решение Рината: ПРОЦЕНТНАЯ броня
-    // вместо flat). Напр. 0.25 = -25% урона от слота. Тюнингуется в редакторе (EditAnywhere).
-    // DRAFT-значения задаются в конструкторах конкретных слотов (Head/Torso/Pants).
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
+    // вместо flat). Напр. 0.25 = -25% урона от слота. Тюнингуется в редакторе без пересборки
+    // (ADR-042/ADR-043: все числа защиты настраиваемые). Значения по тирам задаются в
+    // конструкторах конкретных классов (Т1=0.05 / Т2=0.10 / Т3=0.16 на слот).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Armor", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "1"))
     float ArmorProtection;
+
+    // Иконка предмета для слотов UI-инвентаря (ADR-043) — унаследованный ItemIcon базы
+    // AMasterInventoryItem (мягкая ссылка TSoftObjectPtr<UTexture2D>, текстур может ещё не
+    // быть — HUD живёт на текстовом фолбэке). Дефолт-пути задаются в конструкторах тиров
+    // (AArmorTiers.cpp); у старой брони _01 иконки нет (пустая ссылка).
 
     // Доля снижения урона этим слотом [0..1]. Суммируется по экипированным слотам и
     // используется при расчёте получаемого урона (GDD §7.2: «урон рассчитывается от

@@ -42,8 +42,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
 	FString ItemDescription;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
-	UTexture2D* ItemIcon;
+	// Иконка предмета для UI (ADR-043, этап E). МЯГКАЯ ссылка (была мёртвым жёстким
+	// UTexture2D*, в коде нигде не читалась): текстур может ещё не быть в проекте — UI
+	// обязан работать без них (текстовый фолбэк, см. AContrarySurvivorHUD::ResolveIcon).
+	// Дефолт-пути для брони Т1-Т3 задаются в конструкторах AArmorTiers
+	// (/Game/UI/Icons/T_Icon_Armor_T{1..3}_{Head,Torso,Legs}); у прочих предметов пусто.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (DisplayPriority = "2"))
+	TSoftObjectPtr<UTexture2D> ItemIcon;
 
 	// Категория предмета (Фаза 4). База = Resource; наследники задают свою в конструкторе
 	// (AArmor -> Armor, AMasterWeapon -> Weapon). Расходники (еда/вода/аптечки) ставят

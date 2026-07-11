@@ -23,6 +23,7 @@
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
+#include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -311,6 +312,30 @@ bool AContrarySurvivorHUD::HandleInventoryClick(FVector2D ScreenPos)
 	return false;
 }
 
+UTexture2D* AContrarySurvivorHUD::ResolveIcon(const TSoftObjectPtr<UTexture2D>& SoftIcon)
+{
+	if (SoftIcon.IsNull())
+	{
+		return nullptr; // ссылка не задана (например, у старой брони _01 иконки нет)
+	}
+
+	const FString Key = SoftIcon.ToSoftObjectPath().ToString();
+	if (const TObjectPtr<UTexture2D>* Cached = IconCache.Find(Key))
+	{
+		return Cached->Get(); // и успех, и неудача закэшированы — повторных загрузок нет
+	}
+
+	// Единственная попытка загрузки за жизнь HUD. Текстуры может ещё не быть в проекте
+	// (рисует художник, импорт позже) — тогда кэшируем nullptr и живём на текстовом фолбэке.
+	UTexture2D* Loaded = SoftIcon.LoadSynchronous();
+	IconCache.Add(Key, Loaded);
+	if (!Loaded)
+	{
+		UE_LOG(LogTemp, Log, TEXT("HUD: icon '%s' not found (expected until art import) - text fallback."), *Key);
+	}
+	return Loaded;
+}
+
 void AContrarySurvivorHUD::DrawInvBox(float X, float Y, float W, float H, const FLinearColor& BaseColor,
 	const FVector2D& MousePos, const FString& Label, UFont* Font)
 {
@@ -365,13 +390,13 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 
 	const float Pad = 16.0f;
 	const float HeaderY = PY + Pad;
-	// #18: крупный заголовок с обводкой.
-	DrawShadowedText(TEXT("INVENTORY  (Tab / I to close)"), UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
+	// #18: крупный заголовок с обводкой. Русские подписи — ADR-041/ADR-043.
+	DrawShadowedText(TEXT("ИНВЕНТАРЬ  (Tab / I — закрыть)"), UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
 	// Деньги / голод / жажда (GDD §7.7) — крупно, золотой, на плашке (#18).
 	if (UStatsComponent* St = Player->GetStats())
 	{
-		const FString StatStr = FString::Printf(TEXT("Монеты %.0f      Hunger %.0f / %.0f      Thirst %.0f / %.0f"),
+		const FString StatStr = FString::Printf(TEXT("Монеты %.0f      Голод %.0f / %.0f      Жажда %.0f / %.0f"),
 			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
 		DrawLabelWithPlate(StatStr, UIMoneyColor, PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 	}
@@ -382,22 +407,43 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	const float LeftW = PanelW * 0.42f;
 	const float LeftX = PX + Pad;
 	const float ColW = LeftW - Pad;
-	DrawShadowedText(TEXT("EQUIPMENT"), UIHeaderColor, LeftX, ContentY, Font, UISubHeaderTextScale);
+	DrawShadowedText(TEXT("СНАРЯЖЕНИЕ"), UIHeaderColor, LeftX, ContentY, Font, UISubHeaderTextScale);
 
 	float SlotY = ContentY + 24.0f;
 	const float SlotH = 56.0f;
 	const float SlotGap = 10.0f;
 
-	auto DrawArmorSlot = [&](const TCHAR* Name, EArmorSlot Slot)
+	// Слот брони (ADR-043): иконка (надетого предмета или пустого слота) + подпись.
+	// Иконки — мягкие ссылки, текстур может ещё не быть: тогда чисто текстовый вид (фолбэк).
+	auto DrawArmorSlot = [&](const TCHAR* Name, EArmorSlot Slot, const TSoftObjectPtr<UTexture2D>& EmptyIcon)
 	{
 		AArmor* Eq = Player->GetEquippedArmor(Slot);
-		FString Worn = TEXT("(empty)");
-		if (Eq)
+		UTexture2D* Icon = ResolveIcon(Eq ? Eq->ItemIcon : EmptyIcon);
+
+		const FString Worn = Eq
+			? (Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName)
+			: FString(TEXT("(пусто)"));
+
+		if (Icon)
 		{
-			Worn = Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName;
+			// Плитка без текста, затем иконка квадратом по высоте слота и подпись правее.
+			DrawInvBox(LeftX, SlotY, ColW, SlotH, Eq ? InvSlotFilledColor : InvSlotColor, Mouse, FString(), Font);
+			const float IconPad = 4.0f;
+			const float IconSize = SlotH - IconPad * 2.0f;
+			DrawTexture(Icon, LeftX + IconPad, SlotY + IconPad, IconSize, IconSize,
+				0.0f, 0.0f, 1.0f, 1.0f);
+			float TH = 0.0f, TW = 0.0f;
+			GetTextSize(TEXT("Ag"), TW, TH, Font);
+			const float TextH = (TH > 0.0f ? TH : 14.0f) * UIBoxLabelScale;
+			DrawShadowedText(FString::Printf(TEXT("%s: %s"), Name, *Worn), FLinearColor::White,
+				LeftX + IconPad * 2.0f + IconSize, SlotY + (SlotH - TextH) * 0.5f, Font, UIBoxLabelScale);
 		}
-		const FString Label = FString::Printf(TEXT("%s: %s"), Name, *Worn);
-		DrawInvBox(LeftX, SlotY, ColW, SlotH, Eq ? InvSlotFilledColor : InvSlotColor, Mouse, Label, Font);
+		else
+		{
+			// Текстур ещё нет — прежний текстовый вид слота.
+			DrawInvBox(LeftX, SlotY, ColW, SlotH, Eq ? InvSlotFilledColor : InvSlotColor, Mouse,
+				FString::Printf(TEXT("%s: %s"), Name, *Worn), Font);
+		}
 
 		if (Eq)
 		{
@@ -412,24 +458,33 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 		SlotY += SlotH + SlotGap;
 	};
 
-	DrawArmorSlot(TEXT("Head"), EArmorSlot::Head);
-	DrawArmorSlot(TEXT("Torso"), EArmorSlot::Torso);
-	DrawArmorSlot(TEXT("Legs"), EArmorSlot::Legs);
+	DrawArmorSlot(TEXT("Шлем"), EArmorSlot::Head, EmptySlotIconHead);
+	DrawArmorSlot(TEXT("Торс"), EArmorSlot::Torso, EmptySlotIconTorso);
+	DrawArmorSlot(TEXT("Штаны"), EArmorSlot::Legs, EmptySlotIconLegs);
+
+	// «Защита: N%» (ADR-043) — ФАКТИЧЕСКОЕ снижение урона (сумма слотов с потолком-капом).
+	// Canvas рисует каждый кадр -> при надевании/снятии брони цифра пересчитывается сама.
+	{
+		const int32 ProtPct = FMath::RoundToInt(Player->GetEffectiveArmorFraction() * 100.0f);
+		DrawLabelWithPlate(FString::Printf(TEXT("Защита: %d%%"), ProtPct), UIMoneyColor,
+			LeftX, SlotY, Font, UIMoneyTextScale);
+		SlotY += 34.0f;
+	}
 
 	// Слот оружия (только отображение CurrentWeapon).
 	{
 		AMasterWeapon* W = Player->GetCurrentWeapon();
-		const FString Label = FString::Printf(TEXT("Weapon: %s"), W ? *W->GetName() : TEXT("(none)"));
+		const FString Label = FString::Printf(TEXT("Оружие: %s"), W ? *W->GetName() : TEXT("(нет)"));
 		DrawInvBox(LeftX, SlotY, ColW, SlotH, InvSlotColor, Mouse, Label, Font);
 		SlotY += SlotH + SlotGap;
 	}
 
-	DrawShadowedText(TEXT("(click an armor slot to unequip)"), FLinearColor(0.78f, 0.78f, 0.8f, 1.0f), LeftX, SlotY, Font);
+	DrawShadowedText(TEXT("(клик по занятому слоту — снять броню)"), FLinearColor(0.78f, 0.78f, 0.8f, 1.0f), LeftX, SlotY, Font);
 
 	// --- Правая колонка: рюкзак (неэкипированные предметы) ---
 	const float RightX = LeftX + LeftW + Pad;
 	const float RightW = (PX + PanelW - Pad) - RightX;
-	DrawShadowedText(TEXT("BACKPACK"), UIHeaderColor, RightX, ContentY, Font, UISubHeaderTextScale);
+	DrawShadowedText(TEXT("РЮКЗАК"), UIHeaderColor, RightX, ContentY, Font, UISubHeaderTextScale);
 
 	float RowY = ContentY + 24.0f;
 	const float RowH = 34.0f;
@@ -452,9 +507,9 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 			const EItemCategory Cat = Item->GetItemCategory();
 			switch (Cat)
 			{
-				case EItemCategory::Consumable: ActionHint = TEXT("use");   break;
-				case EItemCategory::Armor:      ActionHint = TEXT("equip"); break;
-				default:                        ActionHint = TEXT("");      break;
+				case EItemCategory::Consumable: ActionHint = TEXT("использовать"); break;
+				case EItemCategory::Armor:      ActionHint = TEXT("надеть");       break;
+				default:                        ActionHint = TEXT("");             break;
 			}
 
 			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
@@ -795,7 +850,20 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	{
 		const FShopEntry& E = Catalog[i];
 		const float MainW = LeftColW - BtnW - 6.0f;
-		const FString Label = FString::Printf(TEXT("%s  -  %.0f"), *E.DisplayName, E.Price);
+
+		// ADR-043: у позиций брони показываем прибавку защиты «+N%» ДО покупки — значение
+		// из CDO класса предмета (там же живёт тюнингуемый ArmorProtection).
+		FString Label;
+		if (E.ItemClass && E.ItemClass->IsChildOf(AArmor::StaticClass()))
+		{
+			const AArmor* ArmorCDO = GetDefault<AArmor>(E.ItemClass);
+			const int32 AddPct = FMath::RoundToInt(ArmorCDO->GetArmorProtection() * 100.0f);
+			Label = FString::Printf(TEXT("%s  (+%d%% защиты)  -  %.0f"), *E.DisplayName, AddPct, E.Price);
+		}
+		else
+		{
+			Label = FString::Printf(TEXT("%s  -  %.0f"), *E.DisplayName, E.Price);
+		}
 		DrawInvBox(LeftX, RowY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
 
 		// Кнопка [Buy] — зелёная, если хватает денег, иначе тускло-красная.
