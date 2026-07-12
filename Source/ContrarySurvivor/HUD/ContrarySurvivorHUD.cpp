@@ -1155,20 +1155,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	const float SX = static_cast<float>(Canvas->SizeX);
 	const float SY = static_cast<float>(Canvas->SizeY);
 
-	// Затемнение фона + нижняя панель диалога (как в визуальных новеллах).
-	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
-
-	const float PanelW = FMath::Min(900.0f, SX * 0.86f);
-	const float PanelH = FMath::Min(280.0f, SY * 0.4f);
-	const float PX = (SX - PanelW) * 0.5f;
-	const float PY = SY - PanelH - 40.0f;
-	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
-	// #18: рамка-обводка панели диалога.
-	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
-
-	const float Pad = 18.0f;
-
 	// Определяем текст и кнопки по состоянию АКТУАЛЬНОГО квеста (по порядку) в журнале игрока.
+	// Считается ДО геометрии панели: её высота зависит от длины реплики (см. ниже).
 	const FQuest& Offered = DialogElder->GetQuestForPlayer(Player->GetQuests());
 	// Синхронизируем журнал с актуальным квестом старосты КАЖДЫЙ кадр отрисовки: если внутри той же
 	// сессии диалога квест сменился (сдали кв.1 -> предлагается кв.2), запись в журнал появится сразу,
@@ -1181,9 +1169,6 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
 	// Источник данных квеста: журнал (если уже в нём) либо предложение старосты (ещё не принят).
 	const FQuest& QData = InLog ? *InLog : Offered;
-
-	// Заголовок — имя NPC (крупно, обводка).
-	DrawShadowedText(TEXT("СТАРОСТА"), FLinearColor(0.65f, 0.88f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font, UIHeaderTextScale);
 
 	// Строка прогресса целей (kill и/или item), обобщённо по полям квеста.
 	FString ObjStr;
@@ -1219,18 +1204,51 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 			break;
 	}
 
-	if (!NPCText.IsEmpty())
-	{
-		// Этап F: реплика с переносом по словам — длинный текст (крючок кв.3) в одну строку
-		// панели не влезает.
-		DrawWrappedText(NPCText, FLinearColor::White, PX + Pad, PY + Pad + 36.0f, Font,
-			PanelW - Pad * 2.0f);
-	}
-
-	// Кнопки-ответы (внизу панели).
+	// Геометрия панели — ОТ СОДЕРЖИМОГО (фикс отрисовки, фидбек Рината 07-12: при малом окне
+	// длинная реплика кв.3 налезала на кнопки и уходила под низ панели фиксированной высоты).
+	// Реплика заранее разбивается на строки; высота панели = шапка + все строки + кнопки,
+	// пол — прежние 280px (короткие реплики выглядят как раньше), потолок — 55% высоты экрана.
+	const float Pad = 18.0f;
+	const float PanelW = FMath::Min(900.0f, SX * 0.86f);
 	const float BtnH = 40.0f;
+	const float TextTop = Pad + 36.0f;         // высота шапки «СТАРОСТА» с отступом
+	const float TextToButtonsGap = 12.0f;
+
+	TArray<FString> ReplicaLines;
+	const float ReplicaLineStep = WrapTextIntoLines(NPCText, Font, PanelW - Pad * 2.0f,
+		/*ScaleXY=*/1.0f, ReplicaLines);
+
+	const float PanelHNeeded = TextTop + ReplicaLines.Num() * ReplicaLineStep
+		+ TextToButtonsGap + BtnH + Pad;
+	const float PanelH = FMath::Clamp(PanelHNeeded, FMath::Min(280.0f, SY * 0.4f), SY * 0.55f);
+	const float PX = (SX - PanelW) * 0.5f;
+	const float PY = SY - PanelH - 40.0f;
+
+	// Затемнение фона + нижняя панель диалога (как в визуальных новеллах).
+	DrawRect(InvDimColor, 0.0f, 0.0f, SX, SY);
+	DrawRect(InvPanelColor, PX, PY, PanelW, PanelH);
+	// #18: рамка-обводка панели диалога.
+	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
+
+	// Заголовок — имя NPC (крупно, обводка).
+	DrawShadowedText(TEXT("СТАРОСТА"), FLinearColor(0.65f, 0.88f, 1.0f, 1.0f), PX + Pad, PY + Pad, Font, UIHeaderTextScale);
+
+	// Кнопки-ответы (внизу панели); их верхняя граница — жёсткий предел отрисовки реплики.
 	const float BtnY = PY + PanelH - Pad - BtnH;
 	const float BtnGap = 14.0f;
+
+	// Реплика старосты: те же строки, по которым считалась высота панели. Стоп у границы
+	// кнопок — сработает, только если PanelHNeeded упёрся в потолок 55% экрана.
+	float TextY = PY + TextTop;
+	for (const FString& Line : ReplicaLines)
+	{
+		if (TextY + ReplicaLineStep > BtnY - 4.0f)
+		{
+			break;
+		}
+		DrawShadowedText(Line, FLinearColor::White, PX + Pad, TextY, Font);
+		TextY += ReplicaLineStep;
+	}
 
 	auto AddButton = [&](float X, float W, const FString& Label, EDialogAction Action, const FLinearColor& Color)
 	{
@@ -1538,12 +1556,13 @@ void AContrarySurvivorHUD::DrawLabelWithPlate(const FString& Text, const FLinear
 	DrawShadowedText(Text, Color, X, Y, Font, ScaleXY);
 }
 
-float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearColor& Color,
-	float X, float Y, UFont* Font, float MaxWidth, float ScaleXY)
+float AContrarySurvivorHUD::WrapTextIntoLines(const FString& Text, UFont* Font, float MaxWidth,
+	float ScaleXY, TArray<FString>& OutLines)
 {
+	OutLines.Reset();
 	if (!Canvas || !Font || Text.IsEmpty() || MaxWidth <= 0.0f)
 	{
-		return Y;
+		return 0.0f;
 	}
 
 	// Высота строки — по фактической метрике шрифта (не хардкод под кегль).
@@ -1552,7 +1571,7 @@ float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearCo
 	const float LineStep = LineH * ScaleXY + 4.0f;
 
 	// Перенос по словам: копим строку, пока следующая влезает в MaxWidth; слово длиннее
-	// строки рисуется как есть (обрезки/дефисов не делаем — для реплик диалога не нужно).
+	// строки идёт как есть (обрезки/дефисов не делаем — для реплик диалога не нужно).
 	TArray<FString> Words;
 	Text.ParseIntoArray(Words, TEXT(" "), /*CullEmpty=*/true);
 
@@ -1564,8 +1583,7 @@ float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearCo
 		GetTextSize(Candidate, CW, CH, Font);
 		if (CW * ScaleXY > MaxWidth && !Line.IsEmpty())
 		{
-			DrawShadowedText(Line, Color, X, Y, Font, ScaleXY);
-			Y += LineStep;
+			OutLines.Add(Line);
 			Line = Word;
 		}
 		else
@@ -1574,6 +1592,18 @@ float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearCo
 		}
 	}
 	if (!Line.IsEmpty())
+	{
+		OutLines.Add(Line);
+	}
+	return LineStep;
+}
+
+float AContrarySurvivorHUD::DrawWrappedText(const FString& Text, const FLinearColor& Color,
+	float X, float Y, UFont* Font, float MaxWidth, float ScaleXY)
+{
+	TArray<FString> Lines;
+	const float LineStep = WrapTextIntoLines(Text, Font, MaxWidth, ScaleXY, Lines);
+	for (const FString& Line : Lines)
 	{
 		DrawShadowedText(Line, Color, X, Y, Font, ScaleXY);
 		Y += LineStep;

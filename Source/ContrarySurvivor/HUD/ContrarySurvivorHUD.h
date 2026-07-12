@@ -459,6 +459,13 @@ private:
 	float DrawWrappedText(const FString& Text, const FLinearColor& Color, float X, float Y,
 		class UFont* Font, float MaxWidth, float ScaleXY = 1.0f);
 
+	// Разбивает Text на строки по словам под MaxWidth (px) — ОБЩАЯ логика измерения и отрисовки
+	// (фикс фидбека Рината 07-12: панель диалога сперва считает высоту реплики по числу строк,
+	// затем рисует ТЕ ЖЕ строки — размер панели и текст не могут разойтись). Возвращает шаг
+	// строки (px) по фактической метрике шрифта; при пустом тексте/шрифте OutLines пуст, шаг 0.
+	float WrapTextIntoLines(const FString& Text, class UFont* Font, float MaxWidth, float ScaleXY,
+		TArray<FString>& OutLines);
+
 	// #18: обводка прямоугольника (4 линии) — рамка-акцент вокруг модальных панелей.
 	void DrawRectOutline(float X, float Y, float W, float H, const FLinearColor& Color, float Thickness);
 
