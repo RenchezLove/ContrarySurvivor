@@ -188,12 +188,27 @@ protected:
 	// Единая точка для игрока и врагов: PlayHurtSound() зовётся из боевого TakeDamage
 	// каждого персонажа (НЕ из ApplyDamage — иначе бы звучал и на тик голода/жажды).
 	// Дефолт грузится из /Game/Audio/Demo/death_pain_grunts в конструкторе.
+	// Ассет — ДЛИННЫЙ файл со многими стонами подряд, поэтому на попадание играется
+	// СЛУЧАЙНЫЙ короткий кусок (HurtSoundSliceDuration), а не файл целиком, с анти-спамом
+	// HurtSoundMinInterval (фикс «бесконечных охов», Ринат 07-17).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Audio")
 	USoundBase* HurtSound;
 
 	// Громкость звука боли. Тюнингуется.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Audio", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Audio", meta = (ClampMin = "0.0", DisplayPriority = "1"))
 	float HurtSoundVolume = 0.6f;
+
+	// Длина проигрываемого куска файла боли, с (примерно один стон). Тюнингуется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Audio", meta = (ClampMin = "0.1", DisplayPriority = "2"))
+	float HurtSoundSliceDuration = 0.7f;
+
+	// Анти-спам: новый стон не раньше, чем через столько секунд после предыдущего
+	// (на этом же персонаже). 0 = без ограничения.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Audio", meta = (ClampMin = "0.0", DisplayPriority = "3"))
+	float HurtSoundMinInterval = 0.5f;
+
+	// Мировое время старта последнего стона (анти-спам). Рантайм-состояние, не настройка.
+	float LastHurtSoundTime = -1.0f;
 
 	// Задел: список активных модификаторов статов (ADR-015). В Фазе 1 не применяется.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Modifier")

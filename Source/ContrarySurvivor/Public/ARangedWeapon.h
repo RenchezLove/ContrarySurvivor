@@ -43,7 +43,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio")
 	USoundBase* FireSound;
 
-	// Громкость выстрела (негромко, чтобы не оглушало). Тюнингуется.
+	// Громкость выстрела. Тюнингуется (дефолт 1.0 — фидбек Рината 07-17 «слишком тихо»).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0"))
 	float FireSoundVolume;
 
