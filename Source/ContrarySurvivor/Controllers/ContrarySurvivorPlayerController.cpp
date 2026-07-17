@@ -34,11 +34,27 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 #include "ContrarySurvivor/Retention/OnboardingComponent.h" // Этап F1: онбординг-подсказки
+#include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
+#include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
+#include "Blueprint/UserWidget.h"                            // CreateWidget
+#include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	CurrentTarget = nullptr;
+
+	// Дефолтная раскладка тач-кнопок (этап G, шаг 2): веер правого-нижнего угла под большой
+	// палец — ОГОНЬ в углу крупный, ДЕЙСТВИЕ левее, ПЕРЕЗАРЯД выше, БЕГ по диагонали,
+	// ОРУЖИЕ над перезарядкой; СУМКА — правый-верх, ПАУЗА — малозаметная в левом-верхнем.
+	// Margin = отступ ЦЕНТРА кнопки от своего угла (px). Ринат тюнит в редакторе (EditAnywhere).
+	TouchFireButton.Margin      = FVector2D(170.0f, 170.0f); TouchFireButton.Radius      = 75.0f;
+	TouchInteractButton.Margin  = FVector2D(370.0f, 150.0f); TouchInteractButton.Radius  = 55.0f;
+	TouchReloadButton.Margin    = FVector2D(150.0f, 370.0f); TouchReloadButton.Radius    = 50.0f;
+	TouchSprintButton.Margin    = FVector2D(340.0f, 320.0f); TouchSprintButton.Radius    = 50.0f;
+	TouchWeaponButton.Margin    = FVector2D(150.0f, 540.0f); TouchWeaponButton.Radius    = 45.0f;
+	TouchInventoryButton.Margin = FVector2D(120.0f, 100.0f); TouchInventoryButton.Radius = 50.0f;
+	TouchPauseButton.Margin     = FVector2D(70.0f, 70.0f);   TouchPauseButton.Radius     = 32.0f;
 }
 
 void AContrarySurvivorPlayerController::BeginPlay()
@@ -53,6 +69,8 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	// Показываем курсор мыши (нужен для выбора цели кликом)
 	bShowMouseCursor = true;
 	bEnableClickEvents = true;
+	// Android (этап G): тапы должны доходить до актор/компонент-событий наравне с кликами.
+	bEnableTouchEvents = true;
 
 	// QA-харнесс (Фаза 4 раунд 2): гасим экранные сообщения движка («LIGHTING NEEDS TO BE
 	// REBUILT» и т.п.), чтобы не мешали приёмке автотестером. Это косметика рендера; сам
@@ -61,6 +79,46 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	if (GEngine)
 	{
 		GEngine->Exec(GetWorld(), TEXT("DisableAllScreenMessages"));
+	}
+
+	// Этап G (ADR-017): экранный тач-слой поверх той же абстракции ввода. На Android включён
+	// всегда; на ПК — флагом bEnableTouchControls (тест мышью: клик по стику = имитация пальца).
+	// Настройки копируются с контроллера (виджет кодовый, в Details не виден).
+#if PLATFORM_ANDROID
+	const bool bWantTouchLayer = true;
+#else
+	const bool bWantTouchLayer = bEnableTouchControls;
+#endif
+	if (bWantTouchLayer)
+	{
+		if (!MoveAction)
+		{
+			UE_LOG(LogQA, Warning, TEXT("QA: touch layer skipped — MoveAction is null on controller"));
+		}
+		else if (UTouchControlsWidget* Layer =
+			CreateWidget<UTouchControlsWidget>(this, UTouchControlsWidget::StaticClass()))
+		{
+			FTouchControlsConfig TouchConfig;
+			TouchConfig.StickRadius      = TouchStickRadius;
+			TouchConfig.StickThumbRadius = TouchStickThumbRadius;
+			TouchConfig.StickMargin      = TouchStickMargin;
+			TouchConfig.StickDeadZone    = TouchStickDeadZone;
+			TouchConfig.IdleOpacity      = TouchIdleOpacity;
+			TouchConfig.ActiveOpacity    = TouchActiveOpacity;
+			TouchConfig.FireButton       = TouchFireButton;
+			TouchConfig.ReloadButton     = TouchReloadButton;
+			TouchConfig.InteractButton   = TouchInteractButton;
+			TouchConfig.SprintButton     = TouchSprintButton;
+			TouchConfig.WeaponButton     = TouchWeaponButton;
+			TouchConfig.InventoryButton  = TouchInventoryButton;
+			TouchConfig.PauseButton      = TouchPauseButton;
+			TouchConfig.bSprintToggle    = bTouchSprintToggle;
+			Layer->InitTouch(this, MoveAction, FireAction, ReloadAction, SprintAction, TouchConfig);
+			// Z=10: под онбординг-подсказками (40) и модальными окнами (50/60).
+			Layer->AddToViewport(/*ZOrder=*/10);
+			TouchControlsLayer = Layer;
+			UE_LOG(LogQA, Display, TEXT("QA: touch layer created (stick radius=%.0f)"), TouchStickRadius);
+		}
 	}
 }
 
@@ -158,6 +216,18 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
 		InputComponent->BindAction(TEXT("Respawn"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnRespawnPressed);
 
+		// Этап G: меню паузы (Esc / L / Android Back, legacy ActionMapping "PauseMenu").
+		// bExecuteWhenPaused — иначе при поставленной паузе клавиша закрытия не сработала бы
+		// (ввод при паузе обрабатывается, но только привязки с этим флагом).
+		FInputActionBinding& PauseBinding = InputComponent->BindAction(TEXT("PauseMenu"), IE_Pressed,
+			this, &AContrarySurvivorPlayerController::OnTogglePauseMenu);
+		PauseBinding.bExecuteWhenPaused = true;
+
+		// Этап G: тап по экрану Android (Touch1..Touch3, legacy ActionMapping "ScreenTap") —
+		// заводится в тот же Fire()-путь, что клик ЛКМ (обоснование — коммент у OnScreenTapPressed).
+		InputComponent->BindAction(TEXT("ScreenTap"), IE_Pressed,  this, &AContrarySurvivorPlayerController::OnScreenTapPressed);
+		InputComponent->BindAction(TEXT("ScreenTap"), IE_Released, this, &AContrarySurvivorPlayerController::OnScreenTapReleased);
+
 		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
 		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
 
@@ -234,6 +304,125 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 
 	SetInputMode(FInputModeGameOnly());
 	bShowMouseCursor = true; // курсор нужен в игре (клик-таргетинг)
+}
+
+// ---------------------------------------------------------------------------
+// Меню паузы (этап G): пауза + «Продолжить» + «Выход» (меню-минимум, решение game-lead)
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnTogglePauseMenu()
+{
+	// На экране смерти меню не открываем — там свой модальный флоу («Возродиться»).
+	if (bDeathScreen)
+	{
+		return;
+	}
+	if (bPauseMenuOpen)
+	{
+		ClosePauseMenu();
+	}
+	else
+	{
+		OpenPauseMenu();
+	}
+}
+
+void AContrarySurvivorPlayerController::OpenPauseMenu()
+{
+	if (bPauseMenuOpen)
+	{
+		return;
+	}
+
+	if (!PauseMenuWidget)
+	{
+		PauseMenuWidget = CreateWidget<UPauseMenuWidget>(this, UPauseMenuWidget::StaticClass());
+		if (!PauseMenuWidget)
+		{
+			return;
+		}
+		PauseMenuWidget->OnResumeRequested.AddUObject(this, &AContrarySurvivorPlayerController::ClosePauseMenu);
+		PauseMenuWidget->OnQuitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseQuit);
+	}
+	// Z=60: поверх окна ежедневки (50) и остального UI.
+	PauseMenuWidget->AddToViewport(/*ZOrder=*/60);
+
+	bPauseMenuOpen = true;
+	bUIClickConsumed = false;
+
+	// Тач-слой прячем: стик не рисуется поверх затемнения, зажатый стик сбрасывается.
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(false);
+	}
+
+	// Пауза мира. Кнопки меню живут: Slate игровой паузой не останавливается, а геймплейные
+	// Enhanced Input-экшены при паузе молчат (bTriggerWhenPaused=false по умолчанию у UInputAction).
+	SetPause(true);
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu OPEN (world paused)"));
+}
+
+void AContrarySurvivorPlayerController::ClosePauseMenu()
+{
+	if (!bPauseMenuOpen)
+	{
+		return;
+	}
+	bPauseMenuOpen = false;
+	bUIClickConsumed = false;
+
+	if (PauseMenuWidget)
+	{
+		PauseMenuWidget->RemoveFromParent();
+	}
+
+	SetPause(false);
+
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(true);
+	}
+
+	// Пауза могла открыться поверх другой модалки (инвентарь/магазин/диалог) — режим ввода
+	// возвращаем в Game только если модальных окон не осталось.
+	if (!IsAnyModalUIOpen())
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu CLOSED (world resumed)"));
+}
+
+void AContrarySurvivorPlayerController::HandlePauseQuit()
+{
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu QUIT pressed — quitting game"));
+	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, /*bIgnorePlatformRestrictions=*/false);
+}
+
+// ---------------------------------------------------------------------------
+// Тап по экрану Android (этап G): ScreenTap = Touch1..Touch3 -> тот же путь, что клик ЛКМ
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnScreenTapPressed()
+{
+	// Один тап = один «клик»: выбор цели + выстрел по миру ЛИБО клик по открытому окну
+	// Canvas-HUD (гейты и edge-логика — внутри Fire, позиция — из кеша курсора = точка тапа).
+	// Очередь на удержание даёт отдельная экранная кнопка ОГОНЬ (инжекция IA_Fire).
+	Fire(FInputActionValue(true));
+}
+
+void AContrarySurvivorPlayerController::OnScreenTapReleased()
+{
+	// Палец поднят = отпускание «клика»: сброс edge-флага UI (как Completed у IA_Fire).
+	OnFireReleased(FInputActionValue(false));
 }
 
 void AContrarySurvivorPlayerController::OnRespawnPressed()
@@ -1023,10 +1212,11 @@ void AContrarySurvivorPlayerController::CloseDialog()
 
 void AContrarySurvivorPlayerController::CloseAllUI()
 {
-	// Магазин/диалог: их Close* сами синхронизируют HUD-флаг и возвращают режим ввода в Game
-	// (early-return, если окно не открыто).
+	// Магазин/диалог/меню паузы: их Close* сами синхронизируют состояние и возвращают режим
+	// ввода в Game (early-return, если окно не открыто).
 	CloseShop();
 	CloseDialog();
+	ClosePauseMenu();
 
 	// Инвентарь: сбрасываем флаг, синхронизируем HUD и режим ввода (как ветка «закрыто» в OnToggleInventory).
 	if (bInventoryOpen)
@@ -1351,8 +1541,9 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин/диалог/экран смерти — движение подавлено (модальный экран).
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	// Пока открыт инвентарь/магазин/диалог/экран смерти/меню паузы — движение подавлено
+	// (модальный экран). Гейт общий для WASD и тач-стика: инжекция стика идёт тем же MoveAction.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen)
 	{
 		return;
 	}
@@ -1408,6 +1599,13 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
+	// Меню паузы: клики обрабатывают кнопки виджета, не стрельба. При паузе Enhanced Input
+	// и так молчит (bTriggerWhenPaused=false) — гейт на случай кадров до/после SetPause.
+	if (bPauseMenuOpen)
+	{
+		return;
+	}
+
 	// #26: на экране смерти клик уходит в кнопку «Возродиться» (не в стрельбу). EDGE-схема.
 	if (bDeathScreen)
 	{
