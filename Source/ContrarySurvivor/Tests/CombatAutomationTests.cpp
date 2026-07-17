@@ -87,6 +87,20 @@ namespace CombatTestWorld
 		World->DestroyWorld(/*bInformEngineOfWorld=*/false);
 	}
 
+	// Продвигает тестовый мир на один кадр. ОБЯЗАТЕЛЬНО вместо голого World->Tick:
+	// тик-функции ставятся в очередь не чаще ОДНОГО раза на значение GFrameCounter
+	// (TickTaskManager.cpp: QueueTickFunction сверяет TickVisitedGFrameCounter с GFrameCounter),
+	// а весь RunTest выполняется внутри ОДНОГО кадра движка — без инкремента счётчика
+	// компоненты (например, CharacterMovement) тикали бы максимум один раз за весь тест
+	// (корень красного Movement.TranslatesOnInput, диагноз 07-17). Инкремент — приём
+	// собственных тест-обвязок движка (FTestWorldWrapper в AutomationCommon.cpp:231,
+	// TimerManagerTests.cpp:23).
+	static void TickWorld(UWorld* World, float DeltaSeconds)
+	{
+		++GFrameCounter;
+		World->Tick(LEVELTICK_All, DeltaSeconds);
+	}
+
 	// Спавн актора с прогоном BeginPlay в безопасной точке (над полом нет — мир пустой).
 	template <typename T>
 	static T* Spawn(UWorld* World, const FVector& Loc = FVector(0.f, 0.f, 100.f))
@@ -462,7 +476,30 @@ bool FMovementTranslatesOnInputTest::RunTest(const FString& Parameters)
 			CM->SetMovementMode(MOVE_Walking);
 
 			// Приземление/устаканивание.
-			for (int32 i = 0; i < 40; ++i) { World->Tick(LEVELTICK_All, 1.0f / 60.0f); }
+			for (int32 i = 0; i < 40; ++i) { CombatTestWorld::TickWorld(World, 1.0f / 60.0f); }
+
+			// --- ДИАГНОСТИКА (07-17): различаем «тик CMC не выполняется» и «тик идёт, ввод
+			// гасится». CMC::TickComponent ПЕРВЫМ делом зовёт ConsumeInputVector — если после
+			// World->Tick pending-вектор пешки остался ненулевым, тик компонента НЕ выполнялся.
+			const float WorldTimeBefore = World->GetTimeSeconds();
+			const bool bCompTickRegistered = CM->PrimaryComponentTick.IsTickFunctionRegistered();
+			const bool bCompTickEnabled = CM->IsComponentTickEnabled();
+			const bool bActorTickRegistered = P->PrimaryActorTick.IsTickFunctionRegistered();
+
+			P->AddMovementInput(FVector(1.f, 0.f, 0.f), 1.0f);
+			const FVector PendingBeforeTick = P->GetPendingMovementInputVector();
+			CombatTestWorld::TickWorld(World, 1.0f / 60.0f);
+			const FVector PendingAfterTick = P->GetPendingMovementInputVector();
+			const FVector AccelAfterTick = CM->GetCurrentAcceleration();
+			const float WorldTimeAfter = World->GetTimeSeconds();
+
+			AddInfo(FString::Printf(
+				TEXT("DIAG: compTickReg=%d compTickEnabled=%d actorTickReg=%d worldTime=%.3f->%.3f pendingBefore=%s pendingAfter=%s accel=%s"),
+				bCompTickRegistered ? 1 : 0, bCompTickEnabled ? 1 : 0, bActorTickRegistered ? 1 : 0,
+				WorldTimeBefore, WorldTimeAfter,
+				*PendingBeforeTick.ToCompactString(), *PendingAfterTick.ToCompactString(),
+				*AccelAfterTick.ToCompactString()));
+			// --- конец диагностики ---
 
 			const FVector Start = P->GetActorLocation();
 			const int32 ModeBefore = (int32)CM->MovementMode.GetValue();
@@ -472,7 +509,7 @@ bool FMovementTranslatesOnInputTest::RunTest(const FString& Parameters)
 			for (int32 i = 0; i < 30; ++i)
 			{
 				P->AddMovementInput(FVector(1.f, 0.f, 0.f), 1.0f);
-				World->Tick(LEVELTICK_All, 1.0f / 60.0f);
+				CombatTestWorld::TickWorld(World, 1.0f / 60.0f);
 			}
 			const FVector End = P->GetActorLocation();
 			const float HorizDisp = FVector::Dist2D(Start, End);
