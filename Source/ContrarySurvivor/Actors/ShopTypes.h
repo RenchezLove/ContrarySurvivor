@@ -35,6 +35,13 @@ struct FShopEntry
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
 	FString DisplayName;
 
+	// Внутренний ЛАТИНСКИЙ идентификатор позиции для событий аналитики (shop:buy:<id>).
+	// Разведён с DisplayName (лут бандитов, 07-17): имена товаров теперь русские, а
+	// SanitizeEventPart аналитики пропускает только латиницу/цифры — кириллица выродилась бы
+	// в подчёркивания и разные товары слиплись бы в одно событие. Пусто -> берётся DisplayName.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	FString AnalyticsId;
+
 	// Цена покупки (валюта). DRAFT по GDD §7.6.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
 	float Price = 10.0f;

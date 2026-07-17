@@ -30,8 +30,9 @@ public:
 	// заморожена (тики деградации в UStatsComponent гейтятся этим флагом). Тумблер — клавиша J.
 	static bool bGodMode;
 
-	// Force-drop: ВСЕ враги роняют лут со 100% шансом (override ItemDropChance в APickup::DropLoot).
-	// Тумблер — клавиша U.
+	// Force-drop: ВСЕ враги роняют лут со 100% шансом. Читается в двух точках броска шанса:
+	// APickup::DropLoot (волк/квест-дроп) и AEnemyCharacter::DropLoot (бандит бросает шанс
+	// сам — «мешок» из 1-2 расходников таблицы). Тумблер — клавиша U.
 	static bool bForceDrop;
 
 	// Видимость экранного QA-оверлея (рисуется HUD). Тумблер — клавиша O; авто-вкл вместе с god-mode (J).

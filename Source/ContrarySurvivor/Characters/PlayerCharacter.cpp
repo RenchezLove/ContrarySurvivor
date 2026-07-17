@@ -908,9 +908,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
 
     // F3 (ADR-038): событие аналитики «покупка» (предмет + итоговая цена). Без ключей — no-op.
+    // В событие идёт латинский AnalyticsId (DisplayName теперь русский и после санитайза
+    // слепился бы в подчёркивания); пустой id — фолбэк на DisplayName (старое поведение).
     if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
     {
-        Analytics->RecordPurchase(Entry.DisplayName, TotalPrice);
+        Analytics->RecordPurchase(
+            Entry.AnalyticsId.IsEmpty() ? Entry.DisplayName : Entry.AnalyticsId, TotalPrice);
     }
     return true;
 }
@@ -1129,14 +1132,14 @@ void APlayerCharacter::GiveTestItems()
             AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Food->ConsumableType = EConsumableType::Food;
-        Food->ItemName = TEXT("Canned Food");
+        Food->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Food);
         AddHidden(Food);
     }
     if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
             AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Water->ConsumableType = EConsumableType::Water;
-        Water->ItemName = TEXT("Water Bottle");
+        Water->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Water);
         AddHidden(Water);
     }
 

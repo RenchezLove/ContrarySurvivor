@@ -32,3 +32,14 @@ bool AConsumableItem::ApplyConsumeEffect(UStatsComponent* Stats)
 			return false;
 	}
 }
+
+FString AConsumableItem::GetDefaultDisplayName(EConsumableType Type)
+{
+	switch (Type)
+	{
+		case EConsumableType::Food:   return TEXT("Консервы");
+		case EConsumableType::Water:  return TEXT("Вода");
+		case EConsumableType::Medkit: return TEXT("Бинт");
+		default:                      return TEXT("Расходник");
+	}
+}
