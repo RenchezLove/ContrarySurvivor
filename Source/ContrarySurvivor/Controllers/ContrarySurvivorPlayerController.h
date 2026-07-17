@@ -10,12 +10,15 @@
 #include "InputAction.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (ближайший вендор/магазин развязан от класса, A2)
+#include "ContrarySurvivor/UI/TouchControlsTypes.h" // FTouchButtonSettings (настройки тач-кнопок, этап G)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
 class AElderNPC;
 class APickup;
 class UOnboardingComponent;
+class UTouchControlsWidget;
+class UPauseMenuWidget;
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
 // E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
@@ -85,10 +88,25 @@ public:
 
 	// --- Этап F: онбординг/окно ежедневки ---
 
-	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/экран смерти).
+	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/экран смерти/меню паузы).
 	// Нужно UDailyRewardComponent: возвращать GameOnly после окна награды можно только
 	// если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen; }
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen; }
+
+	// --- Меню паузы (этап G, меню-минимум: пауза + «Продолжить» + «Выход») ---
+
+	// Закрыть меню паузы и снять паузу мира (кнопка «Продолжить» / повторный Esc).
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void ClosePauseMenu();
+
+	// --- Входы тач-кнопок (этап G, шаг 2) — зовёт UTouchControlsWidget ---
+	// Дёргают ТЕ ЖЕ обработчики, что клавиши легаси-привязок (E/Tab/Q/Esc): никаких новых
+	// путей ввода, тач — тонкая обёртка поверх существующих (ADR-017).
+
+	void TouchInteract()        { OnInteract(); }
+	void TouchToggleInventory() { OnToggleInventory(); }
+	void TouchSwitchWeapon()    { OnSwitchWeapon(); }
+	void TouchTogglePauseMenu() { OnTogglePauseMenu(); }
 
 protected:
 	virtual void BeginPlay() override;
@@ -131,6 +149,76 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* ReloadAction;
 
+	// --- Тач-управление (этап G, ADR-017: тач поверх той же абстракции ввода) ---
+	// Все параметры тюнингуются на BP контроллера в редакторе БЕЗ перекомпиляции (директива
+	// Рината): сам виджет строится кодом и в Details не виден, поэтому настройки живут здесь
+	// и копируются в виджет при создании (BeginPlay).
+
+	// Показ виртуального стика на ПК (для теста мышью: клик по стику = имитация пальца,
+	// код-путь тот же). На Android слой включается всегда, флаг не нужен.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 1))
+	bool bEnableTouchControls = false;
+
+	// Радиус подложки виртуального стика, px.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 2, ClampMin = "20.0"))
+	float TouchStickRadius = 110.0f;
+
+	// Радиус «шляпки» стика (кружок под пальцем), px.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 3, ClampMin = "5.0"))
+	float TouchStickThumbRadius = 45.0f;
+
+	// Отступ ЦЕНТРА стика от левого-нижнего угла экрана, px (X вправо, Y вверх).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 4))
+	FVector2D TouchStickMargin = FVector2D(160.0f, 160.0f);
+
+	// Мёртвая зона стика (доля радиуса): отклонение меньше — движения нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 5, ClampMin = "0.0", ClampMax = "0.9"))
+	float TouchStickDeadZone = 0.15f;
+
+	// Прозрачность слоя в покое (0 — невидим, 1 — непрозрачен).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 6, ClampMin = "0.0", ClampMax = "1.0"))
+	float TouchIdleOpacity = 0.5f;
+
+	// Прозрачность стика под пальцем.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 7, ClampMin = "0.0", ClampMax = "1.0"))
+	float TouchActiveOpacity = 0.85f;
+
+	// --- Тач-кнопки (шаг 2, полный состав по требованию Рината). Дефолты раскладки —
+	// в конструкторе; угол привязки каждой кнопки задан кодом виджета (веер правого-нижнего
+	// угла + СУМКА справа-сверху + ПАУЗА слева-сверху), Margin отсчитывается от этого угла. ---
+
+	// ОГОНЬ: держать = автоогонь (инжекция IA_Fire каждый кадр, как зажатая ЛКМ).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 8))
+	FTouchButtonSettings TouchFireButton;
+
+	// ПЕРЕЗАРЯД: одноразовая инжекция IA_Reload (клавиша R).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 9))
+	FTouchButtonSettings TouchReloadButton;
+
+	// ДЕЙСТВИЕ: тот же обработчик, что клавиша E (подобрать/торговать/диалог/закрыть).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 10))
+	FTouchButtonSettings TouchInteractButton;
+
+	// БЕГ: переключатель или удержание — см. bTouchSprintToggle.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 11))
+	FTouchButtonSettings TouchSprintButton;
+
+	// ОРУЖИЕ: смена пистолет<->нож, тот же обработчик, что клавиша Q.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 12))
+	FTouchButtonSettings TouchWeaponButton;
+
+	// СУМКА: открыть/закрыть инвентарь (Tab). Видна и при открытых окнах — повторный тап закрывает.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 13))
+	FTouchButtonSettings TouchInventoryButton;
+
+	// ПАУЗА: малозаметная кнопка меню паузы в углу (дубль системной «назад» Android).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 14))
+	FTouchButtonSettings TouchPauseButton;
+
+	// true: БЕГ — переключатель (тап вкл/выкл, подсветка); false: бег пока палец на кнопке.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 15))
+	bool bTouchSprintToggle = true;
+
 	// --- Движение ---
 
 	void Move(const FInputActionValue& Value);
@@ -159,6 +247,30 @@ protected:
 	// Тогглит AContrarySurvivorHUD::ToggleInventory + переключает режим ввода (UI/Game).
 	UFUNCTION()
 	void OnToggleInventory();
+
+	// Меню паузы (этап G): тумблер по легаси-привязке "PauseMenu" (Esc/L/Android Back,
+	// Config/DefaultInput.ini). У привязки bExecuteWhenPaused=true — клавиша работает и при
+	// паузе (ввод контроллера обрабатывается на пауза-тике, PlayerController.cpp:5133).
+	UFUNCTION()
+	void OnTogglePauseMenu();
+
+	// Открывает меню паузы: виджет + SetPause(true) + режим ввода UI; тач-слой прячется.
+	void OpenPauseMenu();
+
+	// Кнопка «Выход» меню паузы: закрыть игру (UKismetSystemLibrary::QuitGame).
+	void HandlePauseQuit();
+
+	// Тап по экрану на Android (легаси-действие "ScreenTap" = Touch1..Touch3, DefaultInput.ini).
+	// Тапы НЕ порождают клик мыши для игрового ввода (порождают клавиши Touch*,
+	// PlayerInput.cpp:473), а IMC_Default маплит IA_Fire только на ЛКМ — поэтому тап заводится
+	// в ТОТ ЖЕ Fire()-путь вручную: выбор цели/выстрел/клики Canvas-HUD (ADR-017: тап = клик).
+	// Позиция тапа приходит через GetMousePosition: вьюпорт кеширует позицию пальца как
+	// позицию курсора (SceneViewport.cpp:842). На ПК Touch*-клавиши не генерятся — путь мыши
+	// не задет. Тапы, съеденные UMG (стик/кнопки/меню), сюда не доходят — дублей нет.
+	UFUNCTION()
+	void OnScreenTapPressed();
+	UFUNCTION()
+	void OnScreenTapReleased();
 
 	// Взаимодействие (LEGACY ActionMapping "Interact", клавиша E). Контекстно: если открыт
 	// магазин — закрыть; иначе действовать по ближайшему интерактиву (пикап -> подобрать,
@@ -358,6 +470,19 @@ private:
 	// Открыт ли экран смерти (#26): геймплей-ввод (движение/огонь/интеракт) подавлен,
 	// клик уходит в кнопку «Возродиться». Источник — ShowDeathScreen/HideDeathScreen.
 	bool bDeathScreen = false;
+
+	// Открыто ли меню паузы (этап G): мир на SetPause, клики глушатся барьером виджета.
+	// Источник переключения — OnTogglePauseMenu (Esc/L/Android Back) и кнопки меню.
+	bool bPauseMenuOpen = false;
+
+	// Экранный тач-слой (этап G): создаётся в BeginPlay на Android или при bEnableTouchControls.
+	// null — слой выключен.
+	UPROPERTY()
+	TObjectPtr<UTouchControlsWidget> TouchControlsLayer;
+
+	// Виджет меню паузы: создаётся лениво при первом открытии, дальше переиспользуется.
+	UPROPERTY()
+	TObjectPtr<UPauseMenuWidget> PauseMenuWidget;
 
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()
