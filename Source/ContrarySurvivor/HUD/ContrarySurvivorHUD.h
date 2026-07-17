@@ -453,6 +453,19 @@ private:
 	void DrawLabelWithPlate(const FString& Text, const FLinearColor& Color, float X, float Y,
 		class UFont* Font, float ScaleXY = 1.0f);
 
+	// Этап F: многострочный текст с переносом ПО СЛОВАМ в пределах MaxWidth (px). Нужен диалогу
+	// старосты: длинная реплика (крючок кв.3) не влезает в одну строку панели, а DrawShadowedText
+	// переносов не делает. Возвращает Y ПОСЛЕ последней отрисованной строки.
+	float DrawWrappedText(const FString& Text, const FLinearColor& Color, float X, float Y,
+		class UFont* Font, float MaxWidth, float ScaleXY = 1.0f);
+
+	// Разбивает Text на строки по словам под MaxWidth (px) — ОБЩАЯ логика измерения и отрисовки
+	// (фикс фидбека Рината 07-12: панель диалога сперва считает высоту реплики по числу строк,
+	// затем рисует ТЕ ЖЕ строки — размер панели и текст не могут разойтись). Возвращает шаг
+	// строки (px) по фактической метрике шрифта; при пустом тексте/шрифте OutLines пуст, шаг 0.
+	float WrapTextIntoLines(const FString& Text, class UFont* Font, float MaxWidth, float ScaleXY,
+		TArray<FString>& OutLines);
+
 	// #18: обводка прямоугольника (4 линии) — рамка-акцент вокруг модальных панелей.
 	void DrawRectOutline(float X, float Y, float W, float H, const FLinearColor& Color, float Thickness);
 

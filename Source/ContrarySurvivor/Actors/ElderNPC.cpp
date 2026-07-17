@@ -76,6 +76,26 @@ AElderNPC::AElderNPC()
 	SecondQuest.State = EQuestState::NotStarted;
 	// Этап D: метка цели квеста — база бандитов (BP_BanditBase несёт QuestMarkerTag="BanditBase").
 	SecondQuest.MapMarkerTag = FName(TEXT("BanditBase"));
+
+	// КВЕСТ 3 (Этап F, ADR-044 п.1-2): крючок сюжета подаётся ЭТИМ диалогом после сдачи ноутбука
+	// (кв.2): староста прямо говорит, что на ноутбуке — данные о тех, кто охотится за героем, и
+	// даёт стороннюю активность на время «расследования». Тон реплики — мягкое ПРЕДЛОЖЕНИЕ, не
+	// приказ (фидбек Рината 07-12: староста предлагает занятие «если хочешь», не командует).
+	// Collect: 3 «Шкуры волка» (волки появились в НОВОМ месте — второе логово), награда 100 (DRAFT).
+	ThirdQuest.QuestId = FName(TEXT("HidesForTrader"));
+	ThirdQuest.Title = TEXT("Шкуры для торговца");
+	ThirdQuest.Description = TEXT("Дай мне время покопаться в ноутбуке. Одно ясно уже сейчас: на нём — данные о тех, кто за тобой охотится. Узнаю, кто именно — расскажу. А пока, если хочешь, есть дело: волков снова видели в округе, а торговец хорошо платит за шкуры. Можешь принести мне три шкуры — я передам ему.");
+	ThirdQuest.Type = EQuestType::Collect;
+	ThirdQuest.KillTargetTag = NAME_None;
+	ThirdQuest.TargetCount = 0;                  // kill-цели нет: гейт — по шкурам (как кв.1)
+	ThirdQuest.RequiredItemName = TEXT("Шкура волка"); // имя совпадает с дропом волка (WolfCharacter)
+	ThirdQuest.RequiredItemCount = 3;
+	ThirdQuest.ItemObjectiveLabel = TEXT("Добыть волчьи шкуры");
+	ThirdQuest.RewardMoney = 100.0f;
+	ThirdQuest.State = EQuestState::NotStarted;
+	// Второе логово волков: BP_WolfDen с QuestMarkerTag="WolfDen2" ставит на карту game-lead.
+	// Пока актора с тегом нет, DrawQuestTargetMarker мягко ничего не рисует (проверено кодом HUD).
+	ThirdQuest.MapMarkerTag = FName(TEXT("WolfDen2"));
 }
 
 void AElderNPC::PostInitializeComponents()
@@ -100,12 +120,17 @@ void AElderNPC::PostInitializeComponents()
 
 const FQuest& AElderNPC::GetQuestForPlayer(const UQuestComponent* PlayerQuests) const
 {
-	// Выдача по порядку: кв.2 становится актуальным только после сдачи кв.1 (TurnedIn).
+	// Выдача по порядку: кв.2 — после сдачи кв.1, кв.3 (Этап F) — после сдачи кв.2 (TurnedIn).
 	if (PlayerQuests)
 	{
 		const FQuest* Q1 = PlayerQuests->FindQuest(OfferedQuest.QuestId);
 		if (Q1 && Q1->State == EQuestState::TurnedIn)
 		{
+			const FQuest* Q2 = PlayerQuests->FindQuest(SecondQuest.QuestId);
+			if (Q2 && Q2->State == EQuestState::TurnedIn)
+			{
+				return ThirdQuest;
+			}
 			return SecondQuest;
 		}
 	}

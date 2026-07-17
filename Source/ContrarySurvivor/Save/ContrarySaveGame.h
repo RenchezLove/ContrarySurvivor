@@ -62,4 +62,37 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
 	FString EquippedLegsArmorClassPath;
+
+	// --- Этап F: удержание (ежедневная награда ADR-044 п.4 + одноразовые подсказки F1) ---
+	// Эти поля заполняет НЕ SaveGame() игрока, а UDailyRewardComponent/UOnboardingComponent
+	// (запись в тот же слот). SaveGame() переносит их из прежнего сейва через CopyRetentionData —
+	// иначе каждый автосейв костра обнулял бы серию и подсказки.
+
+	// Календарная дата последнего засчитанного ежедневного входа (локальная дата устройства,
+	// FDateTime::Now().GetDate()). Ticks == 0 — входов ещё не было.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	FDateTime LastDailyRewardDate;
+
+	// Серия дней подряд (1 = первый день). 0 — награда ещё ни разу не выдавалась.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	int32 DailyStreakDays = 0;
+
+	// Флаги «подсказка онбординга уже показана» (F1) — каждая ОДИН раз за профиль.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintMovementShown = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintPickupShown = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintElderShown = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintInventoryShown = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintDeathShown = false;
+
+	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
+	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

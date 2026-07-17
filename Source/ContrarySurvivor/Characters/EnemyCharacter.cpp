@@ -6,6 +6,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
+#include "ContrarySurvivor/Debug/QADebug.h" // force-drop (U) + QA-лог дропа
 #include "AConsumableItem.h"
 #include "APistol.h" // D1/D6: пистолет в руке бандита (дефолт SidearmWeaponClass)
 #include "Components/CapsuleComponent.h"
@@ -18,9 +19,20 @@ AEnemyCharacter::AEnemyCharacter()
 {
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
 
-	// Лут по умолчанию: расходник + пикап без BP (editor-независимо).
-	LootItemClass = AConsumableItem::StaticClass();
-	PickupClass   = APickup::StaticClass();
+	// Лут по умолчанию (editor-независимо): пикап без BP + таблица расходников Консервы/
+	// Вода/Бинт с равновероятным выбором (Ринат 07-17). Имена — из единого источника
+	// AConsumableItem::GetDefaultDisplayName (задел под FText-локализацию, ADR-041).
+	PickupClass = APickup::StaticClass();
+	const EConsumableType DefaultLootTypes[] =
+		{ EConsumableType::Food, EConsumableType::Water, EConsumableType::Medkit };
+	for (const EConsumableType Type : DefaultLootTypes)
+	{
+		FBanditLootEntry Entry;
+		Entry.DisplayName = AConsumableItem::GetDefaultDisplayName(Type);
+		Entry.ItemClass = AConsumableItem::StaticClass();
+		Entry.ConsumableType = Type;
+		LootTable.Add(Entry);
+	}
 
 	// D1/D6: бандит носит пистолет (визуал огнестрела ADR-035). Конкретный APistol —
 	// editor-независимо; BP может переопределить/обнулить.
@@ -216,9 +228,10 @@ void AEnemyCharacter::HandleDeath()
 			PlayerQuests->NotifyKill(FName(TEXT("Bandit")));
 		}
 		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
+		// Тип "Bandit" — для события аналитики F3 (латиницей, как теги квестов).
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
 		{
-			PlayerChar->RegisterEnemyKill();
+			PlayerChar->RegisterEnemyKill(TEXT("Bandit"));
 		}
 	}
 
@@ -235,7 +248,83 @@ void AEnemyCharacter::HandleDeath()
 
 void AEnemyCharacter::DropLoot()
 {
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
 	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
-	APickup::DropLoot(GetWorld(), GetActorLocation(), Money,
-		LootItemClass, LootItemDropChance, PickupClass);
+	const FVector Loc = GetActorLocation();
+
+	// Шанс расходников бросаем ЗДЕСЬ, а не в APickup::DropLoot: при удаче падает 1-2 предмета
+	// из LootTable (Ринат 07-17), а статический хелпер несёт максимум один предмет.
+	// QA force-drop (клавиша U) поднимает шанс до 100% — как в APickup::DropLoot.
+	const float EffectiveChance = FQADebug::bForceDrop ? 1.0f : LootItemDropChance;
+	const float Roll = FMath::FRand();
+	const bool bChanceHit = (LootTable.Num() > 0) && (Roll <= EffectiveChance);
+
+	FActorSpawnParameters Sp;
+	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	TArray<AMasterInventoryItem*> Items;
+	FString ItemNamesLog;
+	if (bChanceHit)
+	{
+		// Каждая единица выбирается из таблицы равновероятно и НЕЗАВИСИМО (повторы допустимы).
+		const int32 Count = FMath::RandRange(
+			LootItemCountMin, FMath::Max(LootItemCountMin, LootItemCountMax));
+		for (int32 i = 0; i < Count; ++i)
+		{
+			const FBanditLootEntry& Entry = LootTable[FMath::RandRange(0, LootTable.Num() - 1)];
+			UClass* ItemClass = Entry.ItemClass ? *Entry.ItemClass : AConsumableItem::StaticClass();
+			AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
+				ItemClass, Loc, FRotator::ZeroRotator, Sp);
+			if (!Item)
+			{
+				continue;
+			}
+			// Предмет лута — данные рюкзака, не объект сцены (тот же приём, что в APickup::DropLoot).
+			Item->SetActorHiddenInGame(true);
+			Item->SetActorEnableCollision(false);
+			// Имя, видимое игроку; пустое поле таблицы -> дефолт по типу расходника.
+			Item->ItemName = !Entry.DisplayName.IsEmpty()
+				? Entry.DisplayName
+				: AConsumableItem::GetDefaultDisplayName(Entry.ConsumableType);
+			if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+			{
+				Cons->ConsumableType = Entry.ConsumableType;
+			}
+			Items.Add(Item);
+			ItemNamesLog += (ItemNamesLog.IsEmpty() ? TEXT("") : TEXT(", ")) + Item->ItemName;
+		}
+	}
+
+	// Один пикап несёт деньги + «мешок» предметов (InitLootBag/ADR-027) — подбор клавишей E
+	// отдаёт всё разом, как у дропа расходников при смерти игрока.
+	UClass* SpawnClass = PickupClass ? *PickupClass : APickup::StaticClass();
+	APickup* Pickup = World->SpawnActor<APickup>(SpawnClass, Loc, FRotator::ZeroRotator, Sp);
+	if (Pickup)
+	{
+		Pickup->InitLoot(Money, nullptr);
+		if (Items.Num() > 0)
+		{
+			Pickup->InitLootBag(Items);
+		}
+	}
+	else
+	{
+		// Пикап не заспавнился — прибираем висящие скрытые предметы, чтобы не утекли в мир.
+		for (AMasterInventoryItem* It : Items)
+		{
+			if (IsValid(It)) { It->Destroy(); }
+		}
+		Items.Reset();
+	}
+
+	// QA-инструментирование (формат в духе APickup::DropLoot): что дропнулось при смерти бандита.
+	FQADebug::QA(World, FString::Printf(
+		TEXT("QA: DROPLOOT money=%.0f chance=%.2f roll=%.2f hit=%s items=%d [%s]"),
+		Money, EffectiveChance, Roll, bChanceHit ? TEXT("YES") : TEXT("no"),
+		Items.Num(), *ItemNamesLog), /*bScreen=*/true);
 }

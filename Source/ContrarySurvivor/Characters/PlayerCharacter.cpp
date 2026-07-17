@@ -13,6 +13,9 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
+#include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
+#include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"   // Этап F3: события аналитики
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "Components/CapsuleComponent.h"
@@ -106,6 +109,11 @@ APlayerCharacter::APlayerCharacter()
 
     // Журнал квестов (Фаза 5). C++-сабобъект — детерминированно, без BP.
     Quests = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComponent"));
+
+    // Этап F: удержание — ежедневная награда (F2) и онбординг-подсказки (F1).
+    // C++-сабобъекты (как Stats/Quests): работают и без правок BP игрока.
+    DailyReward = CreateDefaultSubobject<UDailyRewardComponent>(TEXT("DailyRewardComponent"));
+    Onboarding = CreateDefaultSubobject<UOnboardingComponent>(TEXT("OnboardingComponent"));
 
     // Navigation Invoker (Фаза 5): навмеш генерится локально вокруг игрока и следует за ним.
     // Вместе с bGenerateNavigationOnlyAroundNavigationInvokers=true (DefaultEngine.ini) это
@@ -898,6 +906,15 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
+
+    // F3 (ADR-038): событие аналитики «покупка» (предмет + итоговая цена). Без ключей — no-op.
+    // В событие идёт латинский AnalyticsId (DisplayName теперь русский и после санитайза
+    // слепился бы в подчёркивания); пустой id — фолбэк на DisplayName (старое поведение).
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordPurchase(
+            Entry.AnalyticsId.IsEmpty() ? Entry.DisplayName : Entry.AnalyticsId, TotalPrice);
+    }
     return true;
 }
 
@@ -1115,14 +1132,14 @@ void APlayerCharacter::GiveTestItems()
             AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Food->ConsumableType = EConsumableType::Food;
-        Food->ItemName = TEXT("Canned Food");
+        Food->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Food);
         AddHidden(Food);
     }
     if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
             AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Water->ConsumableType = EConsumableType::Water;
-        Water->ItemName = TEXT("Water Bottle");
+        Water->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Water);
         AddHidden(Water);
     }
 
@@ -1220,6 +1237,18 @@ bool APlayerCharacter::SaveGame()
     Save->EquippedTorsoArmorClassPath = ArmorPath(GetEquippedArmor(EArmorSlot::Torso));
     Save->EquippedLegsArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Legs));
 
+    // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
+    // слоте, но заполняются компонентами удержания, а не здесь. Объект Save создан свежим —
+    // переносим их из прежнего сейва, иначе каждый автосейв костра обнулял бы серию и подсказки.
+    if (UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    {
+        if (const UContrarySaveGame* Prev = Cast<UContrarySaveGame>(
+            UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex)))
+        {
+            UContrarySaveGame::CopyRetentionData(Prev, Save);
+        }
+    }
+
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
     UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
         *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
@@ -1229,6 +1258,28 @@ bool APlayerCharacter::SaveGame()
 bool APlayerCharacter::HasSaveGame() const
 {
     return UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex);
+}
+
+UContrarySaveGame* APlayerCharacter::LoadOrCreateSaveObject() const
+{
+    // Этап F: компоненты удержания правят СВОИ поля слота и пишут обратно WriteSaveObject.
+    // Существующий сейв возвращаем как есть (позиция/статы не теряются при перезаписи);
+    // нет сейва — свежий объект с bHasData=false (LoadGame такой игнорирует).
+    if (UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    {
+        if (UContrarySaveGame* Loaded = Cast<UContrarySaveGame>(
+            UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex)))
+        {
+            return Loaded;
+        }
+    }
+    return Cast<UContrarySaveGame>(
+        UGameplayStatics::CreateSaveGameObject(UContrarySaveGame::StaticClass()));
+}
+
+bool APlayerCharacter::WriteSaveObject(UContrarySaveGame* Save) const
+{
+    return Save && UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
 }
 
 bool APlayerCharacter::LoadGame()
@@ -1393,12 +1444,24 @@ void APlayerCharacter::HandleDeath()
     const int32 QuestsDone = Quests ? Quests->GetTurnedInQuestCount() : 0;
     UE_LOG(LogQA, Display, TEXT("QA: DEATH SCREEN shown - lived %.0fs, killer '%s', money %.0f, quests %d, kills %d"),
         LastLifeDuration, *LastDamagerName, Money, QuestsDone, EnemyKillCount);
+
+    // F3 (ADR-038): событие аналитики «смерть игрока». Без ключей — no-op.
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordPlayerDeath();
+    }
 }
 
-void APlayerCharacter::RegisterEnemyKill()
+void APlayerCharacter::RegisterEnemyKill(const FString& EnemyType)
 {
     ++EnemyKillCount;
     UE_LOG(LogQA, Display, TEXT("QA: enemy kill counted -> total %d"), EnemyKillCount);
+
+    // F3 (ADR-038): событие аналитики «убийство врага» с типом (Wolf/Bandit). Без ключей — no-op.
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordEnemyKill(EnemyType);
+    }
 }
 
 void APlayerCharacter::Respawn()

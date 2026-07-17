@@ -43,4 +43,9 @@ public:
 	// Water -> DrinkWater (+Thirst). Возвращает true, если эффект применён.
 	UFUNCTION(BlueprintCallable, Category = "Consumable")
 	bool ApplyConsumeEffect(UStatsComponent* Stats);
+
+	// Русское имя расходника, видимое игроку (рюкзак/магазин/лут бандита) — «Консервы»/
+	// «Вода»/«Бинт» (Ринат 07-17). ЕДИНСТВЕННОЕ место этих строк в коде: при переходе на
+	// FText-локализацию (ADR-041, этап I) меняется только эта функция.
+	static FString GetDefaultDisplayName(EConsumableType Type);
 };

@@ -31,6 +31,7 @@
 #include "Engine/World.h"
 #include "Engine/EngineBaseTypes.h" // FURL, ELevelTick
 #include "GameFramework/Actor.h"
+#include "GameFramework/WorldSettings.h"               // NotifyBeginPlay (begun-play мира без GameMode)
 #include "GameFramework/CharacterMovementComponent.h" // MOVE_Walking/MOVE_NavWalking, тест движения
 #include "Components/CapsuleComponent.h"
 #include "Components/BoxComponent.h"                   // пол для теста трансляции
@@ -63,6 +64,16 @@ namespace CombatTestWorld
 		const FURL URL;
 		World->InitializeActorsForPlay(URL);
 		World->BeginPlay();
+		// Мир без GameMode сам НЕ переходит в состояние «начал игру»: SetBegunPlay(true) зовётся
+		// только из цепочки GameMode/GameState (WorldSettings::NotifyBeginPlay). Без этого флага
+		// заспавненным акторам не диспатчится BeginPlay и не регистрируются тик-функции
+		// (гейты Actor.cpp PostActorConstruction/BeginPlay) — Movement-тесты (BeginPlay-guard,
+		// обработка ввода CMC) в таком мире не работают. Зовём NotifyBeginPlay сами — ровно то,
+		// что делает GameMode при старте.
+		if (AWorldSettings* WorldSettings = World->GetWorldSettings())
+		{
+			WorldSettings->NotifyBeginPlay();
+		}
 		return World;
 	}
 

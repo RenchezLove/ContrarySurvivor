@@ -23,7 +23,9 @@ ARangedWeapon::ARangedWeapon()
 	Spread          = 0.05f;
 
 	// Звук выстрела (Демо). Дефолт из импортированного ассета; переопределяется в BP.
-	FireSoundVolume = 0.5f;
+	// 1.0: прежние 0.5 звучали слишком тихо (фидбек Рината 07-17 «очень тихий, как с
+	// глушителем»; вторая половина проблемы — сам сэмпл .22, решение по замене отложено).
+	FireSoundVolume = 1.0f;
 	static ConstructorHelpers::FObjectFinder<USoundBase> FireSoundAsset(
 		TEXT("/Game/Audio/Demo/pistol_22_gunshot.pistol_22_gunshot"));
 	if (FireSoundAsset.Succeeded())

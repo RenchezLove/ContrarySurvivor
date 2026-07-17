@@ -70,6 +70,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest SecondQuest;
 
+	// Квест 3 (Этап F, ADR-044 п.1-2: крючок «кто охотится за ГГ» + сторонняя активность на время
+	// «расследования» старосты). Collect: 3 «Шкуры волка» для торговца, награда 100. Выдаётся
+	// ПОСЛЕ сдачи кв.2. Метка цели — второе логово (BP_WolfDen с тегом WolfDen2 ставит game-lead;
+	// пока актора с тегом нет на карте, HUD метку просто не рисует). Тюнингуется в редакторе.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
+	FQuest ThirdQuest;
+
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);

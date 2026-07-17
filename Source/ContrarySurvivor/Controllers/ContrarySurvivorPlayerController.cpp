@@ -33,6 +33,7 @@
 #include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O/N/V)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
+#include "ContrarySurvivor/Retention/OnboardingComponent.h" // Этап F1: онбординг-подсказки
 
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
@@ -163,7 +164,27 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// Фаза 5: слайдер количества в магазине — ±количество (стрелки/колесо, Shift=±10).
 		InputComponent->BindAction(TEXT("ShopQtyDec"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnShopQtyDec);
 		InputComponent->BindAction(TEXT("ShopQtyInc"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnShopQtyInc);
+
+		// Этап F (онбординг): любой ввод скрывает активную подсказку. bConsumeInput=false —
+		// нажатие НЕ съедается, геймплей/QA-клавиши работают как раньше.
+		FInputKeyBinding& AnyKeyBinding = InputComponent->BindKey(EKeys::AnyKey, IE_Pressed,
+			this, &AContrarySurvivorPlayerController::OnAnyInputForHints);
+		AnyKeyBinding.bConsumeInput = false;
 	}
+}
+
+void AContrarySurvivorPlayerController::OnAnyInputForHints()
+{
+	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+	{
+		OnboardingComp->DismissCurrentHint();
+	}
+}
+
+UOnboardingComponent* AContrarySurvivorPlayerController::GetOnboarding() const
+{
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	return PlayerChar ? PlayerChar->GetOnboarding() : nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +209,13 @@ void AContrarySurvivorPlayerController::ShowDeathScreen()
 	bShowMouseCursor = true;
 
 	FQADebug::QA(this, TEXT("QA: death screen opened (input disabled)"), /*bScreen=*/true);
+
+	// Этап F (онбординг): первая смерть — подсказка со СТРОГОЙ формулировкой ADR-044 п.3
+	// (без «можно вернуться и забрать»). Сам экран смерти не трогаем.
+	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+	{
+		OnboardingComp->TryShowHint(EOnboardingHint::Death);
+	}
 }
 
 void AContrarySurvivorPlayerController::HideDeathScreen()
@@ -915,6 +943,15 @@ void AContrarySurvivorPlayerController::ClearNearbyTrader(TScriptInterface<IShop
 void AContrarySurvivorPlayerController::SetNearbyElder(AElderNPC* Elder)
 {
 	NearbyElder = Elder;
+
+	// Этап F (онбординг): первое приближение к старосте — подсказка (один раз за профиль).
+	if (Elder)
+	{
+		if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+		{
+			OnboardingComp->TryShowHint(EOnboardingHint::Elder);
+		}
+	}
 }
 
 void AContrarySurvivorPlayerController::ClearNearbyElder(AElderNPC* Elder)
@@ -1142,6 +1179,15 @@ void AContrarySurvivorPlayerController::OnToggleInventory()
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Inventory %s"), bInventoryOpen ? TEXT("OPEN") : TEXT("CLOSED"));
+
+	// Этап F (онбординг): первое открытие инвентаря — подсказка про слоты брони/защиту.
+	if (bInventoryOpen)
+	{
+		if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+		{
+			OnboardingComp->TryShowHint(EOnboardingHint::Inventory);
+		}
+	}
 }
 
 void AContrarySurvivorPlayerController::Tick(float DeltaTime)
@@ -1240,6 +1286,16 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 			BestDistSq = DistSq;
 			CurrentInteractActor = Pickup;
 			CurrentInteractKind = EInteractKind::Pickup;
+		}
+	}
+
+	// Этап F (онбординг): первый доступный подбор — подсказка «Нажми E...». Зовётся каждый
+	// тик, но TryShowHint проверяет флаг в памяти и после первого показа — no-op.
+	if (CurrentInteractKind == EInteractKind::Pickup)
+	{
+		if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+		{
+			OnboardingComp->TryShowHint(EOnboardingHint::Pickup);
 		}
 	}
 }

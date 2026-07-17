@@ -5,6 +5,7 @@
 #include "TimerManager.h"
 #include "GameFramework/Actor.h"
 #include "Sound/SoundBase.h"
+#include "Components/AudioComponent.h" // FadeOut куска стона (фикс «бесконечных охов»)
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
@@ -27,13 +28,53 @@ UStatsComponent::UStatsComponent()
 
 void UStatsComponent::PlayHurtSound()
 {
-	if (!HurtSound)
+	UWorld* World = GetWorld();
+	if (!HurtSound || !World)
 	{
 		return;
 	}
+
+	// Анти-спам (фикс «бесконечных охов», Ринат 07-17): предыдущий PlaySoundAtLocation играл
+	// длинный многостонный файл целиком на КАЖДОЕ попадание — копии накладывались и «охали»
+	// долго после боя. Теперь: не чаще HurtSoundMinInterval на персонаже...
+	const float Now = World->GetTimeSeconds();
+	if (LastHurtSoundTime >= 0.0f && (Now - LastHurtSoundTime) < HurtSoundMinInterval)
+	{
+		return;
+	}
+	LastHurtSoundTime = Now;
+
 	const AActor* Owner = GetOwner();
 	const FVector Loc = Owner ? Owner->GetActorLocation() : FVector::ZeroVector;
-	UGameplayStatics::PlaySoundAtLocation(this, HurtSound, Loc, HurtSoundVolume);
+
+	// ...и играется СЛУЧАЙНЫЙ короткий кусок файла (каждый раз другой «ох»), а не файл целиком.
+	// Duration >= INDEFINITELY_LOOPING_DURATION означает «зациклен/неизвестно» — тогда с начала.
+	const float Duration = HurtSound->GetDuration();
+	float StartTime = 0.0f;
+	if (Duration > HurtSoundSliceDuration && Duration < INDEFINITELY_LOOPING_DURATION)
+	{
+		StartTime = FMath::FRandRange(0.0f, Duration - HurtSoundSliceDuration);
+	}
+
+	UAudioComponent* Audio = UGameplayStatics::SpawnSoundAtLocation(
+		this, HurtSound, Loc, FRotator::ZeroRotator, HurtSoundVolume,
+		/*PitchMultiplier=*/1.0f, StartTime);
+	if (!Audio)
+	{
+		return;
+	}
+
+	// Обрезаем кусок по таймеру: FadeOut плавно гасит и останавливает компонент,
+	// bAutoDestroy (дефолт SpawnSoundAtLocation) затем прибирает его сам.
+	TWeakObjectPtr<UAudioComponent> WeakAudio = Audio;
+	FTimerHandle SliceTimer;
+	World->GetTimerManager().SetTimer(SliceTimer, [WeakAudio]()
+	{
+		if (UAudioComponent* Active = WeakAudio.Get())
+		{
+			Active->FadeOut(/*FadeOutDuration=*/0.15f, /*FadeVolumeLevel=*/0.0f);
+		}
+	}, HurtSoundSliceDuration, /*bLoop=*/false);
 }
 
 void UStatsComponent::BeginPlay()

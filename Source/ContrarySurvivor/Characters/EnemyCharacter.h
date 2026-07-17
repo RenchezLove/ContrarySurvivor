@@ -4,11 +4,39 @@
 
 #include "CoreMinimal.h"
 #include "MasterHumanoidCharacter.h"
+#include "AConsumableItem.h" // EConsumableType (тип расходника в таблице лута)
 #include "EnemyCharacter.generated.h"
 
 class UStatsComponent;
 class AMasterInventoryItem;
 class APickup;
+
+/**
+ * Позиция таблицы лута бандита (этап F, решение Рината 07-17: «из бандита должны с равной
+ * степенью вероятности выпадать консервы, вода, бинт и т.д.»). При удаче LootItemDropChance
+ * падает LootItemCountMin..Max предметов, КАЖДЫЙ выбирается из таблицы равновероятно.
+ * Дефолт (Консервы/Вода/Бинт) собирает конструктор AEnemyCharacter; расширяется в Details
+ * без правок кода.
+ */
+USTRUCT(BlueprintType)
+struct FBanditLootEntry
+{
+	GENERATED_BODY()
+
+	// Имя, которое видит игрок (подбор/рюкзак). Пусто -> дефолтное имя по типу расходника
+	// (AConsumableItem::GetDefaultDisplayName).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
+	FString DisplayName;
+
+	// Класс выпадающего предмета (nullptr -> AConsumableItem).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
+	TSubclassOf<AMasterInventoryItem> ItemClass;
+
+	// Что восстанавливает предмет (еда/вода/аптечка); применяется, только если класс —
+	// расходник (AConsumableItem или наследник).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
+	EConsumableType ConsumableType = EConsumableType::Food;
+};
 
 /**
  * Враг первого вертикального среза (бандит).
@@ -70,19 +98,30 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
 	float LootMoneyMax = 30.0f;
 
-	// Шанс выпадения предмета (расходник/изношенный лут). DRAFT.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	// Шанс, что вместе с деньгами упадут расходники из LootTable. Ринат: 35% НЕ менять.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
 	float LootItemDropChance = 0.35f;
 
-	// Класс выпадающего предмета (по умолчанию расходник). Спавнится скрытым в пикапе.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
-	TSubclassOf<AMasterInventoryItem> LootItemClass;
+	// Сколько расходников падает при удачном броске: случайно в [Min..Max]. Ринат 07-17:
+	// «пока что-то одно из этого или два» — дефолт 1..2. Max меньше Min трактуется как Min.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (ClampMin = "1", DisplayPriority = "6"))
+	int32 LootItemCountMin = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (ClampMin = "1", DisplayPriority = "7"))
+	int32 LootItemCountMax = 2;
+
+	// Таблица возможных расходников: каждая выпавшая единица выбирается отсюда РАВНОВЕРОЯТНО
+	// (повторы допустимы). Дефолт из конструктора: Консервы / Вода / Бинт. Пустая таблица =
+	// предметы не падают (только деньги).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (DisplayPriority = "8"))
+	TArray<FBanditLootEntry> LootTable;
 
 	// Класс пикапа-лута (по умолчанию APickup, без BP/редактора).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
 	TSubclassOf<APickup> PickupClass;
 
-	// Спавнит лут (деньги + шанс предмета) в позиции трупа. Вызывается из HandleDeath.
+	// Спавнит лут (деньги + шанс 1-2 расходников из LootTable) в позиции трупа.
+	// Вызывается из HandleDeath.
 	void DropLoot();
 
 	// Реакция на смерть из делегата UStatsComponent::OnDeath.

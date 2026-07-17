@@ -15,6 +15,7 @@
 class UStatsComponent;
 class AElderNPC;
 class APickup;
+class UOnboardingComponent;
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
 // E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
@@ -81,6 +82,13 @@ public:
 
 	// Текст подсказки («E — подобрать» / «E — торговать») для отрисовки на HUD.
 	FString GetInteractPromptText() const;
+
+	// --- Этап F: онбординг/окно ежедневки ---
+
+	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/экран смерти).
+	// Нужно UDailyRewardComponent: возвращать GameOnly после окна награды можно только
+	// если игрок не успел открыть другую модалку.
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -293,6 +301,13 @@ protected:
 	void OnShopQtyDec();
 	UFUNCTION()
 	void OnShopQtyInc();
+
+	// Этап F (онбординг): ЛЮБОЙ ввод гасит активную подсказку. Биндится на EKeys::AnyKey с
+	// bConsumeInput=false — ввод идёт дальше в игру, мы только подглядываем.
+	void OnAnyInputForHints();
+
+	// Компонент онбординга подконтрольного игрока (null до possess/не наш пешка).
+	UOnboardingComponent* GetOnboarding() const;
 
 	// Сколько денег выдаёт F5 за нажатие (DRAFT, тюнингуется).
 	UPROPERTY(EditAnywhere, Category = "QA")
