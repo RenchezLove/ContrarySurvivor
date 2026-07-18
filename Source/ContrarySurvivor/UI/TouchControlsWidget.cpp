@@ -13,6 +13,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 
 namespace
@@ -44,31 +45,60 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 	SprintActionRef = InSprintAction;
 	Config = InConfig;
 
-	// Применяем настройки к уже построенному стику (NativeOnInitialized отработал в CreateWidget
-	// с дефолтным конфигом — здесь перекрываем и геометрию, и цвета настройками контроллера).
-	if (StickBase)
+	if (bDesignerTree)
 	{
-		if (UCanvasPanelSlot* BaseSlot = Cast<UCanvasPanelSlot>(StickBase->Slot))
+		// Дерево Рината: стиль/раскладка целиком в WBP, код кубики не перекрашивает.
+		// Недостающие имена — предупреждение (элемент не работает, остальное живёт).
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
 		{
-			BaseSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
-			BaseSlot->SetSize(FVector2D(Config.StickRadius * 2.0f, Config.StickRadius * 2.0f));
+			{ StickBase, TEXT("StickBase") }, { StickThumb, TEXT("StickThumb") },
+			{ FireButton, TEXT("FireButton") }, { ReloadButton, TEXT("ReloadButton") },
+			{ InteractButton, TEXT("InteractButton") }, { SprintButton, TEXT("SprintButton") },
+			{ WeaponButton, TEXT("WeaponButton") }, { InventoryButton, TEXT("InventoryButton") },
+			{ PauseButton, TEXT("PauseButton") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("TouchControlsWidget: кубик %s не найден в WBP_TouchControls — элемент отключён"),
+					Entry.Name);
+			}
 		}
-		StickBase->SetBrush(MakeCircleBrush(Config.StickBaseColor));
-		StickBase->SetRenderOpacity(Config.IdleOpacity);
+		// Цвет покоя переключателя БЕГ — тот, что выставил Ринат (не жёсткий белый).
+		SprintIdleColor = SprintButton ? SprintButton->GetBackgroundColor() : FLinearColor::White;
 	}
-	if (StickThumb)
+	else
 	{
-		if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
+		// Кодовое дерево: применяем настройки контроллера к построенному в NativeOnInitialized
+		// стику (там были дефолты конфига) и строим кнопки — конфиг уже известен.
+		SprintIdleColor = FLinearColor::White;
+		if (StickBase)
 		{
-			ThumbSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
-			ThumbSlot->SetSize(FVector2D(Config.StickThumbRadius * 2.0f, Config.StickThumbRadius * 2.0f));
+			if (UCanvasPanelSlot* BaseSlot = Cast<UCanvasPanelSlot>(StickBase->Slot))
+			{
+				BaseSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
+				BaseSlot->SetSize(FVector2D(Config.StickRadius * 2.0f, Config.StickRadius * 2.0f));
+			}
+			StickBase->SetBrush(MakeCircleBrush(Config.StickBaseColor));
+			StickBase->SetRenderOpacity(Config.IdleOpacity);
 		}
-		StickThumb->SetBrush(MakeCircleBrush(Config.StickThumbColor));
-		StickThumb->SetRenderOpacity(Config.IdleOpacity);
+		if (StickThumb)
+		{
+			if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
+			{
+				ThumbSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
+				ThumbSlot->SetSize(FVector2D(Config.StickThumbRadius * 2.0f, Config.StickThumbRadius * 2.0f));
+			}
+			StickThumb->SetBrush(MakeCircleBrush(Config.StickThumbColor));
+			StickThumb->SetRenderOpacity(Config.IdleOpacity);
+		}
+		BuildButtons();
 	}
 
-	// Кнопки строятся здесь, а не в NativeOnInitialized: нужен конфиг (что включено, размеры).
-	BuildButtons();
+	BindButtonHandlers();
+	CollectCombatGroup();
 }
 
 void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
@@ -86,6 +116,14 @@ void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
 void UTouchControlsWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+
+	// WBP-наследник уже пришёл с деревом Рината (создано из ассета ДО этого вызова) —
+	// кубики привязаны BindWidgetOptional, строить ничего не нужно.
+	bDesignerTree = (WidgetTree && WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		return;
+	}
 
 	// Дерево целиком из C++ (паттерн окон этапа F): канва на весь экран, на ней стик и кнопки.
 	RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TouchRoot"));
@@ -120,10 +158,6 @@ void UTouchControlsWidget::NativeOnInitialized()
 
 	StickBase->SetRenderOpacity(Config.IdleOpacity);
 	StickThumb->SetRenderOpacity(Config.IdleOpacity);
-
-	// Стик — часть боевой группы (прячется при модальных окнах, как и боевые кнопки).
-	CombatGroupWidgets.Add(StickBase);
-	CombatGroupWidgets.Add(StickThumb);
 }
 
 void UTouchControlsWidget::BuildButtons()
@@ -131,56 +165,78 @@ void UTouchControlsWidget::BuildButtons()
 	// Правый-нижний веер под большой палец: ОГОНЬ в углу, ДЕЙСТВИЕ левее, ПЕРЕЗАРЯД выше,
 	// БЕГ по диагонали, ОРУЖИЕ над перезарядкой. СУМКА — правый-верх, ПАУЗА — левый-верх.
 	// Позиции/подписи/цвета Ринат тюнит EditAnywhere-полями контроллера (дефолты подписей —
-	// его конструктор), виджет только строит по конфигу.
+	// его конструктор), виджет только строит по конфигу. Имена кубиков = именам в WBP-режиме.
 	FireButton = MakeTouchButton(Config.FireButton, ETouchCorner::BottomRight,
-		TEXT("TouchFire"), /*bCombatGroup=*/true);
+		TEXT("FireButton"), FireText);
+	ReloadButton = MakeTouchButton(Config.ReloadButton, ETouchCorner::BottomRight,
+		TEXT("ReloadButton"), ReloadText);
+	InteractButton = MakeTouchButton(Config.InteractButton, ETouchCorner::BottomRight,
+		TEXT("InteractButton"), InteractText);
+	SprintButton = MakeTouchButton(Config.SprintButton, ETouchCorner::BottomRight,
+		TEXT("SprintButton"), SprintText);
+	WeaponButton = MakeTouchButton(Config.WeaponButton, ETouchCorner::BottomRight,
+		TEXT("WeaponButton"), WeaponText);
+	InventoryButton = MakeTouchButton(Config.InventoryButton, ETouchCorner::TopRight,
+		TEXT("InventoryButton"), InventoryText);
+	PauseButton = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
+		TEXT("PauseButton"), PauseText);
+}
+
+void UTouchControlsWidget::BindButtonHandlers()
+{
 	if (FireButton)
 	{
 		FireButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleFirePressed);
 		FireButton->OnReleased.AddDynamic(this, &UTouchControlsWidget::HandleFireReleased);
 	}
-
-	if (UButton* ReloadBtn = MakeTouchButton(Config.ReloadButton, ETouchCorner::BottomRight,
-		TEXT("TouchReload"), /*bCombatGroup=*/true))
+	if (ReloadButton)
 	{
-		ReloadBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleReloadPressed);
+		ReloadButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleReloadPressed);
 	}
-
-	if (UButton* InteractBtn = MakeTouchButton(Config.InteractButton, ETouchCorner::BottomRight,
-		TEXT("TouchInteract"), /*bCombatGroup=*/true))
+	if (InteractButton)
 	{
-		InteractBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInteractPressed);
+		InteractButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInteractPressed);
 	}
-
-	SprintButton = MakeTouchButton(Config.SprintButton, ETouchCorner::BottomRight,
-		TEXT("TouchSprint"), /*bCombatGroup=*/true);
 	if (SprintButton)
 	{
 		SprintButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleSprintPressed);
 		SprintButton->OnReleased.AddDynamic(this, &UTouchControlsWidget::HandleSprintReleased);
 	}
-
-	if (UButton* WeaponBtn = MakeTouchButton(Config.WeaponButton, ETouchCorner::BottomRight,
-		TEXT("TouchWeapon"), /*bCombatGroup=*/true))
+	if (WeaponButton)
 	{
-		WeaponBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleWeaponPressed);
+		WeaponButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleWeaponPressed);
 	}
-
-	if (UButton* InventoryBtn = MakeTouchButton(Config.InventoryButton, ETouchCorner::TopRight,
-		TEXT("TouchInventory"), /*bCombatGroup=*/false))
+	if (InventoryButton)
 	{
-		InventoryBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInventoryPressed);
+		InventoryButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInventoryPressed);
 	}
-
-	if (UButton* PauseBtn = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
-		TEXT("TouchPause"), /*bCombatGroup=*/false))
+	if (PauseButton)
 	{
-		PauseBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandlePausePressed);
+		PauseButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandlePausePressed);
+	}
+}
+
+void UTouchControlsWidget::CollectCombatGroup()
+{
+	CombatGroupWidgets.Reset();
+	CombatGroupShownVisibility.Reset();
+	// СУМКА/ПАУЗА в группу НЕ входят — остаются при модалках (см. класс-коммент).
+	UWidget* GroupMembers[] = { StickBase.Get(), StickThumb.Get(), FireButton.Get(),
+		ReloadButton.Get(), InteractButton.Get(), SprintButton.Get(), WeaponButton.Get() };
+	for (UWidget* Member : GroupMembers)
+	{
+		if (Member)
+		{
+			CombatGroupWidgets.Add(Member);
+			// Запоминаем «показанную» видимость: у WBP-кубиков — выставленную Ринатом
+			// (например SelfHitTestInvisible у «шляпки»), не жёсткое Visible.
+			CombatGroupShownVisibility.Add(Member->GetVisibility());
+		}
 	}
 }
 
 UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ETouchCorner Corner,
-	const FName& WidgetName, bool bCombatGroup)
+	const FName& WidgetName, TObjectPtr<UTextBlock>& OutLabel)
 {
 	if (!S.bEnabled || !RootCanvas)
 	{
@@ -211,6 +267,7 @@ UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ET
 	Text->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FontSize));
 	Text->SetColorAndOpacity(FSlateColor(S.TextColor));
 	Button->SetContent(Text);
+	OutLabel = Text;
 
 	if (UCanvasPanelSlot* BtnSlot = RootCanvas->AddChildToCanvas(Button))
 	{
@@ -235,27 +292,20 @@ UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ET
 		BtnSlot->SetSize(FVector2D(S.Radius * 2.0f, S.Radius * 2.0f));
 	}
 
-	if (bCombatGroup)
-	{
-		CombatGroupWidgets.Add(Button);
-	}
 	return Button;
 }
 
 void UTouchControlsWidget::SetCombatGroupVisible(bool bVisible)
 {
 	bCombatGroupVisible = bVisible;
-	for (UWidget* GroupWidget : CombatGroupWidgets)
+	for (int32 Index = 0; Index < CombatGroupWidgets.Num(); ++Index)
 	{
-		if (GroupWidget)
+		if (UWidget* GroupWidget = CombatGroupWidgets[Index])
 		{
-			GroupWidget->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+			GroupWidget->SetVisibility(bVisible
+				? CombatGroupShownVisibility[Index]
+				: ESlateVisibility::Collapsed);
 		}
-	}
-	// «Шляпка» стика — чистый визуал: вернуть ей не-хит-тест видимость после общего Visible.
-	if (bVisible && StickThumb)
-	{
-		StickThumb->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 	if (!bVisible)
 	{
@@ -271,8 +321,11 @@ void UTouchControlsWidget::ResetHeldButtons()
 	bSprintOn = false;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(FLinearColor::White);
-		SprintButton->SetRenderOpacity(Config.IdleOpacity);
+		SprintButton->SetBackgroundColor(SprintIdleColor);
+		if (!bDesignerTree)
+		{
+			SprintButton->SetRenderOpacity(Config.IdleOpacity);
+		}
 	}
 }
 
@@ -373,8 +426,11 @@ void UTouchControlsWidget::HandleSprintPressed()
 	bSprintOn = Config.bSprintToggle ? !bSprintOn : true;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveTint : FLinearColor::White);
-		SprintButton->SetRenderOpacity(bSprintOn ? Config.ActiveOpacity : Config.IdleOpacity);
+		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveTint : SprintIdleColor);
+		if (!bDesignerTree)
+		{
+			SprintButton->SetRenderOpacity(bSprintOn ? Config.ActiveOpacity : Config.IdleOpacity);
+		}
 	}
 }
 
@@ -387,8 +443,11 @@ void UTouchControlsWidget::HandleSprintReleased()
 	bSprintOn = false;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(FLinearColor::White);
-		SprintButton->SetRenderOpacity(Config.IdleOpacity);
+		SprintButton->SetBackgroundColor(SprintIdleColor);
+		if (!bDesignerTree)
+		{
+			SprintButton->SetRenderOpacity(Config.IdleOpacity);
+		}
 	}
 }
 
@@ -428,25 +487,43 @@ void UTouchControlsWidget::HandlePausePressed()
 
 FVector2D UTouchControlsWidget::GetStickCenterLocal(const FGeometry& Geo) const
 {
-	// Anchors (0,1) = левый-нижний угол; центр стика — на StickMargin от него.
+	if (bDesignerTree && StickBase)
+	{
+		// WBP: стик стоит там, куда его поставил Ринат, — центр берём из отрисованной
+		// геометрии подложки (валидна к моменту pointer-событий: раскладка уже прошла).
+		const FGeometry& BaseGeo = StickBase->GetCachedGeometry();
+		return Geo.AbsoluteToLocal(BaseGeo.LocalToAbsolute(BaseGeo.GetLocalSize() * 0.5f));
+	}
+	// Кодовое дерево: anchors (0,1) = левый-нижний угол; центр стика — на StickMargin от него.
 	const FVector2D LocalSize = Geo.GetLocalSize();
 	return FVector2D(Config.StickMargin.X, LocalSize.Y - Config.StickMargin.Y);
 }
 
+float UTouchControlsWidget::GetStickRadiusPx() const
+{
+	if (bDesignerTree && StickBase)
+	{
+		// Полширины подложки, как её растянул Ринат (минимум 1 — защита от нулевой геометрии).
+		return FMath::Max(1.0f, StickBase->GetCachedGeometry().GetLocalSize().X * 0.5f);
+	}
+	return Config.StickRadius;
+}
+
 void UTouchControlsWidget::UpdateStickFromPointer(const FGeometry& Geo, const FPointerEvent& Ev)
 {
+	const float StickRadius = GetStickRadiusPx();
 	const FVector2D LocalPos = Geo.AbsoluteToLocal(Ev.GetScreenSpacePosition());
 	FVector2D Offset = LocalPos - GetStickCenterLocal(Geo);
 
 	// Ограничиваем ход «шляпки» радиусом подложки.
 	const float Len = Offset.Size();
-	if (Len > Config.StickRadius && Len > KINDA_SMALL_NUMBER)
+	if (Len > StickRadius && Len > KINDA_SMALL_NUMBER)
 	{
-		Offset *= Config.StickRadius / Len;
+		Offset *= StickRadius / Len;
 	}
 
 	// Экранный Y растёт вниз, а ось Y MoveAction — «вперёд» (Move: MoveDir = Forward*Y + Right*X).
-	FVector2D NewVector(Offset.X / Config.StickRadius, -Offset.Y / Config.StickRadius);
+	FVector2D NewVector(Offset.X / StickRadius, -Offset.Y / StickRadius);
 	if (NewVector.Size() < Config.StickDeadZone)
 	{
 		NewVector = FVector2D::ZeroVector;
@@ -455,7 +532,13 @@ void UTouchControlsWidget::UpdateStickFromPointer(const FGeometry& Geo, const FP
 
 	if (StickThumb)
 	{
-		if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
+		if (bDesignerTree)
+		{
+			// WBP: двигаем «шляпку» Render Translation'ом относительно места, куда её
+			// поставил Ринат (работает в любом контейнере, не только Canvas).
+			StickThumb->SetRenderTranslation(Offset);
+		}
+		else if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
 		{
 			ThumbSlot->SetPosition(FVector2D(
 				Config.StickMargin.X + Offset.X, -Config.StickMargin.Y + Offset.Y));
@@ -470,13 +553,20 @@ void UTouchControlsWidget::ResetStick()
 	StickVector = FVector2D::ZeroVector;
 	if (StickThumb)
 	{
-		if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
+		if (bDesignerTree)
 		{
-			ThumbSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
+			StickThumb->SetRenderTranslation(FVector2D::ZeroVector);
 		}
-		StickThumb->SetRenderOpacity(Config.IdleOpacity);
+		else
+		{
+			if (UCanvasPanelSlot* ThumbSlot = Cast<UCanvasPanelSlot>(StickThumb->Slot))
+			{
+				ThumbSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
+			}
+			StickThumb->SetRenderOpacity(Config.IdleOpacity);
+		}
 	}
-	if (StickBase)
+	if (StickBase && !bDesignerTree)
 	{
 		StickBase->SetRenderOpacity(Config.IdleOpacity);
 	}
@@ -484,17 +574,23 @@ void UTouchControlsWidget::ResetStick()
 
 FReply UTouchControlsWidget::HandlePointerDown(const FGeometry& Geo, const FPointerEvent& Ev)
 {
-	// Событие пришло всплытием => хит-тест попал в подложку стика (кнопки свои события
-	// обрабатывают сами и сюда не пропускают).
-	if (bStickActive)
+	// Жест стика начинается ТОЛЬКО в границах подложки. Кодовое дерево: сюда и так доходят
+	// лишь события с подложки (кнопки съедают свои). WBP: до нас всплывает любой Visible-кубик
+	// Рината — фильтруем по реальной геометрии StickBase.
+	if (bStickActive || !StickBase
+		|| !StickBase->GetCachedGeometry().IsUnderLocation(Ev.GetScreenSpacePosition()))
 	{
-		return FReply::Unhandled(); // стик уже держит другой палец
+		return FReply::Unhandled();
 	}
 	bStickActive = true;
 	StickPointerIndex = Ev.GetPointerIndex();
 	UpdateStickFromPointer(Geo, Ev);
-	if (StickBase)  { StickBase->SetRenderOpacity(Config.ActiveOpacity); }
-	if (StickThumb) { StickThumb->SetRenderOpacity(Config.ActiveOpacity); }
+	if (!bDesignerTree)
+	{
+		// Кодовый стиль: активная прозрачность под пальцем. WBP-кубики не трогаем.
+		if (StickBase)  { StickBase->SetRenderOpacity(Config.ActiveOpacity); }
+		if (StickThumb) { StickThumb->SetRenderOpacity(Config.ActiveOpacity); }
+	}
 	// Захват указателя: движения приходят и за пределами подложки, пока палец/кнопка не отпущены.
 	return FReply::Handled().CaptureMouse(TakeWidget());
 }

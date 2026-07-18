@@ -16,8 +16,10 @@ class UEnhancedInputLocalPlayerSubsystem;
 class AContrarySurvivorPlayerController;
 
 /**
- * Настройки тач-слоя. Значения живут UPROPERTY на контроллере (виджет строится кодом и в
- * Details не виден — Ринат тюнит на контроллере), сюда копируются при создании виджета.
+ * Настройки тач-слоя. Значения живут UPROPERTY на контроллере (Ринат тюнит на контроллере),
+ * сюда копируются при создании виджета. Стилевые поля действуют ТОЛЬКО для дерева, построенного
+ * кодом; у WBP-дерева стиль целиком в дизайнере (см. класс-коммент). Функциональные поля
+ * (StickDeadZone, bSprintToggle) действуют в обоих режимах.
  * Plain-структура: в reflection не участвует (reflected-часть — FTouchButtonSettings).
  */
 struct FTouchControlsConfig
@@ -48,10 +50,21 @@ struct FTouchControlsConfig
 
 /**
  * Экранное тач-управление (этап G, GDD ч.9: «Android: виртуальные стики/кнопки», ADR-017).
- * Шаг 1: виртуальный СТИК ДВИЖЕНИЯ слева. Шаг 2: кнопки огонь/перезарядка/действие/бег/
- * оружие/сумка/пауза (полный состав по требованию Рината для проверки сборки на телефоне).
+ * Стик движения + кнопки огонь/перезарядка/действие/бег/оружие/сумка/пауза.
  *
- * Архитектура: слой НЕ изобретает свой ввод — всё уходит в СУЩЕСТВУЮЩИЕ пути:
+ * ДВА РЕЖИМА ДЕРЕВА (ADR-048, команда Рината 07-18 «менять интерфейс мышкой»):
+ *  - слот Touch Controls Widget Class на контроллере ПУСТ -> дерево строится кодом
+ *    (WidgetTree в NativeOnInitialized + BuildButtons), стиль — из настроек контроллера;
+ *  - в слоте WBP_TouchControls (родитель этот класс) -> кубики приходят из дизайнера по
+ *    BindWidgetOptional-именам (StickBase/StickThumb — Image; FireButton/ReloadButton/
+ *    InteractButton/SprintButton/WeaponButton/InventoryButton/PauseButton — Button; подписи
+ *    FireText/... — Text внутри кнопок, код их не трогает). Раскладку/цвет/размер/шрифт
+ *    Ринат правит мышкой с живым превью; код НЕ трогает стиль WBP-кубиков — только
+ *    функциональное состояние (видимость боевой группы, ход «шляпки» через Render Translation,
+ *    подсветка переключателя БЕГ). Недостающий кубик -> Warning в лог, остальное работает.
+ *
+ * Архитектура ввода (одинакова в обоих режимах): слой НЕ изобретает свой ввод — всё уходит
+ * в СУЩЕСТВУЮЩИЕ пути:
  *  - стик и боевые кнопки каждый кадр ИНЖЕКТИРУЮТСЯ в Enhanced Input-экшены контроллера
  *    (InjectInputVectorForAction / InjectInputForAction, EnhancedInputSubsystemInterface.h:148,160)
  *    — тот же путь, что WASD/ЛКМ/Shift/R, обработчики игры не тронуты;
@@ -61,16 +74,15 @@ struct FTouchControlsConfig
  * Мышь и тач — единый путь (ADR-017: «клик = имитация тапа»): Pointer-события на ПК приходят
  * от мыши, на Android — от пальца; тач-обработчики делегируют в те же функции.
  *
- * Хит-зоны — ТОЛЬКО подложка стика и кнопки (корневая канва SelfHitTestInvisible): тапы по
- * остальному экрану проходят в мир (выбор цели/клики Canvas-HUD через ScreenTap, ADR-017).
+ * Хит-зоны — ТОЛЬКО подложка стика и кнопки (корневая канва SelfHitTestInvisible; жест стика
+ * начинается только если точка нажатия внутри StickBase): тапы по остальному экрану проходят
+ * в мир (выбор цели/клики Canvas-HUD через ScreenTap, ADR-017).
  *
  * Пока открыто модальное окно (инвентарь/магазин/диалог/смерть/пауза) БОЕВАЯ группа
  * (стик+огонь+перезарядка+действие+бег+оружие) прячется и её инжекция глушится — иначе
  * нажатие «ОГОНЬ» при открытом инвентаре превратилось бы в клик по инвентарю в точке кнопки.
  * СУМКА и ПАУЗА остаются видимыми (повторный тап СУМКИ закрывает инвентарь — на телефоне
  * другого способа нет; ПАУЗУ прячет целиком контроллер через SetLayerEnabled).
- *
- * Дерево целиком строится в C++ (WidgetTree), BP-наследник не нужен — паттерн окон этапа F.
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UTouchControlsWidget : public UUserWidget
@@ -112,6 +124,62 @@ protected:
 	UFUNCTION() void HandleInventoryPressed();
 	UFUNCTION() void HandlePausePressed();
 
+	// --- Кубики WBP_TouchControls (имена ТОЧНЫЕ — см. umg-layout-guide.md).
+	// При дереве из кода эти же поля заполняет BuildButtons — вся логика ниже общая. ---
+
+	// Подложка стика (хит-зона жеста; центр и радиус стика в WBP-режиме берутся из её геометрии).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> StickBase;
+
+	// «Шляпка» стика; в WBP-режиме ходит за пальцем через Render Translation.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> StickThumb;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> FireButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ReloadButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> InteractButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SprintButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> WeaponButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> InventoryButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PauseButton;
+
+	// Подписи кнопок (Text внутри соответствующей кнопки). В WBP-режиме код их НЕ трогает
+	// (текст/шрифт/цвет — Рината в дизайнере), привязка — задел под будущие динамические
+	// подписи (например патроны на ПЕРЕЗАРЯДЕ). В кодовом режиме создаёт MakeTouchButton.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> FireText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ReloadText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InteractText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SprintText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> WeaponText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InventoryText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PauseText;
+
 private:
 	// Угол экрана, к которому прижата кнопка (Margin отсчитывается от него).
 	enum class ETouchCorner : uint8
@@ -126,8 +194,12 @@ private:
 	FReply HandlePointerMove(const FGeometry& Geo, const FPointerEvent& Ev);
 	FReply HandlePointerUp(const FGeometry& Geo, const FPointerEvent& Ev);
 
-	// Центр стика в локальных координатах виджета (низ-лево + отступ).
+	// Центр стика в локальных координатах виджета: кодовое дерево — низ-лево + StickMargin,
+	// WBP — центр StickBase из его отрисованной геометрии.
 	FVector2D GetStickCenterLocal(const FGeometry& Geo) const;
+
+	// Радиус стика, px: кодовое дерево — Config.StickRadius, WBP — полширины StickBase.
+	float GetStickRadiusPx() const;
 
 	// Пересчитывает вектор стика из позиции указателя и двигает «шляпку».
 	void UpdateStickFromPointer(const FGeometry& Geo, const FPointerEvent& Ev);
@@ -135,14 +207,21 @@ private:
 	// Возвращает «шляпку» в центр, вектор в ноль.
 	void ResetStick();
 
-	// Строит кнопки по конфигу (зовётся из InitTouch — настройки уже известны).
+	// Строит кнопки по конфигу — только для кодового дерева (зовётся из InitTouch).
 	void BuildButtons();
 
-	// Круглая кнопка с подписью, прижатая к углу Corner; добавляет в RootCanvas и в боевую
-	// группу (bCombatGroup). null, если S.bEnabled=false. Подпись/цвета/шрифт — из S
-	// (EditAnywhere-настройки контроллера, дефолты подписей задаёт его конструктор).
+	// Круглая кнопка с подписью, прижатая к углу Corner; добавляет в RootCanvas. null, если
+	// S.bEnabled=false. Подпись/цвета/шрифт — из S (EditAnywhere-настройки контроллера);
+	// созданный Text подписи кладётся в OutLabel (тот же член, что биндится из WBP).
 	UButton* MakeTouchButton(const FTouchButtonSettings& S, ETouchCorner Corner,
-		const FName& WidgetName, bool bCombatGroup);
+		const FName& WidgetName, TObjectPtr<UTextBlock>& OutLabel);
+
+	// Подписка обработчиков на непустые кнопки (общая для обоих режимов; зовётся из InitTouch).
+	void BindButtonHandlers();
+
+	// Сбор боевой группы (стик + огонь/перезаряд/действие/бег/оружие) с запоминанием
+	// «показанной» видимости каждого кубика — для восстановления после модалок.
+	void CollectCombatGroup();
 
 	// Показ/скрытие боевой группы (модальное окно открыто -> прячем) + сброс зажатий.
 	void SetCombatGroupVisible(bool bVisible);
@@ -153,26 +232,17 @@ private:
 	// Сабсистема Enhanced Input локального игрока (null, если игрока нет).
 	UEnhancedInputLocalPlayerSubsystem* GetInputSubsystem() const;
 
+	// Корень кодового дерева (в WBP-режиме null — корень там строит Ринат).
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> RootCanvas;
 
-	UPROPERTY()
-	TObjectPtr<UImage> StickBase;
-
-	UPROPERTY()
-	TObjectPtr<UImage> StickThumb;
-
-	// Кнопки, чьё состояние трогаем после создания (null, если выключены конфигом).
-	UPROPERTY()
-	TObjectPtr<UButton> FireButton;
-
-	UPROPERTY()
-	TObjectPtr<UButton> SprintButton;
-
-	// Боевая группа: корневые виджеты элементов, прячущихся при модальном окне
-	// (подложка+шляпка стика, огонь/перезарядка/действие/бег/оружие).
+	// Боевая группа: корневые виджеты элементов, прячущихся при модальном окне.
 	UPROPERTY()
 	TArray<TObjectPtr<UWidget>> CombatGroupWidgets;
+
+	// Видимость каждого кубика боевой группы в «показанном» состоянии (параллелен
+	// CombatGroupWidgets): у WBP-кубиков восстанавливаем выставленное Ринатом, не жёсткое Visible.
+	TArray<ESlateVisibility> CombatGroupShownVisibility;
 
 	UPROPERTY()
 	TObjectPtr<AContrarySurvivorPlayerController> OwnerPC;
@@ -191,6 +261,13 @@ private:
 	TObjectPtr<const UInputAction> SprintActionRef;
 
 	FTouchControlsConfig Config;
+
+	// true = дерево пришло из WBP (Ринат), false = построено кодом. Ставится в NativeOnInitialized.
+	bool bDesignerTree = false;
+
+	// Цвет кнопки БЕГ в покое: белый у кодового дерева, у WBP — снятый с кнопки Рината
+	// (переключатель подсвечивается SprintActiveTint и возвращается к этому цвету).
+	FLinearColor SprintIdleColor = FLinearColor::White;
 
 	bool bStickActive = false;
 	int32 StickPointerIndex = INDEX_NONE;              // какой палец/кнопка держит стик

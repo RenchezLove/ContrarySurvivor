@@ -96,7 +96,8 @@ void AContrarySurvivorPlayerController::BeginPlay()
 
 	// Этап G (ADR-017): экранный тач-слой поверх той же абстракции ввода. На Android включён
 	// всегда; на ПК — флагом bEnableTouchControls (тест мышью: клик по стику = имитация пальца).
-	// Настройки копируются с контроллера (виджет кодовый, в Details не виден).
+	// Настройки копируются с контроллера. Слот TouchControlsWidgetClass назначен (ADR-048) —
+	// дерево кнопок/стика приходит из WBP Рината; пуст — прежний кодовый виджет.
 #if PLATFORM_ANDROID
 	const bool bWantTouchLayer = true;
 #else
@@ -104,12 +105,15 @@ void AContrarySurvivorPlayerController::BeginPlay()
 #endif
 	if (bWantTouchLayer)
 	{
+		UClass* TouchLayerClass = TouchControlsWidgetClass
+			? TouchControlsWidgetClass.Get()
+			: UTouchControlsWidget::StaticClass();
 		if (!MoveAction)
 		{
 			UE_LOG(LogQA, Warning, TEXT("QA: touch layer skipped — MoveAction is null on controller"));
 		}
 		else if (UTouchControlsWidget* Layer =
-			CreateWidget<UTouchControlsWidget>(this, UTouchControlsWidget::StaticClass()))
+			CreateWidget<UTouchControlsWidget>(this, TouchLayerClass))
 		{
 			FTouchControlsConfig TouchConfig;
 			TouchConfig.StickRadius      = TouchStickRadius;
@@ -132,7 +136,10 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			// Z=10: под онбординг-подсказками (40) и модальными окнами (50/60).
 			Layer->AddToViewport(/*ZOrder=*/10);
 			TouchControlsLayer = Layer;
-			UE_LOG(LogQA, Display, TEXT("QA: touch layer created (stick radius=%.0f)"), TouchStickRadius);
+			UE_LOG(LogQA, Display, TEXT("QA: touch layer created (%s)"),
+				TouchControlsWidgetClass
+					? *FString::Printf(TEXT("WBP %s"), *TouchLayerClass->GetName())
+					: TEXT("code-built tree"));
 		}
 	}
 }
