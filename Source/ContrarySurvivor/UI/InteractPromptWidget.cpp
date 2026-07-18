@@ -11,12 +11,13 @@ void UInteractPromptWidget::NativeTick(const FGeometry& MyGeometry, float InDelt
 	AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetOwningPlayer());
 
 	// Прячемся без интерактива рядом и на модальных экранах (перенос Canvas-поведения).
+	// Именно содержимое, не сам виджет: Collapsed на себе убил бы собственный тик.
 	if (!PC || !PC->HasInteractPrompt() || PC->IsAnyModalUIOpen())
 	{
-		SetVisibility(ESlateVisibility::Collapsed);
+		SetContentVisible(false);
 		return;
 	}
-	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	SetContentVisible(true);
 
 	if (PromptText)
 	{

@@ -21,13 +21,14 @@ void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	const FQuest* Tracked = Quests ? Quests->GetTrackedQuest() : nullptr;
 
 	// Прячемся без квеста и на модальных экранах (там квест виден в самом диалоге) —
-	// перенос поведения Canvas DrawHUD.
+	// перенос поведения Canvas DrawHUD. Именно содержимое, не сам виджет: Collapsed
+	// на себе убил бы собственный тик (виджет не смог бы развернуться обратно).
 	if (!Tracked || (PC && PC->IsAnyModalUIOpen()))
 	{
-		SetVisibility(ESlateVisibility::Collapsed);
+		SetContentVisible(false);
 		return;
 	}
-	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	SetContentVisible(true);
 
 	// Обобщённая строка прогресса целей (kill и/или item) — формат Canvas DrawQuestTracker.
 	FString ObjStr;

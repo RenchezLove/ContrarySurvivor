@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "QuestTrackerWidget.generated.h"
 
 class UTextBlock;
@@ -12,10 +12,11 @@ class UTextBlock;
  * Трекер активного квеста на UMG (ADR-048, этап 3): строка «Квест: Шкуры волков —
  * Шкура волка 1/3» в углу экрана. Раскладку WBP_QuestTracker строит Ринат. Живёт на
  * экране всю игру (создаёт HUD в BeginPlay); сам прячется, когда квеста нет или
- * открыт модальный экран (как Canvas-путь: на модалках квест виден в самом диалоге).
+ * открыт модальный экран (как Canvas-путь: на модалках квест виден в самом диалоге) —
+ * через SetContentVisible базы (Collapsed на себе остановил бы тик навсегда, баг 07-18).
  */
 UCLASS()
-class CONTRARYSURVIVOR_API UQuestTrackerWidget : public UUserWidget
+class CONTRARYSURVIVOR_API UQuestTrackerWidget : public USelfHidingWidget
 {
 	GENERATED_BODY()
 

@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "InteractPromptWidget.generated.h"
 
 class UTextBlock;
@@ -12,11 +12,12 @@ class UTextBlock;
  * Контекстная подсказка взаимодействия на UMG (ADR-048, этап 3): «E — подобрать» /
  * «E — торговать» / «E — поговорить» внизу по центру. Раскладку WBP_InteractPrompt
  * строит Ринат. Живёт на экране всю игру (создаёт HUD в BeginPlay); сам прячется,
- * когда рядом нет интерактива или открыт модальный экран. Тексты — существующие
- * EditAnywhere-поля контроллера (InteractPromptPickup/Trader/Elder).
+ * когда рядом нет интерактива или открыт модальный экран — через SetContentVisible
+ * базы (Collapsed на самом виджете остановил бы его тик навсегда, баг смоука 07-18).
+ * Тексты — существующие EditAnywhere-поля контроллера (InteractPromptPickup/Trader/Elder).
  */
 UCLASS()
-class CONTRARYSURVIVOR_API UInteractPromptWidget : public UUserWidget
+class CONTRARYSURVIVOR_API UInteractPromptWidget : public USelfHidingWidget
 {
 	GENERATED_BODY()
 
