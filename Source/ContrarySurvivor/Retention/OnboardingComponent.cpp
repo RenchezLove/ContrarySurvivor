@@ -64,23 +64,17 @@ void UOnboardingComponent::DismissCurrentHint()
 	HideActiveWidget();
 }
 
-FString UOnboardingComponent::GetHintText(EOnboardingHint Hint)
+FString UOnboardingComponent::GetHintText(EOnboardingHint Hint) const
 {
+	// Тексты — EditAnywhere-поля компонента (директива Рината 07-18); дефолты в заголовке.
 	switch (Hint)
 	{
-		case EOnboardingHint::Movement:
-			return TEXT("Передвижение — W, A, S, D. Атака — клик по врагу. Смена оружия — Q");
-		case EOnboardingHint::Pickup:
-			return TEXT("Нажми E, чтобы подобрать");
-		case EOnboardingHint::Elder:
-			return TEXT("Поговори со старостой — у него есть работа");
-		case EOnboardingHint::Inventory:
-			return TEXT("Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»");
-		case EOnboardingHint::Death:
-			// СТРОГО эта формулировка (ADR-044 п.3): БЕЗ «можно вернуться и забрать».
-			return TEXT("Часть монет утрачена. Расходники обронены на месте гибели.");
-		default:
-			return FString();
+		case EOnboardingHint::Movement:  return HintTextMovement;
+		case EOnboardingHint::Pickup:    return HintTextPickup;
+		case EOnboardingHint::Elder:     return HintTextElder;
+		case EOnboardingHint::Inventory: return HintTextInventory;
+		case EOnboardingHint::Death:     return HintTextDeath; // СТРОГО ADR-044 п.3 (см. заголовок)
+		default:                         return FString();
 	}
 }
 
@@ -131,6 +125,7 @@ void UOnboardingComponent::ShowWidget(const FString& Text)
 		{
 			return;
 		}
+		ActiveWidget->ApplyStyle(HintStyle); // стиль с компонента (EditAnywhere) поверх дефолтов
 	}
 	ActiveWidget->SetHintText(Text);
 	if (!ActiveWidget->IsInViewport())

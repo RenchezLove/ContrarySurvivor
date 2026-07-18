@@ -56,6 +56,16 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchInventoryButton.Margin = FVector2D(120.0f, 100.0f); TouchInventoryButton.Radius = 50.0f;
 	TouchPauseButton.Margin     = FVector2D(70.0f, 70.0f);   TouchPauseButton.Radius     = 32.0f;
 
+	// Подписи кнопок (дефолты; были зашиты в BuildButtons виджета — теперь EditAnywhere-поле
+	// FTouchButtonSettings.Label, Ринат меняет в BP без пересборки).
+	TouchFireButton.Label      = TEXT("ОГОНЬ");
+	TouchInteractButton.Label  = TEXT("ДЕЙСТВИЕ");
+	TouchReloadButton.Label    = TEXT("ПЕРЕЗАРЯД");
+	TouchSprintButton.Label    = TEXT("БЕГ");
+	TouchWeaponButton.Label    = TEXT("ОРУЖИЕ");
+	TouchInventoryButton.Label = TEXT("СУМКА");
+	TouchPauseButton.Label     = TEXT("II");
+
 	// G2: enum зоны жеста в заголовке только forward-объявлен — значение доступно здесь.
 	ShopTouchZone = EShopDragZone::None;
 }
@@ -108,6 +118,8 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			TouchConfig.StickDeadZone    = TouchStickDeadZone;
 			TouchConfig.IdleOpacity      = TouchIdleOpacity;
 			TouchConfig.ActiveOpacity    = TouchActiveOpacity;
+			TouchConfig.StickBaseColor   = TouchStickBaseColor;
+			TouchConfig.StickThumbColor  = TouchStickThumbColor;
 			TouchConfig.FireButton       = TouchFireButton;
 			TouchConfig.ReloadButton     = TouchReloadButton;
 			TouchConfig.InteractButton   = TouchInteractButton;
@@ -353,6 +365,7 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 		{
 			return;
 		}
+		PauseMenuWidget->ApplyStyle(PauseMenuStyle); // стиль с контроллера (EditAnywhere) поверх дефолтов
 		PauseMenuWidget->OnResumeRequested.AddUObject(this, &AContrarySurvivorPlayerController::ClosePauseMenu);
 		PauseMenuWidget->OnQuitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseQuit);
 	}
@@ -1614,11 +1627,12 @@ bool AContrarySurvivorPlayerController::HasInteractPrompt() const
 
 FString AContrarySurvivorPlayerController::GetInteractPromptText() const
 {
+	// Тексты — EditAnywhere-поля (директива Рината 07-18); дефолты дословно прежние.
 	switch (CurrentInteractKind)
 	{
-		case EInteractKind::Pickup: return TEXT("E — подобрать");
-		case EInteractKind::Trader: return TEXT("E — торговать");
-		case EInteractKind::Elder:  return TEXT("E — поговорить");
+		case EInteractKind::Pickup: return InteractPromptPickup;
+		case EInteractKind::Trader: return InteractPromptTrader;
+		case EInteractKind::Elder:  return InteractPromptElder;
 		default:                    return FString();
 	}
 }

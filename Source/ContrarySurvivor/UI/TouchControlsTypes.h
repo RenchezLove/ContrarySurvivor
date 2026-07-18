@@ -26,4 +26,21 @@ struct FTouchButtonSettings
 	// Радиус кнопки, px.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (ClampMin = "15.0"))
 	float Radius = 55.0f;
+
+	// Подпись на кнопке (пусто = без подписи). Дефолты по кнопкам задаёт контроллер.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls")
+	FString Label;
+
+	// Тон кнопки. Альфа умножается на штатные прозрачности состояний (норма 0.30 /
+	// под пальцем 0.55 и т.д.) — белый с альфой 1 даёт прежний вид.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls")
+	FLinearColor Color = FLinearColor::White;
+
+	// Цвет текста подписи.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls")
+	FLinearColor TextColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.9f);
+
+	// Размер шрифта подписи; 0 = автоматически от радиуса (Radius*0.3, кламп 10..22).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (ClampMin = "0"))
+	int32 FontSize = 0;
 };

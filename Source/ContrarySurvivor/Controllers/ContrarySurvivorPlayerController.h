@@ -11,6 +11,7 @@
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h"
 #include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (ближайший вендор/магазин развязан от класса, A2)
 #include "ContrarySurvivor/UI/TouchControlsTypes.h" // FTouchButtonSettings (настройки тач-кнопок, этап G)
+#include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle (стиль меню паузы — поле контроллера)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
@@ -223,6 +224,28 @@ protected:
 	// true: БЕГ — переключатель (тап вкл/выкл, подсветка); false: бег пока палец на кнопке.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 15))
 	bool bTouchSprintToggle = true;
+
+	// Цвета стика (были зашиты в виджете; белый полупрозрачный = прежний вид).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 18))
+	FLinearColor TouchStickBaseColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.25f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 19))
+	FLinearColor TouchStickThumbColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.6f);
+
+	// Стиль меню паузы (цвета/тексты/шрифты/размер кнопок) — применяется при создании виджета
+	// (директива Рината 07-18: настройка в BP контроллера без пересборки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (DisplayPriority = "1"))
+	FPauseMenuStyle PauseMenuStyle;
+
+	// Тексты контекстной подсказки взаимодействия (низ-центр экрана, рисует HUD).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "1"))
+	FString InteractPromptPickup = TEXT("E — подобрать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "2"))
+	FString InteractPromptTrader = TEXT("E — торговать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "3"))
+	FString InteractPromptElder = TEXT("E — поговорить");
 
 	// --- Тач-жесты магазина (G2): свайп = прокрутка списков / количество слайдера ---
 

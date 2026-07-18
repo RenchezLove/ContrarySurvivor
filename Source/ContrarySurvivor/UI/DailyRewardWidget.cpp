@@ -24,32 +24,27 @@ void UDailyRewardWidget::NativeOnInitialized()
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("DailyRoot"));
 	WidgetTree->RootWidget = Root;
 
-	// Двойная рамка в палитре HUD: снаружи золотой кант, внутри тёмная панель (как модалки Canvas-HUD).
-	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DailyFrame"));
-	Frame->SetBrushColor(FLinearColor(0.8f, 0.65f, 0.25f, 0.9f));
-	Frame->SetPadding(FMargin(2.0f));
+	// Двойная рамка в палитре HUD: снаружи золотой кант, внутри тёмная панель (как модалки
+	// Canvas-HUD). Цвета/тексты/шрифты — дефолты FDailyRewardStyle; фактический стиль
+	// перекрывает ApplyStyle (EditAnywhere-настройка UDailyRewardComponent).
+	FrameBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DailyFrame"));
+	FrameBorder->SetPadding(FMargin(2.0f));
 
-	UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DailyPanel"));
-	Panel->SetBrushColor(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f));
-	Panel->SetPadding(FMargin(28.0f, 22.0f));
-	Frame->SetContent(Panel);
+	PanelBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DailyPanel"));
+	PanelBorder->SetPadding(FMargin(28.0f, 22.0f));
+	FrameBorder->SetContent(PanelBorder);
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DailyColumn"));
-	Panel->SetContent(Column);
+	PanelBorder->SetContent(Column);
 
-	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTitle"));
-	Title->SetText(FText::FromString(TEXT("ЕЖЕДНЕВНАЯ НАГРАДА")));
-	Title->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 22));
-	Title->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f)));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(Title))
+	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTitle"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 14.0f));
 	}
 
 	StreakText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyStreak"));
-	StreakText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 17));
-	StreakText->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.96f, 1.0f, 1.0f)));
 	if (UVerticalBoxSlot* StreakSlot = Column->AddChildToVerticalBox(StreakText))
 	{
 		StreakSlot->SetHorizontalAlignment(HAlign_Center);
@@ -57,8 +52,6 @@ void UDailyRewardWidget::NativeOnInitialized()
 	}
 
 	RewardText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyReward"));
-	RewardText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 26));
-	RewardText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f)));
 	if (UVerticalBoxSlot* RewardSlot = Column->AddChildToVerticalBox(RewardText))
 	{
 		RewardSlot->SetHorizontalAlignment(HAlign_Center);
@@ -68,35 +61,67 @@ void UDailyRewardWidget::NativeOnInitialized()
 	UButton* TakeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DailyTake"));
 	TakeButton->OnClicked.AddDynamic(this, &UDailyRewardWidget::HandleTakeClicked);
 
-	UTextBlock* TakeLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTakeLabel"));
-	TakeLabel->SetText(FText::FromString(TEXT("Забрать")));
-	TakeLabel->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 18));
-	TakeLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.0f)));
-	TakeButton->SetContent(TakeLabel);
+	TakeLabelBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTakeLabel"));
+	TakeButton->SetContent(TakeLabelBlock);
 
 	if (UVerticalBoxSlot* ButtonSlot = Column->AddChildToVerticalBox(TakeButton))
 	{
 		ButtonSlot->SetHorizontalAlignment(HAlign_Center);
 	}
 
-	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Frame))
+	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
 	{
 		PanelSlot->SetAnchors(FAnchors(0.5f, 0.42f));
 		PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
+
+	ApplyStyle(CurrentStyle);
+}
+
+void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
+{
+	CurrentStyle = Style; // SetupContent берёт отсюда Prefix/Suffix строк
+
+	if (FrameBorder) { FrameBorder->SetBrushColor(Style.FrameColor); }
+	if (PanelBorder) { PanelBorder->SetBrushColor(Style.PanelColor); }
+	if (TitleBlock)
+	{
+		TitleBlock->SetText(FText::FromString(Style.TitleText));
+		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+	}
+	if (StreakText)
+	{
+		StreakText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.StreakFontSize)));
+		StreakText->SetColorAndOpacity(FSlateColor(Style.StreakColor));
+	}
+	if (RewardText)
+	{
+		RewardText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.RewardFontSize)));
+		RewardText->SetColorAndOpacity(FSlateColor(Style.RewardColor));
+	}
+	if (TakeLabelBlock)
+	{
+		TakeLabelBlock->SetText(FText::FromString(Style.TakeButtonText));
+		TakeLabelBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TakeButtonFontSize)));
+		TakeLabelBlock->SetColorAndOpacity(FSlateColor(Style.TakeButtonTextColor));
+	}
 }
 
 void UDailyRewardWidget::SetupContent(int32 StreakDays, float RewardAmount)
 {
+	// Сборка кодом из Prefix/Suffix стиля: «День серии: 3» / «+35 монет» (форматы не в редакторе).
 	if (StreakText)
 	{
-		StreakText->SetText(FText::FromString(FString::Printf(TEXT("День серии: %d"), StreakDays)));
+		StreakText->SetText(FText::FromString(FString::Printf(TEXT("%s%d"),
+			*CurrentStyle.StreakPrefix, StreakDays)));
 	}
 	if (RewardText)
 	{
-		RewardText->SetText(FText::FromString(FString::Printf(TEXT("+%.0f монет"), RewardAmount)));
+		RewardText->SetText(FText::FromString(FString::Printf(TEXT("%s%.0f%s"),
+			*CurrentStyle.RewardPrefix, RewardAmount, *CurrentStyle.RewardSuffix)));
 	}
 }
 

@@ -21,26 +21,44 @@ void UOnboardingHintWidget::NativeOnInitialized()
 	WidgetTree->RootWidget = Root;
 
 	// Плашка в палитре подсказки взаимодействия Canvas-HUD (тёмный фон, тёплый жёлтый текст).
-	UBorder* Plate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintPlate"));
-	Plate->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.65f));
-	Plate->SetPadding(FMargin(18.0f, 12.0f));
+	// Значения — дефолты FOnboardingHintStyle; фактический стиль перекрывает ApplyStyle
+	// (EditAnywhere-настройка на UOnboardingComponent).
+	const FOnboardingHintStyle Defaults;
 
+	HintPlate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintPlate"));
 	HintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HintText"));
-	HintText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 18));
-	HintText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.95f, 0.5f, 1.0f)));
 	HintText->SetAutoWrapText(true);
 	HintText->SetJustification(ETextJustify::Center);
-	Plate->SetContent(HintText);
+	HintPlate->SetContent(HintText);
 
-	if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+	if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(HintPlate))
 	{
 		// Фиксированная ширина + авто-перенос текста: длинная подсказка (инвентарь) уходит
-		// на вторую строку, а не за край экрана.
-		PlateSlot->SetAnchors(FAnchors(0.5f, 0.10f));
+		// на вторую строку, а не за край экрана. Выравнивание — верх-центр.
 		PlateSlot->SetAlignment(FVector2D(0.5f, 0.0f));
 		PlateSlot->SetAutoSize(false);
 		PlateSlot->SetPosition(FVector2D::ZeroVector);
-		PlateSlot->SetSize(FVector2D(820.0f, 96.0f));
+	}
+
+	ApplyStyle(Defaults);
+}
+
+void UOnboardingHintWidget::ApplyStyle(const FOnboardingHintStyle& Style)
+{
+	if (HintPlate)
+	{
+		HintPlate->SetBrushColor(Style.PlateColor);
+		HintPlate->SetPadding(FMargin(Style.PlatePadding.X, Style.PlatePadding.Y));
+		if (UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(HintPlate->Slot))
+		{
+			PlateSlot->SetAnchors(FAnchors(Style.ScreenAnchor.X, Style.ScreenAnchor.Y));
+			PlateSlot->SetSize(Style.BoxSize);
+		}
+	}
+	if (HintText)
+	{
+		HintText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.FontSize)));
+		HintText->SetColorAndOpacity(FSlateColor(Style.TextColor));
 	}
 }
 

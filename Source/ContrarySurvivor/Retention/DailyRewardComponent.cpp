@@ -86,6 +86,7 @@ void UDailyRewardComponent::EvaluateDailyReward()
 	{
 		return;
 	}
+	ActiveWindow->ApplyStyle(WindowStyle); // стиль с компонента (EditAnywhere) поверх дефолтов
 	ActiveWindow->SetupContent(Result.NewStreak, Result.Reward);
 	ActiveWindow->OnClosed.AddUObject(this, &UDailyRewardComponent::HandleWindowClosed);
 	ActiveWindow->AddToViewport(/*ZOrder=*/50);

@@ -4,9 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ContrarySurvivor/UI/DailyRewardWidget.h" // FDailyRewardStyle (стиль окна)
 #include "DailyRewardComponent.generated.h"
-
-class UDailyRewardWidget;
 
 /**
  * Ежедневная награда за вход (Этап F2, ADR-044 п.4). Живёт на APlayerCharacter.
@@ -40,6 +39,11 @@ public:
 	// Задержка проверки/окна после старта уровня (сек) — даём миру дорисоваться.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.0", DisplayPriority = "4"))
 	float ShowWindowDelay = 0.8f;
+
+	// Стиль окна (цвета/тексты/шрифты) — применяется при создании виджета
+	// (директива Рината 07-18: настройка в BP_PlayerCharacter без пересборки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "5"))
+	FDailyRewardStyle WindowStyle;
 
 protected:
 	virtual void BeginPlay() override;

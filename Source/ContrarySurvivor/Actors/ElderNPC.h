@@ -46,11 +46,41 @@ public:
 	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
-	virtual FString GetNPCMarkerLabel() const override { return TEXT("Elder"); }
-	virtual float GetNPCMarkerZOffset() const override { return 320.0f; }
+	virtual FString GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
+	virtual float GetNPCMarkerZOffset() const override { return NPCMarkerZOffset; }
+
+	// --- Тексты диалога для HUD (директива Рината 07-18: настраиваются на РАЗМЕЩЁННОМ
+	// экземпляре BP_Elder; реплика NotStarted = Description текущего квеста) ---
+
+	const FString& GetDialogueDisplayName() const { return DialogueDisplayName; }
+	const FString& GetDialogueActivePrefix() const { return DialogueActivePrefix; }
+	const FString& GetDialogueCompletedText() const { return DialogueCompletedText; }
+	const FString& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
 
 protected:
 	virtual void PostInitializeComponents() override;
+
+	// Имя NPC в шапке окна диалога.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "1"))
+	FString DialogueDisplayName = TEXT("СТАРОСТА");
+
+	// Реплика с НЕзавершённым квестом собирается HUD'ом: Prefix + название + « — » + прогресс + «.»
+	// (формат-строки в редактор не отдаём — решение game-lead 07-18).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "2"))
+	FString DialogueActivePrefix = TEXT("Ты ещё не закончил. ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "3"))
+	FString DialogueCompletedText = TEXT("Отлично! Задание выполнено. Вот твоя награда.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4"))
+	FString DialogueTurnedInText = TEXT("Спасибо тебе ещё раз. Деревня тебе благодарна.");
+
+	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5"))
+	FString NPCMarkerLabel = TEXT("Elder");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "6"))
+	float NPCMarkerZOffset = 320.0f;
 
 	// Триггер диалоговой зоны: overlap по Pawn (игроку). По образцу AMasterTrader::InteractTrigger.
 	// meta DisplayPriority — поднять наши настройки наверх Details (фидбек Рината), сразу после Transform.

@@ -8,6 +8,56 @@
 
 class UButton;
 class UVerticalBox;
+class UBorder;
+class UTextBlock;
+
+/**
+ * Стиль меню паузы. Живёт EditAnywhere-полем на контроллере (виджет строится из C++-класса
+ * и в Details не виден — паттерн FTouchControlsConfig; директива Рината 07-18). Дефолты
+ * дословно повторяют прежние зашитые значения.
+ */
+USTRUCT(BlueprintType)
+struct FPauseMenuStyle
+{
+	GENERATED_BODY()
+
+	// Затемнение экрана под панелью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FLinearColor DimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.55f);
+
+	// Золотой кант панели и тёмный фон панели (палитра модалок HUD).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FLinearColor FrameColor = FLinearColor(0.8f, 0.65f, 0.25f, 0.9f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FLinearColor PanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FString TitleText = TEXT("ПАУЗА");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
+	int32 TitleFontSize = 24;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FLinearColor TitleColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FString ResumeText = TEXT("Продолжить");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FString QuitText = TEXT("Выход");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
+	int32 ButtonFontSize = 19;
+
+	// Цвет подписей кнопок (тёмный — на светлой штатной кнопке UButton).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FLinearColor ButtonTextColor = FLinearColor(0.05f, 0.05f, 0.05f, 1.0f);
+
+	// Габарит кнопки под палец (SizeBox: у UButton 5.5 нет SetPadding).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FVector2D ButtonSize = FVector2D(280.0f, 58.0f);
+};
 
 /**
  * Меню паузы (этап G, меню-минимум по решению game-lead: пауза + «Продолжить» + «Выход»).
@@ -29,6 +79,10 @@ public:
 	// «Выход» — владелец закрывает игру.
 	FSimpleMulticastDelegate OnQuitRequested;
 
+	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
+	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenPauseMenu).
+	void ApplyStyle(const FPauseMenuStyle& Style);
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -49,4 +103,26 @@ private:
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера (мин. высота под палец),
 	// добавленная в колонку. Возвращает кнопку для подписки OnClicked.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FString& Label, const FName& BaseName);
+
+	// Элементы дерева, которые перекрашивает ApplyStyle.
+	UPROPERTY()
+	TObjectPtr<UBorder> DimmerBorder;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> FrameBorder;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> PanelBorder;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> TitleBlock;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> ResumeLabel;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> QuitLabel;
+
+	UPROPERTY()
+	TArray<TObjectPtr<class USizeBox>> ButtonBoxes;
 };

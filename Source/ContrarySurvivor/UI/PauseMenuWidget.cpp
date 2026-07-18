@@ -24,64 +24,100 @@ void UPauseMenuWidget::NativeOnInitialized()
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PauseRoot"));
 	WidgetTree->RootWidget = Root;
 
+	// Стиль (цвета/тексты/шрифты) — дефолты FPauseMenuStyle; фактический стиль перекрывает
+	// ApplyStyle (EditAnywhere-настройка контроллера, директива Рината 07-18).
+	const FPauseMenuStyle Defaults;
+
 	// Затемнение на весь экран. Visible — ловит хит-тест, чтобы клик мимо кнопок не ушёл в мир
 	// (само событие гасится в NativeOnMouseButtonDown/NativeOnTouchStarted ниже).
-	UBorder* Dimmer = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseDimmer"));
-	Dimmer->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.55f));
-	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(Dimmer))
+	DimmerBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseDimmer"));
+	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimmerBorder))
 	{
 		DimmerSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
 		DimmerSlot->SetOffsets(FMargin(0.0f));
 	}
 
 	// Панель по центру — двойная рамка в палитре HUD (как окно ежедневной награды).
-	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseFrame"));
-	Frame->SetBrushColor(FLinearColor(0.8f, 0.65f, 0.25f, 0.9f));
-	Frame->SetPadding(FMargin(2.0f));
+	FrameBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseFrame"));
+	FrameBorder->SetPadding(FMargin(2.0f));
 
-	UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PausePanel"));
-	Panel->SetBrushColor(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f));
-	Panel->SetPadding(FMargin(36.0f, 26.0f));
-	Frame->SetContent(Panel);
+	PanelBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PausePanel"));
+	PanelBorder->SetPadding(FMargin(36.0f, 26.0f));
+	FrameBorder->SetContent(PanelBorder);
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PauseColumn"));
-	Panel->SetContent(Column);
+	PanelBorder->SetContent(Column);
 
-	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PauseTitle"));
-	Title->SetText(FText::FromString(TEXT("ПАУЗА")));
-	Title->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 24));
-	Title->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f)));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(Title))
+	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PauseTitle"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 20.0f));
 	}
 
-	if (UButton* ResumeButton = MakeMenuButton(Column, TEXT("Продолжить"), TEXT("PauseResume")))
+	if (UButton* ResumeButton = MakeMenuButton(Column, Defaults.ResumeText, TEXT("PauseResume")))
 	{
 		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
+		ResumeLabel = Cast<UTextBlock>(ResumeButton->GetContent());
 	}
-	if (UButton* QuitButton = MakeMenuButton(Column, TEXT("Выход"), TEXT("PauseQuit")))
+	if (UButton* QuitButton = MakeMenuButton(Column, Defaults.QuitText, TEXT("PauseQuit")))
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleQuitClicked);
+		QuitLabel = Cast<UTextBlock>(QuitButton->GetContent());
 	}
 
-	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Frame))
+	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
 	{
 		PanelSlot->SetAnchors(FAnchors(0.5f, 0.45f));
 		PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
+
+	ApplyStyle(Defaults);
+}
+
+void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
+{
+	if (DimmerBorder) { DimmerBorder->SetBrushColor(Style.DimColor); }
+	if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
+	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
+	if (TitleBlock)
+	{
+		TitleBlock->SetText(FText::FromString(Style.TitleText));
+		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+	}
+
+	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FString& Text)
+	{
+		if (Label)
+		{
+			Label->SetText(FText::FromString(Text));
+			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+		}
+	};
+	StyleButtonLabel(ResumeLabel, Style.ResumeText);
+	StyleButtonLabel(QuitLabel, Style.QuitText);
+
+	for (USizeBox* Box : ButtonBoxes)
+	{
+		if (Box)
+		{
+			Box->SetWidthOverride(Style.ButtonSize.X);
+			Box->SetHeightOverride(Style.ButtonSize.Y);
+		}
+	}
 }
 
 UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FString& Label, const FName& BaseName)
 {
 	// SizeBox задаёт тач-габарит кнопки (у UButton 5.5 нет SetPadding): палец должен попадать.
+	// Размер/шрифт/цвет ставит ApplyStyle (боксы и подписи запоминаются членами).
 	USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Box"))));
-	Box->SetWidthOverride(280.0f);
-	Box->SetHeightOverride(58.0f);
+	ButtonBoxes.Add(Box);
 
 	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), BaseName);
 	Box->SetContent(Button);
@@ -89,8 +125,6 @@ UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FString& L
 	UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Label"))));
 	Text->SetText(FText::FromString(Label));
-	Text->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 19));
-	Text->SetColorAndOpacity(FSlateColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.0f)));
 	Button->SetContent(Text);
 
 	if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))

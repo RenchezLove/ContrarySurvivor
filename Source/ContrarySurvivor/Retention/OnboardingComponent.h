@@ -4,9 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ContrarySurvivor/UI/OnboardingHintWidget.h" // FOnboardingHintStyle (стиль тоста)
 #include "OnboardingComponent.generated.h"
 
-class UOnboardingHintWidget;
 class UContrarySaveGame;
 
 // Контекстные подсказки онбординга (Этап F1). Каждая показывается ОДИН раз за профиль
@@ -54,14 +54,37 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (ClampMin = "0.0", DisplayPriority = "2"))
 	float MovementHintDelay = 1.5f;
 
+	// --- Тексты подсказок (директива Рината 07-18: настраиваются в BP_PlayerCharacter).
+	// Дефолты дословно прежние зашитые; клавиши в них сверены с реальными биндингами проекта:
+	// движение W/A/S/D (IMC_Default), атака — клик (IA_Fire=ЛКМ), смена оружия Q, подбор E,
+	// инвентарь I/Tab (legacy ActionMapping, Config/DefaultInput.ini). ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "3"))
+	FString HintTextMovement = TEXT("Передвижение — W, A, S, D. Атака — клик по врагу. Смена оружия — Q");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "4"))
+	FString HintTextPickup = TEXT("Нажми E, чтобы подобрать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "5"))
+	FString HintTextElder = TEXT("Поговори со старостой — у него есть работа");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "6"))
+	FString HintTextInventory = TEXT("Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»");
+
+	// СТРОГО эта формулировка (ADR-044 п.3): БЕЗ «можно вернуться и забрать».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "7"))
+	FString HintTextDeath = TEXT("Часть монет утрачена. Расходники обронены на месте гибели.");
+
+	// Стиль тоста (цвет плашки/текста, шрифт, позиция, размер) — применяется при создании виджета.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (DisplayPriority = "8"))
+	FOnboardingHintStyle HintStyle;
+
 protected:
 	virtual void BeginPlay() override;
 
 private:
-	// Текст подсказки. Клавиши сверены с реальными биндингами проекта: движение W/A/S/D
-	// (IMC_Default), атака — клик (IA_Fire=ЛКМ), смена оружия Q, подбор E, инвентарь I/Tab
-	// (legacy ActionMapping, Config/DefaultInput.ini).
-	static FString GetHintText(EOnboardingHint Hint);
+	// Текст подсказки — из EditAnywhere-полей выше.
+	FString GetHintText(EOnboardingHint Hint) const;
 
 	// Записать флаг «показано» в слот сейва (load-or-create, правит только свой флаг).
 	void PersistShownFlag(EOnboardingHint Hint);

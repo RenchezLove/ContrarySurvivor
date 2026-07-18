@@ -192,81 +192,81 @@ public:
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
 	// GDD ч.8: «при приближении ближе ~5 м». 5 м ≈ 500 ед, но для top-down-обзора берём с запасом.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	float HealthBarShowRadius = 1500.0f;
 
 	// Размеры полоски здоровья в пикселях.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	float HealthBarWidth = 80.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	float HealthBarHeight = 8.0f;
 
 	// На сколько единиц над Actor location поднимаем якорь полоски (над головой).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	float HealthBarWorldZOffset = 110.0f;
 
 	// Цвета.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	FLinearColor BackgroundColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	FLinearColor FillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.9f);
 
 	// Цвет заполнения хелсбара ИМЕННО текущей залоченной цели (ярче обычного — выделяем).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|HealthBar")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|HealthBar", meta = (DisplayPriority = "1"))
 	FLinearColor TargetFillColor = FLinearColor(1.0f, 0.25f, 0.1f, 1.0f);
 
 	// --- Маркер ТЕКУЩЕЙ залоченной цели (ФИКС1: игрок должен видеть, кого бьёт) ---
 
 	// На сколько единиц над Actor location поднимаем якорь маркера (центр силуэта цели).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerWorldZOffset = 50.0f;
 
 	// Полуразмер рамки-ретикла (px): угловые скобки рисуются по углам квадрата 2*HalfSize.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerHalfSize = 46.0f;
 
 	// Длина «плеча» угловой скобки (px).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerCornerLen = 16.0f;
 
 	// Толщина линий маркера (px).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerThickness = 3.0f;
 
 	// Высота указывающего вниз треугольника над рамкой (px) и зазор до рамки.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerTriHeight = 18.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerTriGap = 6.0f;
 
 	// Цвет маркера цели — заметный (жёлтый).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|TargetMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	FLinearColor TargetMarkerColor = FLinearColor(1.0f, 0.92f, 0.1f, 1.0f);
 
 	// --- Маркер интерактивных NPC (торговец, позже староста) — находимость ---
 	// Отличается от маркера ВРАГА (жёлтый ретикл): иной цвет (зелёный) и форма (ромб),
 	// + стрелка по краю экрана, если NPC за кадром.
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	FLinearColor NPCMarkerColor = FLinearColor(0.15f, 0.95f, 0.45f, 1.0f); // зелёный (дружественный)
 
 	// Полуразмер ромба маркера на экране (px), когда NPC в кадре.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	float NPCMarkerHalfSize = 16.0f;
 
 	// Толщина линий маркера/стрелки (px).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	float NPCMarkerThickness = 3.0f;
 
 	// Отступ от края экрана для зажатой к краю стрелки (px).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	float NPCMarkerEdgeMargin = 56.0f;
 
 	// Длина (px) указывающей стрелки за кадром.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|NPCMarker")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	float NPCMarkerArrowLen = 22.0f;
 
 	// --- Всплывающие цифры урона (D5). Директива Рината 06-25: EditAnywhere+BRW, наверх. ---
@@ -310,160 +310,553 @@ protected:
 	// --- HUD игрока (GDD §7.7) ---
 
 	// Левый верхний угол: отступы и размеры HP-бара игрока.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	float PlayerHudMarginX = 24.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	float PlayerHudMarginY = 24.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	float PlayerHealthBarWidth = 320.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	float PlayerHealthBarHeight = 28.0f;
 
 	// Высота баров голода/жажды (#18: крупнее для читаемости).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	float PlayerSurvivalBarHeight = 24.0f;
 
 	// Подложка-плашка под текстом денег (#18) — тёмный полупрозрачный прямоугольник.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	FLinearColor MoneyPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);
 
 	// Цвет текста патронов экипированного оружия (#5).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	FLinearColor AmmoColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	FLinearColor PlayerHealthFillColor = FLinearColor(0.85f, 0.1f, 0.1f, 0.95f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	FLinearColor HungerColor = FLinearColor(0.85f, 0.55f, 0.1f, 0.95f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Player")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player", meta = (DisplayPriority = "1"))
 	FLinearColor ThirstColor = FLinearColor(0.15f, 0.55f, 0.9f, 0.95f);
 
 	// --- Экран инвентаря (GDD §7.4) ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvDimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);      // затемнение фона
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvPanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f); // фон панели
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvSlotColor = FLinearColor(0.15f, 0.16f, 0.2f, 1.0f);    // пустой слот/строка
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvSlotFilledColor = FLinearColor(0.2f, 0.3f, 0.22f, 1.0f); // занятый слот
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvHoverColor = FLinearColor(0.32f, 0.38f, 0.5f, 1.0f);   // подсветка под курсором
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "1"))
 	FLinearColor InvDropColor = FLinearColor(0.5f, 0.12f, 0.12f, 1.0f);    // кнопка [X] выброса
 
 	// --- Иконки слотов брони (ADR-043) ---
 	// Иконка ПУСТОГО слота paper-doll (читается как пустой). МЯГКИЕ ссылки: текстур может
 	// ещё не быть в проекте (импорт по этим именам позже) — тогда текстовый фолбэк «(пусто)»,
 	// без крашей и без повторных попыток загрузки каждый кадр (см. ResolveIcon/IconCache).
-	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "2"))
 	TSoftObjectPtr<UTexture2D> EmptySlotIconHead =
 		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Head.T_Icon_Slot_Head")));
 
-	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "2"))
 	TSoftObjectPtr<UTexture2D> EmptySlotIconTorso =
 		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Torso.T_Icon_Slot_Torso")));
 
-	UPROPERTY(EditAnywhere, Category = "HUD|Inventory")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory", meta = (DisplayPriority = "2"))
 	TSoftObjectPtr<UTexture2D> EmptySlotIconLegs =
 		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Slot_Legs.T_Icon_Slot_Legs")));
 
 	// --- Контекстная подсказка взаимодействия (E) — BUG3 ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Interact", meta = (DisplayPriority = "1"))
 	FLinearColor InteractPromptBgColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.65f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Interact")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Interact", meta = (DisplayPriority = "1"))
 	FLinearColor InteractPromptTextColor = FLinearColor(1.0f, 0.95f, 0.5f, 1.0f);
 
 	// --- Трекер активного квеста (Фаза 5, GDD §7.7) ---
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest", meta = (DisplayPriority = "1"))
 	FLinearColor QuestTrackerColor = FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Quest")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest", meta = (DisplayPriority = "1"))
 	FLinearColor QuestTrackerDoneColor = FLinearColor(0.4f, 1.0f, 0.4f, 1.0f);
 
 	// --- Читаемость HUD магазина/инвентаря (#18): жирный/крупный текст, подложки, обводка ---
 	// Вынесено в EditAnywhere, чтобы Ринат твикал размеры/цвета без пересборки.
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UIHeaderTextScale = 1.3f;        // заголовки панелей (INVENTORY/TRADER/...)
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UISubHeaderTextScale = 1.12f;    // подзаголовки колонок (EQUIPMENT/FOR SALE/...)
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UIMoneyTextScale = 1.25f;        // строка денег в панелях
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UIBoxLabelScale = 1.0f;          // подписи внутри плиток/кнопок (с обводкой)
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UISliderTitleScale = 1.35f;      // заголовок слайдера BUY/SELL
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UISliderQtyScale = 1.5f;         // число количества в слайдере
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UISliderPriceScale = 1.4f;       // итоговая цена/выручка в слайдере
 
 	// Подложка-плашка под ключевыми надписями (тёмная полупрозрачная).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	FLinearColor UITextPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.6f);
 
 	// Светлый цвет заголовков/подписей.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	FLinearColor UIHeaderColor = FLinearColor(0.95f, 0.96f, 1.0f, 1.0f);
 
 	// Золотой акцент для денег/цен.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	FLinearColor UIMoneyColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
 
 	// Рамка-обводка вокруг модальных панелей (золотой акцент).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	FLinearColor UIPanelBorderColor = FLinearColor(0.8f, 0.65f, 0.25f, 0.9f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Readability", meta = (DisplayPriority = "1"))
 	float UIPanelBorderThickness = 2.0f;
 
-	// --- Подсказка прокрутки списков магазина (этап G2) ---
-	// Хвост счётчика «X-Y из N …»: на ПК — про колесо, на таче — про свайп (выбор по
-	// наличию тач-слоя у контроллера, решение game-lead 07-18).
+	// ======================================================================
+	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
+	// вынесены в EditAnywhere-поля. Дефолты дословно повторяют прежние зашитые значения.
+	// Формат-строки с параметрами вынесены полями Prefix/Suffix (решение game-lead:
+	// сырые Printf-форматы в редактор не отдавать). Микро-отступы (6-30px внутренних
+	// зазоров) сознательно оставлены в коде — иначе Details утонет в полях.
+	// ======================================================================
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop", meta = (DisplayPriority = "1"))
+	// --- Общая геометрия центральных панелей (инвентарь И магазин — одинаковы по дизайну) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "1"))
+	float UIPanelMaxWidth = 960.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "2"))
+	float UIPanelMaxHeight = 600.0f;
+
+	// Доля экрана, которую панель занимает на малых окнах (кламп сверху MaxWidth/MaxHeight).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "3", ClampMin = "0.3", ClampMax = "1.0"))
+	float UIPanelScreenFrac = 0.86f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "4"))
+	float UIPanelPadding = 16.0f;
+
+	// Строки списков (каталог/рюкзак): высота и зазор.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "5", ClampMin = "10.0"))
+	float UIRowHeight = 34.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Panel Layout", meta = (DisplayPriority = "6", ClampMin = "0.0"))
+	float UIRowGap = 6.0f;
+
+	// --- Магазин: геометрия ---
+
+	// Доля ширины панели под левую колонку «FOR SALE».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Layout", meta = (DisplayPriority = "1", ClampMin = "0.2", ClampMax = "0.8"))
+	float ShopLeftColumnFrac = 0.52f;
+
+	// Кнопки Buy/Sell в строках списков.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Layout", meta = (DisplayPriority = "2"))
+	float ShopRowButtonWidth = 64.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Layout", meta = (DisplayPriority = "3"))
+	float ShopCloseButtonWidth = 90.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Layout", meta = (DisplayPriority = "4"))
+	float ShopCloseButtonHeight = 28.0f;
+
+	// --- Магазин: тексты ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "1"))
+	FString ShopHeaderText = TEXT("TRADER  (E to close)");
+
+	// Перед числом денег: «Монеты 150».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "2"))
+	FString ShopMoneyPrefix = TEXT("Монеты ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "3"))
+	FString ShopBuyHeaderText = TEXT("FOR SALE  (Купить)");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "4"))
+	FString ShopSellHeaderText = TEXT("SELL FROM BACKPACK  (Продать)");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "5"))
+	FString ShopBuyButtonText = TEXT("Buy");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "6"))
+	FString ShopSellButtonText = TEXT("Sell");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "7"))
+	FString ShopCloseButtonText = TEXT("Close");
+
+	// Хвост счётчика прокрутки «X-Y из N …»: на ПК — про колесо, на таче — про свайп
+	// (выбор по наличию тач-слоя у контроллера, решение game-lead 07-18).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "8"))
 	FString ShopScrollHintWheel = TEXT("(колесо — листать)");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop", meta = (DisplayPriority = "2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "9"))
 	FString ShopScrollHintSwipe = TEXT("(свайп — листать)");
+
+	// --- Слайдер количества: геометрия ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "1"))
+	float SliderPanelMaxWidth = 600.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "2", ClampMin = "0.3", ClampMax = "1.0"))
+	float SliderPanelScreenFrac = 0.62f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "3"))
+	float SliderPanelHeight = 260.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "4"))
+	float SliderPanelPadding = 18.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "5"))
+	float SliderTrackHeight = 10.0f;
+
+	// Кнопки [-] [+].
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "6"))
+	float SliderSmallButtonWidth = 48.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "7"))
+	float SliderSmallButtonHeight = 30.0f;
+
+	// Кнопки [Confirm]/[Cancel].
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "8"))
+	float SliderBigButtonWidth = 120.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "9"))
+	float SliderBigButtonHeight = 34.0f;
+
+	// Цвет строки «Кол-во: …» (светло-жёлтый) и подсказки клавиш внизу панели.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "10"))
+	FLinearColor SliderQtyColor = FLinearColor(1.0f, 0.97f, 0.7f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "11"))
+	FLinearColor SliderKeysHintColor = FLinearColor(0.8f, 0.8f, 0.82f, 1.0f);
+
+	// --- Слайдер количества: тексты ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "1"))
+	FString SliderBuyTitle = TEXT("КУПИТЬ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "2"))
+	FString SliderSellTitle = TEXT("ПРОДАТЬ");
+
+	// Перед «N / max»: «Кол-во: 3 / 10».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "3"))
+	FString SliderQtyPrefix = TEXT("Кол-во: ");
+
+	// Перед итоговой суммой покупки: «Итого: 120».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "4"))
+	FString SliderTotalPrefix = TEXT("Итого: ");
+
+	// Перед выручкой продажи (плюс — часть текста): «Выручка: +40».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "5"))
+	FString SliderRevenuePrefix = TEXT("Выручка: +");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "6"))
+	FString SliderConfirmText = TEXT("Confirm");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "7"))
+	FString SliderCancelText = TEXT("Cancel");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "8"))
+	FString SliderKeysHintText = TEXT("[<-/->] +-1   [Shift] +-10   [Enter] confirm");
+
+	// --- Инвентарь: геометрия ---
+
+	// Доля ширины панели под левую колонку «СНАРЯЖЕНИЕ» (paper-doll).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Layout", meta = (DisplayPriority = "1", ClampMin = "0.2", ClampMax = "0.8"))
+	float InvLeftColumnFrac = 0.42f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Layout", meta = (DisplayPriority = "2"))
+	float InvSlotHeight = 56.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Layout", meta = (DisplayPriority = "3"))
+	float InvSlotGap = 10.0f;
+
+	// Кнопка [X] выброса в строке рюкзака.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Layout", meta = (DisplayPriority = "4"))
+	float InvDropButtonWidth = 30.0f;
+
+	// Цвет строки-подсказки «(клик по занятому слоту — снять броню)».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Layout", meta = (DisplayPriority = "5"))
+	FLinearColor InvHintTextColor = FLinearColor(0.78f, 0.78f, 0.8f, 1.0f);
+
+	// --- Инвентарь: тексты ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "1"))
+	FString InvHeaderText = TEXT("ИНВЕНТАРЬ  (Tab / I — закрыть)");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "2"))
+	FString InvEquipmentHeaderText = TEXT("СНАРЯЖЕНИЕ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "3"))
+	FString InvBackpackHeaderText = TEXT("РЮКЗАК");
+
+	// Подписи слотов брони (строка «Шлем: (пусто)» собирается кодом: имя + ": " + предмет).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "4"))
+	FString InvSlotNameHead = TEXT("Шлем");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "5"))
+	FString InvSlotNameTorso = TEXT("Торс");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "6"))
+	FString InvSlotNameLegs = TEXT("Штаны");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "7"))
+	FString InvEmptySlotText = TEXT("(пусто)");
+
+	// Перед именем оружия: «Оружие: Пистолет»; «(нет)» — пустые руки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "8"))
+	FString InvWeaponPrefix = TEXT("Оружие: ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "9"))
+	FString InvNoWeaponText = TEXT("(нет)");
+
+	// Перед процентом защиты: «Защита: 45%».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "10"))
+	FString InvProtectionPrefix = TEXT("Защита: ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "11"))
+	FString InvUnequipHintText = TEXT("(клик по занятому слоту — снять броню)");
+
+	// Подсказки действия в строке рюкзака: «Тушёнка  [использовать]».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "12"))
+	FString InvUseHintConsumable = TEXT("использовать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "13"))
+	FString InvUseHintArmor = TEXT("надеть");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "14"))
+	FString InvDropButtonText = TEXT("X");
+
+	// Подписи строки статов в шапке: «Монеты X      Голод A / B      Жажда C / D».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "15"))
+	FString StatMoneyLabel = TEXT("Монеты");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "16"))
+	FString StatHungerLabel = TEXT("Голод");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "17"))
+	FString StatThirstLabel = TEXT("Жажда");
+
+	// --- Диалог со старостой: геометрия и цвета (тексты реплик живут на AElderNPC) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "1"))
+	float DialogPanelMaxWidth = 900.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "2", ClampMin = "0.3", ClampMax = "1.0"))
+	float DialogPanelScreenFrac = 0.86f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "3"))
+	float DialogPadding = 18.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "4"))
+	float DialogButtonHeight = 40.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "5"))
+	float DialogButtonWidth = 200.0f;
+
+	// Кнопка [Сдать (+N)] шире обычной — в ней сумма награды.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "6"))
+	float DialogTurnInButtonWidth = 240.0f;
+
+	// Отступ панели от низа экрана.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "7"))
+	float DialogBottomMargin = 40.0f;
+
+	// Пол высоты панели (короткие реплики) и потолок долей экрана (длинные).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "8"))
+	float DialogMinPanelHeight = 280.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "9", ClampMin = "0.2", ClampMax = "0.9"))
+	float DialogMaxHeightFrac = 0.55f;
+
+	// Цвет имени NPC в шапке диалога (голубой) и цвет текста реплики.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "10"))
+	FLinearColor DialogNameColor = FLinearColor(0.65f, 0.88f, 1.0f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "11"))
+	FLinearColor DialogTextColor = FLinearColor::White;
+
+	// --- Диалог: тексты кнопок ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "1"))
+	FString DialogAcceptText = TEXT("[ Принять ]");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "2"))
+	FString DialogDeclineText = TEXT("[ Отказаться ]");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "3"))
+	FString DialogCloseText = TEXT("[ Закрыть ]");
+
+	// Кнопка сдачи собирается кодом: Prefix + сумма награды + Suffix = «[ Сдать (+150) ]».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "4"))
+	FString DialogTurnInPrefix = TEXT("[ Сдать (+");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "5"))
+	FString DialogTurnInSuffix = TEXT(") ]");
+
+	// --- Экран смерти: геометрия/цвета (дополнение к базовым цветам выше) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "1"))
+	float DeathTitleScale = 2.4f;
+
+	// Вертикальные позиции долями экрана: заголовок и начало статистики.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "2", ClampMin = "0.0", ClampMax = "1.0"))
+	float DeathTitleYFrac = 0.18f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "3", ClampMin = "0.0", ClampMax = "1.0"))
+	float DeathStatsYFrac = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "4"))
+	float DeathStatScale = 1.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "5"))
+	float DeathPenaltyScale = 1.15f;
+
+	// Цвет строки штрафа монет (оранжевый) и строки «сохранено» (зелёный).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "6"))
+	FLinearColor DeathPenaltyColor = FLinearColor(0.95f, 0.55f, 0.15f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "7"))
+	FLinearColor DeathSavedColor = FLinearColor(0.45f, 0.85f, 0.45f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "8"))
+	float DeathButtonMaxWidth = 360.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "9"))
+	float DeathButtonHeight = 56.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "10"))
+	float DeathButtonTextScale = 1.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "11"))
+	FLinearColor DeathButtonHoverColor = FLinearColor(0.3f, 0.6f, 0.35f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Layout", meta = (DisplayPriority = "12"))
+	FLinearColor DeathKeyHintColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
+
+	// --- Экран смерти: тексты (штрафные строки — ФИНАЛЬНЫЕ формулировки ADR-027/ADR-044) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "1"))
+	FString DeathTitleText = TEXT("ВЫ ПОГИБЛИ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "2"))
+	FString DeathLifetimePrefix = TEXT("Прожито:  ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "3"))
+	FString DeathKillerPrefix = TEXT("Убийца:  ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "4"))
+	FString DeathMoneyPrefix = TEXT("Монеты:  ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "5"))
+	FString DeathQuestsPrefix = TEXT("Квестов выполнено:  ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "6"))
+	FString DeathKillsPrefix = TEXT("Врагов убито:  ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "7"))
+	FString DeathRespawnLine = TEXT("Возрождение у костра в деревне.");
+
+	// Строка штрафа монет собирается кодом: Prefix + процент + Suffix = «−40% монет — …».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "8"))
+	FString DeathMoneyLossPrefix = TEXT("−");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "9"))
+	FString DeathMoneyLossSuffix = TEXT("% монет — часть монет утрачена при гибели.");
+
+	// ADR-044 п.3 (дословно, дополнение Рината): БЕЗ «их можно забрать» — портит атмосферу.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "10"))
+	FString DeathConsumablesLine = TEXT("Расходники обронены мешком на месте гибели.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "11"))
+	FString DeathSavedLine = TEXT("Снаряжение, оружие и важные предметы сохранены.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "12"))
+	FString DeathRespawnButtonText = TEXT("ВОЗРОДИТЬСЯ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "13"))
+	FString DeathKeyHintText = TEXT("Enter / Пробел — возродиться");
+
+	// --- Трекер квеста: тексты и плашка ---
+
+	// Перед названием: «Квест: Шкуры волков — …».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "1"))
+	FString QuestTrackerPrefix = TEXT("Квест: ");
+
+	// Выполненный квест собирается кодом: Prefix + название + (прогресс) + Suffix.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "2"))
+	FString QuestDonePrefix = TEXT("Квест выполнен: ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "3"))
+	FString QuestDoneSuffix = TEXT(" - вернись к старосте");
+
+	// Перед названием на метке квестодателя: «Сдать: Шкуры волков».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "4"))
+	FString QuestTurnInMarkerPrefix = TEXT("Сдать: ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "5"))
+	FLinearColor QuestTrackerPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.55f);
+
+	// --- HUD игрока: тексты и цвет денег (левый стек) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "1"))
+	FString PlayerHpPrefix = TEXT("HP ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "2"))
+	FString PlayerHungerPrefix = TEXT("Hunger ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "3"))
+	FString PlayerThirstPrefix = TEXT("Thirst ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "4"))
+	FString PlayerAmmoPrefix = TEXT("Ammo ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "5"))
+	FString PlayerMoneyPrefix = TEXT("Монеты ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "6"))
+	FLinearColor PlayerMoneyColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
 
 	// --- Экран смерти (#26) ---
 
 	// Затемнение фона экрана смерти (почти чёрное — фокус на статистике).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death", meta = (DisplayPriority = "1"))
 	FLinearColor DeathDimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.85f);
 
 	// Цвет заголовка «Вы погибли».
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death", meta = (DisplayPriority = "1"))
 	FLinearColor DeathTitleColor = FLinearColor(0.9f, 0.12f, 0.1f, 1.0f);
 
 	// Цвет строк статистики.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death", meta = (DisplayPriority = "1"))
 	FLinearColor DeathStatColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
 
 	// Цвет кнопки «Возродиться».
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Death")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death", meta = (DisplayPriority = "1"))
 	FLinearColor DeathButtonColor = FLinearColor(0.2f, 0.45f, 0.25f, 1.0f);
 
 private:
