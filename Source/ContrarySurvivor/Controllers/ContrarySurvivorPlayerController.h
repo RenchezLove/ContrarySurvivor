@@ -19,6 +19,7 @@ class APickup;
 class UOnboardingComponent;
 class UTouchControlsWidget;
 class UPauseMenuWidget;
+enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
 // E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
@@ -107,6 +108,10 @@ public:
 	void TouchToggleInventory() { OnToggleInventory(); }
 	void TouchSwitchWeapon()    { OnSwitchWeapon(); }
 	void TouchTogglePauseMenu() { OnTogglePauseMenu(); }
+
+	// Тач-слой активен (Android всегда; ПК — по флагу bEnableTouchControls). HUD выбирает
+	// по этому текст подсказки прокрутки магазина: «свайп» против «колесо» (G2).
+	bool HasTouchLayer() const { return TouchControlsLayer != nullptr; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -218,6 +223,29 @@ protected:
 	// true: БЕГ — переключатель (тап вкл/выкл, подсветка); false: бег пока палец на кнопке.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 15))
 	bool bTouchSprintToggle = true;
+
+	// --- Тач-жесты магазина (G2): свайп = прокрутка списков / количество слайдера ---
+
+	// Порог (px), после которого касание считается свайпом, а не тапом. Меньше — прокрутка
+	// отзывчивее, но дрожащий палец начнёт листать вместо кликов по кнопкам.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Shop", meta = (DisplayPriority = 16, ClampMin = "1.0"))
+	float TouchDragSlopPx = 14.0f;
+
+	// Множитель скорости свайп-прокрутки списков (1 = список движется за пальцем 1:1).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Shop", meta = (DisplayPriority = 17, ClampMin = "0.1"))
+	float TouchScrollSensitivity = 1.0f;
+
+	// Обработчики BindTouch (SetupInputComponent). Активны только при открытом магазине:
+	// отслеживается ОДИН палец (первый коснувшийся); свайп по списку — прокрутка, свайп по
+	// треку слайдера — количество, отпускание без свайпа — клик (HandleShopClick) в точке
+	// ОТПУСКАНИЯ. Клик магазина на НАЖАТИИ (прежний путь ScreenTap->Fire) для тача снят —
+	// иначе каждый свайп начинался бы покупкой того, что под пальцем.
+	void OnShopTouchPressed(ETouchIndex::Type FingerIndex, FVector Location);
+	void OnShopTouchMoved(ETouchIndex::Type FingerIndex, FVector Location);
+	void OnShopTouchReleased(ETouchIndex::Type FingerIndex, FVector Location);
+
+	// Сброс отслеживания пальца (отпускание/закрытие магазина).
+	void ResetShopTouchState();
 
 	// --- Движение ---
 
@@ -457,6 +485,18 @@ private:
 	// Открыт ли экран магазина (модальный, как инвентарь): клик уходит в магазин,
 	// движение подавлено. Источник переключения — OnInteract/CloseShop.
 	bool bShopOpen = false;
+
+	// --- Состояние тач-жеста магазина (G2, см. OnShopTouch*) ---
+
+	// Индекс отслеживаемого пальца (ETouchIndex как int; INDEX_NONE — жеста нет).
+	int32 ShopTouchFinger = INDEX_NONE;
+	FVector2D ShopTouchStart = FVector2D::ZeroVector;
+	FVector2D ShopTouchLast = FVector2D::ZeroVector;
+	bool bShopTouchDragging = false;
+
+	// Зона, где жест начался (фиксируется при превышении порога свайпа). Инициализируется
+	// в конструкторе: enum объявлен forward, значения здесь недоступны.
+	EShopDragZone ShopTouchZone;
 
 	// Ближайший вендор (выставляется его overlap-триггером). Пусто — торговца рядом нет.
 	// Интерфейс — развязка от конкретного класса торговца (A2). TScriptInterface держит и

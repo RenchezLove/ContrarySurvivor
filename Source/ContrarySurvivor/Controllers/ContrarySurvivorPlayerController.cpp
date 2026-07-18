@@ -55,6 +55,9 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchWeaponButton.Margin    = FVector2D(150.0f, 540.0f); TouchWeaponButton.Radius    = 45.0f;
 	TouchInventoryButton.Margin = FVector2D(120.0f, 100.0f); TouchInventoryButton.Radius = 50.0f;
 	TouchPauseButton.Margin     = FVector2D(70.0f, 70.0f);   TouchPauseButton.Radius     = 32.0f;
+
+	// G2: enum зоны жеста в заголовке только forward-объявлен — значение доступно здесь.
+	ShopTouchZone = EShopDragZone::None;
 }
 
 void AContrarySurvivorPlayerController::BeginPlay()
@@ -227,6 +230,15 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// заводится в тот же Fire()-путь, что клик ЛКМ (обоснование — коммент у OnScreenTapPressed).
 		InputComponent->BindAction(TEXT("ScreenTap"), IE_Pressed,  this, &AContrarySurvivorPlayerController::OnScreenTapPressed);
 		InputComponent->BindAction(TEXT("ScreenTap"), IE_Released, this, &AContrarySurvivorPlayerController::OnScreenTapReleased);
+
+		// G2: тач-жесты магазина (свайп-прокрутка списков, слайдер пальцем, тап = клик на
+		// отпускании). BindTouch даёт индекс пальца и ЖИВУЮ позицию каждого события — в отличие
+		// от ScreenTap (клавиша без позиции). Исполняется тем же конвейером PlayerInput, что и
+		// легаси-экшены (UPlayerInput::ProcessInputStack, TouchBindings — PlayerInput.cpp:1382),
+		// под EnhancedPlayerInput работает. На ПК тач-события не генерятся — мышь не задета.
+		InputComponent->BindTouch(IE_Pressed,  this, &AContrarySurvivorPlayerController::OnShopTouchPressed);
+		InputComponent->BindTouch(IE_Repeat,   this, &AContrarySurvivorPlayerController::OnShopTouchMoved);
+		InputComponent->BindTouch(IE_Released, this, &AContrarySurvivorPlayerController::OnShopTouchReleased);
 
 		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
 		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
@@ -413,6 +425,14 @@ void AContrarySurvivorPlayerController::HandlePauseQuit()
 
 void AContrarySurvivorPlayerController::OnScreenTapPressed()
 {
+	// G2: тапы в ОТКРЫТОМ МАГАЗИНЕ обрабатывает конвейер жестов (OnShopTouch*) на ОТПУСКАНИИ
+	// пальца — клик на нажатии превращал бы каждый свайп в покупку того, что под пальцем.
+	// Путь мыши не задет: ScreenTap стреляет только от Touch-клавиш, которых на ПК нет.
+	if (bShopOpen)
+	{
+		return;
+	}
+
 	// Один тап = один «клик»: выбор цели + выстрел по миру ЛИБО клик по открытому окну
 	// Canvas-HUD (гейты и edge-логика — внутри Fire, позиция — из кеша курсора = точка тапа).
 	// Очередь на удержание даёт отдельная экранная кнопка ОГОНЬ (инжекция IA_Fire).
@@ -423,6 +443,102 @@ void AContrarySurvivorPlayerController::OnScreenTapReleased()
 {
 	// Палец поднят = отпускание «клика»: сброс edge-флага UI (как Completed у IA_Fire).
 	OnFireReleased(FInputActionValue(false));
+}
+
+// ---------------------------------------------------------------------------
+// Тач-жесты магазина (G2): свайп = прокрутка списков / ручка слайдера, тап = клик
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnShopTouchPressed(ETouchIndex::Type FingerIndex, FVector Location)
+{
+	// Отслеживаем ОДИН палец — первый коснувшийся при открытом магазине. Второй палец
+	// (например, большой на кнопке СУМКА в UMG) сюда не доходит — его съедает Slate; а
+	// пришедший вторым по вьюпорту — игнорируется до отпускания первого.
+	if (!bShopOpen || ShopTouchFinger != INDEX_NONE)
+	{
+		return;
+	}
+	ShopTouchFinger = static_cast<int32>(FingerIndex);
+	ShopTouchStart = FVector2D(Location.X, Location.Y);
+	ShopTouchLast = ShopTouchStart;
+	bShopTouchDragging = false;
+	ShopTouchZone = EShopDragZone::None;
+}
+
+void AContrarySurvivorPlayerController::OnShopTouchMoved(ETouchIndex::Type FingerIndex, FVector Location)
+{
+	if (static_cast<int32>(FingerIndex) != ShopTouchFinger)
+	{
+		return;
+	}
+	if (!bShopOpen)
+	{
+		ResetShopTouchState(); // магазин закрылся под пальцем (клавиша E) — жест мёртв
+		return;
+	}
+	AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>();
+	if (!CSHUD)
+	{
+		return;
+	}
+
+	const FVector2D Pos(Location.X, Location.Y);
+
+	// Порог свайпа: зона фиксируется по ТОЧКЕ НАЧАЛА жеста (не по текущей) и дальше не
+	// меняется — палец может выехать за список, прокрутка продолжается.
+	if (!bShopTouchDragging && FVector2D::Distance(Pos, ShopTouchStart) >= TouchDragSlopPx)
+	{
+		bShopTouchDragging = true;
+		ShopTouchZone = CSHUD->GetShopDragZone(ShopTouchStart);
+	}
+
+	if (bShopTouchDragging)
+	{
+		switch (ShopTouchZone)
+		{
+			case EShopDragZone::BuyList:
+			case EShopDragZone::SellList:
+				// Палец вверх (Y уменьшается) -> положительная дельта -> список листается вниз.
+				CSHUD->ScrollShopZonePixels(ShopTouchZone, (ShopTouchLast.Y - Pos.Y) * TouchScrollSensitivity);
+				break;
+			case EShopDragZone::SliderTrack:
+				CSHUD->SetShopSliderQtyFromX(Pos.X); // ручка следует за пальцем непрерывно
+				break;
+			default:
+				break; // жест начат вне зон (фон панели/затемнение) — ничего не листаем
+		}
+	}
+
+	ShopTouchLast = Pos;
+}
+
+void AContrarySurvivorPlayerController::OnShopTouchReleased(ETouchIndex::Type FingerIndex, FVector Location)
+{
+	if (static_cast<int32>(FingerIndex) != ShopTouchFinger)
+	{
+		return;
+	}
+	const bool bWasTap = !bShopTouchDragging;
+	ResetShopTouchState();
+
+	// Короткое касание без свайпа = клик по магазину в точке ОТПУСКАНИЯ (позиция BindTouch
+	// точнее кеша курсора). Свайп кликом не заканчивается никогда.
+	if (bShopOpen && bWasTap)
+	{
+		if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+		{
+			CSHUD->HandleShopClick(FVector2D(Location.X, Location.Y));
+		}
+	}
+}
+
+void AContrarySurvivorPlayerController::ResetShopTouchState()
+{
+	ShopTouchFinger = INDEX_NONE;
+	ShopTouchStart = FVector2D::ZeroVector;
+	ShopTouchLast = FVector2D::ZeroVector;
+	bShopTouchDragging = false;
+	ShopTouchZone = EShopDragZone::None;
 }
 
 void AContrarySurvivorPlayerController::OnRespawnPressed()
@@ -1330,6 +1446,7 @@ void AContrarySurvivorPlayerController::CloseShop()
 	}
 	bShopOpen = false;
 	bUIClickConsumed = false;
+	ResetShopTouchState(); // G2: палец мог остаться «в жесте» — не тащить его в закрытый экран
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{

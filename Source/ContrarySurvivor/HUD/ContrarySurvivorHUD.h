@@ -60,6 +60,17 @@ struct FShopHitRegion
 	int32 EntryIndex = -1;                // для Buy (индекс в каталоге торговца)
 };
 
+// Зона магазина, в которой НАЧАЛСЯ жест пальца (тач-прокрутка, этап G2). Зона фиксируется
+// в момент превышения порога свайпа и не меняется до отпускания пальца — палец может
+// уходить за границы списка, прокрутка продолжается.
+enum class EShopDragZone : uint8
+{
+	None,
+	BuyList,     // левая колонка «FOR SALE» — свайп листает каталог
+	SellList,    // правая колонка «SELL FROM BACKPACK» — свайп листает рюкзак
+	SliderTrack  // трек слайдера количества — свайп по X выбирает количество
+};
+
 // Тип действия кликабельной зоны диалога (Фаза 5, квесты).
 enum class EDialogAction : uint8
 {
@@ -128,10 +139,26 @@ public:
 	// Изменить выбранное количество слайдера на Delta (клавиши ±1 / Shift ±10 / колесо). Кламп 1..max.
 	void AdjustShopSliderQty(int32 Delta);
 
-	// Прокрутить список каталога «FOR SALE» на Delta строк (колесо/стрелки при НЕактивном
-	// слайдере — те же экшены ShopQtyInc/Dec, маршрутит контроллер). Кламп 0..max, где max
-	// пересчитывается в DrawShop (каталог стал длиннее панели — 18 позиций против ~12 видимых).
+	// Прокрутить список магазина на Delta строк (колесо/стрелки при НЕактивном слайдере —
+	// те же экшены ShopQtyInc/Dec, маршрутит контроллер). Листается колонка ПОД КУРСОРОМ:
+	// над рюкзаком — правый список (G2: рюкзак тоже перерастает панель), иначе каталог
+	// (прежнее поведение). Кламп 0..max, max пересчитывается в DrawShop.
 	void ScrollShopList(int32 DeltaRows);
+
+	// --- Тач-жесты магазина (этап G2) — зовёт контроллер из BindTouch-обработчиков ---
+
+	// В какой зоне магазина лежит точка (по прямоугольникам последнего DrawShop). При
+	// активном слайдере списки закрыты модально — отвечает только SliderTrack/None.
+	EShopDragZone GetShopDragZone(FVector2D ScreenPos) const;
+
+	// Свайп-прокрутка списка зоны (каталог/рюкзак) на DeltaPixels по вертикали. Пиксели
+	// накапливаются между кадрами и конвертируются в строки по фактическому шагу строки
+	// последнего DrawShop; положительная дельта листает список вниз (палец ведут вверх).
+	void ScrollShopZonePixels(EShopDragZone Zone, float DeltaPixels);
+
+	// Свайп по треку слайдера: выставить количество по экранной X — та же математика,
+	// что у клика по треку в HandleShopClick (палец тянет ручку непрерывно).
+	void SetShopSliderQtyFromX(float ScreenX);
 
 	// Выполнить транзакцию на выбранное qty и закрыть слайдер (Enter/кнопка Confirm).
 	void ConfirmShopSlider(APlayerCharacter* Player);
@@ -411,6 +438,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HUD|Readability")
 	float UIPanelBorderThickness = 2.0f;
 
+	// --- Подсказка прокрутки списков магазина (этап G2) ---
+	// Хвост счётчика «X-Y из N …»: на ПК — про колесо, на таче — про свайп (выбор по
+	// наличию тач-слоя у контроллера, решение game-lead 07-18).
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop", meta = (DisplayPriority = "1"))
+	FString ShopScrollHintWheel = TEXT("(колесо — листать)");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop", meta = (DisplayPriority = "2"))
+	FString ShopScrollHintSwipe = TEXT("(свайп — листать)");
+
 	// --- Экран смерти (#26) ---
 
 	// Затемнение фона экрана смерти (почти чёрное — фокус на статистике).
@@ -572,6 +609,22 @@ private:
 	// DrawShop от фактической высоты панели.
 	int32 ShopListScrollOffset = 0;
 	int32 ShopListMaxScroll = 0;
+
+	// Прокрутка правой колонки «SELL FROM BACKPACK» (G2): рюкзак тоже перерастает панель.
+	int32 ShopSellScrollOffset = 0;
+	int32 ShopSellMaxScroll = 0;
+
+	// Прямоугольники колонок списков (пересобираются каждый DrawShop) — зоны тач-жестов.
+	FVector2D ShopBuyAreaMin = FVector2D::ZeroVector;
+	FVector2D ShopBuyAreaMax = FVector2D::ZeroVector;
+	FVector2D ShopSellAreaMin = FVector2D::ZeroVector;
+	FVector2D ShopSellAreaMax = FVector2D::ZeroVector;
+
+	// Накопители пикселей свайпа (по зонам) и шаг строки последнего DrawShop: жест отдаёт
+	// дробные дельты каждый кадр, строка листается при накоплении полного шага.
+	float ShopScrollAccumBuy = 0.0f;
+	float ShopScrollAccumSell = 0.0f;
+	float ShopRowStep = 40.0f;
 
 	// Рисует экран магазина: слева каталог (товары+цены+[buy]), справа рюкзак (предметы+[sell]),
 	// сверху деньги + [Close]. Заполняет ShopHitRegions.

@@ -560,7 +560,10 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 	bShopOpen = bOpen;
 	ShopTrader = bOpen ? Trader : TScriptInterface<IShopVendor>();
 	CancelShopSlider(); // закрытие/открытие магазина сбрасывает активную транзакцию
-	ShopListScrollOffset = 0; // каждый визит к торговцу — список с начала
+	ShopListScrollOffset = 0; // каждый визит к торговцу — списки с начала
+	ShopSellScrollOffset = 0;
+	ShopScrollAccumBuy = 0.0f;
+	ShopScrollAccumSell = 0.0f;
 	if (!bOpen)
 	{
 		ShopHitRegions.Reset();
@@ -573,7 +576,101 @@ void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)
 	{
 		return;
 	}
-	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset + DeltaRows, 0, ShopListMaxScroll);
+
+	// Колесо листает колонку ПОД КУРСОРОМ: над рюкзаком — правый список (G2: длинный рюкзак
+	// был недоступен для продажи и на ПК), иначе — каталог (прежнее поведение).
+	bool bSellColumn = false;
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		float MX = 0.0f, MY = 0.0f;
+		if (PC->GetMousePosition(MX, MY))
+		{
+			bSellColumn = MX >= ShopSellAreaMin.X && MX <= ShopSellAreaMax.X &&
+				MY >= ShopSellAreaMin.Y && MY <= ShopSellAreaMax.Y;
+		}
+	}
+
+	if (bSellColumn)
+	{
+		ShopSellScrollOffset = FMath::Clamp(ShopSellScrollOffset + DeltaRows, 0, ShopSellMaxScroll);
+	}
+	else
+	{
+		ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset + DeltaRows, 0, ShopListMaxScroll);
+	}
+}
+
+EShopDragZone AContrarySurvivorHUD::GetShopDragZone(FVector2D ScreenPos) const
+{
+	if (!bShopOpen)
+	{
+		return EShopDragZone::None;
+	}
+
+	// При активном слайдере списки закрыты модально — жест имеет смысл только на треке.
+	// Зону трека расширяем по вертикали под палец (сам трек тонкий, ~34px с запасом клика).
+	if (bSliderActive)
+	{
+		const float FingerPad = 16.0f;
+		const bool bOnTrack = ScreenPos.X >= SliderTrackMin.X && ScreenPos.X <= SliderTrackMax.X &&
+			ScreenPos.Y >= SliderTrackMin.Y - FingerPad && ScreenPos.Y <= SliderTrackMax.Y + FingerPad;
+		return bOnTrack ? EShopDragZone::SliderTrack : EShopDragZone::None;
+	}
+
+	if (ScreenPos.X >= ShopBuyAreaMin.X && ScreenPos.X <= ShopBuyAreaMax.X &&
+		ScreenPos.Y >= ShopBuyAreaMin.Y && ScreenPos.Y <= ShopBuyAreaMax.Y)
+	{
+		return EShopDragZone::BuyList;
+	}
+	if (ScreenPos.X >= ShopSellAreaMin.X && ScreenPos.X <= ShopSellAreaMax.X &&
+		ScreenPos.Y >= ShopSellAreaMin.Y && ScreenPos.Y <= ShopSellAreaMax.Y)
+	{
+		return EShopDragZone::SellList;
+	}
+	return EShopDragZone::None;
+}
+
+void AContrarySurvivorHUD::ScrollShopZonePixels(EShopDragZone Zone, float DeltaPixels)
+{
+	if (!bShopOpen || (Zone != EShopDragZone::BuyList && Zone != EShopDragZone::SellList))
+	{
+		return;
+	}
+
+	const bool bBuy = (Zone == EShopDragZone::BuyList);
+	float& Accum = bBuy ? ShopScrollAccumBuy : ShopScrollAccumSell;
+	Accum += DeltaPixels;
+
+	// Полные строки из накопленных пикселей; остаток живёт до следующей дельты жеста.
+	const float Step = FMath::Max(1.0f, ShopRowStep);
+	const int32 Rows = static_cast<int32>(Accum / Step);
+	if (Rows == 0)
+	{
+		return;
+	}
+	Accum -= static_cast<float>(Rows) * Step;
+
+	if (bBuy)
+	{
+		ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset + Rows, 0, ShopListMaxScroll);
+	}
+	else
+	{
+		ShopSellScrollOffset = FMath::Clamp(ShopSellScrollOffset + Rows, 0, ShopSellMaxScroll);
+	}
+}
+
+void AContrarySurvivorHUD::SetShopSliderQtyFromX(float ScreenX)
+{
+	if (!bShopOpen || !bSliderActive)
+	{
+		return;
+	}
+	// Та же математика, что у клика по треку (HandleShopClick, case SliderTrack).
+	const float TrackW = FMath::Max(1.0f, SliderTrackMax.X - SliderTrackMin.X);
+	const float Frac = FMath::Clamp((ScreenX - SliderTrackMin.X) / TrackW, 0.0f, 1.0f);
+	const int32 NewQty = FMath::RoundToInt(Frac * static_cast<float>(FMath::Max(1, SliderQtyMax)));
+	SliderQty = FMath::Clamp(NewQty, 1, FMath::Max(1, SliderQtyMax));
 }
 
 void AContrarySurvivorHUD::CancelShopSlider()
@@ -819,6 +916,14 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	const float BtnW = 64.0f;
 	const float MaxRowY = PY + PanelH - Pad - RowH;
 
+	// Шаг строки для конвертации пикселей свайпа в строки (ScrollShopZonePixels, G2).
+	ShopRowStep = RowH + RowGap;
+
+	// Подсказка прокрутки: на таче — про свайп, на ПК — про колесо (по наличию тач-слоя).
+	const AContrarySurvivorPlayerController* CSPC =
+		Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController());
+	const FString& ScrollHintTail = (CSPC && CSPC->HasTouchLayer()) ? ShopScrollHintSwipe : ShopScrollHintWheel;
+
 	// --- Левая колонка: каталог на продажу (BUY) ---
 	const float LeftW = PanelW * 0.52f;
 	const float LeftX = PX + Pad;
@@ -834,13 +939,17 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	ShopListMaxScroll = FMath::Max(0, Catalog.Num() - VisibleRows);
 	ShopListScrollOffset = FMath::Clamp(ShopListScrollOffset, 0, ShopListMaxScroll);
 
+	// Зона свайпа каталога (G2): вся левая колонка по высоте видимых строк.
+	ShopBuyAreaMin = FVector2D(LeftX, RowY);
+	ShopBuyAreaMax = FVector2D(LeftX + LeftColW, MaxRowY + RowH);
+
 	// Когда список длиннее панели — счётчик «X-Y из N» + подсказка, справа от заголовка FOR SALE.
 	if (ShopListMaxScroll > 0)
 	{
 		const int32 FirstShown = ShopListScrollOffset + 1;
 		const int32 LastShown = FMath::Min(ShopListScrollOffset + VisibleRows, Catalog.Num());
-		const FString ScrollHint = FString::Printf(TEXT("%d-%d из %d (колесо — листать)"),
-			FirstShown, LastShown, Catalog.Num());
+		const FString ScrollHint = FString::Printf(TEXT("%d-%d из %d %s"),
+			FirstShown, LastShown, Catalog.Num(), *ScrollHintTail);
 		float HintW = 0.0f, HintH = 0.0f;
 		GetTextSize(ScrollHint, HintW, HintH, Font);
 		DrawShadowedText(ScrollHint, UIHeaderColor, LeftX + LeftColW - HintW, ContentY, Font);
@@ -893,38 +1002,69 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	DrawShadowedText(TEXT("SELL FROM BACKPACK  (Продать)"), UIHeaderColor, RightX, ContentY, Font, UISubHeaderTextScale);
 
 	float SellY = ContentY + 24.0f;
+
+	// G2: рюкзак тоже перерастает панель — прокрутка как у каталога. Продаваемые предметы
+	// собираются заранее (фильтр прежний: валидный и не надет), чтобы посчитать потолок
+	// смещения и рисовать окно списка со сдвига ShopSellScrollOffset.
+	TArray<AMasterInventoryItem*> SellItems;
 	if (UInventoryComponent* Inv = Player->GetInventory())
 	{
 		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
 		{
-			if (!IsValid(Item) || Inv->IsItemEquipped(Item))
+			if (IsValid(Item) && !Inv->IsItemEquipped(Item))
 			{
-				continue; // надетую броню не продаём из этого списка
+				SellItems.Add(Item); // надетую броню не продаём из этого списка
 			}
+		}
+	}
 
-			const float MainW = RightW - BtnW - 6.0f;
-			const float SellVal = ShopTrader->GetSellValue(Item);
-			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
-			const FString Label = FString::Printf(TEXT("%s  (+%.0f)"), *Name, SellVal);
-			DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+	const int32 SellVisibleRows = FMath::Max(1, FMath::FloorToInt((MaxRowY - SellY) / (RowH + RowGap)) + 1);
+	ShopSellMaxScroll = FMath::Max(0, SellItems.Num() - SellVisibleRows);
+	ShopSellScrollOffset = FMath::Clamp(ShopSellScrollOffset, 0, ShopSellMaxScroll);
 
-			const float BtnX = RightX + MainW + 6.0f;
-			DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
-			if (!bSliderActive)
-			{
-				FShopHitRegion R;
-				R.Min = FVector2D(BtnX, SellY);
-				R.Max = FVector2D(BtnX + BtnW, SellY + RowH);
-				R.Action = EShopAction::Sell;
-				R.Item = Item;
-				ShopHitRegions.Add(R);
-			}
+	// Зона свайпа рюкзака (G2): вся правая колонка по высоте видимых строк.
+	ShopSellAreaMin = FVector2D(RightX, SellY);
+	ShopSellAreaMax = FVector2D(RightX + RightW, MaxRowY + RowH);
 
-			SellY += RowH + RowGap;
-			if (SellY > MaxRowY)
-			{
-				break;
-			}
+	// Счётчик «X-Y из N» над списком, когда рюкзак длиннее панели (подсказка прокрутки —
+	// одна на панель, у каталога; здесь только диапазон, заголовок SELL длинный).
+	if (ShopSellMaxScroll > 0)
+	{
+		const FString SellCounter = FString::Printf(TEXT("%d-%d из %d"),
+			ShopSellScrollOffset + 1,
+			FMath::Min(ShopSellScrollOffset + SellVisibleRows, SellItems.Num()),
+			SellItems.Num());
+		float CounterW = 0.0f, CounterH = 0.0f;
+		GetTextSize(SellCounter, CounterW, CounterH, Font);
+		DrawShadowedText(SellCounter, UIHeaderColor, RightX + RightW - CounterW, ContentY, Font);
+	}
+
+	for (int32 i = ShopSellScrollOffset; i < SellItems.Num(); ++i)
+	{
+		AMasterInventoryItem* Item = SellItems[i];
+
+		const float MainW = RightW - BtnW - 6.0f;
+		const float SellVal = ShopTrader->GetSellValue(Item);
+		const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+		const FString Label = FString::Printf(TEXT("%s  (+%.0f)"), *Name, SellVal);
+		DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
+
+		const float BtnX = RightX + MainW + 6.0f;
+		DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
+		if (!bSliderActive)
+		{
+			FShopHitRegion R;
+			R.Min = FVector2D(BtnX, SellY);
+			R.Max = FVector2D(BtnX + BtnW, SellY + RowH);
+			R.Action = EShopAction::Sell;
+			R.Item = Item;
+			ShopHitRegions.Add(R);
+		}
+
+		SellY += RowH + RowGap;
+		if (SellY > MaxRowY)
+		{
+			break; // ниже панели не рисуем; остальное доступно прокруткой
 		}
 	}
 
