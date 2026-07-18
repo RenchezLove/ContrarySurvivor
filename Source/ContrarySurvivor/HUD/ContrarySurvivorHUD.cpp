@@ -12,7 +12,9 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // журнал квестов (диалог/трекер)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
-#include "ContrarySurvivor/UI/ShopScreenWidget.h" // ADR-048: UMG-путь магазина (слот ShopWidgetClass)
+#include "ContrarySurvivor/UI/ShopScreenWidget.h"      // ADR-048: UMG-путь магазина (слот ShopWidgetClass)
+#include "ContrarySurvivor/UI/DialogScreenWidget.h"    // ADR-048: UMG-путь диалога старосты
+#include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-048: UMG-путь инвентаря
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
@@ -126,7 +128,8 @@ void AContrarySurvivorHUD::DrawHUD()
 			}
 
 			// --- Экран инвентаря поверх HUD (модальный, GDD §7.4) ---
-			if (bInventoryOpen)
+			// ADR-048: при назначенном InventoryWidgetClass инвентарь рисует UMG-виджет.
+			if (bInventoryOpen && !IsUmgInventoryActive())
 			{
 				DrawInventory(PlayerChar);
 			}
@@ -139,7 +142,8 @@ void AContrarySurvivorHUD::DrawHUD()
 			}
 
 			// --- Экран диалога со старостой (модальный, GDD §7.7) ---
-			if (bDialogOpen)
+			// ADR-048: при назначенном DialogWidgetClass диалог рисует UMG-виджет.
+			if (bDialogOpen && !IsUmgDialogActive())
 			{
 				DrawDialog(PlayerChar);
 			}
@@ -263,6 +267,48 @@ void AContrarySurvivorHUD::SetInventoryOpen(bool bOpen)
 	{
 		InvHitRegions.Reset();
 	}
+
+	// ADR-048: назначен InventoryWidgetClass — инвентарь живёт UMG-виджетом,
+	// Canvas-путь глушится проверками IsUmgInventoryActive. Слот пуст — как раньше.
+	if (bOpen && InventoryWidgetClass)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		if (PC && PlayerChar)
+		{
+			if (!InventoryWidgetInstance)
+			{
+				InventoryWidgetInstance = CreateWidget<UInventoryScreenWidget>(PC, InventoryWidgetClass);
+				if (InventoryWidgetInstance)
+				{
+					// Кнопка закрытия = тот же путь, что клавиша Tab (тумблер контроллера).
+					if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+					{
+						InventoryWidgetInstance->OnCloseRequested.AddUObject(
+							CSPC, &AContrarySurvivorPlayerController::TouchToggleInventory);
+					}
+				}
+			}
+			if (InventoryWidgetInstance)
+			{
+				InventoryWidgetInstance->InitInventory(PlayerChar);
+				if (!InventoryWidgetInstance->IsInViewport())
+				{
+					// Z=30: как магазин — над тач-слоем (10), под подсказками (40)/паузой (60).
+					InventoryWidgetInstance->AddToViewport(/*ZOrder=*/30);
+				}
+			}
+		}
+	}
+	else if (!bOpen && InventoryWidgetInstance && InventoryWidgetInstance->IsInViewport())
+	{
+		InventoryWidgetInstance->RemoveFromParent();
+	}
+}
+
+bool AContrarySurvivorHUD::IsUmgInventoryActive() const
+{
+	return InventoryWidgetInstance && InventoryWidgetInstance->IsInViewport();
 }
 
 void AContrarySurvivorHUD::ToggleInventory()
@@ -277,7 +323,7 @@ bool AContrarySurvivorHUD::PointInRegion(const FVector2D& P, const FInvHitRegion
 
 bool AContrarySurvivorHUD::HandleInventoryClick(FVector2D ScreenPos)
 {
-	if (!bInventoryOpen)
+	if (!bInventoryOpen || IsUmgInventoryActive()) // UMG-путь: клики ловят кнопки виджета
 	{
 		return false;
 	}
@@ -396,11 +442,11 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	DrawShadowedText(InvHeaderText, UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
 	// Деньги / голод / жажда (GDD §7.7) — крупно, золотой, на плашке (#18).
+	// Литералы: подписи переехали в UInventoryScreenWidget (ADR-048).
 	if (UStatsComponent* St = Player->GetStats())
 	{
-		const FString StatStr = FString::Printf(TEXT("%s %.0f      %s %.0f / %.0f      %s %.0f / %.0f"),
-			*StatMoneyLabel, St->GetMoney(), *StatHungerLabel, St->GetHunger(), St->GetSurvivalMax(),
-			*StatThirstLabel, St->GetThirst(), St->GetSurvivalMax());
+		const FString StatStr = FString::Printf(TEXT("Монеты %.0f      Голод %.0f / %.0f      Жажда %.0f / %.0f"),
+			St->GetMoney(), St->GetHunger(), St->GetSurvivalMax(), St->GetThirst(), St->GetSurvivalMax());
 		DrawLabelWithPlate(StatStr, UIMoneyColor, PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 	}
 
@@ -425,7 +471,7 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 
 		const FString Worn = Eq
 			? (Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName)
-			: InvEmptySlotText;
+			: FString(TEXT("(пусто)"));
 
 		if (Icon)
 		{
@@ -469,7 +515,7 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	// Canvas рисует каждый кадр -> при надевании/снятии брони цифра пересчитывается сама.
 	{
 		const int32 ProtPct = FMath::RoundToInt(Player->GetEffectiveArmorFraction() * 100.0f);
-		DrawLabelWithPlate(FString::Printf(TEXT("%s%d%%"), *InvProtectionPrefix, ProtPct), UIMoneyColor,
+		DrawLabelWithPlate(FString::Printf(TEXT("Защита: %d%%"), ProtPct), UIMoneyColor,
 			LeftX, SlotY, Font, UIMoneyTextScale);
 		SlotY += 34.0f;
 	}
@@ -477,7 +523,7 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	// Слот оружия (только отображение CurrentWeapon).
 	{
 		AMasterWeapon* W = Player->GetCurrentWeapon();
-		const FString Label = InvWeaponPrefix + (W ? W->GetName() : InvNoWeaponText);
+		const FString Label = FString(TEXT("Оружие: ")) + (W ? W->GetName() : TEXT("(нет)"));
 		DrawInvBox(LeftX, SlotY, ColW, SlotH, InvSlotColor, Mouse, Label, Font);
 		SlotY += SlotH + SlotGap;
 	}
@@ -510,8 +556,8 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 			const EItemCategory Cat = Item->GetItemCategory();
 			switch (Cat)
 			{
-				case EItemCategory::Consumable: ActionHint = InvUseHintConsumable; break;
-				case EItemCategory::Armor:      ActionHint = InvUseHintArmor;      break;
+				case EItemCategory::Consumable: ActionHint = TEXT("использовать"); break;
+				case EItemCategory::Armor:      ActionHint = TEXT("надеть");       break;
 				default:                        ActionHint = TEXT("");             break;
 			}
 
@@ -1250,11 +1296,53 @@ void AContrarySurvivorHUD::SetDialogOpen(bool bOpen, AElderNPC* Elder)
 	{
 		DialogHitRegions.Reset();
 	}
+
+	// ADR-048: назначен DialogWidgetClass — диалог живёт UMG-виджетом, Canvas-путь
+	// глушится проверками IsUmgDialogActive. Слот пуст — как раньше.
+	if (bOpen && DialogWidgetClass && Elder)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		if (PC && PlayerChar)
+		{
+			if (!DialogWidgetInstance)
+			{
+				DialogWidgetInstance = CreateWidget<UDialogScreenWidget>(PC, DialogWidgetClass);
+				if (DialogWidgetInstance)
+				{
+					// [Отказаться]/[Закрыть] — закрывает контроллер (мир/режим ввода — его зона).
+					if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+					{
+						DialogWidgetInstance->OnCloseRequested.AddUObject(
+							CSPC, &AContrarySurvivorPlayerController::CloseDialog);
+					}
+				}
+			}
+			if (DialogWidgetInstance)
+			{
+				DialogWidgetInstance->InitDialog(Elder, PlayerChar);
+				if (!DialogWidgetInstance->IsInViewport())
+				{
+					// Z=30: как магазин/инвентарь.
+					DialogWidgetInstance->AddToViewport(/*ZOrder=*/30);
+				}
+			}
+		}
+	}
+	else if (!bOpen && DialogWidgetInstance && DialogWidgetInstance->IsInViewport())
+	{
+		DialogWidgetInstance->RemoveFromParent();
+	}
+}
+
+bool AContrarySurvivorHUD::IsUmgDialogActive() const
+{
+	return DialogWidgetInstance && DialogWidgetInstance->IsInViewport();
 }
 
 bool AContrarySurvivorHUD::HandleDialogClick(FVector2D ScreenPos)
 {
-	if (!bDialogOpen || !DialogElder)
+	if (!bDialogOpen || !DialogElder || IsUmgDialogActive()) // UMG-путь: клики ловят кнопки виджета
 	{
 		return false;
 	}
@@ -1467,9 +1555,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		}
 		case EQuestState::Completed:
 		{
-			// Сборка кодом: Prefix + награда + Suffix = «[ Сдать (+150) ]».
-			const FString TurnInLabel = FString::Printf(TEXT("%s%.0f%s"),
-				*DialogTurnInPrefix, QData.RewardMoney, *DialogTurnInSuffix);
+			// Литералы: префиксы кнопки сдачи переехали в UDialogScreenWidget (ADR-048).
+			const FString TurnInLabel = FString::Printf(TEXT("[ Сдать (+%.0f) ]"), QData.RewardMoney);
 			AddButton(BtnX, DialogTurnInButtonWidth, TurnInLabel, EDialogAction::TurnIn, InvSlotFilledColor);
 			break;
 		}

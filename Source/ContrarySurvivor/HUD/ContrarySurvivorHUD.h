@@ -14,6 +14,8 @@ class AMasterInventoryItem;
 class AElderNPC;
 class UTexture2D;
 class UShopScreenWidget;
+class UDialogScreenWidget;
+class UInventoryScreenWidget;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -450,6 +452,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "1"))
 	TSubclassOf<UShopScreenWidget> ShopWidgetClass;
 
+	// Экран диалога со старостой (WBP_Dialog). Пусто — Canvas DrawDialog как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "2"))
+	TSubclassOf<UDialogScreenWidget> DialogWidgetClass;
+
+	// Экран инвентаря (WBP_Inventory). Пусто — Canvas DrawInventory как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "3"))
+	TSubclassOf<UInventoryScreenWidget> InventoryWidgetClass;
+
 	// ======================================================================
 	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
 	// вынесены в EditAnywhere-поля. Дефолты дословно повторяют прежние зашитые значения.
@@ -606,6 +616,8 @@ protected:
 	FString InvBackpackHeaderText = TEXT("РЮКЗАК");
 
 	// Подписи слотов брони (строка «Шлем: (пусто)» собирается кодом: имя + ": " + предмет).
+	// ADR-048: (пусто)/Оружие/(нет)/Защита/использовать/надеть/Монеты/Голод/Жажда
+	// переехали в UInventoryScreenWidget; здесь остались Canvas-специфичные.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "4"))
 	FString InvSlotNameHead = TEXT("Шлем");
 
@@ -615,42 +627,11 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "6"))
 	FString InvSlotNameLegs = TEXT("Штаны");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "7"))
-	FString InvEmptySlotText = TEXT("(пусто)");
-
-	// Перед именем оружия: «Оружие: Пистолет»; «(нет)» — пустые руки.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "8"))
-	FString InvWeaponPrefix = TEXT("Оружие: ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "9"))
-	FString InvNoWeaponText = TEXT("(нет)");
-
-	// Перед процентом защиты: «Защита: 45%».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "10"))
-	FString InvProtectionPrefix = TEXT("Защита: ");
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "11"))
 	FString InvUnequipHintText = TEXT("(клик по занятому слоту — снять броню)");
 
-	// Подсказки действия в строке рюкзака: «Тушёнка  [использовать]».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "12"))
-	FString InvUseHintConsumable = TEXT("использовать");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "13"))
-	FString InvUseHintArmor = TEXT("надеть");
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "14"))
 	FString InvDropButtonText = TEXT("X");
-
-	// Подписи строки статов в шапке: «Монеты X      Голод A / B      Жажда C / D».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "15"))
-	FString StatMoneyLabel = TEXT("Монеты");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "16"))
-	FString StatHungerLabel = TEXT("Голод");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "17"))
-	FString StatThirstLabel = TEXT("Жажда");
 
 	// --- Диалог со старостой: геометрия и цвета (тексты реплик живут на AElderNPC) ---
 
@@ -691,7 +672,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog", meta = (DisplayPriority = "11"))
 	FLinearColor DialogTextColor = FLinearColor::White;
 
-	// --- Диалог: тексты кнопок ---
+	// --- Диалог: тексты кнопок (Canvas-путь; префиксы кнопки сдачи переехали
+	// в UDialogScreenWidget — ADR-048) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "1"))
 	FString DialogAcceptText = TEXT("[ Принять ]");
@@ -701,13 +683,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "3"))
 	FString DialogCloseText = TEXT("[ Закрыть ]");
-
-	// Кнопка сдачи собирается кодом: Prefix + сумма награды + Suffix = «[ Сдать (+150) ]».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "4"))
-	FString DialogTurnInPrefix = TEXT("[ Сдать (+");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Dialog Texts", meta = (DisplayPriority = "5"))
-	FString DialogTurnInSuffix = TEXT(") ]");
 
 	// --- Экран смерти: геометрия/цвета (дополнение к базовым цветам выше) ---
 
@@ -952,6 +927,13 @@ private:
 	// Открыт ли экран инвентаря (модальный поверх HUD).
 	bool bInventoryOpen = false;
 
+	// UMG-экземпляр инвентаря (ADR-048): как ShopWidgetInstance — создаётся при первом
+	// открытии, переиспользуется; пока на экране — Canvas-путь инвентаря заглушен.
+	UPROPERTY()
+	TObjectPtr<UInventoryScreenWidget> InventoryWidgetInstance;
+
+	bool IsUmgInventoryActive() const;
+
 	// Кликабельные зоны, пересобираемые каждый DrawInventory. Используются HandleInventoryClick.
 	TArray<FInvHitRegion> InvHitRegions;
 
@@ -1074,6 +1056,12 @@ private:
 	// Староста, с которым идёт диалог (источник предлагаемого квеста).
 	UPROPERTY()
 	AElderNPC* DialogElder = nullptr;
+
+	// UMG-экземпляр диалога (ADR-048): как ShopWidgetInstance.
+	UPROPERTY()
+	TObjectPtr<UDialogScreenWidget> DialogWidgetInstance;
+
+	bool IsUmgDialogActive() const;
 
 	// Кликабельные зоны диалога, пересобираются каждый DrawDialog.
 	TArray<FDialogHitRegion> DialogHitRegions;
