@@ -29,6 +29,10 @@ struct FTouchControlsConfig
 	float IdleOpacity = 0.5f;         // прозрачность слоя в покое
 	float ActiveOpacity = 0.85f;      // прозрачность активного элемента (стик/кнопка под пальцем)
 
+	// Цвета стика (настройка Рината 07-18; дефолты = прежние зашитые).
+	FLinearColor StickBaseColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.25f);
+	FLinearColor StickThumbColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.6f);
+
 	// Кнопки (шаг 2). Угол привязки каждой задаёт код виджета (см. BuildButtons).
 	FTouchButtonSettings FireButton;      // ОГОНЬ — правый-нижний угол
 	FTouchButtonSettings ReloadButton;    // ПЕРЕЗАРЯДКА — правый-нижний (над огнём)
@@ -135,9 +139,10 @@ private:
 	void BuildButtons();
 
 	// Круглая кнопка с подписью, прижатая к углу Corner; добавляет в RootCanvas и в боевую
-	// группу (bCombatGroup). null, если S.bEnabled=false.
+	// группу (bCombatGroup). null, если S.bEnabled=false. Подпись/цвета/шрифт — из S
+	// (EditAnywhere-настройки контроллера, дефолты подписей задаёт его конструктор).
 	UButton* MakeTouchButton(const FTouchButtonSettings& S, ETouchCorner Corner,
-		const FString& Label, const FName& WidgetName, bool bCombatGroup);
+		const FName& WidgetName, bool bCombatGroup);
 
 	// Показ/скрытие боевой группы (модальное окно открыто -> прячем) + сброс зажатий.
 	void SetCombatGroupVisible(bool bVisible);

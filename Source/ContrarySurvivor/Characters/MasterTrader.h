@@ -58,8 +58,8 @@ public:
 	virtual float GetAmmoSellPerRound() const override { return SellValueAmmoPerRound; }
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
-	virtual FString GetNPCMarkerLabel() const override { return TEXT("Trader"); }
-	virtual float GetNPCMarkerZOffset() const override { return 320.0f; }
+	virtual FString GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
+	virtual float GetNPCMarkerZOffset() const override { return NPCMarkerZOffset; }
 
 	// --- Урон: неубиваемость собственными средствами (override, БЕЗ повтора UFUNCTION-макроса) ---
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
@@ -77,6 +77,14 @@ protected:
 	// Радиус, в котором доступно взаимодействие (см). DRAFT.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
 	float InteractRadius = 220.0f;
+
+	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса;
+	// директива Рината 07-18: настраиваются на размещённом экземпляре BP_Trader).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
+	FString NPCMarkerLabel = TEXT("Trader");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
+	float NPCMarkerZOffset = 320.0f;
 
 	// Игрок сейчас в радиусе взаимодействия (выставляется overlap'ом). Для будущей привязки
 	// открытия магазина и BP-логики.

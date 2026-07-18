@@ -44,7 +44,8 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 	SprintActionRef = InSprintAction;
 	Config = InConfig;
 
-	// Применяем настройки к уже построенному стику (NativeOnInitialized отработал в CreateWidget).
+	// Применяем настройки к уже построенному стику (NativeOnInitialized отработал в CreateWidget
+	// с дефолтным конфигом — здесь перекрываем и геометрию, и цвета настройками контроллера).
 	if (StickBase)
 	{
 		if (UCanvasPanelSlot* BaseSlot = Cast<UCanvasPanelSlot>(StickBase->Slot))
@@ -52,6 +53,7 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 			BaseSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
 			BaseSlot->SetSize(FVector2D(Config.StickRadius * 2.0f, Config.StickRadius * 2.0f));
 		}
+		StickBase->SetBrush(MakeCircleBrush(Config.StickBaseColor));
 		StickBase->SetRenderOpacity(Config.IdleOpacity);
 	}
 	if (StickThumb)
@@ -61,6 +63,7 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 			ThumbSlot->SetPosition(FVector2D(Config.StickMargin.X, -Config.StickMargin.Y));
 			ThumbSlot->SetSize(FVector2D(Config.StickThumbRadius * 2.0f, Config.StickThumbRadius * 2.0f));
 		}
+		StickThumb->SetBrush(MakeCircleBrush(Config.StickThumbColor));
 		StickThumb->SetRenderOpacity(Config.IdleOpacity);
 	}
 
@@ -127,9 +130,10 @@ void UTouchControlsWidget::BuildButtons()
 {
 	// Правый-нижний веер под большой палец: ОГОНЬ в углу, ДЕЙСТВИЕ левее, ПЕРЕЗАРЯД выше,
 	// БЕГ по диагонали, ОРУЖИЕ над перезарядкой. СУМКА — правый-верх, ПАУЗА — левый-верх.
-	// Точные позиции Ринат тюнит EditAnywhere-полями контроллера после живой пробы.
+	// Позиции/подписи/цвета Ринат тюнит EditAnywhere-полями контроллера (дефолты подписей —
+	// его конструктор), виджет только строит по конфигу.
 	FireButton = MakeTouchButton(Config.FireButton, ETouchCorner::BottomRight,
-		TEXT("ОГОНЬ"), TEXT("TouchFire"), /*bCombatGroup=*/true);
+		TEXT("TouchFire"), /*bCombatGroup=*/true);
 	if (FireButton)
 	{
 		FireButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleFirePressed);
@@ -137,19 +141,19 @@ void UTouchControlsWidget::BuildButtons()
 	}
 
 	if (UButton* ReloadBtn = MakeTouchButton(Config.ReloadButton, ETouchCorner::BottomRight,
-		TEXT("ПЕРЕЗАРЯД"), TEXT("TouchReload"), /*bCombatGroup=*/true))
+		TEXT("TouchReload"), /*bCombatGroup=*/true))
 	{
 		ReloadBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleReloadPressed);
 	}
 
 	if (UButton* InteractBtn = MakeTouchButton(Config.InteractButton, ETouchCorner::BottomRight,
-		TEXT("ДЕЙСТВИЕ"), TEXT("TouchInteract"), /*bCombatGroup=*/true))
+		TEXT("TouchInteract"), /*bCombatGroup=*/true))
 	{
 		InteractBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInteractPressed);
 	}
 
 	SprintButton = MakeTouchButton(Config.SprintButton, ETouchCorner::BottomRight,
-		TEXT("БЕГ"), TEXT("TouchSprint"), /*bCombatGroup=*/true);
+		TEXT("TouchSprint"), /*bCombatGroup=*/true);
 	if (SprintButton)
 	{
 		SprintButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleSprintPressed);
@@ -157,26 +161,26 @@ void UTouchControlsWidget::BuildButtons()
 	}
 
 	if (UButton* WeaponBtn = MakeTouchButton(Config.WeaponButton, ETouchCorner::BottomRight,
-		TEXT("ОРУЖИЕ"), TEXT("TouchWeapon"), /*bCombatGroup=*/true))
+		TEXT("TouchWeapon"), /*bCombatGroup=*/true))
 	{
 		WeaponBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleWeaponPressed);
 	}
 
 	if (UButton* InventoryBtn = MakeTouchButton(Config.InventoryButton, ETouchCorner::TopRight,
-		TEXT("СУМКА"), TEXT("TouchInventory"), /*bCombatGroup=*/false))
+		TEXT("TouchInventory"), /*bCombatGroup=*/false))
 	{
 		InventoryBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleInventoryPressed);
 	}
 
 	if (UButton* PauseBtn = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
-		TEXT("II"), TEXT("TouchPause"), /*bCombatGroup=*/false))
+		TEXT("TouchPause"), /*bCombatGroup=*/false))
 	{
 		PauseBtn->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandlePausePressed);
 	}
 }
 
 UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ETouchCorner Corner,
-	const FString& Label, const FName& WidgetName, bool bCombatGroup)
+	const FName& WidgetName, bool bCombatGroup)
 {
 	if (!S.bEnabled || !RootCanvas)
 	{
@@ -185,12 +189,14 @@ UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ET
 
 	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), WidgetName);
 
-	// Круглый стиль без текстур (та же кисть, что у стика); состояния — прозрачностью тона.
+	// Круглый стиль без текстур (та же кисть, что у стика); состояния — прозрачностью тона
+	// S.Color (белый с альфой 1 = прежний вид; альфа настройки масштабирует все состояния).
+	const FLinearColor& Tint = S.Color;
 	FButtonStyle Style;
-	Style.Normal   = MakeCircleBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.30f));
-	Style.Hovered  = MakeCircleBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.40f));
-	Style.Pressed  = MakeCircleBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.55f));
-	Style.Disabled = MakeCircleBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.15f));
+	Style.Normal   = MakeCircleBrush(FLinearColor(Tint.R, Tint.G, Tint.B, Tint.A * 0.30f));
+	Style.Hovered  = MakeCircleBrush(FLinearColor(Tint.R, Tint.G, Tint.B, Tint.A * 0.40f));
+	Style.Pressed  = MakeCircleBrush(FLinearColor(Tint.R, Tint.G, Tint.B, Tint.A * 0.55f));
+	Style.Disabled = MakeCircleBrush(FLinearColor(Tint.R, Tint.G, Tint.B, Tint.A * 0.15f));
 	Style.NormalPadding = FMargin(0.0f);
 	Style.PressedPadding = FMargin(0.0f);
 	Button->SetStyle(Style);
@@ -198,10 +204,12 @@ UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ET
 
 	UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(WidgetName.ToString() + TEXT("Label"))));
-	Text->SetText(FText::FromString(Label));
-	const int32 FontSize = FMath::Clamp<int32>(FMath::RoundToInt(S.Radius * 0.30f), 10, 22);
+	Text->SetText(FText::FromString(S.Label));
+	const int32 FontSize = (S.FontSize > 0)
+		? S.FontSize
+		: FMath::Clamp<int32>(FMath::RoundToInt(S.Radius * 0.30f), 10, 22);
 	Text->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FontSize));
-	Text->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f, 0.9f)));
+	Text->SetColorAndOpacity(FSlateColor(S.TextColor));
 	Button->SetContent(Text);
 
 	if (UCanvasPanelSlot* BtnSlot = RootCanvas->AddChildToCanvas(Button))
