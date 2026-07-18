@@ -7,6 +7,7 @@
 #include "GenerateWbpCommandlet.generated.h"
 
 class UWidgetBlueprint;
+class UWidgetTree;
 
 /**
  * Генерация WBP-ассетов кодом (ADR-048, команда Рината 07-18: «собери WBP сам, я подредактирую»).
@@ -15,13 +16,16 @@ class UWidgetBlueprint;
  * FKismetEditorUtilities::CompileBlueprint + UPackage::SavePackage.
  *
  * Запуск (редактор НЕ нужен, headless):
- *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp            — создать WBP_InteractPrompt
- *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp -verify    — загрузить и распечатать дерево
- *   Флаг -force разрешает перезапись существующего ассета (по умолчанию — отказ, чтобы
+ *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp          — создать недостающие WBP
+ *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp -verify  — прогон-проверка: загрузить
+ *     каждый сгенерированный ассет, распечатать родителя и дерево, сверить имена кубиков
+ *   Флаг -force разрешает перезапись существующего ассета (по умолчанию — пропуск, чтобы
  *   не затереть правки Рината).
  *
- * Спайк: один ассет Content/UI/WBP_InteractPrompt (родитель InteractPromptWidget, схема
- * umg-layout-guide.md: Border-плашка + Text «PromptText»). Остальные экраны — после «добро».
+ * Генерируются ТОЛЬКО ассеты из таблицы (готовые WBP Рината — магазин/строка/диалог/статы —
+ * в таблице отсутствуют и не трогаются). Дефолтная раскладка повторяет текущий вид игры:
+ * тач-слой — по значениям с CDO BP-контроллера (та же геометрия и стиль, что строил код),
+ * экраны — по геометрии Canvas-отрисовки HUD (требование лида 07-18).
  */
 UCLASS()
 class UGenerateWbpCommandlet : public UCommandlet
@@ -32,12 +36,12 @@ public:
 	virtual int32 Main(const FString& Params) override;
 
 private:
-	// Создаёт, компилирует и сохраняет WBP_InteractPrompt. 0 — успех.
-	int32 GenerateInteractPrompt(bool bForce);
+	// Создаёт, наполняет, компилирует и сохраняет все недостающие ассеты таблицы. 0 — успех.
+	int32 GenerateAll(bool bForce);
 
-	// Отдельный прогон-проверка: грузит сохранённый ассет с диска, печатает родительский
-	// класс и дерево виджетов, проверяет наличие кубика PromptText. 0 — всё на месте.
-	int32 VerifyInteractPrompt();
+	// Отдельный прогон-проверка: каждый ассет таблицы грузится с диска, печатается родитель
+	// и дерево, сверяется наличие всех ожидаемых кубиков. 0 — всё на месте.
+	int32 VerifyAll();
 
 	// Рекурсивная печать дерева виджетов (имя + класс) в лог.
 	void DumpWidgetTree(class UWidget* Widget, int32 Depth);

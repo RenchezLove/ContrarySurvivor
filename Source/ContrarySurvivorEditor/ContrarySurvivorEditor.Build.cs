@@ -20,5 +20,9 @@ public class ContrarySurvivorEditor : ModuleRules
 		{
 			"UMG", "UMGEditor", "UnrealEd", "AssetRegistry", "Slate", "SlateCore", "ContrarySurvivor"
 		});
+
+		// Заголовки геймплей-модуля лежат подпапками вне его Public/ и включаются по конвенции
+		// проекта «ContrarySurvivor/<Subdir>/Header.h» относительно Source/ — добавляем Source/.
+		PrivateIncludePaths.Add(System.IO.Path.Combine(ModuleDirectory, ".."));
 	}
 }
