@@ -12,6 +12,7 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // журнал квестов (диалог/трекер)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/UI/ShopScreenWidget.h" // ADR-048: UMG-путь магазина (слот ShopWidgetClass)
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
@@ -131,7 +132,8 @@ void AContrarySurvivorHUD::DrawHUD()
 			}
 
 			// --- Экран магазина поверх HUD (модальный, GDD §7.6) ---
-			if (bShopOpen)
+			// ADR-048: при назначенном ShopWidgetClass магазин рисует UMG-виджет.
+			if (bShopOpen && !IsUmgShopActive())
 			{
 				DrawShop(PlayerChar);
 			}
@@ -569,11 +571,53 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 	{
 		ShopHitRegions.Reset();
 	}
+
+	// ADR-048: слот ShopWidgetClass назначен — магазин живёт UMG-виджетом, Canvas-путь
+	// (DrawShop/клики/жесты) глушится проверками IsUmgShopActive. Слот пуст — всё как раньше.
+	if (bOpen && ShopWidgetClass)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		if (PC && PlayerChar)
+		{
+			if (!ShopWidgetInstance)
+			{
+				ShopWidgetInstance = CreateWidget<UShopScreenWidget>(PC, ShopWidgetClass);
+				if (ShopWidgetInstance)
+				{
+					// Close — закрывает контроллер (мир/режим ввода — его зона ответственности).
+					if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+					{
+						ShopWidgetInstance->OnCloseRequested.AddUObject(
+							CSPC, &AContrarySurvivorPlayerController::CloseShop);
+					}
+				}
+			}
+			if (ShopWidgetInstance)
+			{
+				ShopWidgetInstance->InitShop(Trader, PlayerChar);
+				if (!ShopWidgetInstance->IsInViewport())
+				{
+					// Z=30: над тач-слоем (10), под подсказками (40)/ежедневкой (50)/паузой (60).
+					ShopWidgetInstance->AddToViewport(/*ZOrder=*/30);
+				}
+			}
+		}
+	}
+	else if (!bOpen && ShopWidgetInstance && ShopWidgetInstance->IsInViewport())
+	{
+		ShopWidgetInstance->RemoveFromParent(); // экземпляр переиспользуется при следующем визите
+	}
+}
+
+bool AContrarySurvivorHUD::IsUmgShopActive() const
+{
+	return ShopWidgetInstance && ShopWidgetInstance->IsInViewport();
 }
 
 void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)
 {
-	if (!bShopOpen)
+	if (!bShopOpen || IsUmgShopActive()) // UMG-путь: прокрутку делает штатный ScrollBox
 	{
 		return;
 	}
@@ -603,7 +647,7 @@ void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)
 
 EShopDragZone AContrarySurvivorHUD::GetShopDragZone(FVector2D ScreenPos) const
 {
-	if (!bShopOpen)
+	if (!bShopOpen || IsUmgShopActive()) // UMG-путь: жесты обрабатывает Slate (ScrollBox/Slider)
 	{
 		return EShopDragZone::None;
 	}
@@ -633,7 +677,8 @@ EShopDragZone AContrarySurvivorHUD::GetShopDragZone(FVector2D ScreenPos) const
 
 void AContrarySurvivorHUD::ScrollShopZonePixels(EShopDragZone Zone, float DeltaPixels)
 {
-	if (!bShopOpen || (Zone != EShopDragZone::BuyList && Zone != EShopDragZone::SellList))
+	if (!bShopOpen || IsUmgShopActive()
+		|| (Zone != EShopDragZone::BuyList && Zone != EShopDragZone::SellList))
 	{
 		return;
 	}
@@ -663,7 +708,7 @@ void AContrarySurvivorHUD::ScrollShopZonePixels(EShopDragZone Zone, float DeltaP
 
 void AContrarySurvivorHUD::SetShopSliderQtyFromX(float ScreenX)
 {
-	if (!bShopOpen || !bSliderActive)
+	if (!bShopOpen || !bSliderActive || IsUmgShopActive())
 	{
 		return;
 	}
@@ -785,7 +830,7 @@ void AContrarySurvivorHUD::ConfirmShopSlider(APlayerCharacter* Player)
 
 bool AContrarySurvivorHUD::HandleShopClick(FVector2D ScreenPos)
 {
-	if (!bShopOpen || !ShopTrader)
+	if (!bShopOpen || !ShopTrader || IsUmgShopActive()) // UMG-путь: клики ловят кнопки виджета
 	{
 		return false;
 	}
@@ -891,8 +936,8 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 	DrawShadowedText(ShopHeaderText, UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
 	const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
-	// Деньги — крупно, золотой, на плашке (#18).
-	DrawLabelWithPlate(FString::Printf(TEXT("%s%.0f"), *ShopMoneyPrefix, Money), UIMoneyColor,
+	// Деньги — крупно, золотой, на плашке (#18). Литерал: поле переехало в UShopScreenWidget (ADR-048).
+	DrawLabelWithPlate(FString::Printf(TEXT("Монеты %.0f"), Money), UIMoneyColor,
 		PX + Pad, HeaderY + 30.0f, Font, UIMoneyTextScale);
 
 	// Кнопка Close (правый верх панели).
@@ -979,7 +1024,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		// Кнопка [Buy] — зелёная, если хватает денег, иначе тускло-красная.
 		const float BtnX = LeftX + MainW + 6.0f;
 		const bool bAfford = (Money >= E.Price);
-		DrawInvBox(BtnX, RowY, BtnW, RowH, bAfford ? InvSlotFilledColor : InvDropColor, Mouse, ShopBuyButtonText, Font);
+		DrawInvBox(BtnX, RowY, BtnW, RowH, bAfford ? InvSlotFilledColor : InvDropColor, Mouse, TEXT("Buy"), Font);
 		if (bAfford && !bSliderActive)
 		{
 			FShopHitRegion R;
@@ -1051,7 +1096,7 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 		DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
 
 		const float BtnX = RightX + MainW + 6.0f;
-		DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, ShopSellButtonText, Font);
+		DrawInvBox(BtnX, SellY, BtnW, RowH, InvSlotFilledColor, Mouse, TEXT("Sell"), Font);
 		if (!bSliderActive)
 		{
 			FShopHitRegion R;
@@ -1097,9 +1142,10 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 	const float Pad = SliderPanelPadding;
 	float Y = PYc + Pad;
 
-	// Заголовок: что и в каком режиме (крупно, обводка). Купить/Продать — по-русски для ясности.
+	// Заголовок: что и в каком режиме (крупно, обводка). Литералы: поля переехали
+	// в UShopScreenWidget (ADR-048), Canvas-путь доживает до выпила.
 	{
-		const FString& Mode = bSliderIsBuy ? SliderBuyTitle : SliderSellTitle;
+		const FString Mode = bSliderIsBuy ? TEXT("КУПИТЬ") : TEXT("ПРОДАТЬ");
 		DrawShadowedText(FString::Printf(TEXT("%s:  %s"), *Mode, *SliderTitle),
 			UIHeaderColor, PXc + Pad, Y, Font, UISliderTitleScale);
 	}
@@ -1110,7 +1156,7 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 
 	// Строка количества + (для патронов) сколько это патронов — КРУПНОЕ число, на плашке (#18).
 	{
-		FString QtyLine = FString::Printf(TEXT("%s%d / %d"), *SliderQtyPrefix, SliderQty, SliderQtyMax);
+		FString QtyLine = FString::Printf(TEXT("Кол-во: %d / %d"), SliderQty, SliderQtyMax);
 		if (SliderUnitAmmo > 0)
 		{
 			QtyLine += FString::Printf(TEXT("   (= %d ammo)"), SliderQty * SliderUnitAmmo);
@@ -1166,8 +1212,8 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 	const float Total = SliderUnitPrice * static_cast<float>(SliderQty);
 	{
 		const FString PriceStr = bSliderIsBuy
-			? FString::Printf(TEXT("%s%.0f"), *SliderTotalPrefix, Total)
-			: FString::Printf(TEXT("%s%.0f"), *SliderRevenuePrefix, Total);
+			? FString::Printf(TEXT("Итого: %.0f"), Total)
+			: FString::Printf(TEXT("Выручка: +%.0f"), Total);
 		DrawLabelWithPlate(PriceStr, UIMoneyColor, PlusX + SmallW + 24.0f, Y + 2.0f, Font, UISliderPriceScale);
 	}
 

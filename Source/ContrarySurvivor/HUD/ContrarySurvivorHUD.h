@@ -13,6 +13,7 @@ class APlayerCharacter;
 class AMasterInventoryItem;
 class AElderNPC;
 class UTexture2D;
+class UShopScreenWidget;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -439,11 +440,25 @@ protected:
 	float UIPanelBorderThickness = 2.0f;
 
 	// ======================================================================
+	// UMG-миграция панелей (ADR-048): слоты классов виджетов. Слот пуст — работает
+	// СТАРЫЙ Canvas-путь панели; Ринат построил WBP по схеме из
+	// docs/contrary-survivor/umg-layout-guide.md и назначил в слот — панель живёт
+	// в UMG, её Canvas-код глушится. Игра играбельна при ЛЮБОЙ комбинации слотов.
+	// ======================================================================
+
+	// Экран магазина (WBP_Shop). Пусто — Canvas DrawShop как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "1"))
+	TSubclassOf<UShopScreenWidget> ShopWidgetClass;
+
+	// ======================================================================
 	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
 	// вынесены в EditAnywhere-поля. Дефолты дословно повторяют прежние зашитые значения.
 	// Формат-строки с параметрами вынесены полями Prefix/Suffix (решение game-lead:
 	// сырые Printf-форматы в редактор не отдавать). Микро-отступы (6-30px внутренних
 	// зазоров) сознательно оставлены в коде — иначе Details утонет в полях.
+	// ПРИМЕЧАНИЕ ADR-048: поля панелей, переехавших на UMG, живут в классах виджетов
+	// (одно место правды); Canvas-путь этих панелей вернулся к литералам (те же строки)
+	// и целиком выпиливается после приёмки Рината.
 	// ======================================================================
 
 	// --- Общая геометрия центральных панелей (инвентарь И магазин — одинаковы по дизайну) ---
@@ -486,24 +501,17 @@ protected:
 
 	// --- Магазин: тексты ---
 
+	// Тексты Canvas-пути магазина (ADR-048: динамические строки UMG-пути переехали
+	// в UShopScreenWidget — Монеты/Кол-во/Итого/Выручка/Buy/Sell/КУПИТЬ/ПРОДАТЬ;
+	// здесь остались только Canvas-специфичные, умрут вместе с DrawShop).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "1"))
 	FString ShopHeaderText = TEXT("TRADER  (E to close)");
-
-	// Перед числом денег: «Монеты 150».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "2"))
-	FString ShopMoneyPrefix = TEXT("Монеты ");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "3"))
 	FString ShopBuyHeaderText = TEXT("FOR SALE  (Купить)");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "4"))
 	FString ShopSellHeaderText = TEXT("SELL FROM BACKPACK  (Продать)");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "5"))
-	FString ShopBuyButtonText = TEXT("Buy");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "6"))
-	FString ShopSellButtonText = TEXT("Sell");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Texts", meta = (DisplayPriority = "7"))
 	FString ShopCloseButtonText = TEXT("Close");
@@ -554,25 +562,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider", meta = (DisplayPriority = "11"))
 	FLinearColor SliderKeysHintColor = FLinearColor(0.8f, 0.8f, 0.82f, 1.0f);
 
-	// --- Слайдер количества: тексты ---
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "1"))
-	FString SliderBuyTitle = TEXT("КУПИТЬ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "2"))
-	FString SliderSellTitle = TEXT("ПРОДАТЬ");
-
-	// Перед «N / max»: «Кол-во: 3 / 10».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "3"))
-	FString SliderQtyPrefix = TEXT("Кол-во: ");
-
-	// Перед итоговой суммой покупки: «Итого: 120».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "4"))
-	FString SliderTotalPrefix = TEXT("Итого: ");
-
-	// Перед выручкой продажи (плюс — часть текста): «Выручка: +40».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "5"))
-	FString SliderRevenuePrefix = TEXT("Выручка: +");
+	// --- Слайдер количества: тексты (Canvas-путь; КУПИТЬ/ПРОДАТЬ/Кол-во/Итого/Выручка
+	// переехали в UShopScreenWidget — ADR-048) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "6"))
 	FString SliderConfirmText = TEXT("Confirm");
@@ -988,6 +979,15 @@ private:
 	// --- Экран магазина (immediate-mode) ---
 
 	bool bShopOpen = false;
+
+	// UMG-экземпляр магазина (ADR-048): создаётся при первом открытии, если назначен
+	// ShopWidgetClass; переиспользуется. Пока существует и на экране — Canvas-путь
+	// магазина (DrawShop/клики/жесты) заглушен.
+	UPROPERTY()
+	TObjectPtr<UShopScreenWidget> ShopWidgetInstance;
+
+	// Магазин живёт в UMG-пути? (слот назначен и экземпляр показан)
+	bool IsUmgShopActive() const;
 
 	// Вендор, чей каталог отрисовываем (источник цен/товаров). Интерфейс — развязка от
 	// конкретного класса торговца (A2). TScriptInterface держит и UObject, и интерфейс-указатель.
