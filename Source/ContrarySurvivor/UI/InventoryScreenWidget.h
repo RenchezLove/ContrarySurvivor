@@ -96,10 +96,11 @@ protected:
 
 	// Один слот paper-doll: текст (имя надетого / «(пусто)») + иконка надетого предмета
 	// (Collapsed, когда пусто — под ней видна статичная подложка Рината из WBP).
-	void RefreshArmorSlot(EArmorSlot Slot, UTextBlock* SlotText, UImage* SlotIcon);
+	// Параметр НЕ «Slot»: имя шэдоуило бы член UWidget::Slot (C4458 при -WarningsAsErrors).
+	void RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* SlotText, UImage* SlotIcon);
 
-	// Снять броню слота (клик по слоту; на пустом слоте безвреден).
-	void UnequipSlot(EArmorSlot Slot);
+	// Снять броню слота (клик по занятому слоту; пустой — ничего).
+	void UnequipSlot(EArmorSlot ArmorSlot);
 
 	// --- Кубики WBP_Inventory (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 

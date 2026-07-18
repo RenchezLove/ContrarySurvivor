@@ -171,9 +171,9 @@ void UInventoryScreenWidget::RefreshAll()
 	LastWeaponName = Weapon ? Weapon->GetName() : FString();
 }
 
-void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot Slot, UTextBlock* SlotText, UImage* SlotIcon)
+void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* SlotText, UImage* SlotIcon)
 {
-	AArmor* Eq = Player ? Player->GetEquippedArmor(Slot) : nullptr;
+	AArmor* Eq = Player ? Player->GetEquippedArmor(ArmorSlot) : nullptr;
 
 	if (SlotText)
 	{
@@ -205,13 +205,13 @@ void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot Slot, UTextBlock* SlotT
 	}
 }
 
-void UInventoryScreenWidget::UnequipSlot(EArmorSlot Slot)
+void UInventoryScreenWidget::UnequipSlot(EArmorSlot ArmorSlot)
 {
 	// Снимаем ТОЛЬКО с занятого слота — как Canvas-путь (кликабельная зона была только
 	// у занятых); клик по пустому слоту — ничего.
-	if (Player && Player->GetEquippedArmor(Slot))
+	if (Player && Player->GetEquippedArmor(ArmorSlot))
 	{
-		Player->Inv_UnequipSlot(Slot);
+		Player->Inv_UnequipSlot(ArmorSlot);
 		RefreshAll();
 	}
 }
