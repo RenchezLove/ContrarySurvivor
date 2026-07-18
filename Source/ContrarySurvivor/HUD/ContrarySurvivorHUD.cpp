@@ -15,6 +15,10 @@
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"      // ADR-048: UMG-путь магазина (слот ShopWidgetClass)
 #include "ContrarySurvivor/UI/DialogScreenWidget.h"    // ADR-048: UMG-путь диалога старосты
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-048: UMG-путь инвентаря
+#include "ContrarySurvivor/UI/DeathScreenWidget.h"     // ADR-048: UMG-путь экрана смерти
+#include "ContrarySurvivor/UI/PlayerStatsWidget.h"     // ADR-048: постоянная панель статов
+#include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // ADR-048: постоянный трекер квеста
+#include "ContrarySurvivor/UI/InteractPromptWidget.h"  // ADR-048: постоянная подсказка E
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
@@ -27,6 +31,44 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
 #include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
+
+void AContrarySurvivorHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// ADR-048: постоянные панели — один раз на старте, если слоты назначены. Виджеты
+	// сами берут игрока/контроллер каждый кадр и сами прячутся на модалках — HUD их
+	// больше не трогает. Z=5: под тач-слоем (10) и всеми окнами.
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC)
+	{
+		return;
+	}
+	if (PlayerStatsWidgetClass && !PlayerStatsWidgetInstance)
+	{
+		PlayerStatsWidgetInstance = CreateWidget<UPlayerStatsWidget>(PC, PlayerStatsWidgetClass);
+		if (PlayerStatsWidgetInstance)
+		{
+			PlayerStatsWidgetInstance->AddToViewport(/*ZOrder=*/5);
+		}
+	}
+	if (QuestTrackerWidgetClass && !QuestTrackerWidgetInstance)
+	{
+		QuestTrackerWidgetInstance = CreateWidget<UQuestTrackerWidget>(PC, QuestTrackerWidgetClass);
+		if (QuestTrackerWidgetInstance)
+		{
+			QuestTrackerWidgetInstance->AddToViewport(/*ZOrder=*/5);
+		}
+	}
+	if (InteractPromptWidgetClass && !InteractPromptWidgetInstance)
+	{
+		InteractPromptWidgetInstance = CreateWidget<UInteractPromptWidget>(PC, InteractPromptWidgetClass);
+		if (InteractPromptWidgetInstance)
+		{
+			InteractPromptWidgetInstance->AddToViewport(/*ZOrder=*/5);
+		}
+	}
+}
 
 void AContrarySurvivorHUD::DrawHUD()
 {
@@ -118,11 +160,17 @@ void AContrarySurvivorHUD::DrawHUD()
 			// Этап D: метка цели активного квеста (гаснет после сдачи).
 			DrawQuestTargetMarker(PlayerChar);
 
-			DrawPlayerStats(PlayerChar);
+			// ADR-048: при назначенном PlayerStatsWidgetClass статы рисует UMG-панель.
+			if (!PlayerStatsWidgetInstance)
+			{
+				DrawPlayerStats(PlayerChar);
+			}
 
 			// --- Трекер активного квеста («Волков: X/5») — GDD §7.7 ---
 			// Только вне модальных экранов (на них квест виден в самом диалоге).
-			if (!bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
+			// ADR-048: UMG-трекер прячется на модалках САМ (проверка внутри виджета).
+			if (!QuestTrackerWidgetInstance
+				&& !bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
 			{
 				DrawQuestTracker(PlayerChar->GetQuests());
 			}
@@ -149,7 +197,8 @@ void AContrarySurvivorHUD::DrawHUD()
 			}
 
 			// --- Экран смерти (#26): поверх всего, респаун по кнопке/клавише ---
-			if (bDeathScreen)
+			// ADR-048: при назначенном DeathWidgetClass экран смерти рисует UMG-виджет.
+			if (bDeathScreen && !IsUmgDeathActive())
 			{
 				DrawDeathScreen(PlayerChar);
 			}
@@ -158,7 +207,9 @@ void AContrarySurvivorHUD::DrawHUD()
 
 	// --- Контекстная подсказка взаимодействия (E) — пикап/торговец/староста (BUG3) ---
 	// Только когда модальные экраны закрыты (иначе перекрывает панель).
-	if (!bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
+	// ADR-048: UMG-подсказка (InteractPromptWidgetInstance) прячется/показывается САМА.
+	if (!InteractPromptWidgetInstance
+		&& !bInventoryOpen && !bShopOpen && !bDialogOpen && !bDeathScreen)
 	{
 		if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
 		{
@@ -1609,13 +1660,13 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 	FString Text;
 	if (bDone)
 	{
-		// Сборка кодом: Prefix + название + (прогресс) + Suffix (формат не в редакторе).
-		Text = FString::Printf(TEXT("%s%s (%s)%s"),
-			*QuestDonePrefix, *Tracked->Title, *ObjStr, *QuestDoneSuffix);
+		// Литералы: тексты переехали в UQuestTrackerWidget (ADR-048).
+		Text = FString::Printf(TEXT("Квест выполнен: %s (%s) - вернись к старосте"),
+			*Tracked->Title, *ObjStr);
 	}
 	else
 	{
-		Text = FString::Printf(TEXT("%s%s — %s"), *QuestTrackerPrefix, *Tracked->Title, *ObjStr);
+		Text = FString::Printf(TEXT("Квест: %s — %s"), *Tracked->Title, *ObjStr);
 	}
 
 	float TextW = 0.0f, TextH = 0.0f;
@@ -1642,11 +1693,43 @@ void AContrarySurvivorHUD::SetDeathScreenOpen(bool bOpen)
 		DeathRespawnBtnMin = FVector2D::ZeroVector;
 		DeathRespawnBtnMax = FVector2D::ZeroVector;
 	}
+
+	// ADR-048: назначен DeathWidgetClass — экран смерти живёт UMG-виджетом.
+	if (bOpen && DeathWidgetClass)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		if (PC && PlayerChar)
+		{
+			if (!DeathWidgetInstance)
+			{
+				DeathWidgetInstance = CreateWidget<UDeathScreenWidget>(PC, DeathWidgetClass);
+			}
+			if (DeathWidgetInstance)
+			{
+				DeathWidgetInstance->InitDeath(PlayerChar);
+				if (!DeathWidgetInstance->IsInViewport())
+				{
+					// Z=35: поверх модальных окон (30) — смерть замещает всё, под ежедневкой/паузой.
+					DeathWidgetInstance->AddToViewport(/*ZOrder=*/35);
+				}
+			}
+		}
+	}
+	else if (!bOpen && DeathWidgetInstance && DeathWidgetInstance->IsInViewport())
+	{
+		DeathWidgetInstance->RemoveFromParent();
+	}
+}
+
+bool AContrarySurvivorHUD::IsUmgDeathActive() const
+{
+	return DeathWidgetInstance && DeathWidgetInstance->IsInViewport();
 }
 
 bool AContrarySurvivorHUD::HandleDeathScreenClick(FVector2D ScreenPos)
 {
-	if (!bDeathScreen)
+	if (!bDeathScreen || IsUmgDeathActive()) // UMG-путь: возрождение — кнопка виджета
 	{
 		return false;
 	}
@@ -1706,12 +1789,13 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 	const int32 QuestsDone = Player->GetQuests() ? Player->GetQuests()->GetTurnedInQuestCount() : 0;
 	const int32 Kills = Player->GetEnemyKillCount();
 
+	// Литералы: префиксы переехали в UDeathScreenWidget (ADR-048).
 	TArray<FString> Lines;
-	Lines.Add(FString::Printf(TEXT("%s%02d:%02d"), *DeathLifetimePrefix, Minutes, Seconds));
-	Lines.Add(FString::Printf(TEXT("%s%s"), *DeathKillerPrefix, *Player->GetLastDamagerName()));
-	Lines.Add(FString::Printf(TEXT("%s%.0f"), *DeathMoneyPrefix, Money));
-	Lines.Add(FString::Printf(TEXT("%s%d"), *DeathQuestsPrefix, QuestsDone));
-	Lines.Add(FString::Printf(TEXT("%s%d"), *DeathKillsPrefix, Kills));
+	Lines.Add(FString::Printf(TEXT("Прожито:  %02d:%02d"), Minutes, Seconds));
+	Lines.Add(FString::Printf(TEXT("Убийца:  %s"), *Player->GetLastDamagerName()));
+	Lines.Add(FString::Printf(TEXT("Монеты:  %.0f"), Money));
+	Lines.Add(FString::Printf(TEXT("Квестов выполнено:  %d"), QuestsDone));
+	Lines.Add(FString::Printf(TEXT("Врагов убито:  %d"), Kills));
 
 	const float StatScale = DeathStatScale;
 	float LineH = 26.0f;
@@ -1754,8 +1838,8 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 		// фактическим штрафом при смене параметра в BP. Строка собирается кодом:
 		// Prefix + процент + Suffix = «−40% монет — …» (формат не в редакторе).
 		const int32 MoneyLossPct = FMath::RoundToInt(Player->GetDeathMoneyLossFraction() * 100.0f);
-		const FString MoneyPenaltyLine = FString::Printf(TEXT("%s%d%s"),
-			*DeathMoneyLossPrefix, MoneyLossPct, *DeathMoneyLossSuffix);
+		const FString MoneyPenaltyLine = FString::Printf(
+			TEXT("−%d%% монет — часть монет утрачена при гибели."), MoneyLossPct);
 
 		DrawDeathPenaltyLine(DeathRespawnLine, DeathStatColor);
 		DrawDeathPenaltyLine(MoneyPenaltyLine, DeathPenaltyColor);
@@ -1931,7 +2015,8 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	{
 		DrawRect(PlayerHealthFillColor, BarX, CurY, HpFillWidth, PlayerHealthBarHeight);
 	}
-	DrawShadowedText(FString::Printf(TEXT("%s%.0f/%.0f"), *PlayerHpPrefix, Stats->GetHealth(), Stats->GetMaxHealth()),
+	// Литералы: префиксы переехали в UPlayerStatsWidget (ADR-048).
+	DrawShadowedText(FString::Printf(TEXT("HP %.0f/%.0f"), Stats->GetHealth(), Stats->GetMaxHealth()),
 		FLinearColor::White, BarX + 8.0f, CurY + 4.0f, Font);
 	CurY += PlayerHealthBarHeight + 6.0f;
 
@@ -1945,7 +2030,7 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	{
 		DrawRect(HungerColor, BarX, CurY, HungerFillW, SurvBarH);
 	}
-	DrawShadowedText(FString::Printf(TEXT("%s%.0f"), *PlayerHungerPrefix, Stats->GetHunger()),
+	DrawShadowedText(FString::Printf(TEXT("Hunger %.0f"), Stats->GetHunger()),
 		FLinearColor::White, BarX + 8.0f, CurY + 3.0f, Font);
 	CurY += SurvBarH + 4.0f;
 
@@ -1956,7 +2041,7 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	{
 		DrawRect(ThirstColor, BarX, CurY, ThirstFillW, SurvBarH);
 	}
-	DrawShadowedText(FString::Printf(TEXT("%s%.0f"), *PlayerThirstPrefix, Stats->GetThirst()),
+	DrawShadowedText(FString::Printf(TEXT("Thirst %.0f"), Stats->GetThirst()),
 		FLinearColor::White, BarX + 8.0f, CurY + 3.0f, Font);
 	CurY += SurvBarH + 8.0f;
 
@@ -1967,8 +2052,8 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon()))
 	{
 		// Обойма / резерв оружия + (в рюкзаке) — патроны как стак-предмет (Фаза 5).
-		const FString AmmoStr = FString::Printf(TEXT("%s%d / %d  (bag %d)"),
-			*PlayerAmmoPrefix, Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve(),
+		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d  (bag %d)"),
+			Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve(),
 			Player->GetReserveAmmoInInventory());
 		// Плашка под патронами для читаемости.
 		float AmmoW = 0.0f, AmmoH = 0.0f;
@@ -1982,7 +2067,7 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	}
 
 	// --- Деньги (всегда) + подложка-плашка под текстом (#18) ---
-	const FString MoneyStr = FString::Printf(TEXT("%s%.0f"), *PlayerMoneyPrefix, Stats->GetMoney());
+	const FString MoneyStr = FString::Printf(TEXT("Монеты %.0f"), Stats->GetMoney());
 	float MoneyW = 0.0f, MoneyH = 0.0f;
 	if (Font)
 	{

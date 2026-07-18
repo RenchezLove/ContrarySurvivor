@@ -16,6 +16,10 @@ class UTexture2D;
 class UShopScreenWidget;
 class UDialogScreenWidget;
 class UInventoryScreenWidget;
+class UDeathScreenWidget;
+class UPlayerStatsWidget;
+class UQuestTrackerWidget;
+class UInteractPromptWidget;
 
 // Тип действия кликабельной зоны инвентаря (Фаза 4). Immediate-mode UI: каждая зона
 // хранит свой прямоугольник на экране и действие, выполняемое при клике мышью/тапе.
@@ -111,6 +115,10 @@ class CONTRARYSURVIVOR_API AContrarySurvivorHUD : public AHUD
 
 public:
 	virtual void DrawHUD() override;
+
+	// ADR-048: постоянные UMG-панели (статы игрока / трекер квеста / подсказка E)
+	// создаются один раз на старте, если их слоты назначены.
+	virtual void BeginPlay() override;
 
 	// --- Экран инвентаря (Фаза 4, GDD §7.4) — immediate-mode, без UMG/.uasset ---
 
@@ -460,6 +468,21 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "3"))
 	TSubclassOf<UInventoryScreenWidget> InventoryWidgetClass;
 
+	// Экран смерти (WBP_Death). Пусто — Canvas DrawDeathScreen как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "4"))
+	TSubclassOf<UDeathScreenWidget> DeathWidgetClass;
+
+	// Постоянные панели: статы игрока / трекер квеста / подсказка взаимодействия
+	// (WBP_PlayerStats / WBP_QuestTracker / WBP_InteractPrompt). Пусто — Canvas.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "5"))
+	TSubclassOf<UPlayerStatsWidget> PlayerStatsWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "6"))
+	TSubclassOf<UQuestTrackerWidget> QuestTrackerWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "7"))
+	TSubclassOf<UInteractPromptWidget> InteractPromptWidgetClass;
+
 	// ======================================================================
 	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
 	// вынесены в EditAnywhere-поля. Дефолты дословно повторяют прежние зашитые значения.
@@ -726,33 +749,13 @@ protected:
 
 	// --- Экран смерти: тексты (штрафные строки — ФИНАЛЬНЫЕ формулировки ADR-027/ADR-044) ---
 
+	// (Префиксы строк статистики и штрафа монет переехали в UDeathScreenWidget — ADR-048;
+	// здесь остались Canvas-специфичные статичные строки.)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "1"))
 	FString DeathTitleText = TEXT("ВЫ ПОГИБЛИ");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "2"))
-	FString DeathLifetimePrefix = TEXT("Прожито:  ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "3"))
-	FString DeathKillerPrefix = TEXT("Убийца:  ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "4"))
-	FString DeathMoneyPrefix = TEXT("Монеты:  ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "5"))
-	FString DeathQuestsPrefix = TEXT("Квестов выполнено:  ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "6"))
-	FString DeathKillsPrefix = TEXT("Врагов убито:  ");
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "7"))
 	FString DeathRespawnLine = TEXT("Возрождение у костра в деревне.");
-
-	// Строка штрафа монет собирается кодом: Prefix + процент + Suffix = «−40% монет — …».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "8"))
-	FString DeathMoneyLossPrefix = TEXT("−");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "9"))
-	FString DeathMoneyLossSuffix = TEXT("% монет — часть монет утрачена при гибели.");
 
 	// ADR-044 п.3 (дословно, дополнение Рината): БЕЗ «их можно забрать» — портит атмосферу.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "10"))
@@ -767,18 +770,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "13"))
 	FString DeathKeyHintText = TEXT("Enter / Пробел — возродиться");
 
-	// --- Трекер квеста: тексты и плашка ---
-
-	// Перед названием: «Квест: Шкуры волков — …».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "1"))
-	FString QuestTrackerPrefix = TEXT("Квест: ");
-
-	// Выполненный квест собирается кодом: Prefix + название + (прогресс) + Suffix.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "2"))
-	FString QuestDonePrefix = TEXT("Квест выполнен: ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "3"))
-	FString QuestDoneSuffix = TEXT(" - вернись к старосте");
+	// --- Трекер квеста (Canvas-путь; «Квест:»/«Квест выполнен…» переехали
+	// в UQuestTrackerWidget — ADR-048; метка «Сдать:» — мировая, остаётся) ---
 
 	// Перед названием на метке квестодателя: «Сдать: Шкуры волков».
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "4"))
@@ -787,22 +780,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Quest Texts", meta = (DisplayPriority = "5"))
 	FLinearColor QuestTrackerPlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.55f);
 
-	// --- HUD игрока: тексты и цвет денег (левый стек) ---
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "1"))
-	FString PlayerHpPrefix = TEXT("HP ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "2"))
-	FString PlayerHungerPrefix = TEXT("Hunger ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "3"))
-	FString PlayerThirstPrefix = TEXT("Thirst ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "4"))
-	FString PlayerAmmoPrefix = TEXT("Ammo ");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "5"))
-	FString PlayerMoneyPrefix = TEXT("Монеты ");
+	// --- HUD игрока: цвет денег (Canvas-путь; префиксы HP/Hunger/Thirst/Ammo/Монеты
+	// переехали в UPlayerStatsWidget — ADR-048) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Player Texts", meta = (DisplayPriority = "6"))
 	FLinearColor PlayerMoneyColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
@@ -1078,6 +1057,22 @@ private:
 
 	// Открыт ли экран смерти (модальный поверх всего, кроме QA-оверлея).
 	bool bDeathScreen = false;
+
+	// UMG-экземпляры (ADR-048): экран смерти — по открытию; постоянные панели —
+	// в BeginPlay. Пока экземпляр на экране — его Canvas-путь заглушен.
+	UPROPERTY()
+	TObjectPtr<UDeathScreenWidget> DeathWidgetInstance;
+
+	UPROPERTY()
+	TObjectPtr<UPlayerStatsWidget> PlayerStatsWidgetInstance;
+
+	UPROPERTY()
+	TObjectPtr<UQuestTrackerWidget> QuestTrackerWidgetInstance;
+
+	UPROPERTY()
+	TObjectPtr<UInteractPromptWidget> InteractPromptWidgetInstance;
+
+	bool IsUmgDeathActive() const;
 
 	// Прямоугольник кнопки «Возродиться» (пересобирается каждый DrawDeathScreen) — для hit-теста.
 	FVector2D DeathRespawnBtnMin = FVector2D::ZeroVector;
