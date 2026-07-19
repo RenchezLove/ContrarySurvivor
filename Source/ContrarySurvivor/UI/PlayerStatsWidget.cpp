@@ -62,22 +62,22 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	const ESlateVisibility AmmoVisibility =
 		Ranged ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed;
 
+	// Видимость ставим И контейнеру, И содержимому. Контейнера одного НЕ ХВАТАЕТ: в ассете
+	// строка патронов создана спрятанной, и спрятан там не только ряд, но и сам кубик с
+	// числом. Показав только ряд, мы показывали пустое место — из-за этого патроны не
+	// появлялись даже с пистолетом в руках (баг владельца 2026-07-20).
 	if (AmmoRow)
 	{
 		// Контейнер прячет подпись и значение разом — подпись живёт в дизайнере, код её не знает.
 		AmmoRow->SetVisibility(AmmoVisibility);
 	}
-	else
+	if (AmmoText)
 	{
-		// Фолбэк для раскладки без контейнера: прячем только сами значения.
-		if (AmmoText)
-		{
-			AmmoText->SetVisibility(AmmoVisibility);
-		}
-		if (AmmoBagText)
-		{
-			AmmoBagText->SetVisibility(AmmoVisibility);
-		}
+		AmmoText->SetVisibility(AmmoVisibility);
+	}
+	if (AmmoBagText)
+	{
+		AmmoBagText->SetVisibility(AmmoVisibility);
 	}
 
 	if (Ranged)
