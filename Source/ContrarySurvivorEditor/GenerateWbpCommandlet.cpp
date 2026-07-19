@@ -382,7 +382,7 @@ namespace
 			FName(*(ButtonName.ToString() + TEXT("Box"))));
 		SlotButton->SetContent(SlotBox);
 
-		// Статичная подпись слота («Шлем») — текст Рината, код не трогает.
+		// Статичная подпись слота («Голова») — текст Рината, код не трогает.
 		UTextBlock* Caption = MakeText(Tree, Roboto, FName(*(ButtonName.ToString() + TEXT("Caption"))),
 			StaticCaption, FLinearColor(0.7f, 0.72f, 0.78f, 1.0f), 14, TEXT("Regular"));
 		if (UHorizontalBoxSlot* CapSlot = SlotBox->AddChildToHorizontalBox(Caption))
