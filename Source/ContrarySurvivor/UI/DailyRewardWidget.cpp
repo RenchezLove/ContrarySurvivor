@@ -82,13 +82,13 @@ void UDailyRewardWidget::NativeOnInitialized()
 
 void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 {
-	CurrentStyle = Style; // SetupContent берёт отсюда Prefix/Suffix строк
+	CurrentStyle = Style; // SetupContent берёт отсюда форматы строк
 
 	if (FrameBorder) { FrameBorder->SetBrushColor(Style.FrameColor); }
 	if (PanelBorder) { PanelBorder->SetBrushColor(Style.PanelColor); }
 	if (TitleBlock)
 	{
-		TitleBlock->SetText(FText::FromString(Style.TitleText));
+		TitleBlock->SetText(Style.TitleText);
 		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
 		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
@@ -104,7 +104,7 @@ void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 	}
 	if (TakeLabelBlock)
 	{
-		TakeLabelBlock->SetText(FText::FromString(Style.TakeButtonText));
+		TakeLabelBlock->SetText(Style.TakeButtonText);
 		TakeLabelBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TakeButtonFontSize)));
 		TakeLabelBlock->SetColorAndOpacity(FSlateColor(Style.TakeButtonTextColor));
 	}
@@ -112,16 +112,19 @@ void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 
 void UDailyRewardWidget::SetupContent(int32 StreakDays, float RewardAmount)
 {
-	// Сборка кодом из Prefix/Suffix стиля: «День серии: 3» / «+35 монет» (форматы не в редакторе).
+	// Сборка по форматам стиля: «День серии: 3» / «+35 монет». Подстановки именованные,
+	// числа через FText::AsNumber — порядок слов задаёт перевод, а не код (ADR-050).
 	if (StreakText)
 	{
-		StreakText->SetText(FText::FromString(FString::Printf(TEXT("%s%d"),
-			*CurrentStyle.StreakPrefix, StreakDays)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Days"), FText::AsNumber(StreakDays));
+		StreakText->SetText(FText::Format(CurrentStyle.StreakFormat, Args));
 	}
 	if (RewardText)
 	{
-		RewardText->SetText(FText::FromString(FString::Printf(TEXT("%s%.0f%s"),
-			*CurrentStyle.RewardPrefix, RewardAmount, *CurrentStyle.RewardSuffix)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(RewardAmount)));
+		RewardText->SetText(FText::Format(CurrentStyle.RewardFormat, Args));
 	}
 }
 

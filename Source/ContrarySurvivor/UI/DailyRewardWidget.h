@@ -14,6 +14,12 @@ class UBorder;
  * Стиль окна «Ежедневная награда». Живёт EditAnywhere-полем на UDailyRewardComponent
  * (виджет строится из C++-класса и в Details не виден — паттерн FTouchControlsConfig;
  * директива Рината 07-18). Дефолты дословно повторяют прежние зашитые значения.
+ *
+ * Локализация (ADR-050): подписи — FText с дефолтами через NSLOCTEXT (LOCTEXT в значении
+ * по умолчанию UHT запрещает — UhtTextProperty.cs:104). Строки с числами собираются
+ * FText::Format с ИМЕНОВАННЫМИ подстановками: прежняя пара «приставка + окончание» на
+ * другом языке дала бы неверный порядок слов. Дерево строится кодом, ассета в дизайнере
+ * у окна нет, поэтому подпись и значение по кубикам не разделяются.
  */
 USTRUCT(BlueprintType)
 struct FDailyRewardStyle
@@ -28,7 +34,7 @@ struct FDailyRewardStyle
 	FLinearColor PanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
-	FString TitleText = TEXT("ЕЖЕДНЕВНАЯ НАГРАДА");
+	FText TitleText = NSLOCTEXT("DailyRewardWidget", "TitleText", "ЕЖЕДНЕВНАЯ НАГРАДА");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "8"))
 	int32 TitleFontSize = 22;
@@ -36,10 +42,10 @@ struct FDailyRewardStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
 	FLinearColor TitleColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
 
-	// Строка серии собирается кодом: Prefix + число = «День серии: 3»
-	// (формат-строки в редактор не отдаём — решение game-lead 07-18).
+	// Строка серии: {Days} — какой день подряд игрок заходит.
+	// (Прежняя приставка StreakPrefix заменена форматом — ADR-050 отменил склейку строк.)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
-	FString StreakPrefix = TEXT("День серии: ");
+	FText StreakFormat = NSLOCTEXT("DailyRewardWidget", "StreakFormat", "День серии: {Days}");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "8"))
 	int32 StreakFontSize = 17;
@@ -47,12 +53,10 @@ struct FDailyRewardStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
 	FLinearColor StreakColor = FLinearColor(0.95f, 0.96f, 1.0f, 1.0f);
 
-	// Строка суммы собирается кодом: Prefix + число + Suffix = «+35 монет».
+	// Строка суммы: {Amount} — сколько монет начислено. Знак «+» — часть формата,
+	// а не приклеенный кодом символ (ADR-050).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
-	FString RewardPrefix = TEXT("+");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
-	FString RewardSuffix = TEXT(" монет");
+	FText RewardFormat = NSLOCTEXT("DailyRewardWidget", "RewardFormat", "+{Amount} монет");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "8"))
 	int32 RewardFontSize = 26;
@@ -61,7 +65,7 @@ struct FDailyRewardStyle
 	FLinearColor RewardColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
-	FString TakeButtonText = TEXT("Забрать");
+	FText TakeButtonText = NSLOCTEXT("DailyRewardWidget", "TakeButtonText", "Забрать");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "8"))
 	int32 TakeButtonFontSize = 18;
@@ -83,7 +87,7 @@ class CONTRARYSURVIVOR_API UDailyRewardWidget : public UUserWidget
 
 public:
 	// Применяет стиль к уже построенному дереву. Звать после CreateWidget, ДО SetupContent
-	// (строки серии/суммы собираются из Prefix/Suffix стиля).
+	// (строки серии/суммы собираются по форматам стиля).
 	void ApplyStyle(const FDailyRewardStyle& Style);
 
 	// Заполняет строки окна (день серии + сумма). Звать после CreateWidget, до AddToViewport.
