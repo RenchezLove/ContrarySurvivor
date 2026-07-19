@@ -104,16 +104,16 @@ protected:
 
 	// Что кладём в рюкзак. Medkit — это наш «Бинт» (название предмета берётся из
 	// AConsumableItem, здесь оно не дублируется).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Gift", meta = (DisplayPriority = "1"))
 	EConsumableType FirstGiftConsumableType = EConsumableType::Medkit;
 
 	// Сколько штук. 0 — подарок выключен, диалог работает как раньше.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "2", ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Gift", meta = (DisplayPriority = "2", ClampMin = "0"))
 	int32 FirstGiftCount = 1;
 
 	// Всплывающая подсказка о полученном предмете: {Item} — название предмета,
 	// {Count} — сколько штук. Пусто — подсказка не показывается.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "3"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Gift", meta = (DisplayPriority = "3"))
 	FText FirstGiftHintFormat = NSLOCTEXT("Dialog", "ElderFirstGiftHint", "Получено: {Item}");
 
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
