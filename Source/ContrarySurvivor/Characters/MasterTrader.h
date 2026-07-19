@@ -58,7 +58,7 @@ public:
 	virtual float GetAmmoSellPerRound() const override { return SellValueAmmoPerRound; }
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
-	virtual FString GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
+	virtual FText GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
 	virtual float GetNPCMarkerZOffset() const override { return NPCMarkerZOffset; }
 
 	// --- Урон: неубиваемость собственными средствами (override, БЕЗ повтора UFUNCTION-макроса) ---
@@ -81,7 +81,7 @@ protected:
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса;
 	// директива Рината 07-18: настраиваются на размещённом экземпляре BP_Trader).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
-	FString NPCMarkerLabel = TEXT("Торговец");
+	FText NPCMarkerLabel = NSLOCTEXT("NPC", "TraderMarker", "Торговец");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
 	float NPCMarkerZOffset = 320.0f;

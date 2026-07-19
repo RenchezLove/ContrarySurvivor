@@ -27,8 +27,10 @@ class IInteractableNPCInterface
 	GENERATED_BODY()
 
 public:
-	// Короткая подпись для HUD-маркера (например, "Trader" / "Торговец").
-	virtual FString GetNPCMarkerLabel() const = 0;
+	// Короткая подпись для HUD-маркера («Торговец» / «Староста»). ПЕРЕВОДИМЫЙ текст:
+	// игрок читает её прямо в кадре над головой персонажа, поэтому FText, а не FString
+	// (ADR-050; на этой паре надписей нас ловил издатель, когда там стояли Elder/Trader).
+	virtual FText GetNPCMarkerLabel() const = 0;
 
 	// На сколько единиц над ActorLocation поднимать якорь маркера (над головой NPC).
 	virtual float GetNPCMarkerZOffset() const { return 240.0f; }

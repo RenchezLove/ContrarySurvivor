@@ -46,7 +46,7 @@ public:
 	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
-	virtual FString GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
+	virtual FText GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
 	virtual float GetNPCMarkerZOffset() const override { return NPCMarkerZOffset; }
 
 	// --- Тексты диалога для HUD (директива Рината 07-18: настраиваются на РАЗМЕЩЁННОМ
@@ -88,7 +88,7 @@ protected:
 
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "6"))
-	FString NPCMarkerLabel = TEXT("Староста");
+	FText NPCMarkerLabel = NSLOCTEXT("NPC", "ElderMarker", "Староста");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "7"))
 	float NPCMarkerZOffset = 320.0f;

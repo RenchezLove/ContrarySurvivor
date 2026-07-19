@@ -2151,7 +2151,8 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 
 		const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Actor);
 		const float ZOff = NPC ? NPC->GetNPCMarkerZOffset() : 240.0f;
-		const FString Label = NPC ? NPC->GetNPCMarkerLabel() : FString();
+		// Старый путь рисования печатает строкой; сам текст уже переводимый (ADR-050).
+		const FString Label = NPC ? NPC->GetNPCMarkerLabel().ToString() : FString();
 
 		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, NPCMarkerColor);
 	}
