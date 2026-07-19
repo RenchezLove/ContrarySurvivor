@@ -27,7 +27,7 @@ class CONTRARYSURVIVOR_API UInventoryRowWidget : public UUserWidget
 public:
 	// Заполняет строку: имя предмета, подпись действия («использовать»/«надеть»;
 	// пусто — кнопка действия прячется: предмет из строки не применяется).
-	void SetupRow(const FString& InName, const FString& InUseCaption);
+	void SetupRow(const FText& InName, const FText& InUseCaption);
 
 	FOnInventoryRowAction OnUseClicked;
 	FOnInventoryRowAction OnDropClicked;

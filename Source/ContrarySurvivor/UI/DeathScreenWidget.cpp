@@ -40,36 +40,51 @@ void UDeathScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	// Статистика последней жизни — те же источники, что Canvas DrawDeathScreen.
 	if (LifetimeText)
 	{
+		// Минуты и секунды — с ведущим нулём, поэтому формат числа задаём явно
+		// (по умолчанию FText::AsNumber ведущий ноль не рисует).
+		FNumberFormattingOptions TwoDigits;
+		TwoDigits.SetMinimumIntegralDigits(2);
+		TwoDigits.SetUseGrouping(false);
+
 		const float LifeSec = Player->GetLastLifeDuration();
-		LifetimeText->SetText(FText::FromString(FString::Printf(TEXT("%s%02d:%02d"),
-			*LifetimePrefix, FMath::FloorToInt(LifeSec / 60.0f), FMath::FloorToInt(LifeSec) % 60)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Minutes"), FText::AsNumber(FMath::FloorToInt32(LifeSec / 60.0f), &TwoDigits));
+		Args.Add(TEXT("Seconds"), FText::AsNumber(FMath::FloorToInt32(LifeSec) % 60, &TwoDigits));
+		LifetimeText->SetText(FText::Format(LifetimeFormat, Args));
 	}
 	if (KillerText)
 	{
-		KillerText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%s"), *KillerPrefix, *Player->GetLastDamagerName())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Name"), FText::FromString(Player->GetLastDamagerName()));
+		KillerText->SetText(FText::Format(KillerFormat, Args));
 	}
 	if (MoneyText)
 	{
 		const float Money = Player->GetStats() ? Player->GetStats()->GetMoney() : 0.0f;
-		MoneyText->SetText(FText::FromString(FString::Printf(TEXT("%s%.0f"), *MoneyPrefix, Money)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(Money)));
+		MoneyText->SetText(FText::Format(MoneyFormat, Args));
 	}
 	if (QuestsText)
 	{
 		const int32 QuestsDone = Player->GetQuests() ? Player->GetQuests()->GetTurnedInQuestCount() : 0;
-		QuestsText->SetText(FText::FromString(FString::Printf(TEXT("%s%d"), *QuestsPrefix, QuestsDone)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Count"), FText::AsNumber(QuestsDone));
+		QuestsText->SetText(FText::Format(QuestsFormat, Args));
 	}
 	if (KillsText)
 	{
-		KillsText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%d"), *KillsPrefix, Player->GetEnemyKillCount())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Count"), FText::AsNumber(Player->GetEnemyKillCount()));
+		KillsText->SetText(FText::Format(KillsFormat, Args));
 	}
 	if (MoneyLossText)
 	{
 		// Процент — живой из игрока (DeathMoneyLossFraction), текст не разойдётся с BP-настройкой.
-		const int32 MoneyLossPct = FMath::RoundToInt(Player->GetDeathMoneyLossFraction() * 100.0f);
-		MoneyLossText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%d%s"), *MoneyLossPrefix, MoneyLossPct, *MoneyLossSuffix)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Percent"),
+			FText::AsNumber(FMath::RoundToInt32(Player->GetDeathMoneyLossFraction() * 100.0f)));
+		MoneyLossText->SetText(FText::Format(MoneyLossFormat, Args));
 	}
 }
 

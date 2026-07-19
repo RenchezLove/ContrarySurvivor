@@ -55,15 +55,31 @@ void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 		return;
 	}
 
-	// Строка статов — каждый кадр (голод/жажда утекают и при открытом инвентаре).
-	if (StatsText)
+	// Значения статов — каждый кадр (голод/жажда утекают и при открытом инвентаре).
+	// Три отдельных кубика вместо одной слепленной строки (ADR-050).
+	if (UStatsComponent* St = Player->GetStats())
 	{
-		if (UStatsComponent* St = Player->GetStats())
+		const FText MaxText = FText::AsNumber(FMath::RoundToInt32(St->GetSurvivalMax()));
+
+		if (InvMoneyText)
 		{
-			StatsText->SetText(FText::FromString(FString::Printf(
-				TEXT("%s %.0f      %s %.0f / %.0f      %s %.0f / %.0f"),
-				*MoneyLabel, St->GetMoney(), *HungerLabel, St->GetHunger(), St->GetSurvivalMax(),
-				*ThirstLabel, St->GetThirst(), St->GetSurvivalMax())));
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(St->GetMoney())));
+			InvMoneyText->SetText(FText::Format(MoneyFormat, Args));
+		}
+		if (InvHungerText)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Current"), FText::AsNumber(FMath::RoundToInt32(St->GetHunger())));
+			Args.Add(TEXT("Max"), MaxText);
+			InvHungerText->SetText(FText::Format(HungerFormat, Args));
+		}
+		if (InvThirstText)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Current"), FText::AsNumber(FMath::RoundToInt32(St->GetThirst())));
+			Args.Add(TEXT("Max"), MaxText);
+			InvThirstText->SetText(FText::Format(ThirstFormat, Args));
 		}
 	}
 
@@ -107,18 +123,19 @@ void UInventoryScreenWidget::RefreshAll()
 	const int32 ProtectionPct = FMath::RoundToInt(Player->GetEffectiveArmorFraction() * 100.0f);
 	if (ProtectionText)
 	{
-		ProtectionText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%d%%"), *ProtectionPrefix, ProtectionPct)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Percent"), FText::AsNumber(ProtectionPct));
+		ProtectionText->SetText(FText::Format(ProtectionFormat, Args));
 	}
 	const AMasterWeapon* Weapon = Player->GetCurrentWeapon();
 	if (WeaponText)
 	{
-		// Была ГЛАВНАЯ протечка служебных имён: здесь стоял Weapon->GetName() и игрок читал
-		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Теперь название берётся как у любого
-		// другого предмета. Перевод самой подписи «Оружие: » — порция 3.
-		WeaponText->SetText(FText::FromString(WeaponPrefix + (Weapon
-			? Weapon->GetItemDisplayText().ToString()
-			: NoWeaponText)));
+		// Здесь была ГЛАВНАЯ протечка служебных имён: стоял Weapon->GetName() и игрок читал
+		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Название берётся как у любого предмета,
+		// с пустыми руками — то же слово, что у пустого слота брони.
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("ItemName"), Weapon ? Weapon->GetItemDisplayText() : EmptySlotText);
+		WeaponText->SetText(FText::Format(WeaponFormat, Args));
 	}
 
 	// --- Рюкзак ---
@@ -139,7 +156,7 @@ void UInventoryScreenWidget::RefreshAll()
 				}
 				++BackpackCount;
 
-				FString UseCaption;
+				FText UseCaption;
 				switch (Item->GetItemCategory())
 				{
 					case EItemCategory::Consumable: UseCaption = UseHintConsumable; break;
@@ -148,13 +165,11 @@ void UInventoryScreenWidget::RefreshAll()
 				}
 
 				// Название только через GetItemDisplayText: служебное имя актора наружу
-				// больше не уходит (ADR-050, порция 0). Перевод строки рюкзака на FText
-				// целиком — порция 3, здесь пока разворачиваем в строку.
-				const FString Name = Item->GetItemDisplayText().ToString();
+				// не уходит (ADR-050, порция 0).
 				if (UInventoryRowWidget* Row = CreateWidget<UInventoryRowWidget>(PC, RowWidgetClass))
 				{
 					Row->Item = Item;
-					Row->SetupRow(Name, UseCaption);
+					Row->SetupRow(Item->GetItemDisplayText(), UseCaption);
 					Row->OnUseClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowUse);
 					Row->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowDrop);
 					BackpackList->AddChild(Row);
@@ -184,10 +199,7 @@ void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* 
 
 	if (SlotText)
 	{
-		const FString Worn = Eq
-			? Eq->GetItemDisplayText().ToString()
-			: EmptySlotText;
-		SlotText->SetText(FText::FromString(Worn));
+		SlotText->SetText(Eq ? Eq->GetItemDisplayText() : EmptySlotText);
 	}
 
 	if (SlotIcon)

@@ -346,7 +346,7 @@ namespace
 		UButton* Use = MakeStyledButton(Tree, TEXT("UseButton"),
 			FLinearColor(0.2f, 0.35f, 0.5f, 1.0f), FLinearColor(0.25f, 0.45f, 0.62f, 1.0f),
 			FLinearColor(0.3f, 0.5f, 0.7f, 1.0f));
-		UTextBlock* UseCaption = MakeText(Tree, Roboto, TEXT("UseText"), TEXT("использовать"),
+		UTextBlock* UseCaption = MakeText(Tree, Roboto, TEXT("UseText"), TEXT("Использовать"),
 			FLinearColor::White, 13, TEXT("Regular"));
 		UseCaption->bIsVariable = true;
 		Use->SetContent(UseCaption);
@@ -457,18 +457,39 @@ namespace
 		UVerticalBox* PanelBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelBox"));
 		Panel->SetContent(PanelBox);
 
-		// Заголовок (статичный текст Рината) + строка статов (ставит код).
+		// Заголовок (статичный текст Рината) + строка статов.
 		PanelBox->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("HeaderText"),
-			TEXT("ИНВЕНТАРЬ  (Tab / I — закрыть)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")));
+			TEXT("Инвентарь"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")));
 
-		UTextBlock* Stats = MakeText(Tree, Roboto, TEXT("StatsText"),
-			TEXT("Монеты 0      Голод 100 / 100      Жажда 100 / 100"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 16, TEXT("Regular")); // UIMoneyColor
-		Stats->bIsVariable = true;
-		if (UVerticalBoxSlot* StatsSlot = PanelBox->AddChildToVerticalBox(Stats))
+		// Раньше все три стата были слеплены в ОДИН кубик. Теперь у каждого своя пара
+		// «статичная подпись + значение»: подписи не переменные, код их не трогает (ADR-050).
+		const FLinearColor StatsColor(1.0f, 0.85f, 0.2f, 1.0f); // UIMoneyColor
+		UHorizontalBox* StatsRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("StatsRow"));
+		if (UVerticalBoxSlot* StatsSlot = PanelBox->AddChildToVerticalBox(StatsRow))
 		{
 			StatsSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 12.0f));
 		}
+
+		auto AddStat = [&](const TCHAR* LabelName, const TCHAR* Caption,
+			const TCHAR* ValueName, const TCHAR* ValueSample, float LeftPad)
+		{
+			if (UHorizontalBoxSlot* LabelSlot = StatsRow->AddChildToHorizontalBox(
+				MakeText(Tree, Roboto, FName(LabelName), Caption, StatsColor, 16, TEXT("Regular"))))
+			{
+				LabelSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+			}
+			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
+				StatsColor, 16, TEXT("Regular"));
+			Value->bIsVariable = true;
+			if (UHorizontalBoxSlot* ValueSlot = StatsRow->AddChildToHorizontalBox(Value))
+			{
+				ValueSlot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
+			}
+		};
+		AddStat(TEXT("InvMoneyLabel"), TEXT("Монеты"), TEXT("InvMoneyText"), TEXT("0"), 0.0f);
+		AddStat(TEXT("InvHungerLabel"), TEXT("Голод"), TEXT("InvHungerText"), TEXT("100 из 100"), 28.0f);
+		AddStat(TEXT("InvThirstLabel"), TEXT("Жажда"), TEXT("InvThirstText"), TEXT("100 из 100"), 28.0f);
 
 		// Две колонки: слева снаряжение (0.42 ширины — InvLeftColumnFrac), справа рюкзак.
 		UHorizontalBox* Columns = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ColumnsBox"));
@@ -488,24 +509,42 @@ namespace
 		EquipColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("EquipHeaderText"),
 			TEXT("СНАРЯЖЕНИЕ"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
 
-		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Шлем"),
+		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Голова"),
 			TEXT("HeadSlotButton"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"));
 		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Торс"),
 			TEXT("TorsoSlotButton"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"));
 		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Штаны"),
 			TEXT("LegsSlotButton"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"));
 
-		UTextBlock* Protection = MakeText(Tree, Roboto, TEXT("ProtectionText"), TEXT("Защита: 0%"),
-			FLinearColor(0.6f, 0.9f, 0.6f, 1.0f), 15, TEXT("Regular"));
-		Protection->bIsVariable = true;
-		if (UVerticalBoxSlot* ProtSlot = EquipColumn->AddChildToVerticalBox(Protection))
+		// Защита и оружие — тоже пары «статичная подпись + значение» (ADR-050).
+		auto AddEquipLine = [&](const TCHAR* LabelName, const TCHAR* Caption,
+			const TCHAR* ValueName, const TCHAR* ValueSample, const FLinearColor& ValueColor,
+			float TopPad)
 		{
-			ProtSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 2.0f));
-		}
-		UTextBlock* Weapon = MakeText(Tree, Roboto, TEXT("WeaponText"), TEXT("Оружие: (нет)"),
-			FLinearColor::White, 15, TEXT("Regular"));
-		Weapon->bIsVariable = true;
-		EquipColumn->AddChildToVerticalBox(Weapon);
+			UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
+				UHorizontalBox::StaticClass(), FName(*(FString(ValueName) + TEXT("Row"))));
+			Row->AddChildToHorizontalBox(
+				MakeText(Tree, Roboto, FName(LabelName), Caption, FLinearColor::White, 15, TEXT("Regular")));
+
+			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
+				ValueColor, 15, TEXT("Regular"));
+			Value->bIsVariable = true;
+			if (UHorizontalBoxSlot* ValueSlot = Row->AddChildToHorizontalBox(Value))
+			{
+				ValueSlot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
+			}
+
+			if (UVerticalBoxSlot* RowSlot = EquipColumn->AddChildToVerticalBox(Row))
+			{
+				RowSlot->SetPadding(FMargin(0.0f, TopPad, 0.0f, 2.0f));
+			}
+		};
+		// Цвет значения защиты — нейтральный: при нулевой защите зелёный читался бы как
+		// «всё хорошо», хотя брони нет (ADR-049). Итоговый цвет всё равно за Ринатом.
+		AddEquipLine(TEXT("ProtectionLabel"), TEXT("Защита"), TEXT("ProtectionText"), TEXT("0%"),
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 10.0f);
+		AddEquipLine(TEXT("WeaponLabel"), TEXT("Оружие"), TEXT("WeaponText"), TEXT("Пусто"),
+			FLinearColor::White, 2.0f);
 
 		UVerticalBox* BackpackColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BackpackBox"));
 		if (UHorizontalBoxSlot* PackSlot = Columns->AddChildToHorizontalBox(BackpackColumn))
@@ -580,17 +619,36 @@ namespace
 		AddLine(MakeText(Tree, Roboto, TEXT("TitleText"), TEXT("ВЫ ПОГИБЛИ"),
 			FLinearColor(0.9f, 0.12f, 0.1f, 1.0f), 42, TEXT("Bold")), 0.0f, 22.0f);
 
+		// Каждая строка статистики — пара «статичная подпись + значение» в одном ряду:
+		// подпись принадлежит Ринату, код пишет только число (ADR-050).
 		const FLinearColor StatColor(0.95f, 0.95f, 0.95f, 1.0f);
-		UTextBlock* Lifetime = MakeText(Tree, Roboto, TEXT("LifetimeText"), TEXT("Прожито:  00:00"), StatColor, 22, TEXT("Regular"));
-		UTextBlock* Killer = MakeText(Tree, Roboto, TEXT("KillerText"), TEXT("Убийца:  —"), StatColor, 22, TEXT("Regular"));
-		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("Монеты:  0"), StatColor, 22, TEXT("Regular"));
-		UTextBlock* Quests = MakeText(Tree, Roboto, TEXT("QuestsText"), TEXT("Квестов выполнено:  0"), StatColor, 22, TEXT("Regular"));
-		UTextBlock* Kills = MakeText(Tree, Roboto, TEXT("KillsText"), TEXT("Врагов убито:  0"), StatColor, 22, TEXT("Regular"));
-		for (UTextBlock* Line : { Lifetime, Killer, Money, Quests, Kills })
+		auto AddStatLine = [&](const TCHAR* LabelName, const TCHAR* Caption,
+			const TCHAR* ValueName, const TCHAR* ValueSample)
 		{
-			Line->bIsVariable = true;
-			AddLine(Line);
-		}
+			UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
+				UHorizontalBox::StaticClass(), FName(*(FString(ValueName) + TEXT("Row"))));
+			Row->AddChildToHorizontalBox(
+				MakeText(Tree, Roboto, FName(LabelName), Caption, StatColor, 22, TEXT("Regular")));
+
+			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
+				StatColor, 22, TEXT("Regular"));
+			Value->bIsVariable = true;
+			if (UHorizontalBoxSlot* ValueSlot = Row->AddChildToHorizontalBox(Value))
+			{
+				ValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+			}
+
+			if (UVerticalBoxSlot* RowSlot = Column->AddChildToVerticalBox(Row))
+			{
+				RowSlot->SetHorizontalAlignment(HAlign_Center);
+				RowSlot->SetPadding(FMargin(0.0f, 3.0f, 0.0f, 3.0f));
+			}
+		};
+		AddStatLine(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"));
+		AddStatLine(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"));
+		AddStatLine(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"));
+		AddStatLine(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"));
+		AddStatLine(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"));
 
 		AddLine(MakeText(Tree, Roboto, TEXT("RespawnLineText"),
 			TEXT("Возрождение у костра в деревне."), StatColor, 19, TEXT("Regular")), 16.0f);
@@ -1321,7 +1379,8 @@ namespace
 			{ TEXT("NameText"), TEXT("UseButton"), TEXT("UseText"), TEXT("DropButton") } },
 		{ TEXT("/Game/UI/WBP_Inventory"), TEXT("WBP_Inventory"),
 			TEXT("/Script/ContrarySurvivor.InventoryScreenWidget"), &BuildInventory,
-			{ TEXT("StatsText"), TEXT("HeadSlotButton"), TEXT("HeadSlotText"), TEXT("HeadSlotIcon"),
+			{ TEXT("InvMoneyText"), TEXT("InvHungerText"), TEXT("InvThirstText"),
+			  TEXT("HeadSlotButton"), TEXT("HeadSlotText"), TEXT("HeadSlotIcon"),
 			  TEXT("TorsoSlotButton"), TEXT("TorsoSlotText"), TEXT("TorsoSlotIcon"),
 			  TEXT("LegsSlotButton"), TEXT("LegsSlotText"), TEXT("LegsSlotIcon"),
 			  TEXT("ProtectionText"), TEXT("WeaponText"), TEXT("BackpackList"), TEXT("CloseButton") } },

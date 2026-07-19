@@ -29,28 +29,35 @@ public:
 
 	// --- Настройки (Class Defaults WBP_Death; владение переехало из HUD — ADR-048) ---
 
+	// Форматы ЗНАЧЕНИЙ. Подписи («Прожито», «Убийца», «Монеты», «Квестов выполнено»,
+	// «Врагов убито») — статичные кубики в дизайнере, код их НЕ пишет (ADR-050).
+
+	// Время последней жизни: {Minutes} — минуты, {Seconds} — секунды (обе с ведущим нулём).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "1"))
-	FString LifetimePrefix = TEXT("Прожито:  ");
+	FText LifetimeFormat = NSLOCTEXT("Death", "LifetimeFormat", "{Minutes}:{Seconds}");
 
+	// Кто убил: {Name} — имя убийцы.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "2"))
-	FString KillerPrefix = TEXT("Убийца:  ");
+	FText KillerFormat = NSLOCTEXT("Death", "KillerFormat", "{Name}");
 
+	// Монеты: {Amount} — сколько осталось.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "3"))
-	FString MoneyPrefix = TEXT("Монеты:  ");
+	FText MoneyFormat = NSLOCTEXT("Death", "MoneyFormat", "{Amount}");
 
+	// Сдано квестов: {Count}.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "4"))
-	FString QuestsPrefix = TEXT("Квестов выполнено:  ");
+	FText QuestsFormat = NSLOCTEXT("Death", "QuestsFormat", "{Count}");
 
+	// Убито врагов: {Count}.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "5"))
-	FString KillsPrefix = TEXT("Врагов убито:  ");
+	FText KillsFormat = NSLOCTEXT("Death", "KillsFormat", "{Count}");
 
-	// Строка штрафа монет собирается кодом: Prefix + процент + Suffix = «−40% монет — …»
-	// (процент живой — из DeathMoneyLossFraction игрока, чтобы текст не расходился с BP).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "6"))
-	FString MoneyLossPrefix = TEXT("−");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "7"))
-	FString MoneyLossSuffix = TEXT("% монет — часть монет утрачена при гибели.");
+	// Строка штрафа — цельная фраза, в подпись и значение не делится. {Percent} — живой
+	// процент из настроек игрока, чтобы текст не расходился с фактической потерей.
+	// Формулировка закреплена ADR-044: без «можно вернуться и забрать».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "6", MultiLine = "true"))
+	FText MoneyLossFormat = NSLOCTEXT("Death", "MoneyLossFormat",
+		"−{Percent}% монет — часть монет утрачена при гибели.");
 
 protected:
 	virtual void NativeOnInitialized() override;

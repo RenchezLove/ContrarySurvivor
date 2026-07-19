@@ -25,15 +25,15 @@ void UInventoryRowWidget::NativeOnInitialized()
 	}
 }
 
-void UInventoryRowWidget::SetupRow(const FString& InName, const FString& InUseCaption)
+void UInventoryRowWidget::SetupRow(const FText& InName, const FText& InUseCaption)
 {
 	if (NameText)
 	{
-		NameText->SetText(FText::FromString(InName));
+		NameText->SetText(InName);
 	}
 	if (UseText)
 	{
-		UseText->SetText(FText::FromString(InUseCaption));
+		UseText->SetText(InUseCaption);
 	}
 	if (UseButton)
 	{

@@ -43,37 +43,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (DisplayPriority = "1"))
 	TSubclassOf<UInventoryRowWidget> RowWidgetClass;
 
-	// Подписи строки статов: «Монеты X      Голод A / B      Жажда C / D».
+	// Форматы ЗНАЧЕНИЙ. Подписи («Монеты», «Голод», «Жажда», «Защита», «Оружие») —
+	// статичные кубики в дизайнере, код их НЕ пишет (ADR-050). Раньше все три стата
+	// были слеплены в ОДИН кубик StatsText — теперь у каждого свой.
+
+	// Монеты: {Amount} — сколько у игрока.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "1"))
-	FString MoneyLabel = TEXT("Монеты");
+	FText MoneyFormat = NSLOCTEXT("Inventory", "MoneyFormat", "{Amount}");
 
+	// Голод: {Current} — сейчас, {Max} — максимум шкалы.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "2"))
-	FString HungerLabel = TEXT("Голод");
+	FText HungerFormat = NSLOCTEXT("Inventory", "HungerFormat", "{Current} из {Max}");
 
+	// Жажда: {Current} — сейчас, {Max} — максимум шкалы.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "3"))
-	FString ThirstLabel = TEXT("Жажда");
+	FText ThirstFormat = NSLOCTEXT("Inventory", "ThirstFormat", "{Current} из {Max}");
 
-	// Пустой слот брони: «(пусто)».
+	// Пустой слот брони и пустые руки — одно слово на всё (лист текстов).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "4"))
-	FString EmptySlotText = TEXT("(пусто)");
+	FText EmptySlotText = NSLOCTEXT("Inventory", "EmptySlot", "Пусто");
 
-	// Перед процентом защиты: «Защита: 45%».
+	// Защита: {Percent} — процент снижения урона.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "5"))
-	FString ProtectionPrefix = TEXT("Защита: ");
+	FText ProtectionFormat = NSLOCTEXT("Inventory", "ProtectionFormat", "{Percent}%");
 
-	// Слот оружия: «Оружие: Пистолет» / «(нет)» с пустыми руками.
+	// Оружие в руках: {ItemName} — название предмета.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "6"))
-	FString WeaponPrefix = TEXT("Оружие: ");
+	FText WeaponFormat = NSLOCTEXT("Inventory", "WeaponFormat", "{ItemName}");
 
+	// Подписи кнопки применения в строках рюкзака. В дизайнер уйти НЕ могут: слово
+	// зависит от предмета — расходник применяют, броню надевают.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "7"))
-	FString NoWeaponText = TEXT("(нет)");
+	FText UseHintConsumable = NSLOCTEXT("Inventory", "UseHintConsumable", "Использовать");
 
-	// Подписи кнопки применения в строках рюкзака.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "8"))
-	FString UseHintConsumable = TEXT("использовать");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
-	FString UseHintArmor = TEXT("надеть");
+	FText UseHintArmor = NSLOCTEXT("Inventory", "UseHintArmor", "Надеть");
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -104,9 +108,17 @@ protected:
 
 	// --- Кубики WBP_Inventory (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 
-	// Строка статов «Монеты X      Голод A / B      Жажда C / D» (обновляется каждый кадр).
+	// Значения статов — ТРИ отдельных кубика (обновляются каждый кадр). Раньше был один
+	// StatsText со всеми тремя парами «подпись плюс число» внутри — Ринату надо переложить
+	// эту строку заново, схема в umg-layout-guide.md.
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> StatsText;
+	TObjectPtr<UTextBlock> InvMoneyText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InvHungerText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InvThirstText;
 
 	// Слоты paper-doll: кнопка (клик по занятому — снять), подпись, иконка надетого.
 	UPROPERTY(meta = (BindWidgetOptional))
