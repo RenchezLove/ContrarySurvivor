@@ -84,16 +84,16 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
 	if (TitleBlock)
 	{
-		TitleBlock->SetText(FText::FromString(Style.TitleText));
+		TitleBlock->SetText(Style.TitleText);
 		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
 		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
 
-	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FString& Text)
+	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
 	{
 		if (Label)
 		{
-			Label->SetText(FText::FromString(Text));
+			Label->SetText(Text);
 			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
 			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
 		}
@@ -111,7 +111,7 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	}
 }
 
-UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FString& Label, const FName& BaseName)
+UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName)
 {
 	// SizeBox задаёт тач-габарит кнопки (у UButton 5.5 нет SetPadding): палец должен попадать.
 	// Размер/шрифт/цвет ставит ApplyStyle (боксы и подписи запоминаются членами).
@@ -124,7 +124,7 @@ UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FString& L
 
 	UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Label"))));
-	Text->SetText(FText::FromString(Label));
+	Text->SetText(Label);
 	Button->SetContent(Text);
 
 	if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))

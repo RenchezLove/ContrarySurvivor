@@ -15,6 +15,10 @@ class UTextBlock;
  * Стиль меню паузы. Живёт EditAnywhere-полем на контроллере (виджет строится из C++-класса
  * и в Details не виден — паттерн FTouchControlsConfig; директива Рината 07-18). Дефолты
  * дословно повторяют прежние зашитые значения.
+ *
+ * Локализация (ADR-050): подписи — FText с дефолтами через NSLOCTEXT (LOCTEXT в значении
+ * по умолчанию UHT запрещает — UhtTextProperty.cs:104). Дерево строится кодом, ассета в
+ * дизайнере у панели нет, поэтому подпись и значение по кубикам не разделяются.
  */
 USTRUCT(BlueprintType)
 struct FPauseMenuStyle
@@ -33,7 +37,7 @@ struct FPauseMenuStyle
 	FLinearColor PanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.95f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
-	FString TitleText = TEXT("ПАУЗА");
+	FText TitleText = NSLOCTEXT("PauseMenuWidget", "TitleText", "ПАУЗА");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
 	int32 TitleFontSize = 24;
@@ -42,10 +46,10 @@ struct FPauseMenuStyle
 	FLinearColor TitleColor = FLinearColor(1.0f, 0.85f, 0.2f, 1.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
-	FString ResumeText = TEXT("Продолжить");
+	FText ResumeText = NSLOCTEXT("PauseMenuWidget", "ResumeText", "Продолжить");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
-	FString QuitText = TEXT("Выход");
+	FText QuitText = NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
 	int32 ButtonFontSize = 19;
@@ -102,7 +106,7 @@ protected:
 private:
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера (мин. высота под палец),
 	// добавленная в колонку. Возвращает кнопку для подписки OnClicked.
-	UButton* MakeMenuButton(UVerticalBox* Column, const FString& Label, const FName& BaseName);
+	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
 
 	// Элементы дерева, которые перекрашивает ApplyStyle.
 	UPROPERTY()
