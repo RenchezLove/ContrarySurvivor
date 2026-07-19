@@ -85,7 +85,12 @@ public:
 	// Есть ли рядом интерактив (пикап/торговец), по которому E что-то сделает.
 	bool HasInteractPrompt() const;
 
-	// Текст подсказки («E — подобрать» / «E — торговать») для отрисовки на HUD.
+	// Переводимый текст подсказки («E — подобрать» на ПК, «Подобрать» на телефоне) —
+	// его показывает UMG-панель UInteractPromptWidget. Вариант выбирается по HasTouchLayer.
+	FText GetInteractPromptDisplayText() const;
+
+	// Тот же текст для СТАРОГО Canvas-пути рисования (AContrarySurvivorHUD::DrawInteractPrompt,
+	// по ADR-048 выпиливается вместе с остальным Canvas-кодом). Новый код зовёт версию выше.
 	FString GetInteractPromptText() const;
 
 	// --- Этап F: онбординг/окно ежедневки ---
@@ -244,14 +249,33 @@ protected:
 	FPauseMenuStyle PauseMenuStyle;
 
 	// Тексты контекстной подсказки взаимодействия (низ-центр экрана, рисует HUD).
+	// Локализация (ADR-050): FText, дефолты через NSLOCTEXT (LOCTEXT в значении по
+	// умолчанию UHT запрещает — UhtTextProperty.cs:104).
+	//
+	// ДВА ВАРИАНТА НА КАЖДУЮ ПОДСКАЗКУ: ДЕЙСТВИЕ И СПОСОБ РАЗДЕЛЕНЫ. На ПК подсказка
+	// называет клавишу («E — подобрать»), на телефоне клавиш нет и остаётся одно действие
+	// («Подобрать») — экранная кнопка ДЕЙСТВИЕ и так под пальцем. Какой вариант показать,
+	// решает HasTouchLayer: тот же признак, по которому HUD выбирает подсказку прокрутки
+	// магазина. Признак отвечает «показан ли тач-слой», а не «телефон ли это» — это
+	// намеренно: подсказка должна называть то управление, которое игрок видит.
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "1"))
-	FString InteractPromptPickup = TEXT("E — подобрать");
+	FText InteractPromptPickup = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptPickup", "E — подобрать");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "2"))
-	FString InteractPromptTrader = TEXT("E — торговать");
+	FText InteractPromptPickupTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptPickupTouch", "Подобрать");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "3"))
-	FString InteractPromptElder = TEXT("E — поговорить");
+	FText InteractPromptTrader = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTrader", "E — торговать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "4"))
+	FText InteractPromptTraderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTraderTouch", "Торговать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "5"))
+	FText InteractPromptElder = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElder", "E — поговорить");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "6"))
+	FText InteractPromptElderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderTouch", "Поговорить");
 
 	// --- Тач-жесты магазина (G2): свайп = прокрутка списков / количество слайдера ---
 

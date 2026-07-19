@@ -15,6 +15,9 @@ class UTextBlock;
  * когда рядом нет интерактива или открыт модальный экран — через SetContentVisible
  * базы (Collapsed на самом виджете остановил бы его тик навсегда, баг смоука 07-18).
  * Тексты — существующие EditAnywhere-поля контроллера (InteractPromptPickup/Trader/Elder).
+ * Локализация (ADR-050): панель ничего не склеивает, берёт готовый переводимый текст
+ * методом GetInteractPromptDisplayText — он же выбирает вариант с клавишей (ПК) или без
+ * неё (показан тач-слой).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UInteractPromptWidget : public USelfHidingWidget

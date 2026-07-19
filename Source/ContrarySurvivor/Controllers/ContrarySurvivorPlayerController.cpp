@@ -1635,16 +1635,25 @@ bool AContrarySurvivorPlayerController::HasInteractPrompt() const
 	return CurrentInteractKind != EInteractKind::None && IsValid(CurrentInteractActor);
 }
 
-FString AContrarySurvivorPlayerController::GetInteractPromptText() const
+FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
 {
-	// Тексты — EditAnywhere-поля (директива Рината 07-18); дефолты дословно прежние.
+	// Тексты — EditAnywhere-поля (директива Рината 07-18). Вариант зависит от управления:
+	// с клавишей на ПК, без клавиши при показанном тач-слое (см. комментарий к полям).
+	const bool bTouch = HasTouchLayer();
 	switch (CurrentInteractKind)
 	{
-		case EInteractKind::Pickup: return InteractPromptPickup;
-		case EInteractKind::Trader: return InteractPromptTrader;
-		case EInteractKind::Elder:  return InteractPromptElder;
-		default:                    return FString();
+		case EInteractKind::Pickup: return bTouch ? InteractPromptPickupTouch : InteractPromptPickup;
+		case EInteractKind::Trader: return bTouch ? InteractPromptTraderTouch : InteractPromptTrader;
+		case EInteractKind::Elder:  return bTouch ? InteractPromptElderTouch : InteractPromptElder;
+		default:                    return FText::GetEmpty();
 	}
+}
+
+FString AContrarySurvivorPlayerController::GetInteractPromptText() const
+{
+	// Старый Canvas-путь HUD рисует строкой (ADR-048: путь выпиливается) — отдаём ему
+	// тот же текст, снятый в строку.
+	return GetInteractPromptDisplayText().ToString();
 }
 
 void AContrarySurvivorPlayerController::OnFireReleased(const FInputActionValue& Value)

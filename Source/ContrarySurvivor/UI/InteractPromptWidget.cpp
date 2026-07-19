@@ -21,6 +21,6 @@ void UInteractPromptWidget::NativeTick(const FGeometry& MyGeometry, float InDelt
 
 	if (PromptText)
 	{
-		PromptText->SetText(FText::FromString(PC->GetInteractPromptText()));
+		PromptText->SetText(PC->GetInteractPromptDisplayText());
 	}
 }
