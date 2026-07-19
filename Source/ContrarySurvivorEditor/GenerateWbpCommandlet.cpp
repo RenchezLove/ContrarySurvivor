@@ -711,12 +711,25 @@ namespace
 			PriceSlot->SetPadding(FMargin(8.0f, 0.0f));
 		}
 
-		// Кнопка действия — зелёная, как доступные Buy/Sell Canvas-пути (InvSlotFilledColor);
-		// подпись ставит код (Buy/Sell), недоступную кнопку код гасит сам.
+		// «Не хватает монет» — код показывает эту строку только в недоступных товарах,
+		// в остальных прячет (ADR-049: одним цветом кнопки часть игроков не считывает).
+		// В ассете сразу Collapsed — видимость переключает код.
+		UTextBlock* NoMoney = MakeText(Tree, Roboto, TEXT("NoMoneyText"), TEXT("Не хватает монет"),
+			FLinearColor(0.85f, 0.35f, 0.3f, 1.0f), 13, TEXT("Regular"));
+		NoMoney->SetVisibility(ESlateVisibility::Collapsed);
+		NoMoney->bIsVariable = true;
+		if (UHorizontalBoxSlot* NoMoneySlot = RowBox->AddChildToHorizontalBox(NoMoney))
+		{
+			NoMoneySlot->SetVerticalAlignment(VAlign_Center);
+			NoMoneySlot->SetPadding(FMargin(8.0f, 0.0f));
+		}
+
+		// Кнопка действия — зелёная, как доступные строки Canvas-пути (InvSlotFilledColor);
+		// подпись ставит код («Купить»/«Продать»), недоступную кнопку код гасит сам.
 		UButton* Action = MakeStyledButton(Tree, TEXT("ActionButton"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		UTextBlock* ActionCaption = MakeText(Tree, Roboto, TEXT("ActionText"), TEXT("Buy"),
+		UTextBlock* ActionCaption = MakeText(Tree, Roboto, TEXT("ActionText"), TEXT("Купить"),
 			FLinearColor::White, 13, TEXT("Regular"));
 		ActionCaption->bIsVariable = true;
 		Action->SetContent(ActionCaption);
@@ -768,7 +781,7 @@ namespace
 		PanelBox->AddChildToVerticalBox(HeaderRow);
 
 		UTextBlock* Header = MakeText(Tree, Roboto, TEXT("HeaderText"),
-			TEXT("TRADER  (E to close)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold"));
+			TEXT("Торговец"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold"));
 		if (UHorizontalBoxSlot* HeaderSlot = HeaderRow->AddChildToHorizontalBox(Header))
 		{
 			HeaderSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -778,7 +791,7 @@ namespace
 		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f)); // InvDropColor
-		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Close"),
+		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
 			FLinearColor::White, 14, TEXT("Regular")));
 		USizeBox* CloseSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CloseSize"));
 		CloseSize->SetWidthOverride(90.0f);  // ShopCloseButtonWidth
@@ -789,13 +802,25 @@ namespace
 			CloseSlot->SetVerticalAlignment(VAlign_Center);
 		}
 
-		// Деньги игрока — золотая строка (обновляет код каждый кадр).
-		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("Монеты 0"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 16, TEXT("Regular"));
-		Money->bIsVariable = true;
-		if (UVerticalBoxSlot* MoneySlot = PanelBox->AddChildToVerticalBox(Money))
+		// Деньги игрока: статичная подпись «Монеты» (код её НЕ трогает) + значение, которое
+		// код обновляет каждый кадр (ADR-050 — подпись и значение разные кубики).
+		const FLinearColor ShopMoneyColor(1.0f, 0.85f, 0.2f, 1.0f);
+		UHorizontalBox* MoneyRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("MoneyRow"));
+		if (UVerticalBoxSlot* MoneySlot = PanelBox->AddChildToVerticalBox(MoneyRow))
 		{
 			MoneySlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 12.0f));
+		}
+
+		MoneyRow->AddChildToHorizontalBox(MakeText(Tree, Roboto, TEXT("MoneyLabel"),
+			TEXT("Монеты"), ShopMoneyColor, 16, TEXT("Regular")));
+
+		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("0"),
+			ShopMoneyColor, 16, TEXT("Regular"));
+		Money->bIsVariable = true;
+		if (UHorizontalBoxSlot* MoneyValueSlot = MoneyRow->AddChildToHorizontalBox(Money))
+		{
+			MoneyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
 		}
 
 		// Колонки: слева каталог (0.52 — ShopLeftColumnFrac), справа рюкзак на продажу.
@@ -814,7 +839,7 @@ namespace
 			BuySlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
 		}
 		BuyColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("BuyHeaderText"),
-			TEXT("FOR SALE  (Купить)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+			TEXT("Товары торговца"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
 		UScrollBox* Buy = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuyList"));
 		Buy->bIsVariable = true;
 		if (UVerticalBoxSlot* BuyListSlot = BuyColumn->AddChildToVerticalBox(Buy))
@@ -831,7 +856,7 @@ namespace
 			SellSlot->SetSize(RightSize);
 		}
 		SellColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("SellHeaderText"),
-			TEXT("SELL FROM BACKPACK  (Продать)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+			TEXT("Ваш рюкзак"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
 		UScrollBox* Sell = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SellList"));
 		Sell->bIsVariable = true;
 		if (UVerticalBoxSlot* SellListSlot = SellColumn->AddChildToVerticalBox(Sell))
@@ -859,18 +884,47 @@ namespace
 		UVerticalBox* SliderBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SliderBox"));
 		SliderPanel->SetContent(SliderBox);
 
-		UTextBlock* SliderTitle = MakeText(Tree, Roboto, TEXT("SliderTitleText"), TEXT("КУПИТЬ:  —"),
+		UTextBlock* SliderTitle = MakeText(Tree, Roboto, TEXT("SliderTitleText"), TEXT("Купить: —"),
 			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 20, TEXT("Bold"));
 		SliderTitle->bIsVariable = true;
 		SliderBox->AddChildToVerticalBox(SliderTitle);
 
-		UTextBlock* SliderQty = MakeText(Tree, Roboto, TEXT("SliderQtyText"), TEXT("Кол-во: 1 / 1"),
-			FLinearColor(1.0f, 0.97f, 0.7f, 1.0f), 18, TEXT("Regular")); // SliderQtyColor
-		SliderQty->bIsVariable = true;
-		if (UVerticalBoxSlot* QtyTextSlot = SliderBox->AddChildToVerticalBox(SliderQty))
+		// Количество: статичная подпись + значение разными кубиками (ADR-050).
+		const FLinearColor SliderQtyColor(1.0f, 0.97f, 0.7f, 1.0f);
+		UHorizontalBox* QtyTextRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("QtyTextRow"));
+		if (UVerticalBoxSlot* QtyTextSlot = SliderBox->AddChildToVerticalBox(QtyTextRow))
 		{
 			QtyTextSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
 		}
+
+		QtyTextRow->AddChildToHorizontalBox(MakeText(Tree, Roboto, TEXT("SliderQtyLabel"),
+			TEXT("Количество"), SliderQtyColor, 18, TEXT("Regular")));
+
+		UTextBlock* SliderQty = MakeText(Tree, Roboto, TEXT("SliderQtyText"), TEXT("1 из 1"),
+			SliderQtyColor, 18, TEXT("Regular"));
+		SliderQty->bIsVariable = true;
+		if (UHorizontalBoxSlot* QtyValueSlot = QtyTextRow->AddChildToHorizontalBox(SliderQty))
+		{
+			QtyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		// Пересчёт пачек в патроны: показывается ТОЛЬКО при покупке патронов. Прячется
+		// ЦЕЛИКОМ контейнер SliderQtyAmmoRow — вместе с подписью, иначе она висела бы при
+		// покупке аптечки (ловушка скрытия, ADR-050). В ассете сразу Collapsed.
+		UHorizontalBox* AmmoRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("SliderQtyAmmoRow"));
+		AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
+		AmmoRow->bIsVariable = true;
+		if (UVerticalBoxSlot* AmmoRowSlot = SliderBox->AddChildToVerticalBox(AmmoRow))
+		{
+			AmmoRowSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
+		}
+
+		UTextBlock* SliderQtyAmmo = MakeText(Tree, Roboto, TEXT("SliderQtyAmmoText"),
+			TEXT("всего 30 патронов"), SliderQtyColor, 16, TEXT("Regular"));
+		SliderQtyAmmo->bIsVariable = true;
+		AmmoRow->AddChildToHorizontalBox(SliderQtyAmmo);
 
 		// Ползунок: диапазон/шаг выставляет код при каждой транзакции — тут только кубик.
 		USlider* Qty = Tree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("QtySlider"));
@@ -943,10 +997,10 @@ namespace
 				BigSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
 			}
 		};
-		AddBigButton(TEXT("SliderCancelButton"), TEXT("SliderCancelLabel"), TEXT("Cancel"),
+		AddBigButton(TEXT("SliderCancelButton"), TEXT("SliderCancelLabel"), TEXT("Отмена"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), 0.0f);
-		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Confirm"),
+		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Подтвердить"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 10.0f);
 		return true;
@@ -1072,8 +1126,12 @@ namespace
 	// ======================================================================
 
 	// Полоска стата: SizeBox-габарит -> ProgressBar + текст поверх слева (Overlay).
+	// Строка шкалы: полоска, поверх неё СТАТИЧНАЯ подпись слева («Здоровье») и ЗНАЧЕНИЕ
+	// справа («80/100»). Подпись — не переменная: код её не биндит и не переписывает,
+	// Ринат правит текст и стиль сам (ADR-050). Значение — кубик с точным именем.
 	UOverlay* MakeStatBar(UWidgetTree* Tree, UObject* Roboto, const TCHAR* BarName,
-		const TCHAR* TextName, const FString& Caption, const FLinearColor& FillColor, float Height)
+		const TCHAR* ValueName, const FString& LabelCaption, const FString& ValueSample,
+		const FLinearColor& FillColor, float Height)
 	{
 		UOverlay* Overlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(),
 			FName(*(FString(BarName) + TEXT("Overlay"))));
@@ -1095,15 +1153,27 @@ namespace
 		BarSize->SetContent(Bar);
 		Overlay->AddChildToOverlay(BarSize);
 
-		UTextBlock* Label = MakeText(Tree, Roboto, FName(TextName), Caption,
-			FLinearColor::White, 14, TEXT("Regular"));
+		// Подпись — обычный Text, код его НЕ трогает (bIsVariable=false).
+		UTextBlock* Label = MakeText(Tree, Roboto, FName(*(FString(BarName) + TEXT("Label"))),
+			LabelCaption, FLinearColor::White, 14, TEXT("Regular"));
 		ApplyTextShadow(Label);
-		Label->bIsVariable = true;
 		if (UOverlaySlot* LabelSlot = Overlay->AddChildToOverlay(Label))
 		{
 			LabelSlot->SetHorizontalAlignment(HAlign_Left);
 			LabelSlot->SetVerticalAlignment(VAlign_Center);
 			LabelSlot->SetPadding(FMargin(8.0f, 0.0f));
+		}
+
+		// Значение — кубик кода (имя точное, см. umg-layout-guide.md).
+		UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
+			FLinearColor::White, 14, TEXT("Regular"));
+		ApplyTextShadow(Value);
+		Value->bIsVariable = true;
+		if (UOverlaySlot* ValueSlot = Overlay->AddChildToOverlay(Value))
+		{
+			ValueSlot->SetHorizontalAlignment(HAlign_Right);
+			ValueSlot->SetVerticalAlignment(VAlign_Center);
+			ValueSlot->SetPadding(FMargin(8.0f, 0.0f));
 		}
 		return Overlay;
 	}
@@ -1129,42 +1199,76 @@ namespace
 		}
 
 		Column->AddChildToVerticalBox(MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
-			TEXT("HP 100/100"), FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 28.0f)); // PlayerHealthFillColor, 320x28
+			TEXT("Здоровье"), TEXT("100/100"),
+			FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 28.0f)); // PlayerHealthFillColor, 320x28
 
 		UOverlay* Hunger = MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
-			TEXT("Hunger 100"), FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 24.0f); // HungerColor, высота 24
+			TEXT("Голод"), TEXT("100"),
+			FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 24.0f); // HungerColor, высота 24
 		if (UVerticalBoxSlot* HungerSlot = Column->AddChildToVerticalBox(Hunger))
 		{
 			HungerSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
 		}
 
 		UOverlay* Thirst = MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
-			TEXT("Thirst 100"), FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 24.0f); // ThirstColor
+			TEXT("Жажда"), TEXT("100"),
+			FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 24.0f); // ThirstColor
 		if (UVerticalBoxSlot* ThirstSlot = Column->AddChildToVerticalBox(Thirst))
 		{
 			ThirstSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 		}
 
-		// Патроны: код показывает строку только с огнестрелом в руках — в ассете сразу Collapsed.
-		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("Ammo 7 / 21  (bag 30)"),
-			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 14, TEXT("Regular")); // AmmoColor
+		// Патроны: код показывает строку только с огнестрелом в руках. Прячется ЦЕЛИКОМ
+		// контейнер AmmoRow — вместе с подписью «Патроны», иначе подпись висела бы одна
+		// при ноже в руках (ловушка скрытия, ADR-050). В ассете сразу Collapsed.
+		const FLinearColor AmmoColor(0.95f, 0.95f, 0.95f, 1.0f);
+		UHorizontalBox* AmmoRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("AmmoRow"));
+		AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
+		AmmoRow->bIsVariable = true;
+
+		UTextBlock* AmmoLabel = MakeText(Tree, Roboto, TEXT("AmmoLabel"), TEXT("Патроны"),
+			AmmoColor, 14, TEXT("Regular"));
+		ApplyTextShadow(AmmoLabel);
+		AmmoRow->AddChildToHorizontalBox(AmmoLabel);
+
+		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("7 / 21  в рюкзаке 30"),
+			AmmoColor, 14, TEXT("Regular"));
 		ApplyTextShadow(Ammo);
-		Ammo->SetVisibility(ESlateVisibility::Collapsed);
 		Ammo->bIsVariable = true;
-		if (UVerticalBoxSlot* AmmoSlot = Column->AddChildToVerticalBox(Ammo))
+		if (UHorizontalBoxSlot* AmmoValueSlot = AmmoRow->AddChildToHorizontalBox(Ammo))
+		{
+			AmmoValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		if (UVerticalBoxSlot* AmmoSlot = Column->AddChildToVerticalBox(AmmoRow))
 		{
 			AmmoSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
 		}
 
-		// Деньги — золотые на тёмной плашке (MoneyPlateColor).
+		// Деньги — золотые на тёмной плашке (MoneyPlateColor): подпись + значение.
+		const FLinearColor MoneyColor(1.0f, 0.85f, 0.2f, 1.0f); // PlayerMoneyColor
 		UBorder* MoneyPlate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MoneyPlate"));
 		MoneyPlate->SetBrush(MakeRoundedBrush(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f), 3.0f));
 		MoneyPlate->SetPadding(FMargin(8.0f, 3.0f));
-		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("Монеты 0"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 15, TEXT("Regular")); // PlayerMoneyColor
+
+		UHorizontalBox* MoneyRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("MoneyRow"));
+
+		UTextBlock* MoneyLabel = MakeText(Tree, Roboto, TEXT("MoneyLabel"), TEXT("Монеты"),
+			MoneyColor, 15, TEXT("Regular"));
+		ApplyTextShadow(MoneyLabel);
+		MoneyRow->AddChildToHorizontalBox(MoneyLabel);
+
+		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("0"),
+			MoneyColor, 15, TEXT("Regular"));
 		ApplyTextShadow(Money);
 		Money->bIsVariable = true;
-		MoneyPlate->SetContent(Money);
+		if (UHorizontalBoxSlot* MoneyValueSlot = MoneyRow->AddChildToHorizontalBox(Money))
+		{
+			MoneyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+		}
+		MoneyPlate->SetContent(MoneyRow);
 		if (UVerticalBoxSlot* MoneySlot = Column->AddChildToVerticalBox(MoneyPlate))
 		{
 			MoneySlot->SetHorizontalAlignment(HAlign_Left);
@@ -1220,11 +1324,13 @@ namespace
 			{ TEXT("PromptText") } },
 		{ TEXT("/Game/UI/WBP_ShopRow"), TEXT("WBP_ShopRow"),
 			TEXT("/Script/ContrarySurvivor.ShopRowWidget"), &BuildShopRow,
-			{ TEXT("NameText"), TEXT("PriceText"), TEXT("ActionButton"), TEXT("ActionText") } },
+			{ TEXT("NameText"), TEXT("PriceText"), TEXT("ActionButton"), TEXT("ActionText"),
+			  TEXT("NoMoneyText") } },
 		{ TEXT("/Game/UI/WBP_Shop"), TEXT("WBP_Shop"),
 			TEXT("/Script/ContrarySurvivor.ShopScreenWidget"), &BuildShop,
 			{ TEXT("MoneyText"), TEXT("BuyList"), TEXT("SellList"), TEXT("CloseButton"),
-			  TEXT("SliderPanel"), TEXT("SliderTitleText"), TEXT("SliderQtyText"), TEXT("QtySlider"),
+			  TEXT("SliderPanel"), TEXT("SliderTitleText"), TEXT("SliderQtyText"),
+			  TEXT("SliderQtyAmmoRow"), TEXT("SliderQtyAmmoText"), TEXT("QtySlider"),
 			  TEXT("QtyMinusButton"), TEXT("QtyPlusButton"), TEXT("SliderTotalText"),
 			  TEXT("SliderConfirmButton"), TEXT("SliderCancelButton") } },
 		{ TEXT("/Game/UI/WBP_Dialog"), TEXT("WBP_Dialog"),
@@ -1234,7 +1340,8 @@ namespace
 		{ TEXT("/Game/UI/WBP_PlayerStats"), TEXT("WBP_PlayerStats"),
 			TEXT("/Script/ContrarySurvivor.PlayerStatsWidget"), &BuildPlayerStats,
 			{ TEXT("HealthBar"), TEXT("HealthText"), TEXT("HungerBar"), TEXT("HungerText"),
-			  TEXT("ThirstBar"), TEXT("ThirstText"), TEXT("AmmoText"), TEXT("MoneyText") } },
+			  TEXT("ThirstBar"), TEXT("ThirstText"), TEXT("AmmoRow"), TEXT("AmmoText"),
+			  TEXT("MoneyText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)

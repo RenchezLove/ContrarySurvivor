@@ -47,9 +47,9 @@ public:
 
 	// Патроны в кубике AmmoText: {InClip} — в магазине оружия, {Reserve} — запас при оружии,
 	// {Bag} — патроны в рюкзаке. Если положишь отдельный кубик AmmoBagText под рюкзак —
-	// убери отсюда «(в рюкзаке {Bag})», иначе число покажется дважды.
+	// убери отсюда «в рюкзаке {Bag}», иначе число покажется дважды.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "4"))
-	FText AmmoFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoFormat", "{InClip} / {Reserve}  (в рюкзаке {Bag})");
+	FText AmmoFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoFormat", "{InClip} / {Reserve}   в рюкзаке {Bag}");
 
 	// Патроны в отдельном кубике AmmoBagText (если он есть): те же подстановки, что и выше.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "5"))
