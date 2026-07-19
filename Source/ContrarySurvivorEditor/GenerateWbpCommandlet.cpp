@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -13,9 +14,13 @@
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
+#include "Components/ProgressBar.h"
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
+#include "Components/Slider.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -30,6 +35,8 @@
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/InventoryRowWidget.h" // полный тип для TSubclassOf-присваивания
+#include "ContrarySurvivor/UI/ShopScreenWidget.h"
+#include "ContrarySurvivor/UI/ShopRowWidget.h"      // полный тип для TSubclassOf-присваивания
 
 DEFINE_LOG_CATEGORY_STATIC(LogGenerateWbp, Log, All);
 
@@ -79,6 +86,14 @@ namespace
 		Block->SetFont(FSlateFontInfo(Roboto, Size, FName(Typeface)));
 		Block->SetColorAndOpacity(FSlateColor(Color));
 		return Block;
+	}
+
+	// Тень текста (аналог DrawShadowedText Canvas-пути) — для надписей ПОВЕРХ игрового
+	// мира (постоянные панели), где фон произвольный и без тени текст пропадает.
+	void ApplyTextShadow(UTextBlock* Block)
+	{
+		Block->SetShadowOffset(FVector2D(1.0f, 1.0f));
+		Block->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f));
 	}
 
 	// Кнопка со сплошным стилем всех состояний (для экранов; Ринат перекрасит в дизайнере).
@@ -642,6 +657,509 @@ namespace
 	}
 
 	// ======================================================================
+	// Магазин: WBP_ShopRow + WBP_Shop (геометрия и цвета — Canvas DrawShop/DrawShopSlider)
+	// ======================================================================
+
+	// Одна строка списков магазина: плашка -> имя + цена + кнопка действия (Buy/Sell).
+	bool BuildShopRow(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		USizeBox* RowSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("RowSize"));
+		RowSize->SetMinDesiredHeight(48.0f); // комфортная пальцу высота (guide 40-60; как WBP_InventoryRow)
+		Tree->RootWidget = RowSize;
+
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RowPlate"));
+		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), 4.0f)); // InvSlotColor
+		Plate->SetPadding(FMargin(8.0f, 4.0f));
+		RowSize->SetContent(Plate);
+
+		UHorizontalBox* RowBox = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("RowBox"));
+		Plate->SetContent(RowBox);
+
+		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("NameText"), TEXT("Товар"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		Name->bIsVariable = true;
+		if (UHorizontalBoxSlot* NameSlot = RowBox->AddChildToHorizontalBox(Name))
+		{
+			NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			NameSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		// Цена — золотой акцент (UIMoneyColor); кубик необязательный, но кладём:
+		// без него код дописывает цену к имени.
+		UTextBlock* Price = MakeText(Tree, Roboto, TEXT("PriceText"), TEXT("0"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 15, TEXT("Regular"));
+		Price->bIsVariable = true;
+		if (UHorizontalBoxSlot* PriceSlot = RowBox->AddChildToHorizontalBox(Price))
+		{
+			PriceSlot->SetVerticalAlignment(VAlign_Center);
+			PriceSlot->SetPadding(FMargin(8.0f, 0.0f));
+		}
+
+		// Кнопка действия — зелёная, как доступные Buy/Sell Canvas-пути (InvSlotFilledColor);
+		// подпись ставит код (Buy/Sell), недоступную кнопку код гасит сам.
+		UButton* Action = MakeStyledButton(Tree, TEXT("ActionButton"),
+			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
+			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
+		UTextBlock* ActionCaption = MakeText(Tree, Roboto, TEXT("ActionText"), TEXT("Buy"),
+			FLinearColor::White, 13, TEXT("Regular"));
+		ActionCaption->bIsVariable = true;
+		Action->SetContent(ActionCaption);
+		if (UHorizontalBoxSlot* ActionSlot = RowBox->AddChildToHorizontalBox(Action))
+		{
+			ActionSlot->SetVerticalAlignment(VAlign_Center);
+			ActionSlot->SetPadding(FMargin(6.0f, 2.0f));
+		}
+		return true;
+	}
+
+	// Экран магазина: затемнение -> центральная панель (шапка, деньги, две колонки списков)
+	// + панель количества ПОВЕРХ (код показывает её только на время транзакции).
+	bool BuildShop(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Затемнение (InvDimColor); Visible — модалка, клики в мир не проходят.
+		UBorder* Dim = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+		Dim->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f));
+		Dim->SetVisibility(ESlateVisibility::Visible);
+		if (UCanvasPanelSlot* DimSlot = Root->AddChildToCanvas(Dim))
+		{
+			DimSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+			DimSlot->SetOffsets(FMargin(0.0f));
+		}
+
+		// Центральная панель 960x600 с золотой рамкой — общая геометрия панелей (как инвентарь).
+		UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Panel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Panel->SetPadding(FMargin(16.0f)); // UIPanelPadding
+		if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Panel))
+		{
+			PanelSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			PanelSlot->SetPosition(FVector2D::ZeroVector);
+			PanelSlot->SetSize(FVector2D(960.0f, 600.0f));
+		}
+
+		UVerticalBox* PanelBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelBox"));
+		Panel->SetContent(PanelBox);
+
+		// Шапка: заголовок (статичный текст Рината, литерал Canvas) + кнопка Close 90x28.
+		UHorizontalBox* HeaderRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HeaderRow"));
+		PanelBox->AddChildToVerticalBox(HeaderRow);
+
+		UTextBlock* Header = MakeText(Tree, Roboto, TEXT("HeaderText"),
+			TEXT("TRADER  (E to close)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold"));
+		if (UHorizontalBoxSlot* HeaderSlot = HeaderRow->AddChildToHorizontalBox(Header))
+		{
+			HeaderSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			HeaderSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
+			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
+			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f)); // InvDropColor
+		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Close"),
+			FLinearColor::White, 14, TEXT("Regular")));
+		USizeBox* CloseSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CloseSize"));
+		CloseSize->SetWidthOverride(90.0f);  // ShopCloseButtonWidth
+		CloseSize->SetHeightOverride(28.0f); // ShopCloseButtonHeight
+		CloseSize->SetContent(Close);
+		if (UHorizontalBoxSlot* CloseSlot = HeaderRow->AddChildToHorizontalBox(CloseSize))
+		{
+			CloseSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		// Деньги игрока — золотая строка (обновляет код каждый кадр).
+		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("Монеты 0"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 16, TEXT("Regular"));
+		Money->bIsVariable = true;
+		if (UVerticalBoxSlot* MoneySlot = PanelBox->AddChildToVerticalBox(Money))
+		{
+			MoneySlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 12.0f));
+		}
+
+		// Колонки: слева каталог (0.52 — ShopLeftColumnFrac), справа рюкзак на продажу.
+		UHorizontalBox* Columns = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ColumnsBox"));
+		if (UVerticalBoxSlot* ColumnsSlot = PanelBox->AddChildToVerticalBox(Columns))
+		{
+			ColumnsSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		}
+
+		UVerticalBox* BuyColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BuyBox"));
+		if (UHorizontalBoxSlot* BuySlot = Columns->AddChildToHorizontalBox(BuyColumn))
+		{
+			FSlateChildSize LeftSize(ESlateSizeRule::Fill);
+			LeftSize.Value = 0.52f;
+			BuySlot->SetSize(LeftSize);
+			BuySlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
+		}
+		BuyColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("BuyHeaderText"),
+			TEXT("FOR SALE  (Купить)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+		UScrollBox* Buy = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuyList"));
+		Buy->bIsVariable = true;
+		if (UVerticalBoxSlot* BuyListSlot = BuyColumn->AddChildToVerticalBox(Buy))
+		{
+			BuyListSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			BuyListSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
+		}
+
+		UVerticalBox* SellColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SellBox"));
+		if (UHorizontalBoxSlot* SellSlot = Columns->AddChildToHorizontalBox(SellColumn))
+		{
+			FSlateChildSize RightSize(ESlateSizeRule::Fill);
+			RightSize.Value = 0.48f;
+			SellSlot->SetSize(RightSize);
+		}
+		SellColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("SellHeaderText"),
+			TEXT("SELL FROM BACKPACK  (Продать)"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+		UScrollBox* Sell = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SellList"));
+		Sell->bIsVariable = true;
+		if (UVerticalBoxSlot* SellListSlot = SellColumn->AddChildToVerticalBox(Sell))
+		{
+			SellListSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			SellListSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
+		}
+
+		// Панель количества 600x260 (SliderPanelMaxWidth/Height) — последний ребёнок канвы,
+		// рисуется поверх; в ассете сразу Collapsed (Visible/Collapsed переключает код).
+		UBorder* SliderPanel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SliderPanel"));
+		SliderPanel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		SliderPanel->SetPadding(FMargin(18.0f)); // SliderPanelPadding
+		SliderPanel->SetVisibility(ESlateVisibility::Collapsed);
+		SliderPanel->bIsVariable = true;
+		if (UCanvasPanelSlot* SliderPanelSlot = Root->AddChildToCanvas(SliderPanel))
+		{
+			SliderPanelSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			SliderPanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			SliderPanelSlot->SetPosition(FVector2D::ZeroVector);
+			SliderPanelSlot->SetSize(FVector2D(600.0f, 260.0f));
+		}
+
+		UVerticalBox* SliderBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SliderBox"));
+		SliderPanel->SetContent(SliderBox);
+
+		UTextBlock* SliderTitle = MakeText(Tree, Roboto, TEXT("SliderTitleText"), TEXT("КУПИТЬ:  —"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 20, TEXT("Bold"));
+		SliderTitle->bIsVariable = true;
+		SliderBox->AddChildToVerticalBox(SliderTitle);
+
+		UTextBlock* SliderQty = MakeText(Tree, Roboto, TEXT("SliderQtyText"), TEXT("Кол-во: 1 / 1"),
+			FLinearColor(1.0f, 0.97f, 0.7f, 1.0f), 18, TEXT("Regular")); // SliderQtyColor
+		SliderQty->bIsVariable = true;
+		if (UVerticalBoxSlot* QtyTextSlot = SliderBox->AddChildToVerticalBox(SliderQty))
+		{
+			QtyTextSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
+		}
+
+		// Ползунок: диапазон/шаг выставляет код при каждой транзакции — тут только кубик.
+		USlider* Qty = Tree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("QtySlider"));
+		Qty->bIsVariable = true;
+		if (UVerticalBoxSlot* QtySliderSlot = SliderBox->AddChildToVerticalBox(Qty))
+		{
+			QtySliderSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 0.0f));
+		}
+
+		// Ряд [-] [+] и живой итог справа.
+		UHorizontalBox* QtyRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("QtyRow"));
+		if (UVerticalBoxSlot* QtyRowSlot = SliderBox->AddChildToVerticalBox(QtyRow))
+		{
+			QtyRowSlot->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
+		}
+
+		auto AddSmallButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName,
+			const TCHAR* Caption, float LeftPad)
+		{
+			UButton* Small = MakeStyledButton(Tree, FName(ButtonName),
+				FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
+				FLinearColor(0.25f, 0.27f, 0.33f, 1.0f)); // InvSlotColor + подсветки
+			Small->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
+				FLinearColor::White, 15, TEXT("Bold")));
+			USizeBox* SmallSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(FString(ButtonName) + TEXT("Size"))));
+			SmallSize->SetWidthOverride(48.0f);  // SliderSmallButtonWidth
+			SmallSize->SetHeightOverride(30.0f); // SliderSmallButtonHeight
+			SmallSize->SetContent(Small);
+			if (UHorizontalBoxSlot* SmallSlot = QtyRow->AddChildToHorizontalBox(SmallSize))
+			{
+				SmallSlot->SetVerticalAlignment(VAlign_Center);
+				SmallSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+			}
+		};
+		AddSmallButton(TEXT("QtyMinusButton"), TEXT("QtyMinusLabel"), TEXT("-"), 0.0f);
+		AddSmallButton(TEXT("QtyPlusButton"), TEXT("QtyPlusLabel"), TEXT("+"), 8.0f);
+
+		UTextBlock* SliderTotal = MakeText(Tree, Roboto, TEXT("SliderTotalText"), TEXT("Итого: 0"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 19, TEXT("Regular")); // UIMoneyColor
+		SliderTotal->bIsVariable = true;
+		if (UHorizontalBoxSlot* TotalSlot = QtyRow->AddChildToHorizontalBox(SliderTotal))
+		{
+			TotalSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			TotalSlot->SetVerticalAlignment(VAlign_Center);
+			TotalSlot->SetPadding(FMargin(24.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		// Ряд подтверждения (Cancel красная, Confirm зелёная) — правый низ панели.
+		UHorizontalBox* ActionRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ActionRow"));
+		if (UVerticalBoxSlot* ActionRowSlot = SliderBox->AddChildToVerticalBox(ActionRow))
+		{
+			ActionRowSlot->SetHorizontalAlignment(HAlign_Right);
+			ActionRowSlot->SetPadding(FMargin(0.0f, 14.0f, 0.0f, 0.0f));
+		}
+
+		auto AddBigButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName, const TCHAR* Caption,
+			const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed, float LeftPad)
+		{
+			UButton* Big = MakeStyledButton(Tree, FName(ButtonName), Normal, Hovered, Pressed);
+			Big->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
+				FLinearColor::White, 15, TEXT("Regular")));
+			USizeBox* BigSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(FString(ButtonName) + TEXT("Size"))));
+			BigSize->SetWidthOverride(120.0f);  // SliderBigButtonWidth
+			BigSize->SetHeightOverride(34.0f);  // SliderBigButtonHeight
+			BigSize->SetContent(Big);
+			if (UHorizontalBoxSlot* BigSlot = ActionRow->AddChildToHorizontalBox(BigSize))
+			{
+				BigSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+			}
+		};
+		AddBigButton(TEXT("SliderCancelButton"), TEXT("SliderCancelLabel"), TEXT("Cancel"),
+			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
+			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), 0.0f);
+		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Confirm"),
+			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
+			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 10.0f);
+		return true;
+	}
+
+	// ======================================================================
+	// Диалог старосты: WBP_Dialog (вид = Canvas DrawDialog — нижняя панель новеллы)
+	// ======================================================================
+
+	bool BuildDialog(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		UBorder* Dim = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+		Dim->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f)); // InvDimColor
+		Dim->SetVisibility(ESlateVisibility::Visible);
+		if (UCanvasPanelSlot* DimSlot = Root->AddChildToCanvas(Dim))
+		{
+			DimSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+			DimSlot->SetOffsets(FMargin(0.0f));
+		}
+
+		// Панель низ-центр: ширина 900 (DialogPanelMaxWidth), пол высоты 280 (DialogMinPanelHeight),
+		// отступ от низа 40 (DialogBottomMargin); высота растёт от длины реплики (AutoSize + wrap).
+		USizeBox* PanelSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PanelSize"));
+		PanelSize->SetWidthOverride(900.0f);
+		PanelSize->SetMinDesiredHeight(280.0f);
+		if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(PanelSize))
+		{
+			PanelSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
+			PanelSlot->SetAlignment(FVector2D(0.5f, 1.0f));
+			PanelSlot->SetPosition(FVector2D(0.0f, -40.0f));
+			PanelSlot->SetAutoSize(true);
+		}
+
+		UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Panel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Panel->SetPadding(FMargin(18.0f)); // DialogPadding
+		PanelSize->SetContent(Panel);
+
+		// Имя C++-переменной НЕ DialogBox: это макрос winuser.h (DialogBox -> DialogBoxA),
+		// утечка windows.h в editor-модуле дала бы загадочную ошибку. Имя виджета — прежнее.
+		UVerticalBox* DialogColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DialogBox"));
+		Panel->SetContent(DialogColumn);
+
+		// Имя NPC — голубой DialogNameColor (текст ставит код с поля старосты).
+		UTextBlock* NpcName = MakeText(Tree, Roboto, TEXT("NPCNameText"), TEXT("СТАРОСТА"),
+			FLinearColor(0.65f, 0.88f, 1.0f, 1.0f), 22, TEXT("Bold"));
+		NpcName->bIsVariable = true;
+		DialogColumn->AddChildToVerticalBox(NpcName);
+
+		// Реплика: перенос строк обязателен (guide) — длинные квестовые описания многострочные.
+		UTextBlock* Replica = MakeText(Tree, Roboto, TEXT("ReplicaText"), TEXT("Реплика старосты."),
+			FLinearColor::White, 16, TEXT("Regular"));
+		Replica->SetAutoWrapText(true);
+		Replica->bIsVariable = true;
+		if (UVerticalBoxSlot* ReplicaSlot = DialogColumn->AddChildToVerticalBox(Replica))
+		{
+			ReplicaSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			ReplicaSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 12.0f));
+		}
+
+		// Ряд ответов: все четыре кнопки рядом — лишние по состоянию квеста код прячет сам.
+		UHorizontalBox* ButtonsRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ButtonsRow"));
+		DialogColumn->AddChildToVerticalBox(ButtonsRow);
+
+		auto AddAnswer = [&](UButton* Button, float Width, float LeftPad)
+		{
+			USizeBox* Size = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(Button->GetName() + TEXT("Size"))));
+			Size->SetWidthOverride(Width);
+			Size->SetHeightOverride(40.0f); // DialogButtonHeight
+			Size->SetContent(Button);
+			if (UHorizontalBoxSlot* AnswerSlot = ButtonsRow->AddChildToHorizontalBox(Size))
+			{
+				AnswerSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+			}
+		};
+
+		// [Принять] — зелёная (InvSlotFilledColor), подпись статичная (текст Рината).
+		UButton* Accept = MakeStyledButton(Tree, TEXT("AcceptButton"),
+			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
+			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
+		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("[ Принять ]"),
+			FLinearColor::White, 15, TEXT("Regular")));
+		AddAnswer(Accept, 200.0f, 0.0f); // DialogButtonWidth
+
+		// [Отказаться] — красная (InvDropColor).
+		UButton* Decline = MakeStyledButton(Tree, TEXT("DeclineButton"),
+			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
+			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f));
+		Decline->SetContent(MakeText(Tree, Roboto, TEXT("DeclineLabel"), TEXT("[ Отказаться ]"),
+			FLinearColor::White, 15, TEXT("Regular")));
+		AddAnswer(Decline, 200.0f, 14.0f);
+
+		// [Сдать (+N)] — зелёная, ШИРЕ (240 — DialogTurnInButtonWidth); подпись ставит КОД
+		// через кубик TurnInText (в ней сумма награды).
+		UButton* TurnIn = MakeStyledButton(Tree, TEXT("TurnInButton"),
+			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
+			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
+		UTextBlock* TurnInCaption = MakeText(Tree, Roboto, TEXT("TurnInText"), TEXT("[ Сдать (+0) ]"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		TurnInCaption->bIsVariable = true;
+		TurnIn->SetContent(TurnInCaption);
+		AddAnswer(TurnIn, 240.0f, 14.0f);
+
+		// [Закрыть] — серая (InvSlotColor).
+		UButton* CloseBtn = MakeStyledButton(Tree, TEXT("CloseButton"),
+			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
+			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f));
+		CloseBtn->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("[ Закрыть ]"),
+			FLinearColor::White, 15, TEXT("Regular")));
+		AddAnswer(CloseBtn, 200.0f, 14.0f);
+		return true;
+	}
+
+	// ======================================================================
+	// Постоянная панель статов: WBP_PlayerStats (вид = Canvas DrawPlayerStats, верх-лево)
+	// ======================================================================
+
+	// Полоска стата: SizeBox-габарит -> ProgressBar + текст поверх слева (Overlay).
+	UOverlay* MakeStatBar(UWidgetTree* Tree, UObject* Roboto, const TCHAR* BarName,
+		const TCHAR* TextName, const FString& Caption, const FLinearColor& FillColor, float Height)
+	{
+		UOverlay* Overlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(),
+			FName(*(FString(BarName) + TEXT("Overlay"))));
+
+		UProgressBar* Bar = Tree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), FName(BarName));
+		FProgressBarStyle BarStyle;
+		BarStyle.BackgroundImage = FSlateColorBrush(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f)); // BackgroundColor HUD
+		BarStyle.FillImage = FSlateColorBrush(FLinearColor::White); // итоговый цвет даёт FillColorAndOpacity
+		BarStyle.EnableFillAnimation = false;
+		Bar->SetWidgetStyle(BarStyle);
+		Bar->SetFillColorAndOpacity(FillColor);
+		Bar->SetPercent(1.0f); // заполнение ставит код каждый кадр
+		Bar->bIsVariable = true;
+
+		USizeBox* BarSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+			FName(*(FString(BarName) + TEXT("Size"))));
+		BarSize->SetWidthOverride(320.0f); // PlayerHealthBarWidth (все бары одной ширины)
+		BarSize->SetHeightOverride(Height);
+		BarSize->SetContent(Bar);
+		Overlay->AddChildToOverlay(BarSize);
+
+		UTextBlock* Label = MakeText(Tree, Roboto, FName(TextName), Caption,
+			FLinearColor::White, 14, TEXT("Regular"));
+		ApplyTextShadow(Label);
+		Label->bIsVariable = true;
+		if (UOverlaySlot* LabelSlot = Overlay->AddChildToOverlay(Label))
+		{
+			LabelSlot->SetHorizontalAlignment(HAlign_Left);
+			LabelSlot->SetVerticalAlignment(VAlign_Center);
+			LabelSlot->SetPadding(FMargin(8.0f, 0.0f));
+		}
+		return Overlay;
+	}
+
+	// Панель статов: столбец верх-лево (HP -> голод -> жажда -> патроны -> деньги).
+	bool BuildPlayerStats(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("StatsBox"));
+		// Панель живёт на экране всю игру: HitTestInvisible на столбе — тапы/клики сквозь
+		// ВСЁ поддерево уходят в мир (иначе бары и плашка денег глотали бы касания).
+		Column->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UCanvasPanelSlot* ColSlot = Root->AddChildToCanvas(Column))
+		{
+			ColSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
+			ColSlot->SetAlignment(FVector2D(0.0f, 0.0f));
+			ColSlot->SetPosition(FVector2D(24.0f, 24.0f)); // PlayerHudMarginX/Y
+			ColSlot->SetAutoSize(true);
+		}
+
+		Column->AddChildToVerticalBox(MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
+			TEXT("HP 100/100"), FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 28.0f)); // PlayerHealthFillColor, 320x28
+
+		UOverlay* Hunger = MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
+			TEXT("Hunger 100"), FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 24.0f); // HungerColor, высота 24
+		if (UVerticalBoxSlot* HungerSlot = Column->AddChildToVerticalBox(Hunger))
+		{
+			HungerSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
+		}
+
+		UOverlay* Thirst = MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
+			TEXT("Thirst 100"), FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 24.0f); // ThirstColor
+		if (UVerticalBoxSlot* ThirstSlot = Column->AddChildToVerticalBox(Thirst))
+		{
+			ThirstSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
+		}
+
+		// Патроны: код показывает строку только с огнестрелом в руках — в ассете сразу Collapsed.
+		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("Ammo 7 / 21  (bag 30)"),
+			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 14, TEXT("Regular")); // AmmoColor
+		ApplyTextShadow(Ammo);
+		Ammo->SetVisibility(ESlateVisibility::Collapsed);
+		Ammo->bIsVariable = true;
+		if (UVerticalBoxSlot* AmmoSlot = Column->AddChildToVerticalBox(Ammo))
+		{
+			AmmoSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
+		}
+
+		// Деньги — золотые на тёмной плашке (MoneyPlateColor).
+		UBorder* MoneyPlate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MoneyPlate"));
+		MoneyPlate->SetBrush(MakeRoundedBrush(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f), 3.0f));
+		MoneyPlate->SetPadding(FMargin(8.0f, 3.0f));
+		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("Монеты 0"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 15, TEXT("Regular")); // PlayerMoneyColor
+		ApplyTextShadow(Money);
+		Money->bIsVariable = true;
+		MoneyPlate->SetContent(Money);
+		if (UVerticalBoxSlot* MoneySlot = Column->AddChildToVerticalBox(MoneyPlate))
+		{
+			MoneySlot->SetHorizontalAlignment(HAlign_Left);
+			MoneySlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
+		}
+		return true;
+	}
+
+	// ======================================================================
 	// Таблица ассетов
 	// ======================================================================
 
@@ -654,8 +1172,10 @@ namespace
 		std::initializer_list<const TCHAR*> ExpectedCubes; // контракт BindWidgetOptional
 	};
 
-	// Порядок важен: WBP_InventoryRow ДО WBP_Inventory (инвентарю назначается его класс).
-	// Ассетов Рината (WBP_ShopScreenWiget/ShopRow/Dialog/PlayerStats) здесь НЕТ намеренно.
+	// Порядок важен: WBP_InventoryRow ДО WBP_Inventory и WBP_ShopRow ДО WBP_Shop
+	// (экрану назначается класс его строки). Пустые заготовки Рината
+	// (WBP_ShopScreenWiget/ShopRow/Dialog/PlayerStats) он удалил сам 07-19 («ничего
+	// не создал по итогу», коммит 2754045) — эти панели теперь тоже генерируем.
 	const FWbpSpec GAssets[] =
 	{
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"),
@@ -684,6 +1204,23 @@ namespace
 		{ TEXT("/Game/UI/WBP_InteractPrompt"), TEXT("WBP_InteractPrompt"),
 			TEXT("/Script/ContrarySurvivor.InteractPromptWidget"), &BuildInteractPrompt,
 			{ TEXT("PromptText") } },
+		{ TEXT("/Game/UI/WBP_ShopRow"), TEXT("WBP_ShopRow"),
+			TEXT("/Script/ContrarySurvivor.ShopRowWidget"), &BuildShopRow,
+			{ TEXT("NameText"), TEXT("PriceText"), TEXT("ActionButton"), TEXT("ActionText") } },
+		{ TEXT("/Game/UI/WBP_Shop"), TEXT("WBP_Shop"),
+			TEXT("/Script/ContrarySurvivor.ShopScreenWidget"), &BuildShop,
+			{ TEXT("MoneyText"), TEXT("BuyList"), TEXT("SellList"), TEXT("CloseButton"),
+			  TEXT("SliderPanel"), TEXT("SliderTitleText"), TEXT("SliderQtyText"), TEXT("QtySlider"),
+			  TEXT("QtyMinusButton"), TEXT("QtyPlusButton"), TEXT("SliderTotalText"),
+			  TEXT("SliderConfirmButton"), TEXT("SliderCancelButton") } },
+		{ TEXT("/Game/UI/WBP_Dialog"), TEXT("WBP_Dialog"),
+			TEXT("/Script/ContrarySurvivor.DialogScreenWidget"), &BuildDialog,
+			{ TEXT("NPCNameText"), TEXT("ReplicaText"), TEXT("AcceptButton"), TEXT("DeclineButton"),
+			  TEXT("TurnInButton"), TEXT("TurnInText"), TEXT("CloseButton") } },
+		{ TEXT("/Game/UI/WBP_PlayerStats"), TEXT("WBP_PlayerStats"),
+			TEXT("/Script/ContrarySurvivor.PlayerStatsWidget"), &BuildPlayerStats,
+			{ TEXT("HealthBar"), TEXT("HealthText"), TEXT("HungerBar"), TEXT("HungerText"),
+			  TEXT("ThirstBar"), TEXT("ThirstText"), TEXT("AmmoText"), TEXT("MoneyText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -742,6 +1279,28 @@ namespace
 			{
 				UE_LOG(LogGenerateWbp, Warning,
 					TEXT("WBP_Inventory: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
+					RowClass ? 1 : 0, CDO ? 1 : 0);
+			}
+		}
+
+		// WBP_Shop: строкой списков назначаем сгенерированный WBP_ShopRow (тот же приём,
+		// что у инвентаря выше) — без этого оба списка магазина пусты.
+		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
+		{
+			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
+				TEXT("/Game/UI/WBP_ShopRow.WBP_ShopRow_C"));
+			UShopScreenWidget* CDO = WBP->GeneratedClass
+				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+				: nullptr;
+			if (RowClass && CDO)
+			{
+				CDO->RowWidgetClass = RowClass;
+				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Shop: Row Widget Class = %s."), *RowClass->GetName());
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("WBP_Shop: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
 					RowClass ? 1 : 0, CDO ? 1 : 0);
 			}
 		}
@@ -854,6 +1413,24 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			else
 			{
 				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: WBP_Inventory — Row Widget Class пуст."));
+				bOk = false;
+			}
+		}
+
+		// Тот же контракт магазина: класс строки списков назначен.
+		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
+		{
+			const UShopScreenWidget* CDO = WBP->GeneratedClass
+				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+				: nullptr;
+			if (CDO && CDO->RowWidgetClass)
+			{
+				UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY WBP_Shop: Row Widget Class = %s."),
+					*CDO->RowWidgetClass->GetName());
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: WBP_Shop — Row Widget Class пуст."));
 				bOk = false;
 			}
 		}
