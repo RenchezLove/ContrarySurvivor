@@ -5,6 +5,8 @@
 #include "Components/SkeletalMeshComponent.h" // GetMesh()/TorsoMesh/LegsMesh (Leader Pose)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"          // признак «подарок уже выдан»
+#include "ContrarySurvivor/Retention/OnboardingComponent.h"  // тост «Получено: Бинт»
 
 AElderNPC::AElderNPC()
 {
@@ -126,6 +128,60 @@ void AElderNPC::PostInitializeComponents()
 			LegsMesh->SetLeaderPoseComponent(Head);
 		}
 	}
+}
+
+bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
+{
+	if (!Player || FirstGiftCount <= 0)
+	{
+		return false;
+	}
+
+	// Признак «уже выдал» — в сейве игрока (см. комментарий к методу в заголовке).
+	UContrarySaveGame* Save = Player->LoadOrCreateSaveObject();
+	if (!Save || Save->bElderFirstGiftGiven)
+	{
+		return false;
+	}
+
+	// Подарок идёт ВМЕСТЕ с приветственной репликой первого квеста, поэтому выдаём его
+	// только когда игрок эту реплику и видит — то есть пока кв.1 не взят. Иначе предмет
+	// мог бы прийти молча в разговоре, где про «держи» не сказано ни слова.
+	if (const UQuestComponent* PlayerQuests = Player->GetQuests())
+	{
+		const FQuest* Q1 = PlayerQuests->FindQuest(OfferedQuest.QuestId);
+		if (Q1 && Q1->State != EQuestState::NotStarted)
+		{
+			return false;
+		}
+	}
+
+	const int32 Given = Player->GiveConsumableToBackpack(FirstGiftConsumableType, FirstGiftCount);
+	if (Given <= 0)
+	{
+		// Рюкзак предмет не принял — признак НЕ ставим, попробуем в следующий раз.
+		UE_LOG(LogTemp, Warning, TEXT("Elder '%s': first meeting gift NOT given (backpack refused item)"), *GetName());
+		return false;
+	}
+
+	Save->bElderFirstGiftGiven = true;
+	Player->WriteSaveObject(Save);
+
+	// Сообщаем игроку тем же тостом, что и подсказки онбординга: без этого предмет
+	// появляется в рюкзаке молча и игрок его не замечает.
+	if (!FirstGiftHintFormat.IsEmpty())
+	{
+		if (UOnboardingComponent* Hints = Player->GetOnboarding())
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Item"), AConsumableItem::GetDefaultDisplayText(FirstGiftConsumableType));
+			Args.Add(TEXT("Count"), FText::AsNumber(Given));
+			Hints->ShowTransientHint(FText::Format(FirstGiftHintFormat, Args));
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Elder '%s': first meeting gift given (%d item(s))"), *GetName(), Given);
+	return true;
 }
 
 const FQuest& AElderNPC::GetQuestForPlayer(const UQuestComponent* PlayerQuests) const

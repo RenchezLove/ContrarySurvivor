@@ -65,6 +65,13 @@ void UOnboardingComponent::DismissCurrentHint()
 	HideActiveWidget();
 }
 
+void UOnboardingComponent::ShowTransientHint(const FText& Text)
+{
+	// Тот же тост и тот же таймер автоскрытия, что у подсказок онбординга; признак
+	// «показано» здесь не ведётся (см. комментарий в заголовке).
+	ShowWidget(Text);
+}
+
 bool UOnboardingComponent::IsTouchLayerActive() const
 {
 	const APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());

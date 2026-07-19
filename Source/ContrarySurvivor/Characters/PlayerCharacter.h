@@ -18,6 +18,7 @@ class UStatsComponent;
 class UQuestComponent;
 class UContrarySaveGame;
 class AMasterInventoryItem;
+enum class EConsumableType : uint8; // тип расходника (AConsumableItem.h) — параметр GiveConsumableToBackpack
 class USoundBase;
 class UAudioComponent;
 class UNavigationInvokerComponent;
@@ -477,6 +478,12 @@ public:
     // (как неэкипированный), чтобы его было видно/можно надеть заново.
     UFUNCTION(BlueprintCallable, Category = "Inventory")
     void Inv_UnequipSlot(EArmorSlot Slot);
+
+    // Положить в рюкзак Count расходников заданного типа (еда/вода/бинт). Один вход для
+    // сюжетной выдачи предметов: сам спавнит предмет, проставляет служебный ключ и
+    // переводимое название из AConsumableItem и прячет визуал (предмет рюкзака — это
+    // данные, а не объект на сцене). Возвращает, сколько штук реально легло в рюкзак.
+    int32 GiveConsumableToBackpack(EConsumableType Type, int32 Count = 1);
 
     // --- Магазин торговца (Фаза 4, экономика — GDD §7.6) ---
     // Вызываются из AContrarySurvivorHUD по клику в экране магазина.

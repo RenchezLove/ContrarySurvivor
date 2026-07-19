@@ -46,6 +46,12 @@ public:
 	// Скрыть активную подсказку (любой ввод игрока / смена экрана).
 	void DismissCurrentHint();
 
+	// Показать разовую всплывашку с готовым текстом — тем же тостом, что и подсказки
+	// онбординга. В отличие от TryShowHint НЕ ведёт признак «показано»: одноразовость
+	// обеспечивает тот, кто зовёт (например староста — по флагу в сейве). Нужно для
+	// сообщений вида «Получено: Бинт».
+	void ShowTransientHint(const FText& Text);
+
 	// Время показа подсказки до автоскрытия, сек (задание: ~6-8).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (ClampMin = "1.0", DisplayPriority = "1"))
 	float HintDuration = 7.0f;

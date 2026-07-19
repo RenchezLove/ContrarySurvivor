@@ -6,10 +6,12 @@
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // база: модульный гуманоид (как AMasterTrader)
 #include "InteractableNPCInterface.h"                            // HUD-маркер находимости
 #include "ContrarySurvivor/Components/QuestComponent.h"          // FQuest (предлагаемый квест)
+#include "AConsumableItem.h"                                     // EConsumableType (подарок первой встречи)
 #include "ElderNPC.generated.h"
 
 class USphereComponent;
 class UQuestComponent;
+class APlayerCharacter;
 
 /**
  * Староста деревни (Фаза 5, GDD §7.7 — квестодатель MVP).
@@ -44,6 +46,14 @@ public:
 	// Возвращается ссылка на член (валидна, пока жив актор). PlayerQuests может быть null
 	// (тогда возвращается кв.1).
 	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
+
+	// Подарок первой встречи (решение владельца 2026-07-20). В первой реплике староста
+	// говорит «Держи, затяни раны» — значит предмет должен реально появиться в рюкзаке,
+	// иначе слова расходятся с делом. Кладём ОДИН раз за профиль: признак живёт в сейве
+	// (UContrarySaveGame::bElderFirstGiftGiven), поэтому переживает смерть игрока и
+	// перезапуск игры и подарок нельзя нафармить повторным открытием диалога.
+	// Зовёт контроллер при открытии диалога. Возвращает true, если выдали именно сейчас.
+	bool TryGiveFirstMeetingGift(APlayerCharacter* Player);
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
 	virtual FText GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
@@ -89,6 +99,22 @@ protected:
 	// а не слова старосты.
 	FText DialogueEarlyHookText = NSLOCTEXT("Dialog", "ElderEarlyHook",
 		"И вот что странно… За последние недели чужаки всё идут и идут к нам. Будто гонит их что-то. Или кто-то. Не моего ума дело. Ступай.");
+
+	// --- Подарок первой встречи (см. TryGiveFirstMeetingGift) ---
+
+	// Что кладём в рюкзак. Medkit — это наш «Бинт» (название предмета берётся из
+	// AConsumableItem, здесь оно не дублируется).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "1"))
+	EConsumableType FirstGiftConsumableType = EConsumableType::Medkit;
+
+	// Сколько штук. 0 — подарок выключен, диалог работает как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "2", ClampMin = "0"))
+	int32 FirstGiftCount = 1;
+
+	// Всплывающая подсказка о полученном предмете: {Item} — название предмета,
+	// {Count} — сколько штук. Пусто — подсказка не показывается.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Подарок", meta = (DisplayPriority = "3"))
+	FText FirstGiftHintFormat = NSLOCTEXT("Dialog", "ElderFirstGiftHint", "Получено: {Item}");
 
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "6"))

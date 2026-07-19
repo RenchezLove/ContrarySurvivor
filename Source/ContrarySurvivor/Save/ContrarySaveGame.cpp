@@ -16,4 +16,5 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->bHintElderShown     = From->bHintElderShown;
 	To->bHintInventoryShown = From->bHintInventoryShown;
 	To->bHintDeathShown     = From->bHintDeathShown;
+	To->bElderFirstGiftGiven = From->bElderFirstGiftGiven;
 }

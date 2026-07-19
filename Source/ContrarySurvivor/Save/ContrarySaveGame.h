@@ -93,6 +93,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bHintDeathShown = false;
 
+	// Староста уже отдал подарок первой встречи (бинт к реплике «Держи, затяни раны»).
+	// Признак живёт в сейве, а не в памяти актора: иначе подарок выдавался бы заново
+	// после смерти игрока и после перезапуска игры, и его можно было бы фармить.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bElderFirstGiftGiven = false;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

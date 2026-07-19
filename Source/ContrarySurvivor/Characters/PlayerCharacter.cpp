@@ -826,6 +826,51 @@ void APlayerCharacter::Inv_UnequipSlot(EArmorSlot Slot)
     }
 }
 
+int32 APlayerCharacter::GiveConsumableToBackpack(EConsumableType Type, int32 Count)
+{
+    UWorld* World = GetWorld();
+    if (!World || !Inventory || Count <= 0)
+    {
+        return 0;
+    }
+
+    FActorSpawnParameters Sp;
+    Sp.Owner = this;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    int32 Given = 0;
+    for (int32 i = 0; i < Count; ++i)
+    {
+        AConsumableItem* Item = World->SpawnActor<AConsumableItem>(
+            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+        if (!Item)
+        {
+            continue;
+        }
+
+        Item->ConsumableType = Type;
+        // Служебный ключ (по нему сходится логика квестов) и переводимое название —
+        // оба из одного источника, как при покупке и отладочной выдаче (ADR-050, порция 0).
+        Item->ItemName = AConsumableItem::GetDefaultDisplayName(Type);
+        Item->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Type);
+
+        // Предмет рюкзака — не объект на сцене: прячем визуал/коллизию, держим как данные.
+        Item->SetActorHiddenInGame(true);
+        Item->SetActorEnableCollision(false);
+
+        if (Inventory->AddItem(Item))
+        {
+            ++Given;
+        }
+        else
+        {
+            Item->Destroy();
+        }
+    }
+
+    return Given;
+}
+
 // ---------------------------------------------------------------------------
 // Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
 // ---------------------------------------------------------------------------

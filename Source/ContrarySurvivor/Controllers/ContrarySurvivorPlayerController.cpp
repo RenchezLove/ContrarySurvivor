@@ -1311,6 +1311,10 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 		{
 			PlayerQuests->OfferQuest(Elder->GetQuestForPlayer(PlayerQuests));
 		}
+
+		// Подарок первой встречи («Держи, затяни раны»): выдаётся ровно один раз за
+		// профиль, дальше сам метод молча ничего не делает.
+		Elder->TryGiveFirstMeetingGift(PlayerChar);
 	}
 
 	bDialogOpen = true;
