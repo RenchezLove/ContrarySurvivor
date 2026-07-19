@@ -4,6 +4,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/UI/OnboardingHintWidget.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // HasTouchLayer: клавиши или экранные кнопки в тексте подсказки
 #include "Blueprint/UserWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
@@ -64,17 +65,28 @@ void UOnboardingComponent::DismissCurrentHint()
 	HideActiveWidget();
 }
 
-FString UOnboardingComponent::GetHintText(EOnboardingHint Hint) const
+bool UOnboardingComponent::IsTouchLayerActive() const
+{
+	const APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
+	const AContrarySurvivorPlayerController* PC =
+		Player ? Cast<AContrarySurvivorPlayerController>(Player->GetController()) : nullptr;
+	return PC && PC->HasTouchLayer();
+}
+
+FText UOnboardingComponent::GetHintText(EOnboardingHint Hint) const
 {
 	// Тексты — EditAnywhere-поля компонента (директива Рината 07-18); дефолты в заголовке.
+	// У движения и подбора вариант зависит от управления: клавиши на ПК, экранные кнопки
+	// и палец на телефоне (см. комментарий к полям в заголовке).
+	const bool bTouch = IsTouchLayerActive();
 	switch (Hint)
 	{
-		case EOnboardingHint::Movement:  return HintTextMovement;
-		case EOnboardingHint::Pickup:    return HintTextPickup;
+		case EOnboardingHint::Movement:  return bTouch ? HintTextMovementTouch : HintTextMovement;
+		case EOnboardingHint::Pickup:    return bTouch ? HintTextPickupTouch : HintTextPickup;
 		case EOnboardingHint::Elder:     return HintTextElder;
 		case EOnboardingHint::Inventory: return HintTextInventory;
 		case EOnboardingHint::Death:     return HintTextDeath; // СТРОГО ADR-044 п.3 (см. заголовок)
-		default:                         return FString();
+		default:                         return FText::GetEmpty();
 	}
 }
 
@@ -103,7 +115,7 @@ void UOnboardingComponent::PersistShownFlag(EOnboardingHint Hint)
 	Player->WriteSaveObject(Save);
 }
 
-void UOnboardingComponent::ShowWidget(const FString& Text)
+void UOnboardingComponent::ShowWidget(const FText& Text)
 {
 	if (Text.IsEmpty())
 	{

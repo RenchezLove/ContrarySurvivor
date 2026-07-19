@@ -56,7 +56,8 @@ class CONTRARYSURVIVOR_API UOnboardingHintWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	void SetHintText(const FString& Text);
+	// Текст подсказки — уже переводимый FText (собирает UOnboardingComponent, ADR-050).
+	void SetHintText(const FText& Text);
 
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт UOnboardingComponent сразу после создания виджета.

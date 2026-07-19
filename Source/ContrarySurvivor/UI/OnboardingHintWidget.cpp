@@ -62,10 +62,10 @@ void UOnboardingHintWidget::ApplyStyle(const FOnboardingHintStyle& Style)
 	}
 }
 
-void UOnboardingHintWidget::SetHintText(const FString& Text)
+void UOnboardingHintWidget::SetHintText(const FText& Text)
 {
 	if (HintText)
 	{
-		HintText->SetText(FText::FromString(Text));
+		HintText->SetText(Text);
 	}
 }

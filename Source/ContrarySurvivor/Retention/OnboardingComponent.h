@@ -55,41 +55,70 @@ public:
 	float MovementHintDelay = 1.5f;
 
 	// --- Тексты подсказок (директива Рината 07-18: настраиваются в BP_PlayerCharacter).
-	// Дефолты дословно прежние зашитые; клавиши в них сверены с реальными биндингами проекта:
-	// движение W/A/S/D (IMC_Default), атака — клик (IA_Fire=ЛКМ), смена оружия Q, подбор E,
-	// инвентарь I/Tab (legacy ActionMapping, Config/DefaultInput.ini). ---
+	// Локализация (ADR-050): FText, дефолты через NSLOCTEXT.
+	//
+	// ДВА ВАРИАНТА ТАМ, ГДЕ ПОДСКАЗКА НАЗЫВАЕТ СПОСОБ УПРАВЛЕНИЯ. На ПК управление
+	// клавишами, на телефоне клавиш нет — поэтому у подсказок про движение и подбор есть
+	// пара «клавиатурный текст / тач-текст». Какой показать, решает наличие тач-слоя
+	// (AContrarySurvivorPlayerController::HasTouchLayer) — тот же признак, по которому HUD
+	// выбирает подсказку прокрутки магазина. У подсказок без упоминания управления
+	// (староста, инвентарь, смерть) вариант один — второй текст был бы копией.
+	//
+	// Клавиши сверены с реальными биндингами проекта: движение W/A/S/D (IMC_Default),
+	// атака — клик (IA_Fire=ЛКМ), смена оружия Q, подбор E, инвентарь I/Tab
+	// (legacy ActionMapping, Config/DefaultInput.ini). Названия тач-кнопок в текстах ниже
+	// совпадают с подписями кнопок слоя (ContrarySurvivorPlayerController.cpp). ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "3"))
-	FString HintTextMovement = TEXT("Передвижение — W, A, S, D. Атака — клик по врагу. Смена оружия — Q");
+	FText HintTextMovement = NSLOCTEXT("OnboardingComponent", "HintMovement",
+		"Ходи на W, A, S, D. Нажми на врага, чтобы ударить. Q — сменить оружие");
 
+	// Тот же смысл для телефона: способ другой, действие то же.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "4"))
-	FString HintTextPickup = TEXT("Нажми E, чтобы подобрать");
+	FText HintTextMovementTouch = NSLOCTEXT("OnboardingComponent", "HintMovementTouch",
+		"Веди пальцем по левой части экрана, чтобы идти. Нажми на врага, чтобы ударить. Кнопка ОРУЖИЕ — сменить оружие");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "5"))
-	FString HintTextElder = TEXT("Поговори со старостой — у него есть работа");
+	FText HintTextPickup = NSLOCTEXT("OnboardingComponent", "HintPickup", "Нажми E, чтобы подобрать");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "6"))
-	FString HintTextInventory = TEXT("Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»");
+	FText HintTextPickupTouch = NSLOCTEXT("OnboardingComponent", "HintPickupTouch",
+		"Нажми ДЕЙСТВИЕ, чтобы подобрать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "7"))
+	FText HintTextElder = NSLOCTEXT("OnboardingComponent", "HintElder",
+		"Поговори со старостой — у него есть работа");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "8"))
+	FText HintTextInventory = NSLOCTEXT("OnboardingComponent", "HintInventory",
+		"Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»");
 
 	// СТРОГО эта формулировка (ADR-044 п.3): БЕЗ «можно вернуться и забрать».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "7"))
-	FString HintTextDeath = TEXT("Часть монет утрачена. Расходники обронены на месте гибели.");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "9"))
+	FText HintTextDeath = NSLOCTEXT("OnboardingComponent", "HintDeath",
+		"Часть монет утрачена. Расходники обронены на месте гибели.");
 
 	// Стиль тоста (цвет плашки/текста, шрифт, позиция, размер) — применяется при создании виджета.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (DisplayPriority = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (DisplayPriority = "10"))
 	FOnboardingHintStyle HintStyle;
 
 protected:
 	virtual void BeginPlay() override;
 
 private:
-	// Текст подсказки — из EditAnywhere-полей выше.
-	FString GetHintText(EOnboardingHint Hint) const;
+	// Текст подсказки — из EditAnywhere-полей выше (у движения и подбора выбирается
+	// клавиатурный или тач-вариант, см. IsTouchLayerActive).
+	FText GetHintText(EOnboardingHint Hint) const;
+
+	// Показан ли тач-слой у владельца (телефон, либо ПК с включённым тач-управлением).
+	// Отвечает именно «показан ли слой», а не «телефон ли это» — так и задумано:
+	// подсказка должна называть то управление, которое игрок видит на экране.
+	bool IsTouchLayerActive() const;
 
 	// Записать флаг «показано» в слот сейва (load-or-create, правит только свой флаг).
 	void PersistShownFlag(EOnboardingHint Hint);
 
-	void ShowWidget(const FString& Text);
+	void ShowWidget(const FText& Text);
 	void HideActiveWidget();
 
 	// Кэш флагов «показано» в памяти (грузится один раз в BeginPlay из сейва): TryShowHint
