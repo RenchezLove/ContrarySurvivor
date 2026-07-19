@@ -27,7 +27,7 @@ public:
 	// по состоянию, поэтому в отдельную статичную подпись оно уйти не может (ADR-050).
 	// Подстановки: {Title} — название квеста, {Objectives} — строка целей.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "1"))
-	FText TrackerFormat = NSLOCTEXT("QuestTracker", "TrackerFormat", "Квест: {Title} — {Objectives}");
+	FText TrackerFormat = NSLOCTEXT("QuestTracker", "TrackerFormat", "Квест: {Objectives}");
 
 	// У выполненного квеста прогресс не показываем: он уже 3 из 3 и только удлиняет строку.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "2"))

@@ -638,11 +638,11 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "3"))
 	FString InvBackpackHeaderText = TEXT("РЮКЗАК");
 
-	// Подписи слотов брони (строка «Шлем: (пусто)» собирается кодом: имя + ": " + предмет).
+	// Подписи слотов брони (строка «Голова: (пусто)» собирается кодом: имя + ": " + предмет).
 	// ADR-048: (пусто)/Оружие/(нет)/Защита/использовать/надеть/Монеты/Голод/Жажда
 	// переехали в UInventoryScreenWidget; здесь остались Canvas-специфичные.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "4"))
-	FString InvSlotNameHead = TEXT("Шлем");
+	FString InvSlotNameHead = TEXT("Голова");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "5"))
 	FString InvSlotNameTorso = TEXT("Торс");

@@ -705,7 +705,7 @@ namespace
 		}
 
 		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("TrackerText"),
-			TEXT("Квест: Шкуры волков — Собрать шкуры волков 1 из 3"),
+			TEXT("Квест: Собрать шкуры волков 1 из 3"),
 			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 16, TEXT("Regular")); // QuestTrackerColor
 		Line->bIsVariable = true;
 		Plate->SetContent(Line);
@@ -927,7 +927,7 @@ namespace
 			SellSlot->SetSize(RightSize);
 		}
 		SellColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("SellHeaderText"),
-			TEXT("Ваш рюкзак"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+			TEXT("Рюкзак"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
 		UScrollBox* Sell = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SellList"));
 		Sell->bIsVariable = true;
 		if (UVerticalBoxSlot* SellListSlot = SellColumn->AddChildToVerticalBox(Sell))

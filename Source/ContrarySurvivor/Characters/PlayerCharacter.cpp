@@ -1157,14 +1157,14 @@ void APlayerCharacter::GiveTestItems()
             AHeadArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Head->ItemName = TEXT("Spare Head Armor (Head_02)");
-        Head->ItemDisplayText = NSLOCTEXT("Items", "SpareHeadArmor", "Шлем (запасной)");
+        Head->ItemDisplayText = NSLOCTEXT("Items", "SpareHeadArmor", "Броня — голова (запасная)");
         AddHidden(Head);
     }
     if (ATorsoArmor* Torso = World->SpawnActor<ATorsoArmor>(
             ATorsoArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Torso->ItemName = TEXT("Spare Torso Armor (Torso_02)");
-        Torso->ItemDisplayText = NSLOCTEXT("Items", "SpareTorsoArmor", "Броня на торс (запасная)");
+        Torso->ItemDisplayText = NSLOCTEXT("Items", "SpareTorsoArmor", "Броня — торс (запасная)");
         AddHidden(Torso);
     }
 
