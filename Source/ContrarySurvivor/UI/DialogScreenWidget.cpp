@@ -93,6 +93,13 @@ void UDialogScreenWidget::RefreshDialog()
 	{
 		case EQuestState::NotStarted:
 			NPCText = Offered.Description;
+			// Ранний сюжетный крючок (ADR-049 п.2) — только в ПЕРВОМ квесте, пока игрок его
+			// не взял. Полный крючок по-прежнему после сдачи ноутбука (кв.3), ADR-044.
+			if (Offered.QuestId == Elder->GetOfferedQuest().QuestId
+				&& !Elder->GetDialogueEarlyHookText().IsEmpty())
+			{
+				NPCText += TEXT(" ") + Elder->GetDialogueEarlyHookText().ToString();
+			}
 			break;
 		case EQuestState::Active:
 		{

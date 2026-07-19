@@ -81,7 +81,7 @@ protected:
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса;
 	// директива Рината 07-18: настраиваются на размещённом экземпляре BP_Trader).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
-	FString NPCMarkerLabel = TEXT("Trader");
+	FString NPCMarkerLabel = TEXT("Торговец");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trader")
 	float NPCMarkerZOffset = 320.0f;

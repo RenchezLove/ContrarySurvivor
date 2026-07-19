@@ -56,6 +56,7 @@ public:
 	const FString& GetDialogueActivePrefix() const { return DialogueActivePrefix; }
 	const FString& GetDialogueCompletedText() const { return DialogueCompletedText; }
 	const FString& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
+	const FText& GetDialogueEarlyHookText() const { return DialogueEarlyHookText; }
 
 protected:
 	virtual void PostInitializeComponents() override;
@@ -75,11 +76,19 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4"))
 	FString DialogueTurnedInText = TEXT("Спасибо тебе ещё раз. Деревня тебе благодарна.");
 
-	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5"))
-	FString NPCMarkerLabel = TEXT("Elder");
+	// Ранний сюжетный крючок (ADR-049 п.2, решение Рината «ранний намёк одной фразой»):
+	// дописывается к реплике ПЕРВОГО квеста, когда игрок его ещё не взял. Отдельным полем,
+	// а не внутри описания квеста, — чтобы Ринат заменил фразу целиком без программиста.
+	// Пусто — ничего не дописывается, диалог работает как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
+	FText DialogueEarlyHookText = NSLOCTEXT("Dialog", "ElderEarlyHook",
+		"И вот что. Третьего дня чужие про тебя спрашивали. Не наши, не с окрестных. Ты бы поостерёгся.");
 
+	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "6"))
+	FString NPCMarkerLabel = TEXT("Староста");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "7"))
 	float NPCMarkerZOffset = 320.0f;
 
 	// Триггер диалоговой зоны: overlap по Pawn (игроку). По образцу AMasterTrader::InteractTrigger.
