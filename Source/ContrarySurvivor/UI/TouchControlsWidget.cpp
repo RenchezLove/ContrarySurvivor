@@ -15,6 +15,9 @@
 #include "InputActionValue.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // GetCurrentWeapon (иконка оружия)
+#include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
+#include "Engine/Texture2D.h"
 
 namespace
 {
@@ -68,6 +71,17 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 		}
 		// Цвет покоя переключателя БЕГ — тот, что выставил Ринат (не жёсткий белый).
 		SprintIdleColor = SprintButton ? SprintButton->GetBackgroundColor() : FLinearColor::White;
+
+		// Кубика иконки оружия может не быть в старом WBP (добавлен 07-19): fallback —
+		// создаём кодом в корневую канву ассета. Двигать мышкой Ринат сможет после
+		// добавления кубика в ассет (коммандлет -augment), логика работает уже сейчас.
+		if (!WeaponIconImage)
+		{
+			CreateWeaponIconInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
+			UE_LOG(LogQA, Warning,
+				TEXT("TouchControlsWidget: кубик WeaponIconImage не найден в WBP — %s"),
+				WeaponIconImage ? TEXT("создан кодом (позиция дефолтная)") : TEXT("корень не канва, иконка отключена"));
+		}
 	}
 	else
 	{
@@ -180,6 +194,85 @@ void UTouchControlsWidget::BuildButtons()
 		TEXT("InventoryButton"), InventoryText);
 	PauseButton = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
 		TEXT("PauseButton"), PauseText);
+
+	// Иконка текущего оружия — над кнопкой ОРУЖИЕ (кнопка МЕНЯЕТ оружие, иконка показывает,
+	// что в руках СЕЙЧАС — рядом читается как пара).
+	CreateWeaponIconInCanvas(RootCanvas);
+}
+
+void UTouchControlsWidget::CreateWeaponIconInCanvas(UCanvasPanel* Canvas)
+{
+	if (!Canvas || !WidgetTree || WeaponIconImage)
+	{
+		return;
+	}
+	WeaponIconImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WeaponIconImage"));
+	WeaponIconImage->SetVisibility(ESlateVisibility::Collapsed); // покажет UpdateWeaponIcon
+	WeaponIconImage->SetRenderOpacity(Config.IdleOpacity);
+	if (UCanvasPanelSlot* IconSlot = Canvas->AddChildToCanvas(WeaponIconImage))
+	{
+		IconSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+		IconSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		IconSlot->SetPosition(FVector2D(-Config.WeaponButton.Margin.X,
+			-Config.WeaponButton.Margin.Y - Config.WeaponButton.Radius - 34.0f));
+		IconSlot->SetSize(FVector2D(48.0f, 48.0f));
+	}
+}
+
+void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
+{
+	if (!WeaponIconImage)
+	{
+		return;
+	}
+
+	// Текущее состояние: пешки нет/оружия нет/модалка -> иконки нет; дальнобой -> пистолет,
+	// иначе нож (других типов оружия в игре нет; появятся — расширить состоянием на класс).
+	EWeaponIconState NewState = EWeaponIconState::NoWeapon;
+	if (!bForceHide && OwnerPC)
+	{
+		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(OwnerPC->GetPawn()))
+		{
+			if (AMasterWeapon* Weapon = Humanoid->GetCurrentWeapon())
+			{
+				NewState = Cast<ARangedWeapon>(Weapon) ? EWeaponIconState::Pistol : EWeaponIconState::Knife;
+			}
+		}
+	}
+	if (NewState == WeaponIconState)
+	{
+		return;
+	}
+	WeaponIconState = NewState;
+
+	UTexture2D* Icon = nullptr;
+	if (NewState == EWeaponIconState::Pistol)
+	{
+		if (!ResolvedPistolIcon && !PistolIconTexture.IsNull())
+		{
+			ResolvedPistolIcon = PistolIconTexture.LoadSynchronous(); // один раз, дальше кэш
+		}
+		Icon = ResolvedPistolIcon;
+	}
+	else if (NewState == EWeaponIconState::Knife)
+	{
+		if (!ResolvedKnifeIcon && !KnifeIconTexture.IsNull())
+		{
+			ResolvedKnifeIcon = KnifeIconTexture.LoadSynchronous();
+		}
+		Icon = ResolvedKnifeIcon;
+	}
+
+	if (Icon)
+	{
+		WeaponIconImage->SetBrushFromTexture(Icon);
+		WeaponIconImage->SetVisibility(ESlateVisibility::SelfHitTestInvisible); // чистый визуал, тапы сквозь
+	}
+	else
+	{
+		// Нет оружия ИЛИ текстура не загрузилась (нет ассета) — прячем, не рисуем пустую кисть.
+		WeaponIconImage->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void UTouchControlsWidget::BindButtonHandlers()
@@ -358,6 +451,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	{
 		SetCombatGroupVisible(!bModal);
 	}
+	// Иконка оружия живёт по тем же правилам, что боевая группа: модалка — прячется,
+	// закрылась — на следующем кадре состояние пересчитается и иконка вернётся.
+	UpdateWeaponIcon(bModal);
 	if (bModal)
 	{
 		return;

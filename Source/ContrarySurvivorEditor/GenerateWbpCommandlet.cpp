@@ -283,6 +283,20 @@ namespace
 		AddTouchButton(Tree, Root, Roboto, D.IdleOpacity, D.Weapon, ETouchCorner::BottomRight, TEXT("WeaponButton"), TEXT("WeaponText"));
 		AddTouchButton(Tree, Root, Roboto, D.IdleOpacity, D.Inventory, ETouchCorner::TopRight, TEXT("InventoryButton"), TEXT("InventoryText"));
 		AddTouchButton(Tree, Root, Roboto, D.IdleOpacity, D.Pause, ETouchCorner::TopLeft, TEXT("PauseButton"), TEXT("PauseText"));
+
+		// Иконка текущего оружия — над кнопкой ОРУЖИЕ, 48x48, в ассете Collapsed
+		// (текстуру и показ ставит код игры — UTouchControlsWidget::UpdateWeaponIcon).
+		UImage* WeaponIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WeaponIconImage"));
+		WeaponIcon->SetVisibility(ESlateVisibility::Collapsed);
+		WeaponIcon->bIsVariable = true;
+		if (UCanvasPanelSlot* IconSlot = Root->AddChildToCanvas(WeaponIcon))
+		{
+			IconSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+			IconSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			IconSlot->SetPosition(FVector2D(-D.Weapon.Margin.X,
+				-D.Weapon.Margin.Y - D.Weapon.Radius - 34.0f));
+			IconSlot->SetSize(FVector2D(48.0f, 48.0f));
+		}
 		return true;
 	}
 
@@ -1184,7 +1198,7 @@ namespace
 			  TEXT("FireButton"), TEXT("FireText"), TEXT("ReloadButton"), TEXT("ReloadText"),
 			  TEXT("InteractButton"), TEXT("InteractText"), TEXT("SprintButton"), TEXT("SprintText"),
 			  TEXT("WeaponButton"), TEXT("WeaponText"), TEXT("InventoryButton"), TEXT("InventoryText"),
-			  TEXT("PauseButton"), TEXT("PauseText") } },
+			  TEXT("PauseButton"), TEXT("PauseText"), TEXT("WeaponIconImage") } },
 		{ TEXT("/Game/UI/WBP_InventoryRow"), TEXT("WBP_InventoryRow"),
 			TEXT("/Script/ContrarySurvivor.InventoryRowWidget"), &BuildInventoryRow,
 			{ TEXT("NameText"), TEXT("UseButton"), TEXT("UseText"), TEXT("DropButton") } },
@@ -1334,7 +1348,84 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return VerifyAll();
 	}
+	if (Switches.Contains(TEXT("augment")))
+	{
+		return AugmentAll();
+	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
+}
+
+int32 UGenerateWbpCommandlet::AugmentAll()
+{
+	// Точечная правка СУЩЕСТВУЮЩЕГО WBP_TouchControls (в нём ручная стилизация Рината,
+	// перегенерация с -force запрещена): добавляем ТОЛЬКО кубик WeaponIconImage, остальное
+	// дерево не трогаем. Идемпотентно: кубик уже есть — пропуск без записи.
+	UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr,
+		TEXT("/Game/UI/WBP_TouchControls.WBP_TouchControls"));
+	if (!WBP || !WBP->WidgetTree)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: WBP_TouchControls не загрузился."));
+		return 1;
+	}
+	if (WBP->WidgetTree->FindWidget(TEXT("WeaponIconImage")))
+	{
+		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT SKIP: WeaponIconImage уже есть в WBP_TouchControls."));
+		return 0;
+	}
+	UCanvasPanel* Root = Cast<UCanvasPanel>(WBP->WidgetTree->RootWidget);
+	if (!Root)
+	{
+		UE_LOG(LogGenerateWbp, Error,
+			TEXT("AUGMENT: корень WBP_TouchControls не CanvasPanel (%s) — некуда класть иконку."),
+			WBP->WidgetTree->RootWidget ? *WBP->WidgetTree->RootWidget->GetClass()->GetName() : TEXT("null"));
+		return 1;
+	}
+
+	// Позиция по умолчанию — над кнопкой ОРУЖИЕ, геометрия — С ЕЁ слота (стилизация Рината:
+	// куда он передвинул кнопку, туда встанет и иконка). Кнопки нет — правый-нижний угол.
+	FAnchors IconAnchors(1.0f, 1.0f, 1.0f, 1.0f);
+	FVector2D IconPos(-320.0f, -300.0f);
+	if (UWidget* WeaponBtn = WBP->WidgetTree->FindWidget(TEXT("WeaponButton")))
+	{
+		if (UCanvasPanelSlot* BtnSlot = Cast<UCanvasPanelSlot>(WeaponBtn->Slot))
+		{
+			IconAnchors = BtnSlot->GetAnchors();
+			IconPos = BtnSlot->GetPosition()
+				- FVector2D(0.0f, BtnSlot->GetSize().Y * 0.5f + 34.0f);
+		}
+	}
+
+	UImage* Icon = WBP->WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WeaponIconImage"));
+	Icon->SetVisibility(ESlateVisibility::Collapsed); // текстуру и показ ставит код игры
+	Icon->bIsVariable = true;
+	if (UCanvasPanelSlot* IconSlot = Root->AddChildToCanvas(Icon))
+	{
+		IconSlot->SetAnchors(IconAnchors);
+		IconSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		IconSlot->SetPosition(IconPos);
+		IconSlot->SetSize(FVector2D(48.0f, 48.0f));
+	}
+
+	FKismetEditorUtilities::CompileBlueprint(WBP);
+	if (WBP->Status == BS_Error)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: WBP_TouchControls скомпилировался с ошибками — не сохраняю."));
+		return 1;
+	}
+
+	const FString Filename = FPackageName::LongPackageNameToFilename(
+		TEXT("/Game/UI/WBP_TouchControls"), FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: SavePackage не сохранил %s."), *Filename);
+		return 1;
+	}
+	UE_LOG(LogGenerateWbp, Display,
+		TEXT("AUGMENT OK: WeaponIconImage добавлен в WBP_TouchControls (позиция %s, якоря по кнопке ОРУЖИЕ)."),
+		*IconPos.ToString());
+	return 0;
 }
 
 int32 UGenerateWbpCommandlet::GenerateAll(bool bForce)

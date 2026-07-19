@@ -11,6 +11,7 @@ class UCanvasPanel;
 class UImage;
 class UButton;
 class UTextBlock;
+class UTexture2D;
 class UInputAction;
 class UEnhancedInputLocalPlayerSubsystem;
 class AContrarySurvivorPlayerController;
@@ -101,6 +102,18 @@ public:
 	// Выключение сбрасывает зажатый стик и кнопки; Collapsed останавливает и NativeTick (инжекцию).
 	void SetLayerEnabled(bool bEnabled);
 
+	// --- Иконка текущего оружия (запрос Рината 07-19: «игрок не понимает какое оружие
+	// в руках»). Мягкие ссылки — паттерн иконок брони HUD: текстуры может не быть,
+	// тогда иконка не показывается, без крашей. Правится в Class Defaults WBP. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "1"))
+	TSoftObjectPtr<UTexture2D> PistolIconTexture =
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Pistol.T_Icon_Pistol")));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "2"))
+	TSoftObjectPtr<UTexture2D> KnifeIconTexture =
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Knife.T_Icon_Knife")));
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -155,6 +168,12 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> PauseButton;
+
+	// Иконка текущего оружия (пистолет/нож). Текстуру и видимость ставит КОД по
+	// экипированному оружию (UpdateWeaponIcon); позицию/размер Ринат двигает в дизайнере.
+	// Кубика нет в WBP — виджет создаёт иконку сам (fallback, позиция кодовая).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> WeaponIconImage;
 
 	// Подписи кнопок (Text внутри соответствующей кнопки). В WBP-режиме код их НЕ трогает
 	// (текст/шрифт/цвет — Рината в дизайнере), привязка — задел под будущие динамические
@@ -229,6 +248,19 @@ private:
 	// Сброс зажатых кнопок (огонь/бег) с восстановлением визуала.
 	void ResetHeldButtons();
 
+	// --- Иконка текущего оружия ---
+
+	// Состояние иконки (обновление ТОЛЬКО на смене — без загрузок/SetBrush каждый кадр).
+	enum class EWeaponIconState : uint8 { Unknown, NoWeapon, Pistol, Knife };
+
+	// Создаёт кубик WeaponIconImage кодом в канву Canvas (кодовое дерево или fallback
+	// для WBP без кубика): 48x48 над кнопкой ОРУЖИЕ (позиция из Config).
+	void CreateWeaponIconInCanvas(UCanvasPanel* Canvas);
+
+	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
+	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
+	void UpdateWeaponIcon(bool bForceHide);
+
 	// Сабсистема Enhanced Input локального игрока (null, если игрока нет).
 	UEnhancedInputLocalPlayerSubsystem* GetInputSubsystem() const;
 
@@ -272,6 +304,15 @@ private:
 	bool bStickActive = false;
 	int32 StickPointerIndex = INDEX_NONE;              // какой палец/кнопка держит стик
 	FVector2D StickVector = FVector2D::ZeroVector;     // нормализованный вектор [-1..1] (X вправо, Y вперёд)
+
+	// Кэш загруженных текстур иконки (LoadSynchronous один раз на смену оружия).
+	UPROPERTY()
+	TObjectPtr<UTexture2D> ResolvedPistolIcon;
+
+	UPROPERTY()
+	TObjectPtr<UTexture2D> ResolvedKnifeIcon;
+
+	EWeaponIconState WeaponIconState = EWeaponIconState::Unknown;
 
 	bool bFireHeld = false;      // кнопка ОГОНЬ зажата -> инжекция IA_Fire каждый кадр (автоогонь)
 	bool bSprintOn = false;      // бег активен (переключатель или удержание) -> инжекция IA_Sprint
