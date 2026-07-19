@@ -39,6 +39,9 @@
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
 
+// Пространство имён переводов для литералов этого файла (ADR-050): подписи тач-кнопок.
+#define LOCTEXT_NAMESPACE "ContrarySurvivorPlayerController"
+
 AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -57,14 +60,14 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchPauseButton.Margin     = FVector2D(70.0f, 70.0f);   TouchPauseButton.Radius     = 32.0f;
 
 	// Подписи кнопок (дефолты; были зашиты в BuildButtons виджета — теперь EditAnywhere-поле
-	// FTouchButtonSettings.Label, Ринат меняет в BP без пересборки).
-	TouchFireButton.Label      = TEXT("ОГОНЬ");
-	TouchInteractButton.Label  = TEXT("ДЕЙСТВИЕ");
-	TouchReloadButton.Label    = TEXT("ПЕРЕЗАРЯД");
-	TouchSprintButton.Label    = TEXT("БЕГ");
-	TouchWeaponButton.Label    = TEXT("ОРУЖИЕ");
-	TouchInventoryButton.Label = TEXT("СУМКА");
-	TouchPauseButton.Label     = TEXT("II");
+	// FTouchButtonSettings.Label, Ринат меняет в BP без пересборки). Переводимые (ADR-050).
+	TouchFireButton.Label      = LOCTEXT("TouchFire", "ОГОНЬ");
+	TouchInteractButton.Label  = LOCTEXT("TouchInteract", "ДЕЙСТВИЕ");
+	TouchReloadButton.Label    = LOCTEXT("TouchReload", "ПЕРЕЗАРЯД");
+	TouchSprintButton.Label    = LOCTEXT("TouchSprint", "БЕГ");
+	TouchWeaponButton.Label    = LOCTEXT("TouchWeapon", "ОРУЖИЕ");
+	TouchInventoryButton.Label = LOCTEXT("TouchInventory", "СУМКА");
+	TouchPauseButton.Label     = LOCTEXT("TouchPause", "II");
 
 	// G2: enum зоны жеста в заголовке только forward-объявлен — значение доступно здесь.
 	ShopTouchZone = EShopDragZone::None;
@@ -1971,3 +1974,5 @@ void AContrarySurvivorPlayerController::Inventory(const FInputActionValue& Value
 {
 	// TODO: открыть/закрыть инвентарь
 }
+
+#undef LOCTEXT_NAMESPACE

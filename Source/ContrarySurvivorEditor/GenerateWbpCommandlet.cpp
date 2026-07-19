@@ -78,6 +78,19 @@ namespace
 		return LoadObject<UObject>(nullptr, TEXT("/Engine/EngineFonts/Roboto.Roboto"));
 	}
 
+	// Переводимая надпись (ADR-050): текст кладётся в ассет как есть, без снятия культуры.
+	// Перегрузка не спорит с FString-версией ниже: у FText нет неявного конструктора из
+	// строкового литерала, поэтому TEXT("...") по-прежнему уходит в FString-вариант.
+	UTextBlock* MakeText(UWidgetTree* Tree, UObject* Roboto, const FName& Name,
+		const FText& Text, const FLinearColor& Color, int32 Size, const TCHAR* Typeface)
+	{
+		UTextBlock* Block = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
+		Block->SetText(Text);
+		Block->SetFont(FSlateFontInfo(Roboto, Size, FName(Typeface)));
+		Block->SetColorAndOpacity(FSlateColor(Color));
+		return Block;
+	}
+
 	UTextBlock* MakeText(UWidgetTree* Tree, UObject* Roboto, const FName& Name,
 		const FString& Text, const FLinearColor& Color, int32 Size, const TCHAR* Typeface)
 	{

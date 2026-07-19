@@ -353,7 +353,7 @@ UButton* UTouchControlsWidget::MakeTouchButton(const FTouchButtonSettings& S, ET
 
 	UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(WidgetName.ToString() + TEXT("Label"))));
-	Text->SetText(FText::FromString(S.Label));
+	Text->SetText(S.Label);
 	const int32 FontSize = (S.FontSize > 0)
 		? S.FontSize
 		: FMath::Clamp<int32>(FMath::RoundToInt(S.Radius * 0.30f), 10, 22);
