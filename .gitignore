@@ -2,6 +2,8 @@
 *.ini
 !Config/
 !Config/*.ini
+# Настройки целей сбора переводов (ADR-050) лежат в подпапке Config/Localization
+!Config/Localization/*.ini
 *.log
 /Build/
 /Binaries/

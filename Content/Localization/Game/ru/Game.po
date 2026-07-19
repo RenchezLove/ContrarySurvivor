@@ -1,0 +1,1205 @@
+﻿# Game Russian translation.
+# Fill out your copyright notice in the Description page of Project Settings.
+# 
+msgid ""
+msgstr ""
+"Project-Id-Version: Game\n"
+"POT-Creation-Date: 2026-07-19 17:05\n"
+"PO-Revision-Date: 2026-07-19 17:05\n"
+"Language-Team: \n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#. Key:	839C133B4BFDCEA178000095AB8ED7D9
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.ConsumablesLineText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.ConsumablesLineText.Text
+msgctxt ",839C133B4BFDCEA178000095AB8ED7D9"
+msgid "Расходники обронены мешком на месте гибели."
+msgstr "Расходники обронены мешком на месте гибели."
+
+#. Key:	874A200A4CF79E53B672ADADC3A75D1F
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KeyHintText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KeyHintText.Text
+msgctxt ",874A200A4CF79E53B672ADADC3A75D1F"
+msgid "Enter / Пробел — возродиться"
+msgstr "Enter / Пробел — возродиться"
+
+#. Key:	869D4ED34B1DDDE371C68A855C6B1730
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KillerText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KillerText.Text
+msgctxt ",869D4ED34B1DDDE371C68A855C6B1730"
+msgid "Убийца:  —"
+msgstr "Убийца:  —"
+
+#. Key:	54E2926642B3C1DBB572E4A7CD5E7BCF
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KillsText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.KillsText.Text
+msgctxt ",54E2926642B3C1DBB572E4A7CD5E7BCF"
+msgid "Врагов убито:  0"
+msgstr "Врагов убито:  0"
+
+#. Key:	DE4781D249501112B2A29EAAFD53E179
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.LifetimeText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.LifetimeText.Text
+msgctxt ",DE4781D249501112B2A29EAAFD53E179"
+msgid "Прожито:  00:00"
+msgstr "Прожито:  00:00"
+
+#. Key:	777183874C3EF5E74D866EA20E332A69
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.MoneyLossText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.MoneyLossText.Text
+msgctxt ",777183874C3EF5E74D866EA20E332A69"
+msgid "−40% монет — часть монет утрачена при гибели."
+msgstr "−40% монет — часть монет утрачена при гибели."
+
+#. Key:	BBB3729B40F095A15AF7D7A400E9FDC4
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.MoneyText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.MoneyText.Text
+msgctxt ",BBB3729B40F095A15AF7D7A400E9FDC4"
+msgid "Монеты:  0"
+msgstr "Монеты:  0"
+
+#. Key:	0312241F4C5513A55A86468528B19A12
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.QuestsText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.QuestsText.Text
+msgctxt ",0312241F4C5513A55A86468528B19A12"
+msgid "Квестов выполнено:  0"
+msgstr "Квестов выполнено:  0"
+
+#. Key:	D72E1DE64EFC01ED02755097ABB0EC5A
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.RespawnLabel.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.RespawnLabel.Text
+msgctxt ",D72E1DE64EFC01ED02755097ABB0EC5A"
+msgid "ВОЗРОДИТЬСЯ"
+msgstr "ВОЗРОДИТЬСЯ"
+
+#. Key:	965314C243FA41735A2AB39BFA51D64D
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.RespawnLineText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.RespawnLineText.Text
+msgctxt ",965314C243FA41735A2AB39BFA51D64D"
+msgid "Возрождение у костра в деревне."
+msgstr "Возрождение у костра в деревне."
+
+#. Key:	4A1CC2854C02F26D85879C9FBC2DABC3
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.SavedLineText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.SavedLineText.Text
+msgctxt ",4A1CC2854C02F26D85879C9FBC2DABC3"
+msgid "Снаряжение, оружие и важные предметы сохранены."
+msgstr "Снаряжение, оружие и важные предметы сохранены."
+
+#. Key:	A80B0BE14A00615EDA3D1D85F0C3BF9D
+#. SourceLocation:	/Game/UI/WBP_Death.WBP_Death_C:WidgetTree.TitleText.Text
+#: /Game/UI/WBP_Death.WBP_Death_C:WidgetTree.TitleText.Text
+msgctxt ",A80B0BE14A00615EDA3D1D85F0C3BF9D"
+msgid "ВЫ ПОГИБЛИ"
+msgstr "ВЫ ПОГИБЛИ"
+
+#. Key:	0882159D4E080A81B959979E7E06AB28
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.AcceptLabel.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.AcceptLabel.Text
+msgctxt ",0882159D4E080A81B959979E7E06AB28"
+msgid "[ Принять ]"
+msgstr "[ Принять ]"
+
+#. Key:	A092BC3245B65145780EEEBF43087624
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.CloseLabel.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.CloseLabel.Text
+msgctxt ",A092BC3245B65145780EEEBF43087624"
+msgid "[ Закрыть ]"
+msgstr "[ Закрыть ]"
+
+#. Key:	B4315EFE48BF50993B5B01929D12E65D
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.DeclineLabel.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.DeclineLabel.Text
+msgctxt ",B4315EFE48BF50993B5B01929D12E65D"
+msgid "[ Отказаться ]"
+msgstr "[ Отказаться ]"
+
+#. Key:	BF0BCD7945EF9BF9684D8393B1A19B0F
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.NPCNameText.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.NPCNameText.Text
+msgctxt ",BF0BCD7945EF9BF9684D8393B1A19B0F"
+msgid "СТАРОСТА"
+msgstr "СТАРОСТА"
+
+#. Key:	1F704C864206CDBAE54F30A125938CD1
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.ReplicaText.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.ReplicaText.Text
+msgctxt ",1F704C864206CDBAE54F30A125938CD1"
+msgid "Реплика старосты."
+msgstr "Реплика старосты."
+
+#. Key:	A85554D14400E5B468A370BB3CB2878D
+#. SourceLocation:	/Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.TurnInText.Text
+#: /Game/UI/WBP_Dialog.WBP_Dialog_C:WidgetTree.TurnInText.Text
+msgctxt ",A85554D14400E5B468A370BB3CB2878D"
+msgid "[ Сдать (+0) ]"
+msgstr "[ Сдать (+0) ]"
+
+#. Key:	3AA838EE496EBF083E646A8BE9B698F7
+#. SourceLocation:	/Game/UI/WBP_InteractPrompt.WBP_InteractPrompt_C:WidgetTree.PromptText.Text
+#: /Game/UI/WBP_InteractPrompt.WBP_InteractPrompt_C:WidgetTree.PromptText.Text
+msgctxt ",3AA838EE496EBF083E646A8BE9B698F7"
+msgid "E — подобрать"
+msgstr "E — подобрать"
+
+#. Key:	A69BC070414DE6BE229E4F9873F2C5CD
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.BackpackHeaderText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.BackpackHeaderText.Text
+msgctxt ",A69BC070414DE6BE229E4F9873F2C5CD"
+msgid "РЮКЗАК"
+msgstr "РЮКЗАК"
+
+#. Key:	D5990D5F48A76355EAB87D85FD684173
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.CloseLabel.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.CloseLabel.Text
+msgctxt ",D5990D5F48A76355EAB87D85FD684173"
+msgid "Закрыть (Tab)"
+msgstr "Закрыть (Tab)"
+
+#. Key:	98E2B4EB4A2947B4D76D34A0FE92DDD0
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.EquipHeaderText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.EquipHeaderText.Text
+msgctxt ",98E2B4EB4A2947B4D76D34A0FE92DDD0"
+msgid "СНАРЯЖЕНИЕ"
+msgstr "СНАРЯЖЕНИЕ"
+
+#. Key:	4D3303CC4C8B14AF30B8D7957A947B18
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeaderText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeaderText.Text
+msgctxt ",4D3303CC4C8B14AF30B8D7957A947B18"
+msgid "ИНВЕНТАРЬ  (Tab / I — закрыть)"
+msgstr "ИНВЕНТАРЬ  (Tab / I — закрыть)"
+
+#. Key:	209057DF48FFD117EDFD87B7221E9C13
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeadSlotButtonCaption.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeadSlotButtonCaption.Text
+msgctxt ",209057DF48FFD117EDFD87B7221E9C13"
+msgid "Шлем"
+msgstr "Шлем"
+
+#. Key:	0F11C0594E2A102762F35A8C72797648
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeadSlotText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.HeadSlotText.Text
+msgctxt ",0F11C0594E2A102762F35A8C72797648"
+msgid "(пусто)"
+msgstr "(пусто)"
+
+#. Key:	116EBDA841996F51669068A0448DE7BA
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.LegsSlotButtonCaption.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.LegsSlotButtonCaption.Text
+msgctxt ",116EBDA841996F51669068A0448DE7BA"
+msgid "Штаны"
+msgstr "Штаны"
+
+#. Key:	717F1ED1475740BF71EBE1BFCE19C955
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.LegsSlotText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.LegsSlotText.Text
+msgctxt ",717F1ED1475740BF71EBE1BFCE19C955"
+msgid "(пусто)"
+msgstr "(пусто)"
+
+#. Key:	79BB0CD24F05605EC173829BFC25388C
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.ProtectionText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.ProtectionText.Text
+msgctxt ",79BB0CD24F05605EC173829BFC25388C"
+msgid "Защита: 0%"
+msgstr "Защита: 0%"
+
+#. Key:	C591E4EC4AE80E52E3D25391822D938A
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.StatsText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.StatsText.Text
+msgctxt ",C591E4EC4AE80E52E3D25391822D938A"
+msgid "Монеты 0      Голод 100 / 100      Жажда 100 / 100"
+msgstr "Монеты 0      Голод 100 / 100      Жажда 100 / 100"
+
+#. Key:	19474F1644969244318EDF8743535895
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.TorsoSlotButtonCaption.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.TorsoSlotButtonCaption.Text
+msgctxt ",19474F1644969244318EDF8743535895"
+msgid "Торс"
+msgstr "Торс"
+
+#. Key:	FD2562864552F6B4B9C7C2BB5AAEC6C9
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.TorsoSlotText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.TorsoSlotText.Text
+msgctxt ",FD2562864552F6B4B9C7C2BB5AAEC6C9"
+msgid "(пусто)"
+msgstr "(пусто)"
+
+#. Key:	7958083645540B7C4705C4BA40DF3551
+#. SourceLocation:	/Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.WeaponText.Text
+#: /Game/UI/WBP_Inventory.WBP_Inventory_C:WidgetTree.WeaponText.Text
+msgctxt ",7958083645540B7C4705C4BA40DF3551"
+msgid "Оружие: (нет)"
+msgstr "Оружие: (нет)"
+
+#. Key:	05EDF85544998D66D36FECBAD7B7739D
+#. SourceLocation:	/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.DropLabel.Text
+#: /Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.DropLabel.Text
+msgctxt ",05EDF85544998D66D36FECBAD7B7739D"
+msgid "X"
+msgstr "X"
+
+#. Key:	6C9EEFE34EA41E2A14C60096C466371C
+#. SourceLocation:	/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.NameText.Text
+#: /Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.NameText.Text
+msgctxt ",6C9EEFE34EA41E2A14C60096C466371C"
+msgid "Предмет x1"
+msgstr "Предмет x1"
+
+#. Key:	56FE8EC34B838807DB0B6D8C74E2AB9B
+#. SourceLocation:	/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.UseText.Text
+#: /Game/UI/WBP_InventoryRow.WBP_InventoryRow_C:WidgetTree.UseText.Text
+msgctxt ",56FE8EC34B838807DB0B6D8C74E2AB9B"
+msgid "использовать"
+msgstr "использовать"
+
+#. Key:	1EE3812444DB142DE57BA1A0809858AE
+#. SourceLocation:	/Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.AmmoText.Text
+#: /Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.AmmoText.Text
+msgctxt ",1EE3812444DB142DE57BA1A0809858AE"
+msgid "Патроны 7 / 21  (bag 30)"
+msgstr "Патроны 7 / 21  (bag 30)"
+
+#. Key:	60CB4C9D4DD2A5E0A3DB299716388B90
+#. SourceLocation:	/Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.HealthText.Text
+#: /Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.HealthText.Text
+msgctxt ",60CB4C9D4DD2A5E0A3DB299716388B90"
+msgid "Здоровье 100/100"
+msgstr "Здоровье 100/100"
+
+#. Key:	BCAAEB994280E071C83DD194BCCC2D07
+#. SourceLocation:	/Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.HungerText.Text
+#: /Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.HungerText.Text
+msgctxt ",BCAAEB994280E071C83DD194BCCC2D07"
+msgid "Голод 100"
+msgstr "Голод 100"
+
+#. Key:	AA6195BA4C0004D43211A687E3400C50
+#. SourceLocation:	/Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.MoneyText.Text
+#: /Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.MoneyText.Text
+msgctxt ",AA6195BA4C0004D43211A687E3400C50"
+msgid "Монеты 0"
+msgstr "Монеты 0"
+
+#. Key:	35570350413D8F3D8A09EEB4CF85F5F7
+#. SourceLocation:	/Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.ThirstText.Text
+#: /Game/UI/WBP_PlayerStats.WBP_PlayerStats_C:WidgetTree.ThirstText.Text
+msgctxt ",35570350413D8F3D8A09EEB4CF85F5F7"
+msgid "Жажда 100"
+msgstr "Жажда 100"
+
+#. Key:	3735208349D35D12C794B38DB73F36F9
+#. SourceLocation:	/Game/UI/WBP_QuestTracker.WBP_QuestTracker_C:WidgetTree.TrackerText.Text
+#: /Game/UI/WBP_QuestTracker.WBP_QuestTracker_C:WidgetTree.TrackerText.Text
+msgctxt ",3735208349D35D12C794B38DB73F36F9"
+msgid "Квест: Шкуры волков — Шкура волка 1/3"
+msgstr "Квест: Шкуры волков — Шкура волка 1/3"
+
+#. Key:	F735AFC048FD04A9156113B5723199EF
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.BuyHeaderText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.BuyHeaderText.Text
+msgctxt ",F735AFC048FD04A9156113B5723199EF"
+msgid "FOR SALE  (Купить)"
+msgstr "FOR SALE  (Купить)"
+
+#. Key:	1FFC1EEC4EC59CE1E69027A0ED42B133
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.CloseLabel.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.CloseLabel.Text
+msgctxt ",1FFC1EEC4EC59CE1E69027A0ED42B133"
+msgid "Close"
+msgstr "Close"
+
+#. Key:	D283E0244C7EC84F3E78589AB533576B
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.HeaderText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.HeaderText.Text
+msgctxt ",D283E0244C7EC84F3E78589AB533576B"
+msgid "TRADER  (E to close)"
+msgstr "TRADER  (E to close)"
+
+#. Key:	9C61809C4BA00D365925B289B193B6BD
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.MoneyText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.MoneyText.Text
+msgctxt ",9C61809C4BA00D365925B289B193B6BD"
+msgid "Монеты 0"
+msgstr "Монеты 0"
+
+#. Key:	F8ADD35D4BD5E0C7553E0B8287AE57B3
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.QtyMinusLabel.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.QtyMinusLabel.Text
+msgctxt ",F8ADD35D4BD5E0C7553E0B8287AE57B3"
+msgid "-"
+msgstr "-"
+
+#. Key:	91D618FE4E14055860B298A0D45849DE
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.QtyPlusLabel.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.QtyPlusLabel.Text
+msgctxt ",91D618FE4E14055860B298A0D45849DE"
+msgid "+"
+msgstr "+"
+
+#. Key:	2BF03F7B4BBB5A4EC8CAFEB8755B835E
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SellHeaderText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SellHeaderText.Text
+msgctxt ",2BF03F7B4BBB5A4EC8CAFEB8755B835E"
+msgid "SELL FROM BACKPACK  (Продать)"
+msgstr "SELL FROM BACKPACK  (Продать)"
+
+#. Key:	12E7AB4541F6006E2728199DC790C270
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderCancelLabel.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderCancelLabel.Text
+msgctxt ",12E7AB4541F6006E2728199DC790C270"
+msgid "Cancel"
+msgstr "Cancel"
+
+#. Key:	1BB242B542BC1C460877FF92EEC96A0D
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderConfirmLabel.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderConfirmLabel.Text
+msgctxt ",1BB242B542BC1C460877FF92EEC96A0D"
+msgid "Confirm"
+msgstr "Confirm"
+
+#. Key:	2BB48C944C9285EE9386148A0A2DDBCD
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderQtyText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderQtyText.Text
+msgctxt ",2BB48C944C9285EE9386148A0A2DDBCD"
+msgid "Кол-во: 1 / 1"
+msgstr "Кол-во: 1 / 1"
+
+#. Key:	A5638C984E2F95AC7F67F78EB2E7A8D3
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderTitleText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderTitleText.Text
+msgctxt ",A5638C984E2F95AC7F67F78EB2E7A8D3"
+msgid "КУПИТЬ:  —"
+msgstr "КУПИТЬ:  —"
+
+#. Key:	9A6A0A1D4D3562E60D994A8835D2CA67
+#. SourceLocation:	/Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderTotalText.Text
+#: /Game/UI/WBP_Shop.WBP_Shop_C:WidgetTree.SliderTotalText.Text
+msgctxt ",9A6A0A1D4D3562E60D994A8835D2CA67"
+msgid "Итого: 0"
+msgstr "Итого: 0"
+
+#. Key:	3ADAFD084E66775E3C93748777024E71
+#. SourceLocation:	/Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.ActionText.Text
+#: /Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.ActionText.Text
+msgctxt ",3ADAFD084E66775E3C93748777024E71"
+msgid "Buy"
+msgstr "Buy"
+
+#. Key:	4864A94B483E7C17FC1F13BD8BF735FE
+#. SourceLocation:	/Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.NameText.Text
+#: /Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.NameText.Text
+msgctxt ",4864A94B483E7C17FC1F13BD8BF735FE"
+msgid "Товар"
+msgstr "Товар"
+
+#. Key:	B46CC22D4CDF2C71B48F9BA905A338EB
+#. SourceLocation:	/Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.PriceText.Text
+#: /Game/UI/WBP_ShopRow.WBP_ShopRow_C:WidgetTree.PriceText.Text
+msgctxt ",B46CC22D4CDF2C71B48F9BA905A338EB"
+msgid "0"
+msgstr "0"
+
+#. Key:	F9BFEB8345BE7673E4ADCF971DCC0F0B
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.FireText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.FireText.Text
+msgctxt ",F9BFEB8345BE7673E4ADCF971DCC0F0B"
+msgid "ОГОНЬ"
+msgstr "ОГОНЬ"
+
+#. Key:	AA94570A40762B6200F44AB0F11E93E1
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.InteractText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.InteractText.Text
+msgctxt ",AA94570A40762B6200F44AB0F11E93E1"
+msgid "ДЕЙСТВИЕ"
+msgstr "ДЕЙСТВИЕ"
+
+#. Key:	BC8D28494A5888C801518191C0795A4E
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.InventoryText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.InventoryText.Text
+msgctxt ",BC8D28494A5888C801518191C0795A4E"
+msgid "ИНВЕНТАРЬ"
+msgstr "ИНВЕНТАРЬ"
+
+#. Key:	A6C6CA394E55ECEA311AE199FB6DC519
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.PauseText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.PauseText.Text
+msgctxt ",A6C6CA394E55ECEA311AE199FB6DC519"
+msgid "II"
+msgstr "II"
+
+#. Key:	A79C22274F17E2E8F8BA71AD2AEBC7E6
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.ReloadText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.ReloadText.Text
+msgctxt ",A79C22274F17E2E8F8BA71AD2AEBC7E6"
+msgid "ПЕРЕЗАРЯД"
+msgstr "ПЕРЕЗАРЯД"
+
+#. Key:	15910F9E4D29BE70A2718DAD88859A30
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.SprintText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.SprintText.Text
+msgctxt ",15910F9E4D29BE70A2718DAD88859A30"
+msgid "БЕГ"
+msgstr "БЕГ"
+
+#. Key:	A4AE724441086A31E81A3A9FA7B53976
+#. SourceLocation:	/Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.WeaponText.Text
+#: /Game/UI/WBP_TouchControls.WBP_TouchControls_C:WidgetTree.WeaponText.Text
+msgctxt ",A4AE724441086A31E81A3A9FA7B53976"
+msgid "ОРУЖИЕ"
+msgstr "ОРУЖИЕ"
+
+#. Key:	Q1Title
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(48)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(48)
+msgctxt "Quest,Q1Title"
+msgid "Шкуры волков"
+msgstr "Шкуры волков"
+
+#. Key:	Q1Description
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(49)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(49)
+msgctxt "Quest,Q1Description"
+msgid "Волки одолели деревню. Перебей стаю у логова на западе и принеси мне три волчьих шкуры. Награда: 150 монет."
+msgstr "Волки одолели деревню. Перебей стаю у логова на западе и принеси мне три волчьих шкуры. Награда: 150 монет."
+
+#. Key:	Q1ItemObjective
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(55)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(55)
+msgctxt "Quest,Q1ItemObjective"
+msgid "Собрать шкуры волков"
+msgstr "Собрать шкуры волков"
+
+#. Key:	Q2Title
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(66)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(66)
+msgctxt "Quest,Q2Title"
+msgid "Зачистить базу бандитов"
+msgstr "Зачистить базу бандитов"
+
+#. Key:	Q2Description
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(67)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(67)
+msgctxt "Quest,Q2Description"
+msgid "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет."
+msgstr "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет."
+
+#. Key:	Q2KillObjective
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(71)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(71)
+msgctxt "Quest,Q2KillObjective"
+msgid "Перебить бандитов"
+msgstr "Перебить бандитов"
+
+#. Key:	Q2ItemObjective
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(74)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(74)
+msgctxt "Quest,Q2ItemObjective"
+msgid "Забрать ноутбук"
+msgstr "Забрать ноутбук"
+
+#. Key:	Q3Title
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(86)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(86)
+msgctxt "Quest,Q3Title"
+msgid "Шкуры для торговца"
+msgstr "Шкуры для торговца"
+
+#. Key:	Q3Description
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(87)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(87)
+msgctxt "Quest,Q3Description"
+msgid "Дай мне время покопаться в ноутбуке. Одно ясно уже сейчас: на нём — данные о тех, кто за тобой охотится. Узнаю, кто именно — расскажу. А пока, если хочешь, есть дело: волков снова видели в округе, а торговец хорошо платит за шкуры. Можешь принести мне три шкуры — я передам ему."
+msgstr "Дай мне время покопаться в ноутбуке. Одно ясно уже сейчас: на нём — данные о тех, кто за тобой охотится. Узнаю, кто именно — расскажу. А пока, если хочешь, есть дело: волков снова видели в округе, а торговец хорошо платит за шкуры. Можешь принести мне три шкуры — я передам ему."
+
+#. Key:	Q3ItemObjective
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.cpp(93)
+#: Source/ContrarySurvivor/Actors/ElderNPC.cpp(93)
+msgctxt "Quest,Q3ItemObjective"
+msgid "Добыть волчьи шкуры"
+msgstr "Добыть волчьи шкуры"
+
+#. Key:	ElderName
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.h(66)
+#: Source/ContrarySurvivor/Actors/ElderNPC.h(66)
+msgctxt "Dialog,ElderName"
+msgid "СТАРОСТА"
+msgstr "СТАРОСТА"
+
+#. Key:	ElderActivePrefix
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.h(71)
+#: Source/ContrarySurvivor/Actors/ElderNPC.h(71)
+msgctxt "Dialog,ElderActivePrefix"
+msgid "Ты ещё не закончил. "
+msgstr "Ты ещё не закончил. "
+
+#. Key:	ElderCompleted
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.h(74)
+#: Source/ContrarySurvivor/Actors/ElderNPC.h(74)
+msgctxt "Dialog,ElderCompleted"
+msgid "Отлично! Задание выполнено. Вот твоя награда."
+msgstr "Отлично! Задание выполнено. Вот твоя награда."
+
+#. Key:	ElderTurnedIn
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.h(78)
+#: Source/ContrarySurvivor/Actors/ElderNPC.h(78)
+msgctxt "Dialog,ElderTurnedIn"
+msgid "Спасибо тебе ещё раз. Деревня тебе благодарна."
+msgstr "Спасибо тебе ещё раз. Деревня тебе благодарна."
+
+#. Key:	ElderEarlyHook
+#. SourceLocation:	Source/ContrarySurvivor/Actors/ElderNPC.h(86)
+#: Source/ContrarySurvivor/Actors/ElderNPC.h(86)
+msgctxt "Dialog,ElderEarlyHook"
+msgid "И вот что. Третьего дня чужие про тебя спрашивали. Не наши, не с окрестных. Ты бы поостерёгся."
+msgstr "И вот что. Третьего дня чужие про тебя спрашивали. Не наши, не с окрестных. Ты бы поостерёгся."
+
+#. Key:	QuestLaptop
+#. SourceLocation:	Source/ContrarySurvivor/Actors/MasterEnemyBase.h(158)
+#: Source/ContrarySurvivor/Actors/MasterEnemyBase.h(158)
+msgctxt "Items,QuestLaptop"
+msgid "Ноутбук"
+msgstr "Ноутбук"
+
+#. Key:	Ammo9mm
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(219)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(219)
+msgctxt "Items,Ammo9mm"
+msgid "Патроны 9мм"
+msgstr "Патроны 9мм"
+
+#. Key:	Knife
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(228)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(228)
+msgctxt "Items,Knife"
+msgid "Нож"
+msgstr "Нож"
+
+#. Key:	Pistol
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(229)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(229)
+msgctxt "Items,Pistol"
+msgid "Пистолет"
+msgstr "Пистолет"
+
+#. Key:	ArmorT1Head
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(237)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(237)
+msgctxt "Items,ArmorT1Head"
+msgid "Броня Т1 — голова"
+msgstr "Броня Т1 — голова"
+
+#. Key:	ArmorT1Torso
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(238)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(238)
+msgctxt "Items,ArmorT1Torso"
+msgid "Броня Т1 — торс"
+msgstr "Броня Т1 — торс"
+
+#. Key:	ArmorT1Legs
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(239)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(239)
+msgctxt "Items,ArmorT1Legs"
+msgid "Броня Т1 — штаны"
+msgstr "Броня Т1 — штаны"
+
+#. Key:	ArmorT2Head
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(240)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(240)
+msgctxt "Items,ArmorT2Head"
+msgid "Броня Т2 — голова"
+msgstr "Броня Т2 — голова"
+
+#. Key:	ArmorT2Torso
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(241)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(241)
+msgctxt "Items,ArmorT2Torso"
+msgid "Броня Т2 — торс"
+msgstr "Броня Т2 — торс"
+
+#. Key:	ArmorT2Legs
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(242)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(242)
+msgctxt "Items,ArmorT2Legs"
+msgid "Броня Т2 — штаны"
+msgstr "Броня Т2 — штаны"
+
+#. Key:	ArmorT3Head
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(243)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(243)
+msgctxt "Items,ArmorT3Head"
+msgid "Броня Т3 — голова"
+msgstr "Броня Т3 — голова"
+
+#. Key:	ArmorT3Torso
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(244)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(244)
+msgctxt "Items,ArmorT3Torso"
+msgid "Броня Т3 — торс"
+msgstr "Броня Т3 — торс"
+
+#. Key:	ArmorT3Legs
+#. SourceLocation:	Source/ContrarySurvivor/Characters/MasterTrader.cpp(245)
+#: Source/ContrarySurvivor/Characters/MasterTrader.cpp(245)
+msgctxt "Items,ArmorT3Legs"
+msgid "Броня Т3 — штаны"
+msgstr "Броня Т3 — штаны"
+
+#. Key:	SpareHeadArmor
+#. SourceLocation:	Source/ContrarySurvivor/Characters/PlayerCharacter.cpp(1160)
+#: Source/ContrarySurvivor/Characters/PlayerCharacter.cpp(1160)
+msgctxt "Items,SpareHeadArmor"
+msgid "Броня — голова (запасная)"
+msgstr "Броня — голова (запасная)"
+
+#. Key:	SpareTorsoArmor
+#. SourceLocation:	Source/ContrarySurvivor/Characters/PlayerCharacter.cpp(1167)
+#: Source/ContrarySurvivor/Characters/PlayerCharacter.cpp(1167)
+msgctxt "Items,SpareTorsoArmor"
+msgid "Броня — торс (запасная)"
+msgstr "Броня — торс (запасная)"
+
+#. Key:	WolfPelt
+#. SourceLocation:	Source/ContrarySurvivor/Characters/WolfCharacter.h(127)
+#: Source/ContrarySurvivor/Characters/WolfCharacter.h(127)
+msgctxt "Items,WolfPelt"
+msgid "Шкура волка"
+msgstr "Шкура волка"
+
+#. Key:	TouchFire
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(64)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(64)
+msgctxt "ContrarySurvivorPlayerController,TouchFire"
+msgid "ОГОНЬ"
+msgstr "ОГОНЬ"
+
+#. Key:	TouchInteract
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(65)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(65)
+msgctxt "ContrarySurvivorPlayerController,TouchInteract"
+msgid "ДЕЙСТВИЕ"
+msgstr "ДЕЙСТВИЕ"
+
+#. Key:	TouchReload
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(66)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(66)
+msgctxt "ContrarySurvivorPlayerController,TouchReload"
+msgid "ПЕРЕЗАРЯД"
+msgstr "ПЕРЕЗАРЯД"
+
+#. Key:	TouchSprint
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(67)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(67)
+msgctxt "ContrarySurvivorPlayerController,TouchSprint"
+msgid "БЕГ"
+msgstr "БЕГ"
+
+#. Key:	TouchWeapon
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(68)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(68)
+msgctxt "ContrarySurvivorPlayerController,TouchWeapon"
+msgid "ОРУЖИЕ"
+msgstr "ОРУЖИЕ"
+
+#. Key:	TouchInventory
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(69)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(69)
+msgctxt "ContrarySurvivorPlayerController,TouchInventory"
+msgid "СУМКА"
+msgstr "СУМКА"
+
+#. Key:	TouchPause
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(70)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.cpp(70)
+msgctxt "ContrarySurvivorPlayerController,TouchPause"
+msgid "II"
+msgstr "II"
+
+#. Key:	InteractPromptPickup
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(263)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(263)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptPickup"
+msgid "E — подобрать"
+msgstr "E — подобрать"
+
+#. Key:	InteractPromptPickupTouch
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(266)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(266)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptPickupTouch"
+msgid "Подобрать"
+msgstr "Подобрать"
+
+#. Key:	InteractPromptTrader
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(269)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(269)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptTrader"
+msgid "E — торговать"
+msgstr "E — торговать"
+
+#. Key:	InteractPromptTraderTouch
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(272)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(272)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptTraderTouch"
+msgid "Торговать"
+msgstr "Торговать"
+
+#. Key:	InteractPromptElder
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(275)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(275)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptElder"
+msgid "E — поговорить"
+msgstr "E — поговорить"
+
+#. Key:	InteractPromptElderTouch
+#. SourceLocation:	Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(278)
+#: Source/ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h(278)
+msgctxt "ContrarySurvivorPlayerController,InteractPromptElderTouch"
+msgid "Поговорить"
+msgstr "Поговорить"
+
+#. Key:	ConsumableFood
+#. SourceLocation:	Source/ContrarySurvivor/Private/AConsumableItem.cpp(51)
+#: Source/ContrarySurvivor/Private/AConsumableItem.cpp(51)
+msgctxt "Items,ConsumableFood"
+msgid "Консервы"
+msgstr "Консервы"
+
+#. Key:	ConsumableWater
+#. SourceLocation:	Source/ContrarySurvivor/Private/AConsumableItem.cpp(52)
+#: Source/ContrarySurvivor/Private/AConsumableItem.cpp(52)
+msgctxt "Items,ConsumableWater"
+msgid "Вода"
+msgstr "Вода"
+
+#. Key:	ConsumableMedkit
+#. SourceLocation:	Source/ContrarySurvivor/Private/AConsumableItem.cpp(53)
+#: Source/ContrarySurvivor/Private/AConsumableItem.cpp(53)
+msgctxt "Items,ConsumableMedkit"
+msgid "Бинт"
+msgstr "Бинт"
+
+#. Key:	ConsumableGeneric
+#. SourceLocation:	Source/ContrarySurvivor/Private/AConsumableItem.cpp(54)
+#: Source/ContrarySurvivor/Private/AConsumableItem.cpp(54)
+msgctxt "Items,ConsumableGeneric"
+msgid "Расходник"
+msgstr "Расходник"
+
+#. Key:	ArmorHead
+#. SourceLocation:	Source/ContrarySurvivor/Private/AHeadArmor.cpp(16)
+#: Source/ContrarySurvivor/Private/AHeadArmor.cpp(16)
+msgctxt "Items,ArmorHead"
+msgid "Броня — голова"
+msgstr "Броня — голова"
+
+#. Key:	UnnamedItem
+#. SourceLocation:	Source/ContrarySurvivor/Private/AMasterInventoryItem.cpp(54)
+#: Source/ContrarySurvivor/Private/AMasterInventoryItem.cpp(54)
+msgctxt "InventoryItem,UnnamedItem"
+msgid "Предмет"
+msgstr "Предмет"
+
+#. Key:	ArmorPants
+#. SourceLocation:	Source/ContrarySurvivor/Private/APantsArmor.cpp(16)
+#: Source/ContrarySurvivor/Private/APantsArmor.cpp(16)
+msgctxt "Items,ArmorPants"
+msgid "Броня — штаны"
+msgstr "Броня — штаны"
+
+#. Key:	ArmorTorso
+#. SourceLocation:	Source/ContrarySurvivor/Private/ATorsoArmor.cpp(16)
+#: Source/ContrarySurvivor/Private/ATorsoArmor.cpp(16)
+msgctxt "Items,ArmorTorso"
+msgid "Броня — торс"
+msgstr "Броня — торс"
+
+#. Key:	HintMovement
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(73)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(73)
+msgctxt "OnboardingComponent,HintMovement"
+msgid "Ходи на W, A, S, D. Нажми на врага, чтобы ударить. Q — сменить оружие"
+msgstr "Ходи на W, A, S, D. Нажми на врага, чтобы ударить. Q — сменить оружие"
+
+#. Key:	HintMovementTouch
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(78)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(78)
+msgctxt "OnboardingComponent,HintMovementTouch"
+msgid "Веди пальцем по левой части экрана, чтобы идти. Нажми на врага, чтобы ударить. Кнопка ОРУЖИЕ — сменить оружие"
+msgstr "Веди пальцем по левой части экрана, чтобы идти. Нажми на врага, чтобы ударить. Кнопка ОРУЖИЕ — сменить оружие"
+
+#. Key:	HintPickup
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(82)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(82)
+msgctxt "OnboardingComponent,HintPickup"
+msgid "Нажми E, чтобы подобрать"
+msgstr "Нажми E, чтобы подобрать"
+
+#. Key:	HintPickupTouch
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(85)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(85)
+msgctxt "OnboardingComponent,HintPickupTouch"
+msgid "Нажми ДЕЙСТВИЕ, чтобы подобрать"
+msgstr "Нажми ДЕЙСТВИЕ, чтобы подобрать"
+
+#. Key:	HintElder
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(89)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(89)
+msgctxt "OnboardingComponent,HintElder"
+msgid "Поговори со старостой — у него есть работа"
+msgstr "Поговори со старостой — у него есть работа"
+
+#. Key:	HintInventory
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(93)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(93)
+msgctxt "OnboardingComponent,HintInventory"
+msgid "Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»"
+msgstr "Слева — слоты брони. Броня снижает урон — следи за строкой «Защита»"
+
+#. Key:	HintDeath
+#. SourceLocation:	Source/ContrarySurvivor/Retention/OnboardingComponent.h(98)
+#: Source/ContrarySurvivor/Retention/OnboardingComponent.h(98)
+msgctxt "OnboardingComponent,HintDeath"
+msgid "Часть монет утрачена. Расходники обронены на месте гибели."
+msgstr "Часть монет утрачена. Расходники обронены на месте гибели."
+
+#. Key:	TitleText
+#. SourceLocation:	Source/ContrarySurvivor/UI/DailyRewardWidget.h(37)
+#: Source/ContrarySurvivor/UI/DailyRewardWidget.h(37)
+msgctxt "DailyRewardWidget,TitleText"
+msgid "ЕЖЕДНЕВНАЯ НАГРАДА"
+msgstr "ЕЖЕДНЕВНАЯ НАГРАДА"
+
+#. Key:	StreakFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DailyRewardWidget.h(48)
+#: Source/ContrarySurvivor/UI/DailyRewardWidget.h(48)
+msgctxt "DailyRewardWidget,StreakFormat"
+msgid "День серии: {Days}"
+msgstr "День серии: {Days}"
+
+#. Key:	RewardFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DailyRewardWidget.h(59)
+#: Source/ContrarySurvivor/UI/DailyRewardWidget.h(59)
+msgctxt "DailyRewardWidget,RewardFormat"
+msgid "+{Amount} монет"
+msgstr "+{Amount} монет"
+
+#. Key:	TakeButtonText
+#. SourceLocation:	Source/ContrarySurvivor/UI/DailyRewardWidget.h(68)
+#: Source/ContrarySurvivor/UI/DailyRewardWidget.h(68)
+msgctxt "DailyRewardWidget,TakeButtonText"
+msgid "Забрать"
+msgstr "Забрать"
+
+#. Key:	LifetimeFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(37)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(37)
+msgctxt "Death,LifetimeFormat"
+msgid "{Minutes}:{Seconds}"
+msgstr "{Minutes}:{Seconds}"
+
+#. Key:	KillerFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(41)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(41)
+msgctxt "Death,KillerFormat"
+msgid "{Name}"
+msgstr "{Name}"
+
+#. Key:	MoneyFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(45)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(45)
+msgctxt "Death,MoneyFormat"
+msgid "{Amount}"
+msgstr "{Amount}"
+
+#. Key:	QuestsFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(49)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(49)
+msgctxt "Death,QuestsFormat"
+msgid "{Count}"
+msgstr "{Count}"
+
+#. Key:	KillsFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(53)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(53)
+msgctxt "Death,KillsFormat"
+msgid "{Count}"
+msgstr "{Count}"
+
+#. Key:	MoneyLossFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DeathScreenWidget.h(59)
+#: Source/ContrarySurvivor/UI/DeathScreenWidget.h(59)
+msgctxt "Death,MoneyLossFormat"
+msgid "−{Percent}% монет — часть монет утрачена при гибели."
+msgstr "−{Percent}% монет — часть монет утрачена при гибели."
+
+#. Key:	TurnInFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DialogScreenWidget.h(48)
+#: Source/ContrarySurvivor/UI/DialogScreenWidget.h(48)
+msgctxt "Dialog,TurnInFormat"
+msgid "Сдать (+{Reward})"
+msgstr "Сдать (+{Reward})"
+
+#. Key:	ActiveReplicaFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DialogScreenWidget.h(53)
+#: Source/ContrarySurvivor/UI/DialogScreenWidget.h(53)
+msgctxt "Dialog,ActiveReplicaFormat"
+msgid "{Prefix}{Title} — {Objectives}."
+msgstr "{Prefix}{Title} — {Objectives}."
+
+#. Key:	ObjectiveFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/DialogScreenWidget.h(57)
+#: Source/ContrarySurvivor/UI/DialogScreenWidget.h(57)
+msgctxt "Quest,ObjectiveFormat"
+msgid "{Objective} {Done} из {Total}"
+msgstr "{Objective} {Done} из {Total}"
+
+#. Key:	ObjectiveSeparator
+#. SourceLocation:	Source/ContrarySurvivor/UI/DialogScreenWidget.h(61)
+#: Source/ContrarySurvivor/UI/DialogScreenWidget.h(61)
+msgctxt "Quest,ObjectiveSeparator"
+msgid ", "
+msgstr ", "
+
+#. Key:	EarlyHookSeparator
+#. SourceLocation:	Source/ContrarySurvivor/UI/DialogScreenWidget.h(65)
+#: Source/ContrarySurvivor/UI/DialogScreenWidget.h(65)
+msgctxt "Dialog,EarlyHookSeparator"
+msgid " "
+msgstr " "
+
+#. Key:	MoneyFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(52)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(52)
+msgctxt "Inventory,MoneyFormat"
+msgid "{Amount}"
+msgstr "{Amount}"
+
+#. Key:	HungerFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(56)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(56)
+msgctxt "Inventory,HungerFormat"
+msgid "{Current} из {Max}"
+msgstr "{Current} из {Max}"
+
+#. Key:	ThirstFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(60)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(60)
+msgctxt "Inventory,ThirstFormat"
+msgid "{Current} из {Max}"
+msgstr "{Current} из {Max}"
+
+#. Key:	EmptySlot
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(64)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(64)
+msgctxt "Inventory,EmptySlot"
+msgid "Пусто"
+msgstr "Пусто"
+
+#. Key:	ProtectionFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(68)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(68)
+msgctxt "Inventory,ProtectionFormat"
+msgid "{Percent}%"
+msgstr "{Percent}%"
+
+#. Key:	WeaponFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(72)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(72)
+msgctxt "Inventory,WeaponFormat"
+msgid "{ItemName}"
+msgstr "{ItemName}"
+
+#. Key:	UseHintConsumable
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(77)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(77)
+msgctxt "Inventory,UseHintConsumable"
+msgid "Использовать"
+msgstr "Использовать"
+
+#. Key:	UseHintArmor
+#. SourceLocation:	Source/ContrarySurvivor/UI/InventoryScreenWidget.h(80)
+#: Source/ContrarySurvivor/UI/InventoryScreenWidget.h(80)
+msgctxt "Inventory,UseHintArmor"
+msgid "Надеть"
+msgstr "Надеть"
+
+#. Key:	TitleText
+#. SourceLocation:	Source/ContrarySurvivor/UI/PauseMenuWidget.h(40)
+#: Source/ContrarySurvivor/UI/PauseMenuWidget.h(40)
+msgctxt "PauseMenuWidget,TitleText"
+msgid "ПАУЗА"
+msgstr "ПАУЗА"
+
+#. Key:	ResumeText
+#. SourceLocation:	Source/ContrarySurvivor/UI/PauseMenuWidget.h(49)
+#: Source/ContrarySurvivor/UI/PauseMenuWidget.h(49)
+msgctxt "PauseMenuWidget,ResumeText"
+msgid "Продолжить"
+msgstr "Продолжить"
+
+#. Key:	QuitText
+#. SourceLocation:	Source/ContrarySurvivor/UI/PauseMenuWidget.h(52)
+#: Source/ContrarySurvivor/UI/PauseMenuWidget.h(52)
+msgctxt "PauseMenuWidget,QuitText"
+msgid "Выход"
+msgstr "Выход"
+
+#. Key:	HealthFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(38)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(38)
+msgctxt "PlayerStatsWidget,HealthFormat"
+msgid "{Current}/{Max}"
+msgstr "{Current}/{Max}"
+
+#. Key:	HungerFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(42)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(42)
+msgctxt "PlayerStatsWidget,HungerFormat"
+msgid "{Current}"
+msgstr "{Current}"
+
+#. Key:	ThirstFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(46)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(46)
+msgctxt "PlayerStatsWidget,ThirstFormat"
+msgid "{Current}"
+msgstr "{Current}"
+
+#. Key:	AmmoFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(52)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(52)
+msgctxt "PlayerStatsWidget,AmmoFormat"
+msgid "{InClip} / {Reserve}   в рюкзаке {Bag}"
+msgstr "{InClip} / {Reserve}   в рюкзаке {Bag}"
+
+#. Key:	AmmoBagFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(56)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(56)
+msgctxt "PlayerStatsWidget,AmmoBagFormat"
+msgid "{Bag}"
+msgstr "{Bag}"
+
+#. Key:	MoneyFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/PlayerStatsWidget.h(60)
+#: Source/ContrarySurvivor/UI/PlayerStatsWidget.h(60)
+msgctxt "PlayerStatsWidget,MoneyFormat"
+msgid "{Amount}"
+msgstr "{Amount}"
+
+#. Key:	TrackerFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/QuestTrackerWidget.h(30)
+#: Source/ContrarySurvivor/UI/QuestTrackerWidget.h(30)
+msgctxt "QuestTracker,TrackerFormat"
+msgid "Квест: {Objectives}"
+msgstr "Квест: {Objectives}"
+
+#. Key:	DoneFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/QuestTrackerWidget.h(34)
+#: Source/ContrarySurvivor/UI/QuestTrackerWidget.h(34)
+msgctxt "QuestTracker,DoneFormat"
+msgid "Квест выполнен: {Title} — вернись к старосте"
+msgstr "Квест выполнен: {Title} — вернись к старосте"
+
+#. Key:	NamePriceFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopRowWidget.h(44)
+#: Source/ContrarySurvivor/UI/ShopRowWidget.h(44)
+msgctxt "Shop,NamePriceFormat"
+msgid "{Name} — {Price}"
+msgstr "{Name} — {Price}"
+
+#. Key:	NotEnoughMoney
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopRowWidget.h(49)
+#: Source/ContrarySurvivor/UI/ShopRowWidget.h(49)
+msgctxt "Shop,NotEnoughMoney"
+msgid "Не хватает монет"
+msgstr "Не хватает монет"
+
+#. Key:	QtyAmmoFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(100)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(100)
+msgctxt "Shop,QtyAmmoFormat"
+msgid "всего {Rounds} патронов"
+msgstr "всего {Rounds} патронов"
+
+#. Key:	TotalFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(104)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(104)
+msgctxt "Shop,TotalFormat"
+msgid "Итого: {Total}"
+msgstr "Итого: {Total}"
+
+#. Key:	RevenueFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(107)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(107)
+msgctxt "Shop,RevenueFormat"
+msgid "Выручка: +{Total}"
+msgstr "Выручка: +{Total}"
+
+#. Key:	MoneyFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(64)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(64)
+msgctxt "Shop,MoneyFormat"
+msgid "{Amount}"
+msgstr "{Amount}"
+
+#. Key:	BuyAction
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(69)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(69)
+msgctxt "Shop,BuyAction"
+msgid "Купить"
+msgstr "Купить"
+
+#. Key:	SellAction
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(72)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(72)
+msgctxt "Shop,SellAction"
+msgid "Продать"
+msgstr "Продать"
+
+#. Key:	BuyPriceFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(76)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(76)
+msgctxt "Shop,BuyPriceFormat"
+msgid "{Price}"
+msgstr "{Price}"
+
+#. Key:	SellPriceFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(79)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(79)
+msgctxt "Shop,SellPriceFormat"
+msgid "+{Price}"
+msgstr "+{Price}"
+
+#. Key:	ArmorBonusFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(83)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(83)
+msgctxt "Shop,ArmorBonusFormat"
+msgid "{ItemName} (+{Percent}% защиты)"
+msgstr "{ItemName} (+{Percent}% защиты)"
+
+#. Key:	BuyTitleFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(88)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(88)
+msgctxt "Shop,BuyTitleFormat"
+msgid "Купить: {ItemName}"
+msgstr "Купить: {ItemName}"
+
+#. Key:	SellTitleFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(91)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(91)
+msgctxt "Shop,SellTitleFormat"
+msgid "Продать: {ItemName}"
+msgstr "Продать: {ItemName}"
+
+#. Key:	QtyFormat
+#. SourceLocation:	Source/ContrarySurvivor/UI/ShopScreenWidget.h(95)
+#: Source/ContrarySurvivor/UI/ShopScreenWidget.h(95)
+msgctxt "Shop,QtyFormat"
+msgid "{Qty} из {Max}"
+msgstr "{Qty} из {Max}"
+
