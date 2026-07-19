@@ -145,8 +145,17 @@ bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
 
 	// Признак «уже выдал» — в сейве игрока (см. комментарий к методу в заголовке).
 	UContrarySaveGame* Save = Player->LoadOrCreateSaveObject();
-	if (!Save || Save->bElderFirstGiftGiven)
+	if (!Save)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("Elder '%s': подарок не выдан — сохранение не открылось."), *GetName());
+		return false;
+	}
+	if (Save->bElderFirstGiftGiven)
+	{
+		// Самая частая причина «бинт не приходит»: подарок уже выдавался в этом профиле
+		// (признак живёт в сохранении и нигде не сбрасывается). Это не поломка, а замысел
+		// «один раз за профиль» — но со стороны выглядит как молчащий механизм.
+		UE_LOG(LogTemp, Log, TEXT("Elder '%s': подарок не выдан — в этом профиле уже выдавался."), *GetName());
 		return false;
 	}
 
@@ -158,6 +167,9 @@ bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
 		const FQuest* Q1 = PlayerQuests->FindQuest(OfferedQuest.QuestId);
 		if (Q1 && Q1->State != EQuestState::NotStarted)
 		{
+			UE_LOG(LogTemp, Log,
+				TEXT("Elder '%s': подарок не выдан — первый квест уже взят, приветственной реплики не будет."),
+				*GetName());
 			return false;
 		}
 	}
