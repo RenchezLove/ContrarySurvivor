@@ -1159,7 +1159,7 @@ namespace
 		UButton* Accept = MakeStyledButton(Tree, TEXT("AcceptButton"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("Принять"),
+		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("Взяться за дело"),
 			FLinearColor::White, 15, TEXT("Regular")));
 		AddAnswer(Accept, 200.0f, 0.0f); // DialogButtonWidth
 
