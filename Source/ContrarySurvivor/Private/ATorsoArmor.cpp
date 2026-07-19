@@ -11,7 +11,9 @@ ATorsoArmor::ATorsoArmor()
 	ArmorProtection = 0.25f;
 	ArmorSlot = EArmorSlot::Torso;
 
+	// ItemName — служебный ключ, НЕ трогаем; игроку показывается ItemDisplayText (ADR-050).
 	ItemName = FString("Torso Armor");
+	ItemDisplayText = NSLOCTEXT("Items", "ArmorTorso", "Броня — торс");
 
 	// Меш-слот при экипировке (общий скелет -> Leader Pose). EquipArmor подменяет меш Torso.
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(

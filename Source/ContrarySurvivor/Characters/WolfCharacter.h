@@ -116,9 +116,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot|Quest")
 	TSubclassOf<AMasterInventoryItem> QuestLootItemClass;
 
-	// Понятное имя квестового предмета (выставляется заспавненному предмету -> ItemName, виден в UI).
+	// СЛУЖЕБНЫЙ КЛЮЧ квестового предмета. ОБЯЗАН посимвольно совпадать с RequiredItemName
+	// квеста старосты (ElderNPC.cpp:53,91) — иначе шкура не засчитается. НЕ переводить,
+	// значение не менять (ADR-050, порция 0).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot|Quest")
 	FString QuestLootItemName = TEXT("Шкура волка");
+
+	// ПЕРЕВОДИМОЕ название той же шкуры, которое видит игрок в рюкзаке.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot|Quest")
+	FText QuestLootItemText = NSLOCTEXT("Items", "WolfPelt", "Шкура волка");
 
 	// Спавнит лут (деньги + шанс предмета) в позиции трупа.
 	void DropLoot();

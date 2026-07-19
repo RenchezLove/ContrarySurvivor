@@ -29,6 +29,7 @@ AEnemyCharacter::AEnemyCharacter()
 	{
 		FBanditLootEntry Entry;
 		Entry.DisplayName = AConsumableItem::GetDefaultDisplayName(Type);
+		Entry.DisplayText = AConsumableItem::GetDefaultDisplayText(Type);
 		Entry.ItemClass = AConsumableItem::StaticClass();
 		Entry.ConsumableType = Type;
 		LootTable.Add(Entry);
@@ -287,10 +288,15 @@ void AEnemyCharacter::DropLoot()
 			// Предмет лута — данные рюкзака, не объект сцены (тот же приём, что в APickup::DropLoot).
 			Item->SetActorHiddenInGame(true);
 			Item->SetActorEnableCollision(false);
-			// Имя, видимое игроку; пустое поле таблицы -> дефолт по типу расходника.
+			// Служебный ключ; пустое поле таблицы -> ключ по типу расходника.
 			Item->ItemName = !Entry.DisplayName.IsEmpty()
 				? Entry.DisplayName
 				: AConsumableItem::GetDefaultDisplayName(Entry.ConsumableType);
+			// Переводимое название рядом с ключом: класс AConsumableItem один на воду,
+			// консервы и бинт, поэтому название задаётся здесь, а не в конструкторе класса.
+			Item->ItemDisplayText = !Entry.DisplayText.IsEmpty()
+				? Entry.DisplayText
+				: AConsumableItem::GetDefaultDisplayText(Entry.ConsumableType);
 			if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
 			{
 				Cons->ConsumableType = Entry.ConsumableType;

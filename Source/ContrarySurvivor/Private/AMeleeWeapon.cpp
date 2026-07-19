@@ -52,7 +52,9 @@ AMeleeWeapon::AMeleeWeapon()
 	MaxAmmoReserve     = 0;
 	CurrentAmmoReserve = 0;
 
+	// ItemName — служебный ключ, НЕ трогаем; игроку показывается ItemDisplayText (ADR-050).
 	ItemName        = FString("Knife");
+	ItemDisplayText = NSLOCTEXT("Items", "Knife", "Нож");
 	ItemDescription = FString("A short blade for close combat.");
 }
 

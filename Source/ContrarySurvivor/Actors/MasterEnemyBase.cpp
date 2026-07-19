@@ -285,7 +285,7 @@ void AMasterEnemyBase::SpawnQuestItem()
 	// Пикап-носитель с гарантированным предметом (chance=1.0), без денег. Имя предмета = QuestItemName
 	// (совпадает с RequiredItemName квеста старосты). Подбор — по E (как любой пикап).
 	APickup* Pickup = APickup::DropLoot(World, Loc, /*Money=*/0.0f,
-		QuestItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestItemName);
+		QuestItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestItemName, QuestItemText);
 
 	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': quest item '%s' spawned at %s (%s)"),
 		*GetName(), *QuestItemName, *Loc.ToCompactString(), Pickup ? TEXT("ok") : TEXT("FAILED"));

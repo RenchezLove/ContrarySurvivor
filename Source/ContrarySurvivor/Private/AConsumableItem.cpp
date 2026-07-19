@@ -43,3 +43,14 @@ FString AConsumableItem::GetDefaultDisplayName(EConsumableType Type)
 		default:                      return TEXT("Расходник");
 	}
 }
+
+FText AConsumableItem::GetDefaultDisplayText(EConsumableType Type)
+{
+	switch (Type)
+	{
+		case EConsumableType::Food:   return NSLOCTEXT("Items", "ConsumableFood", "Консервы");
+		case EConsumableType::Water:  return NSLOCTEXT("Items", "ConsumableWater", "Вода");
+		case EConsumableType::Medkit: return NSLOCTEXT("Items", "ConsumableMedkit", "Бинт");
+		default:                      return NSLOCTEXT("Items", "ConsumableGeneric", "Расходник");
+	}
+}

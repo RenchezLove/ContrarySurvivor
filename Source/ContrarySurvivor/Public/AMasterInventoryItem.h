@@ -36,8 +36,21 @@ protected:
 
 public:
 	// Variables:
+
+	// СЛУЖЕБНЫЙ КЛЮЧ предмета, НЕ переводится (ADR-050, порция 0). По нему сходится
+	// логика квестов: UQuestComponent сравнивает ItemName с FQuest::RequiredItemName
+	// посимвольно (QuestComponent.cpp:204,252). Менять значения нельзя — сломается зачёт
+	// квеста. Игроку показывается НЕ это поле, а ItemDisplayText (см. GetItemDisplayText).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
 	FString ItemName;
+
+	// ПЕРЕВОДИМОЕ название, которое видит игрок («Пистолет», «Шкура волка»). Живёт на
+	// ЭКЗЕМПЛЯРЕ, а не только на классе: один класс обслуживает разные предметы
+	// (AQuestItem — и шкура, и ноутбук; AConsumableItem — вода/консервы/бинт), поэтому
+	// имя класса их различить не может. Кто создаёт предмет — тот и заполняет это поле
+	// рядом с ключом ItemName. Пусто — откат на ключ (см. GetItemDisplayText).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (DisplayPriority = "1"))
+	FText ItemDisplayText;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
 	FString ItemDescription;
@@ -66,5 +79,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Item")
 	FORCEINLINE EItemCategory GetItemCategory() const { return ItemCategory; }
+
+	// ЕДИНСТВЕННЫЙ способ получить название предмета для показа игроку. Интерфейс читает
+	// только его, поля напрямую не трогает. Откат в три ступени: переводимое название ->
+	// ключ ItemName как есть (сегодняшнее поведение, ничего не пропадает) -> нейтральная
+	// заглушка с предупреждением в лог. Третья ступень закрывает протечку служебных имён
+	// вида «BP_Pistol_C_1» в корне: GetName() наружу больше не уходит (ADR-049).
+	UFUNCTION(BlueprintPure, Category = "Item")
+	FText GetItemDisplayText() const;
 
 };

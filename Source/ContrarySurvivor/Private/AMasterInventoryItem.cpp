@@ -2,6 +2,9 @@
 
 
 #include "AMasterInventoryItem.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+
+#define LOCTEXT_NAMESPACE "InventoryItem"
 
 // Sets default values
 AMasterInventoryItem::AMasterInventoryItem()
@@ -28,3 +31,27 @@ void AMasterInventoryItem::Use()
 	// Add your item-specific use logic here.  This will be overridden in child classes.
 	UE_LOG(LogTemp, Warning, TEXT("AMasterInventoryItem: Use() called.  Override this function in child classes."));
 }
+
+FText AMasterInventoryItem::GetItemDisplayText() const
+{
+	// 1. Переводимое название, если его заполнил тот, кто создавал предмет.
+	if (!ItemDisplayText.IsEmpty())
+	{
+		return ItemDisplayText;
+	}
+
+	// 2. Служебный ключ как есть — ровно прежнее поведение, с экрана ничего не пропадает.
+	if (!ItemName.IsEmpty())
+	{
+		return FText::FromString(ItemName);
+	}
+
+	// 3. Не заполнено ни то, ни другое: раньше сюда подставлялся GetName() и игрок видел
+	// «BP_Pistol_C_1» (ADR-049). Показываем нейтральное слово, служебное имя уводим в лог.
+	UE_LOG(LogQA, Warning,
+		TEXT("AMasterInventoryItem '%s': не заданы ни ItemDisplayText, ни ItemName — игроку показана заглушка"),
+		*GetName());
+	return LOCTEXT("UnnamedItem", "Предмет");
+}
+
+#undef LOCTEXT_NAMESPACE

@@ -11,7 +11,9 @@ APantsArmor::APantsArmor()
 	ArmorProtection = 0.15f;
 	ArmorSlot = EArmorSlot::Legs;
 
+	// ItemName — служебный ключ, НЕ трогаем; игроку показывается ItemDisplayText (ADR-050).
 	ItemName = FString("Pants Armor");
+	ItemDisplayText = NSLOCTEXT("Items", "ArmorPants", "Броня — штаны");
 
 	// Меш-слот при экипировке (общий скелет -> Leader Pose). EquipArmor подменяет меш Legs.
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(

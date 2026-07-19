@@ -11,7 +11,9 @@ AHeadArmor::AHeadArmor()
 	ArmorProtection = 0.10f;
 	ArmorSlot = EArmorSlot::Head;
 
+	// ItemName — служебный ключ, НЕ трогаем; игроку показывается ItemDisplayText (ADR-050).
 	ItemName = FString("Head Armor");
+	ItemDisplayText = NSLOCTEXT("Items", "ArmorHead", "Броня — голова");
 
 	// Меш-слот при экипировке (на ОБЩЕМ скелете персонажа -> Leader Pose даёт синхронную
 	// анимацию). EquipArmor подменяет меш слота Head на этот ассет.

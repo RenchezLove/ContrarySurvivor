@@ -37,7 +37,9 @@ APistol::APistol()
 	CurrentAmmoReserve = MaxAmmoReserve;
 
 	// Имя предмета (для инвентаря)
+	// ItemName — служебный ключ, НЕ трогаем; игроку показывается ItemDisplayText (ADR-050).
 	ItemName        = FString("Pistol");
+	ItemDisplayText = NSLOCTEXT("Items", "Pistol", "Пистолет");
 	ItemDescription = FString("A reliable sidearm. 12 rounds per magazine.");
 
 	MuzzleSocketName = FName("MuzzleSocket");

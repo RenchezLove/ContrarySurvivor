@@ -91,6 +91,10 @@ void APickup::SpawnPlacedLoot()
 				{
 					Pack->ItemName = PlacedItemDisplayName;
 				}
+				if (!PlacedItemDisplayText.IsEmpty())
+				{
+					Pack->ItemDisplayText = PlacedItemDisplayText;
+				}
 				++SpawnedCount;
 			}
 		}
@@ -103,6 +107,10 @@ void APickup::SpawnPlacedLoot()
 					if (!PlacedItemDisplayName.IsEmpty())
 					{
 						Item->ItemName = PlacedItemDisplayName;
+					}
+					if (!PlacedItemDisplayText.IsEmpty())
+					{
+						Item->ItemDisplayText = PlacedItemDisplayText;
 					}
 					++SpawnedCount;
 				}
@@ -235,7 +243,8 @@ void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAmount,
 	TSubclassOf<AMasterInventoryItem> ItemClass, float ItemDropChance,
-	TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName)
+	TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName,
+	const FText& ItemDisplayText)
 {
 	if (!World)
 	{
@@ -271,10 +280,16 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 			// Предмет лута — данные рюкзака, не объект на сцене: прячем визуал/коллизию.
 			DroppedItem->SetActorHiddenInGame(true);
 			DroppedItem->SetActorEnableCollision(false);
-			// Понятное имя предмета (напр. «Шкура волка»), если задано вызывающим.
+			// Служебный ключ (напр. «Шкура волка») — по нему сходится зачёт квеста.
 			if (!ItemDisplayName.IsEmpty())
 			{
 				DroppedItem->ItemName = ItemDisplayName;
+			}
+			// Переводимое название рядом с ключом: один класс AQuestItem обслуживает и
+			// шкуру, и ноутбук, поэтому название задаёт тот, кто создаёт предмет.
+			if (!ItemDisplayText.IsEmpty())
+			{
+				DroppedItem->ItemDisplayText = ItemDisplayText;
 			}
 		}
 	}

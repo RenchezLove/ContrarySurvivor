@@ -44,8 +44,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Consumable")
 	bool ApplyConsumeEffect(UStatsComponent* Stats);
 
-	// Русское имя расходника, видимое игроку (рюкзак/магазин/лут бандита) — «Консервы»/
-	// «Вода»/«Бинт» (Ринат 07-17). ЕДИНСТВЕННОЕ место этих строк в коде: при переходе на
-	// FText-локализацию (ADR-041, этап I) меняется только эта функция.
+	// СЛУЖЕБНЫЙ КЛЮЧ расходника по типу — идёт в AMasterInventoryItem::ItemName, по нему
+	// сходится логика квестов. НЕ переводится, значения не менять (ADR-050, порция 0).
 	static FString GetDefaultDisplayName(EConsumableType Type);
+
+	// ПЕРЕВОДИМОЕ название того же расходника, которое видит игрок («Консервы»/«Вода»/
+	// «Бинт»). Единственное место этих слов в коде: и лут бандита, и каталог торговца,
+	// и отладочная выдача берут название отсюда.
+	static FText GetDefaultDisplayText(EConsumableType Type);
 };

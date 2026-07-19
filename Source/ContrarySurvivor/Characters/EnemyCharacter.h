@@ -23,10 +23,15 @@ struct FBanditLootEntry
 {
 	GENERATED_BODY()
 
-	// Имя, которое видит игрок (подбор/рюкзак). Пусто -> дефолтное имя по типу расходника
-	// (AConsumableItem::GetDefaultDisplayName).
+	// СЛУЖЕБНЫЙ КЛЮЧ предмета. Пусто -> ключ по типу расходника
+	// (AConsumableItem::GetDefaultDisplayName). НЕ переводится (ADR-050, порция 0).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
 	FString DisplayName;
+
+	// ПЕРЕВОДИМОЕ название, которое видит игрок (подбор/рюкзак). Пусто -> название по типу
+	// расходника (AConsumableItem::GetDefaultDisplayText).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
+	FText DisplayText;
 
 	// Класс выпадающего предмета (nullptr -> AConsumableItem).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")

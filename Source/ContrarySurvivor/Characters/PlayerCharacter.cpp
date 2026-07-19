@@ -893,6 +893,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             {
                 Bought->ItemName = Entry.DisplayName;
             }
+            // Переводимое название с позиции каталога: один класс AConsumableItem стоит в
+            // каталоге трижды (вода/консервы/бинт), поэтому имя класса их не различает.
+            if (Bought->ItemDisplayText.IsEmpty() && !Entry.DisplayText.IsEmpty())
+            {
+                Bought->ItemDisplayText = Entry.DisplayText;
+            }
 
             Bought->SetActorHiddenInGame(true);
             Bought->SetActorEnableCollision(false);
@@ -1133,6 +1139,7 @@ void APlayerCharacter::GiveTestItems()
     {
         Food->ConsumableType = EConsumableType::Food;
         Food->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Food);
+        Food->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(EConsumableType::Food);
         AddHidden(Food);
     }
     if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
@@ -1140,6 +1147,7 @@ void APlayerCharacter::GiveTestItems()
     {
         Water->ConsumableType = EConsumableType::Water;
         Water->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Water);
+        Water->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(EConsumableType::Water);
         AddHidden(Water);
     }
 
@@ -1149,12 +1157,14 @@ void APlayerCharacter::GiveTestItems()
             AHeadArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Head->ItemName = TEXT("Spare Head Armor (Head_02)");
+        Head->ItemDisplayText = NSLOCTEXT("Items", "SpareHeadArmor", "Шлем (запасной)");
         AddHidden(Head);
     }
     if (ATorsoArmor* Torso = World->SpawnActor<ATorsoArmor>(
             ATorsoArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
     {
         Torso->ItemName = TEXT("Spare Torso Armor (Torso_02)");
+        Torso->ItemDisplayText = NSLOCTEXT("Items", "SpareTorsoArmor", "Броня на торс (запасная)");
         AddHidden(Torso);
     }
 

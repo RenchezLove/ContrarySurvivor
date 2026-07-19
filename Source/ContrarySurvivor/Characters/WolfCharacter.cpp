@@ -289,7 +289,8 @@ void AWolfCharacter::DropLoot()
 	// часто брал безымянный generic ('Canned Food'-подобный), а не шкуру. Шкура — единственный
 	// предмет-лут волка (тематично, GDD §7.8): второй generic-дроп убран, шкура детерминирована.
 	APickup::DropLoot(World, Loc, Money,
-		QuestLootItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestLootItemName);
+		QuestLootItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestLootItemName,
+		QuestLootItemText);
 
 	FQADebug::QA(World, FString::Printf(
 		TEXT("QA: wolf loot = '%s' (guaranteed, money=%.0f)"), *QuestLootItemName, Money),

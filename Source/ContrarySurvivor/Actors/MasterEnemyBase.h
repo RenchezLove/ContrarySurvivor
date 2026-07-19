@@ -148,9 +148,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	TSubclassOf<APickup> PickupClass;
 
-	// Имя квест-предмета (должно совпадать с RequiredItemName квеста старосты, напр. «Ноутбук»).
+	// СЛУЖЕБНЫЙ КЛЮЧ квест-предмета. ОБЯЗАН посимвольно совпадать с RequiredItemName квеста
+	// старосты (ElderNPC.cpp:72) — иначе ноутбук не засчитается. НЕ переводить (ADR-050).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
 	FString QuestItemName = TEXT("Ноутбук");
+
+	// ПЕРЕВОДИМОЕ название того же предмета, которое видит игрок в рюкзаке.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Quest")
+	FText QuestItemText = NSLOCTEXT("Items", "QuestLaptop", "Ноутбук");
 
 private:
 	FTimerHandle ActivationTimerHandle;

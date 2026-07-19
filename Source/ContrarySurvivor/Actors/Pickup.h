@@ -51,13 +51,15 @@ public:
 
 	// Создаёт лут на земле: при необходимости спавнит предмет (по ItemDropChance) и пикап,
 	// который несёт MoneyAmount + предмет. Удобный путь для дропа с врага одной строкой.
-	// ItemDisplayName (опц.): если задано и предмет заспавнен — выставляет ему ItemName
-	// (понятное имя в рюкзаке/UI, напр. «Шкура волка»). QA force-drop (FQADebug::bForceDrop)
-	// поднимает фактический шанс выпадения предмета до 100%.
+	// ItemDisplayName (опц.): служебный КЛЮЧ предмета (напр. «Шкура волка») — по нему
+	// сходится зачёт квеста, НЕ переводится. ItemDisplayText (опц.): переводимое название
+	// того же предмета для показа игроку; пусто — откат на ключ (ADR-050, порция 0).
+	// QA force-drop (FQADebug::bForceDrop) поднимает фактический шанс выпадения до 100%.
 	// Возвращает заспавненный пикап (или nullptr).
 	static APickup* DropLoot(UWorld* World, const FVector& Location, float MoneyAmount,
 		TSubclassOf<AMasterInventoryItem> ItemClass, float ItemDropChance,
-		TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName = FString());
+		TSubclassOf<APickup> PickupClass, const FString& ItemDisplayName = FString(),
+		const FText& ItemDisplayText = FText::GetEmpty());
 
 protected:
 	virtual void BeginPlay() override;
@@ -85,9 +87,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2"))
 	TSubclassOf<AMasterInventoryItem> PlacedItemClass;
 
-	// Понятное имя предмета в рюкзаке/UI (пусто = имя класса по умолчанию).
+	// СЛУЖЕБНЫЙ КЛЮЧ предмета (пусто = ключ класса по умолчанию). НЕ переводится: по нему
+	// сходится зачёт квеста, если на уровень положен квест-предмет (ADR-050, порция 0).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "3"))
 	FString PlacedItemDisplayName;
+
+	// ПЕРЕВОДИМОЕ название этого же предмета, которое увидит игрок в рюкзаке (пусто =
+	// название класса по умолчанию, а если и его нет — откат на ключ выше).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "4"))
+	FText PlacedItemDisplayText;
 
 	// Сколько предметов положить (для AAmmoItem — размер стака одной пачки).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "1", DisplayPriority = "4"))

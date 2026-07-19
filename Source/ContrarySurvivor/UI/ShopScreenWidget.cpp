@@ -157,7 +157,7 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 				continue;
 			}
 
-			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			const FString Name = Item->GetItemDisplayText().ToString();
 			const float SellVal = Trader->GetSellValue(Item);
 
 			if (UShopRowWidget* Row = CreateWidget<UShopRowWidget>(PC, RowWidgetClass))
@@ -270,7 +270,7 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 	TransactionItem = Item;
 	TransactionUnitPrice = Trader->GetAmmoSellPerRound();
 	TransactionUnitAmmo = 0;
-	TransactionTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны 9мм") : Item->ItemName;
+	TransactionTitle = Item->GetItemDisplayText().ToString();
 	TransactionQtyMax = FMath::Max(1, Ammo->StackCount);
 	TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
 

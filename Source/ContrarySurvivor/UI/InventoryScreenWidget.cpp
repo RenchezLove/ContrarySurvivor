@@ -113,8 +113,12 @@ void UInventoryScreenWidget::RefreshAll()
 	const AMasterWeapon* Weapon = Player->GetCurrentWeapon();
 	if (WeaponText)
 	{
-		WeaponText->SetText(FText::FromString(
-			WeaponPrefix + (Weapon ? Weapon->GetName() : NoWeaponText)));
+		// Была ГЛАВНАЯ протечка служебных имён: здесь стоял Weapon->GetName() и игрок читал
+		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Теперь название берётся как у любого
+		// другого предмета. Перевод самой подписи «Оружие: » — порция 3.
+		WeaponText->SetText(FText::FromString(WeaponPrefix + (Weapon
+			? Weapon->GetItemDisplayText().ToString()
+			: NoWeaponText)));
 	}
 
 	// --- Рюкзак ---
@@ -143,7 +147,10 @@ void UInventoryScreenWidget::RefreshAll()
 					default: break; // пусто — кнопка применения прячется в SetupRow
 				}
 
-				const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+				// Название только через GetItemDisplayText: служебное имя актора наружу
+				// больше не уходит (ADR-050, порция 0). Перевод строки рюкзака на FText
+				// целиком — порция 3, здесь пока разворачиваем в строку.
+				const FString Name = Item->GetItemDisplayText().ToString();
 				if (UInventoryRowWidget* Row = CreateWidget<UInventoryRowWidget>(PC, RowWidgetClass))
 				{
 					Row->Item = Item;
@@ -178,7 +185,7 @@ void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* 
 	if (SlotText)
 	{
 		const FString Worn = Eq
-			? (Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName)
+			? Eq->GetItemDisplayText().ToString()
 			: EmptySlotText;
 		SlotText->SetText(FText::FromString(Worn));
 	}
