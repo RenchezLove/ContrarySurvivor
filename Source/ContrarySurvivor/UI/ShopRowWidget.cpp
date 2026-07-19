@@ -23,26 +23,42 @@ void UShopRowWidget::NativeOnInitialized()
 	}
 }
 
-void UShopRowWidget::SetupRow(const FString& InName, const FString& InPrice,
-	const FString& InActionCaption, bool bActionEnabled)
+void UShopRowWidget::SetupRow(const FText& InName, const FText& InPrice,
+	const FText& InActionCaption, bool bActionEnabled)
 {
 	if (NameText)
 	{
-		// Кубика цены нет — дописываем цену к имени, чтобы игрок её всё равно видел.
-		NameText->SetText(FText::FromString(
-			PriceText ? InName : FString::Printf(TEXT("%s  -  %s"), *InName, *InPrice)));
+		if (PriceText)
+		{
+			NameText->SetText(InName);
+		}
+		else
+		{
+			// Кубика цены нет — дописываем цену к названию, чтобы игрок её всё равно видел.
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Name"), InName);
+			Args.Add(TEXT("Price"), InPrice);
+			NameText->SetText(FText::Format(NamePriceFormat, Args));
+		}
 	}
 	if (PriceText)
 	{
-		PriceText->SetText(FText::FromString(InPrice));
+		PriceText->SetText(InPrice);
 	}
 	if (ActionText)
 	{
-		ActionText->SetText(FText::FromString(InActionCaption));
+		ActionText->SetText(InActionCaption);
 	}
 	if (ActionButton)
 	{
 		ActionButton->SetIsEnabled(bActionEnabled);
+	}
+	if (NoMoneyText)
+	{
+		// Текстом, а не только цветом погашенной кнопки (ADR-049, ревью издателя).
+		NoMoneyText->SetText(NotEnoughMoneyText);
+		NoMoneyText->SetVisibility(bActionEnabled
+			? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	}
 }
 

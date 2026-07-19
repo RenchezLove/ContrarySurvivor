@@ -179,6 +179,7 @@ void AMasterTrader::RebuildCatalog()
 	{
 		FShopEntry E;
 		E.DisplayName = AConsumableItem::GetDefaultDisplayName(Type);
+		E.DisplayText = AConsumableItem::GetDefaultDisplayText(Type);
 		E.AnalyticsId = AnalyticsId;
 		E.Price = Price;
 		E.Kind = EShopEntryKind::Item;
@@ -188,11 +189,15 @@ void AMasterTrader::RebuildCatalog()
 		return E;
 	};
 
-	auto MakeItem = [](const FString& Name, const FString& AnalyticsId, float Price,
-		TSubclassOf<AMasterInventoryItem> Cls)
+	// Name — служебный КЛЮЧ позиции (уходит в ItemName купленного предмета), Text —
+	// переводимое название для показа игроку. Ключи NSLOCTEXT совпадают с конструкторами
+	// предметов (AArmorTiers, APistol, AMeleeWeapon) — это одна и та же строка перевода.
+	auto MakeItem = [](const FString& Name, const FText& Text, const FString& AnalyticsId,
+		float Price, TSubclassOf<AMasterInventoryItem> Cls)
 	{
 		FShopEntry E;
 		E.DisplayName = Name;
+		E.DisplayText = Text;
 		E.AnalyticsId = AnalyticsId;
 		E.Price = Price;
 		E.Kind = EShopEntryKind::Item;
@@ -211,6 +216,7 @@ void AMasterTrader::RebuildCatalog()
 	{
 		FShopEntry Ammo;
 		Ammo.DisplayName = TEXT("Патроны 9мм");
+		Ammo.DisplayText = NSLOCTEXT("Items", "Ammo9mm", "Патроны 9мм");
 		Ammo.AnalyticsId = TEXT("ammo_9mm");
 		Ammo.Price = 2.0f;
 		Ammo.Kind = EShopEntryKind::Ammo;
@@ -219,8 +225,8 @@ void AMasterTrader::RebuildCatalog()
 	}
 
 	// Оружие: нож 40, пистолет 150 (GDD §7.6).
-	Catalog.Add(MakeItem(TEXT("Knife"), TEXT("knife"), 40.0f, AMeleeWeapon::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Pistol"), TEXT("pistol"), 150.0f, APistol::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Knife"), NSLOCTEXT("Items", "Knife", "Нож"), TEXT("knife"), 40.0f, AMeleeWeapon::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Pistol"), NSLOCTEXT("Items", "Pistol", "Пистолет"), TEXT("pistol"), 150.0f, APistol::StaticClass()));
 
 	// Старая броня _01 из каталога УБРАНА (ADR-042): ассеты не удаляются, но торговец ей
 	// не торгует (бэклог Рината — возможно, отдать жителям деревни).
@@ -228,13 +234,13 @@ void AMasterTrader::RebuildCatalog()
 	// Броня Т1-Т3 (ADR-042): цена за слот из настроек PriceArmorT1/T2/T3 (Т1≈50 / Т2≈120 /
 	// Т3≈250). Имя позиции = ItemName класса (как у «Патроны 9мм»).
 	// Т0 — стартовая одежда, в магазин не кладём.
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — голова"), TEXT("armor_t1_head"), PriceArmorT1, AHeadArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — торс"), TEXT("armor_t1_torso"), PriceArmorT1, ATorsoArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т1 — штаны"), TEXT("armor_t1_pants"), PriceArmorT1, APantsArmorT1::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — голова"), TEXT("armor_t2_head"), PriceArmorT2, AHeadArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — торс"), TEXT("armor_t2_torso"), PriceArmorT2, ATorsoArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т2 — штаны"), TEXT("armor_t2_pants"), PriceArmorT2, APantsArmorT2::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — голова"), TEXT("armor_t3_head"), PriceArmorT3, AHeadArmorT3::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — торс"), TEXT("armor_t3_torso"), PriceArmorT3, ATorsoArmorT3::StaticClass()));
-	Catalog.Add(MakeItem(TEXT("Броня Т3 — штаны"), TEXT("armor_t3_pants"), PriceArmorT3, APantsArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — голова"), NSLOCTEXT("Items", "ArmorT1Head", "Броня Т1 — голова"), TEXT("armor_t1_head"), PriceArmorT1, AHeadArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — торс"), NSLOCTEXT("Items", "ArmorT1Torso", "Броня Т1 — торс"), TEXT("armor_t1_torso"), PriceArmorT1, ATorsoArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т1 — штаны"), NSLOCTEXT("Items", "ArmorT1Legs", "Броня Т1 — штаны"), TEXT("armor_t1_pants"), PriceArmorT1, APantsArmorT1::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — голова"), NSLOCTEXT("Items", "ArmorT2Head", "Броня Т2 — голова"), TEXT("armor_t2_head"), PriceArmorT2, AHeadArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — торс"), NSLOCTEXT("Items", "ArmorT2Torso", "Броня Т2 — торс"), TEXT("armor_t2_torso"), PriceArmorT2, ATorsoArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т2 — штаны"), NSLOCTEXT("Items", "ArmorT2Legs", "Броня Т2 — штаны"), TEXT("armor_t2_pants"), PriceArmorT2, APantsArmorT2::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — голова"), NSLOCTEXT("Items", "ArmorT3Head", "Броня Т3 — голова"), TEXT("armor_t3_head"), PriceArmorT3, AHeadArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — торс"), NSLOCTEXT("Items", "ArmorT3Torso", "Броня Т3 — торс"), TEXT("armor_t3_torso"), PriceArmorT3, ATorsoArmorT3::StaticClass()));
+	Catalog.Add(MakeItem(TEXT("Броня Т3 — штаны"), NSLOCTEXT("Items", "ArmorT3Legs", "Броня Т3 — штаны"), TEXT("armor_t3_pants"), PriceArmorT3, APantsArmorT3::StaticClass()));
 }

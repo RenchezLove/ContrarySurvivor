@@ -55,34 +55,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "1"))
 	TSubclassOf<UShopRowWidget> RowWidgetClass;
 
-	// Перед числом денег: «Монеты 150».
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "1"))
-	FString MoneyPrefix = TEXT("Монеты ");
+	// Тексты магазина. Подстановки в фигурных скобках подставляет код, остальное — твой
+	// текст. Статичные подписи («Монеты», «Количество») — отдельные кубики в дизайнере,
+	// код их не пишет; здесь только то, что меняется по ходу сделки (ADR-050).
 
-	// Подписи кнопок действия в строках списков.
+	// Деньги игрока: {Amount} — сколько монет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "1"))
+	FText MoneyFormat = NSLOCTEXT("Shop", "MoneyFormat", "{Amount}");
+
+	// Подписи кнопок в строках списков. В дизайнер уйти НЕ могут: одна и та же строка
+	// служит и списку товаров, и списку рюкзака, слово меняется в зависимости от списка.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "2"))
-	FString BuyActionText = TEXT("Buy");
+	FText BuyActionText = NSLOCTEXT("Shop", "BuyAction", "Купить");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "3"))
-	FString SellActionText = TEXT("Sell");
+	FText SellActionText = NSLOCTEXT("Shop", "SellAction", "Продать");
 
-	// Заголовок панели количества: «КУПИТЬ: Аптечка» / «ПРОДАТЬ: Патроны 9мм».
+	// Цена в строке: {Price} — число. Отдельные форматы, потому что у выкупа знак плюс.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "4"))
-	FString BuyTitle = TEXT("КУПИТЬ");
+	FText BuyPriceFormat = NSLOCTEXT("Shop", "BuyPriceFormat", "{Price}");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "5"))
-	FString SellTitle = TEXT("ПРОДАТЬ");
+	FText SellPriceFormat = NSLOCTEXT("Shop", "SellPriceFormat", "+{Price}");
 
-	// Перед «N / max»: «Кол-во: 3 / 10».
+	// Название брони с прибавкой защиты: {ItemName} — название, {Percent} — прибавка.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "6"))
-	FString QtyPrefix = TEXT("Кол-во: ");
+	FText ArmorBonusFormat = NSLOCTEXT("Shop", "ArmorBonusFormat", "{ItemName} (+{Percent}% защиты)");
 
-	// Перед итогом покупки «Итого: 120» и выручкой продажи «Выручка: +40» (плюс — часть текста).
+	// Заголовок панели количества: {ItemName} — название товара. Слово «Купить»/«Продать»
+	// меняется по типу сделки, поэтому в дизайнер уйти не может и живёт здесь.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "7"))
-	FString TotalPrefix = TEXT("Итого: ");
+	FText BuyTitleFormat = NSLOCTEXT("Shop", "BuyTitleFormat", "Купить: {ItemName}");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "8"))
-	FString RevenuePrefix = TEXT("Выручка: +");
+	FText SellTitleFormat = NSLOCTEXT("Shop", "SellTitleFormat", "Продать: {ItemName}");
+
+	// Количество в сделке: {Qty} — выбрано, {Max} — потолок.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "9"))
+	FText QtyFormat = NSLOCTEXT("Shop", "QtyFormat", "{Qty} из {Max}");
+
+	// Пересчёт пачек в патроны: {Rounds} — сколько патронов выйдет всего. Показывается
+	// ТОЛЬКО при покупке патронов, в остальных сделках строка прячется целиком.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "10"))
+	FText QtyAmmoFormat = NSLOCTEXT("Shop", "QtyAmmoFormat", "всего {Rounds} патронов");
+
+	// Итог сделки: {Total} — сумма. Слово меняется по типу сделки — живёт здесь.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "11"))
+	FText TotalFormat = NSLOCTEXT("Shop", "TotalFormat", "Итого: {Total}");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "12"))
+	FText RevenueFormat = NSLOCTEXT("Shop", "RevenueFormat", "Выручка: +{Total}");
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -147,9 +169,19 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SliderTitleText;
 
-	// «Кол-во: 3 / 10 (= 30 ammo)».
+	// Значение количества «3 из 10» (подпись «Количество» — твой кубик в дизайнере).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SliderQtyText;
+
+	// Строка пересчёта пачек в патроны ЦЕЛИКОМ: положи внутрь и свою подпись, и значение.
+	// Код прячет этот контейнер, когда покупаются не патроны — подпись пропадает вместе
+	// с числом. Без контейнера прячется только само число, а подпись осталась бы висеть.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> SliderQtyAmmoRow;
+
+	// Значение пересчёта «всего 30 патронов».
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SliderQtyAmmoText;
 
 	// Ползунок количества (шаг 1, диапазон 1..max — выставляет код).
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -195,7 +227,7 @@ private:
 	int32 TransactionQtyMax = 1;
 	float TransactionUnitPrice = 0.0f;
 	int32 TransactionUnitAmmo = 0; // патронов в одной единице покупки (0 — не патроны)
-	FString TransactionTitle;
+	FText TransactionTitle;
 
 	// Защита от рекурсии: SetValue ползунка триггерит OnValueChanged — игнорируем свой же вызов.
 	bool bUpdatingSliderFromCode = false;

@@ -73,8 +73,9 @@ void UShopScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	// Деньги — каждый кадр (дёшево; меняются и извне транзакций, например QA-клавишей M).
 	if (MoneyText)
 	{
-		MoneyText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%.0f"), *MoneyPrefix, GetPlayerMoney())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(GetPlayerMoney())));
+		MoneyText->SetText(FText::Format(MoneyFormat, Args));
 	}
 }
 
@@ -124,18 +125,26 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 		{
 			const FShopEntry& E = Catalog[i];
 
-			FString Name = E.DisplayName;
+			// Название позиции: переводимое, если задано; иначе откат на служебный ключ —
+			// то же правило, что у самих предметов (ADR-050, порция 0).
+			FText Name = E.DisplayText.IsEmpty() ? FText::FromString(E.DisplayName) : E.DisplayText;
 			if (E.ItemClass && E.ItemClass->IsChildOf(AArmor::StaticClass()))
 			{
 				const AArmor* ArmorCDO = GetDefault<AArmor>(E.ItemClass);
-				const int32 AddPct = FMath::RoundToInt(ArmorCDO->GetArmorProtection() * 100.0f);
-				Name = FString::Printf(TEXT("%s  (+%d%% защиты)"), *E.DisplayName, AddPct);
+				FFormatNamedArguments ArmorArgs;
+				ArmorArgs.Add(TEXT("ItemName"), Name);
+				ArmorArgs.Add(TEXT("Percent"),
+					FText::AsNumber(FMath::RoundToInt32(ArmorCDO->GetArmorProtection() * 100.0f)));
+				Name = FText::Format(ArmorBonusFormat, ArmorArgs);
 			}
+
+			FFormatNamedArguments PriceArgs;
+			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(E.Price)));
 
 			if (UShopRowWidget* Row = CreateWidget<UShopRowWidget>(PC, RowWidgetClass))
 			{
 				Row->CatalogIndex = i;
-				Row->SetupRow(Name, FString::Printf(TEXT("%.0f"), E.Price), BuyActionText,
+				Row->SetupRow(Name, FText::Format(BuyPriceFormat, PriceArgs), BuyActionText,
 					/*bActionEnabled=*/Money >= E.Price);
 				Row->OnActionClicked.AddUObject(this, &UShopScreenWidget::HandleRowAction);
 				List->AddChild(Row);
@@ -157,13 +166,16 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 				continue;
 			}
 
-			const FString Name = Item->GetItemDisplayText().ToString();
 			const float SellVal = Trader->GetSellValue(Item);
+
+			FFormatNamedArguments PriceArgs;
+			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(SellVal)));
 
 			if (UShopRowWidget* Row = CreateWidget<UShopRowWidget>(PC, RowWidgetClass))
 			{
 				Row->SellItem = Item;
-				Row->SetupRow(Name, FString::Printf(TEXT("+%.0f"), SellVal), SellActionText,
+				Row->SetupRow(Item->GetItemDisplayText(),
+					FText::Format(SellPriceFormat, PriceArgs), SellActionText,
 					/*bActionEnabled=*/true);
 				Row->OnActionClicked.AddUObject(this, &UShopScreenWidget::HandleRowAction);
 				List->AddChild(Row);
@@ -221,7 +233,7 @@ void UShopScreenWidget::ArmBuyTransaction(int32 CatalogIndex)
 	TransactionItem = nullptr;
 	TransactionUnitPrice = E.Price;
 	TransactionUnitAmmo = (E.Kind == EShopEntryKind::Ammo) ? FMath::Max(0, E.AmmoAmount) : 0;
-	TransactionTitle = E.DisplayName;
+	TransactionTitle = E.DisplayText.IsEmpty() ? FText::FromString(E.DisplayName) : E.DisplayText;
 
 	// Потолок по деньгам (минимум 1) — как Canvas ArmBuySlider.
 	int32 ByMoney = 999;
@@ -270,7 +282,7 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 	TransactionItem = Item;
 	TransactionUnitPrice = Trader->GetAmmoSellPerRound();
 	TransactionUnitAmmo = 0;
-	TransactionTitle = Item->GetItemDisplayText().ToString();
+	TransactionTitle = Item->GetItemDisplayText();
 	TransactionQtyMax = FMath::Max(1, Ammo->StackCount);
 	TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
 
@@ -303,7 +315,7 @@ void UShopScreenWidget::CloseTransaction()
 	TransactionQtyMax = 1;
 	TransactionUnitPrice = 0.0f;
 	TransactionUnitAmmo = 0;
-	TransactionTitle.Reset();
+	TransactionTitle = FText::GetEmpty();
 
 	if (SliderPanel)
 	{
@@ -334,24 +346,47 @@ void UShopScreenWidget::UpdateTransactionTexts()
 {
 	if (SliderTitleText)
 	{
-		SliderTitleText->SetText(FText::FromString(FString::Printf(TEXT("%s:  %s"),
-			bTransactionIsBuy ? *BuyTitle : *SellTitle, *TransactionTitle)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("ItemName"), TransactionTitle);
+		SliderTitleText->SetText(FText::Format(
+			bTransactionIsBuy ? BuyTitleFormat : SellTitleFormat, Args));
 	}
 	if (SliderQtyText)
 	{
-		FString QtyLine = FString::Printf(TEXT("%s%d / %d"), *QtyPrefix, TransactionQty, TransactionQtyMax);
-		if (TransactionUnitAmmo > 0)
-		{
-			QtyLine += FString::Printf(TEXT("   (= %d ammo)"), TransactionQty * TransactionUnitAmmo);
-		}
-		SliderQtyText->SetText(FText::FromString(QtyLine));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Qty"), FText::AsNumber(TransactionQty));
+		Args.Add(TEXT("Max"), FText::AsNumber(TransactionQtyMax));
+		SliderQtyText->SetText(FText::Format(QtyFormat, Args));
 	}
+
+	// Пересчёт пачек в патроны есть ТОЛЬКО при покупке патронов. Прячем строку целиком
+	// вместе с подписью Рината (контейнер), иначе подпись висела бы при покупке аптечки.
+	const bool bShowAmmoLine = (TransactionUnitAmmo > 0);
+	const ESlateVisibility AmmoLineVisibility =
+		bShowAmmoLine ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed;
+	if (SliderQtyAmmoRow)
+	{
+		SliderQtyAmmoRow->SetVisibility(AmmoLineVisibility);
+	}
+	else if (SliderQtyAmmoText)
+	{
+		// Фолбэк для раскладки без контейнера: прячем только само значение.
+		SliderQtyAmmoText->SetVisibility(AmmoLineVisibility);
+	}
+	if (SliderQtyAmmoText && bShowAmmoLine)
+	{
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Rounds"), FText::AsNumber(TransactionQty * TransactionUnitAmmo));
+		SliderQtyAmmoText->SetText(FText::Format(QtyAmmoFormat, Args));
+	}
+
 	if (SliderTotalText)
 	{
-		const float Total = TransactionUnitPrice * static_cast<float>(TransactionQty);
-		SliderTotalText->SetText(FText::FromString(bTransactionIsBuy
-			? FString::Printf(TEXT("%s%.0f"), *TotalPrefix, Total)
-			: FString::Printf(TEXT("%s%.0f"), *RevenuePrefix, Total)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Total"), FText::AsNumber(
+			FMath::RoundToInt32(TransactionUnitPrice * static_cast<float>(TransactionQty))));
+		SliderTotalText->SetText(FText::Format(
+			bTransactionIsBuy ? TotalFormat : RevenueFormat, Args));
 	}
 }
 
