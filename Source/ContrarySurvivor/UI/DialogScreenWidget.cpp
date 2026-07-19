@@ -94,15 +94,10 @@ void UDialogScreenWidget::RefreshDialog()
 	{
 		case EQuestState::NotStarted:
 		{
+			// Только предложение квеста. Прощальная фраза-крючок сюда БОЛЬШЕ НЕ ПОПАДАЕТ:
+			// по замыслу она говорится вслед, после согласия, а вместе с предложением
+			// превращала разговор в простыню (баг владельца 2026-07-20).
 			NPCText = Offered.Description;
-			// Ранний сюжетный крючок (ADR-049 п.2) — только в ПЕРВОМ квесте, пока игрок его
-			// не взял. Полный крючок по-прежнему после сдачи ноутбука (кв.3), ADR-044.
-			if (Offered.QuestId == Elder->GetOfferedQuest().QuestId
-				&& !Elder->GetDialogueEarlyHookText().IsEmpty())
-			{
-				NPCText = FText::Join(EarlyHookSeparator,
-					NPCText, Elder->GetDialogueEarlyHookText());
-			}
 			// Сколько заплатят — берём из поля награды квеста, а не из текста описания:
 			// поменяется баланс — строка поменяется сама.
 			if (!RewardLineFormat.IsEmpty() && Offered.RewardMoney > 0.0f)
@@ -124,6 +119,15 @@ void UDialogScreenWidget::RefreshDialog()
 			Args.Add(TEXT("Objectives"),
 				QuestObjectiveText::BuildObjectives(QData, ObjectiveFormat, ObjectiveSeparator));
 			NPCText = FText::Format(ActiveReplicaFormat, Args);
+
+			// Прощальная фраза-крючок (ADR-049 п.2) — говорится ВСЛЕД, когда игрок уже
+			// согласился, и только по ПЕРВОМУ квесту, пока он в работе. Дальше её место
+			// занимает полный крючок после сдачи ноутбука (кв.3, ADR-044).
+			if (QData.QuestId == Elder->GetOfferedQuest().QuestId
+				&& !Elder->GetDialogueEarlyHookText().IsEmpty())
+			{
+				NPCText = FText::Join(EarlyHookSeparator, NPCText, Elder->GetDialogueEarlyHookText());
+			}
 			break;
 		}
 		case EQuestState::Completed:
