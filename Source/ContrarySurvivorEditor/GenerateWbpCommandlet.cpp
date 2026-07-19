@@ -1649,7 +1649,9 @@ namespace
 		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("StatsRow"));
 
 		// Значения пишет код, поэтому образец текста тут — только чтобы кубик было видно
-		// в редакторе. Шрифт и цвет владелец правит сам, мы их не задаём.
+		// в редакторе. А вот оформление НАСЛЕДУЕМ с удаляемого кубика: «не задавать стиль»
+		// здесь означало бы не свободу владельцу, а молча стёртое оформление и работу
+		// перекрашивать три кубика руками.
 		auto AddPair = [&](const TCHAR* IconName, const TCHAR* TexturePath,
 			const TCHAR* ValueName, const TCHAR* Sample, float LeftPad)
 		{
