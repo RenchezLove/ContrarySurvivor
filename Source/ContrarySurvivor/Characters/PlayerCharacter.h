@@ -388,7 +388,7 @@ public:
 
     // От кого погиб (читаемое имя последнего нанёсшего урон). «Неизвестно», если урон не от врага.
     UFUNCTION(BlueprintPure, Category = "Death")
-    FString GetLastDamagerName() const { return LastDamagerName; }
+    FText GetLastDamagerName() const { return LastDamagerName; }
 
     // Сколько врагов убито за сессию (инкремент при смерти врага от игрока).
     UFUNCTION(BlueprintPure, Category = "Death")
@@ -550,7 +550,10 @@ private:
     float LastLifeDuration = 0.0f;
 
     // Читаемое имя последнего нанёсшего урон (для «от кого погиб»). Обновляется в TakeDamage.
-    FString LastDamagerName = TEXT("Неизвестно");
+    // Кто убил — ПЕРЕВОДИМЫЙ текст: игрок читает его на экране смерти каждый раз, когда
+    // погибает (ADR-050). Служебное имя объекта сюда НЕ попадает: неизвестный источник
+    // урона даёт «Неизвестно», а сам объект уходит в лог (протечка вида BP_..._C_2).
+    FText LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
 
     // Счётчик убитых игроком врагов за сессию (инкремент RegisterEnemyKill).
     int32 EnemyKillCount = 0;

@@ -212,7 +212,7 @@ void APlayerCharacter::BeginPlay()
 
     // #26: засекаем старт текущей жизни (для статистики «сколько прожил» на экране смерти).
     LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-    LastDamagerName = TEXT("Неизвестно");
+    LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
 
     // Инициализируем HP игрока через UStatsComponent (источник истины).
     if (Stats)
@@ -493,15 +493,21 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
     {
         if (Cast<AWolfCharacter>(DamageCauser))
         {
-            LastDamagerName = TEXT("Волк");
+            LastDamagerName = NSLOCTEXT("Death", "KillerWolf", "Волк");
         }
         else if (Cast<AEnemyCharacter>(DamageCauser))
         {
-            LastDamagerName = TEXT("Бандит");
+            LastDamagerName = NSLOCTEXT("Death", "KillerBandit", "Бандит");
         }
         else
         {
-            LastDamagerName = DamageCauser->GetName();
+            // Здесь стояло DamageCauser->GetName(), и игрок читал на экране смерти
+            // служебное имя объекта вида BP_BanditBase_C_2 (ADR-049). Показываем
+            // нейтральное слово, а сам объект уводим в лог для разбора.
+            LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+            UE_LOG(LogTemp, Verbose,
+                TEXT("APlayerCharacter: урон от источника без понятного имени '%s' — на экране смерти показано «Неизвестно»"),
+                *DamageCauser->GetName());
         }
     }
 
@@ -1433,7 +1439,7 @@ void APlayerCharacter::HandleDeath()
     DeathDropLocation = GetActorLocation();
 
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
-        LastLifeDuration, *LastDamagerName, EnemyKillCount);
+        LastLifeDuration, *LastDamagerName.ToString(), EnemyKillCount);
 
     // Останавливаем персонажа (анимации смерти нет — просто гасим движение; тело остаётся).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
@@ -1453,7 +1459,7 @@ void APlayerCharacter::HandleDeath()
     const float Money = Stats ? Stats->GetMoney() : 0.0f;
     const int32 QuestsDone = Quests ? Quests->GetTurnedInQuestCount() : 0;
     UE_LOG(LogQA, Display, TEXT("QA: DEATH SCREEN shown - lived %.0fs, killer '%s', money %.0f, quests %d, kills %d"),
-        LastLifeDuration, *LastDamagerName, Money, QuestsDone, EnemyKillCount);
+        LastLifeDuration, *LastDamagerName.ToString(), Money, QuestsDone, EnemyKillCount);
 
     // F3 (ADR-038): событие аналитики «смерть игрока». Без ключей — no-op.
     if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
@@ -1519,7 +1525,7 @@ void APlayerCharacter::Respawn()
 
     // 4) Сбрасываем трекинг жизни и врага-убийцу для следующей жизни.
     LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-    LastDamagerName = TEXT("Неизвестно");
+    LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
 
     // 5) Возвращаем управление и убираем экран смерти.
     if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))

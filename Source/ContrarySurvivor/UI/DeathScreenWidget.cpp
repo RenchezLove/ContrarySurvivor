@@ -55,7 +55,7 @@ void UDeathScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	if (KillerText)
 	{
 		FFormatNamedArguments Args;
-		Args.Add(TEXT("Name"), FText::FromString(Player->GetLastDamagerName()));
+		Args.Add(TEXT("Name"), Player->GetLastDamagerName());
 		KillerText->SetText(FText::Format(KillerFormat, Args));
 	}
 	if (MoneyText)

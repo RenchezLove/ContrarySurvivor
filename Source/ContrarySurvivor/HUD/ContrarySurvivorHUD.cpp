@@ -1792,7 +1792,7 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 	// Литералы: префиксы переехали в UDeathScreenWidget (ADR-048).
 	TArray<FString> Lines;
 	Lines.Add(FString::Printf(TEXT("Прожито:  %02d:%02d"), Minutes, Seconds));
-	Lines.Add(FString::Printf(TEXT("Убийца:  %s"), *Player->GetLastDamagerName()));
+	Lines.Add(FString::Printf(TEXT("Убийца:  %s"), *Player->GetLastDamagerName().ToString()));
 	Lines.Add(FString::Printf(TEXT("Монеты:  %.0f"), Money));
 	Lines.Add(FString::Printf(TEXT("Квестов выполнено:  %d"), QuestsDone));
 	Lines.Add(FString::Printf(TEXT("Врагов убито:  %d"), Kills));
