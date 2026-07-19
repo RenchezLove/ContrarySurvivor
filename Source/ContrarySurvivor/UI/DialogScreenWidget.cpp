@@ -103,6 +103,15 @@ void UDialogScreenWidget::RefreshDialog()
 				NPCText = FText::Join(EarlyHookSeparator,
 					NPCText, Elder->GetDialogueEarlyHookText());
 			}
+			// Сколько заплатят — берём из поля награды квеста, а не из текста описания:
+			// поменяется баланс — строка поменяется сама.
+			if (!RewardLineFormat.IsEmpty() && Offered.RewardMoney > 0.0f)
+			{
+				FFormatNamedArguments RewardArgs;
+				RewardArgs.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(Offered.RewardMoney)));
+				NPCText = FText::Join(RewardLineSeparator,
+					NPCText, FText::Format(RewardLineFormat, RewardArgs));
+			}
 			break;
 		}
 		case EQuestState::Active:

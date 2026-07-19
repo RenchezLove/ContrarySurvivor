@@ -64,6 +64,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "5"))
 	FText EarlyHookSeparator = NSLOCTEXT("Dialog", "EarlyHookSeparator", " ");
 
+	// Строка про награду, дописывается к описанию квеста, пока игрок его не взял (решение
+	// владельца 2026-07-20 «награду в диалоге указывай»): {Reward} — сумма из поля награды
+	// самого квеста, а не вписанная руками, поэтому при смене баланса текст не соврёт.
+	// Пусто — строка не дописывается.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "6", MultiLine = "true"))
+	FText RewardLineFormat = NSLOCTEXT("Dialog", "RewardLineFormat", "Награда: {Reward} монет.");
+
+	// Между описанием квеста и строкой про награду (по умолчанию — пустая строка).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "7"))
+	FText RewardLineSeparator = NSLOCTEXT("Dialog", "RewardLineSeparator", "\n\n");
+
 protected:
 	virtual void NativeOnInitialized() override;
 

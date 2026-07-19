@@ -76,7 +76,10 @@ AElderNPC::AElderNPC()
 	// Ноутбук изымается при сдаче. Награда 250 монет (DRAFT — больше за более тяжёлый квест).
 	SecondQuest.QuestId = FName(TEXT("ClearBanditBase"));
 	SecondQuest.Title = NSLOCTEXT("Quest", "Q2Title", "Зачистить базу бандитов");
-	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
+	// Сумма награды из описания УБРАНА намеренно: её дописывает панель диалога из поля
+	// RewardMoney (иначе при смене баланса текст соврал бы), и вписанная руками строка
+	// показывалась бы второй раз.
+	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне.");
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
