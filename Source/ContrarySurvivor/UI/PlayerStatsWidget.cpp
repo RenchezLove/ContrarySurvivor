@@ -6,6 +6,7 @@
 #include "ARangedWeapon.h" // патроны только у дальнобоя (#5, как Canvas DrawPlayerStats)
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
+#include "Components/Widget.h"
 
 void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
@@ -28,8 +29,10 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	}
 	if (HealthText)
 	{
-		HealthText->SetText(FText::FromString(FString::Printf(TEXT("%s%.0f/%.0f"),
-			*HpPrefix, Stats->GetHealth(), Stats->GetMaxHealth())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Current"), FText::AsNumber(FMath::RoundToInt32(Stats->GetHealth())));
+		Args.Add(TEXT("Max"), FText::AsNumber(FMath::RoundToInt32(Stats->GetMaxHealth())));
+		HealthText->SetText(FText::Format(HealthFormat, Args));
 	}
 	if (HungerBar)
 	{
@@ -37,8 +40,10 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	}
 	if (HungerText)
 	{
-		HungerText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%.0f"), *HungerPrefix, Stats->GetHunger())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Current"), FText::AsNumber(FMath::RoundToInt32(Stats->GetHunger())));
+		Args.Add(TEXT("Max"), FText::AsNumber(FMath::RoundToInt32(SurvivalMax)));
+		HungerText->SetText(FText::Format(HungerFormat, Args));
 	}
 	if (ThirstBar)
 	{
@@ -46,29 +51,56 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	}
 	if (ThirstText)
 	{
-		ThirstText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%.0f"), *ThirstPrefix, Stats->GetThirst())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Current"), FText::AsNumber(FMath::RoundToInt32(Stats->GetThirst())));
+		Args.Add(TEXT("Max"), FText::AsNumber(FMath::RoundToInt32(SurvivalMax)));
+		ThirstText->SetText(FText::Format(ThirstFormat, Args));
 	}
 
-	if (AmmoText)
+	// Патроны — только с дальнобоем в руках (нож/пустые руки — строка прячется).
+	ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon());
+	const ESlateVisibility AmmoVisibility =
+		Ranged ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed;
+
+	if (AmmoRow)
 	{
-		// Патроны — только с дальнобоем в руках (нож/пустые руки — строка прячется).
-		if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon()))
+		// Контейнер прячет подпись и значение разом — подпись живёт в дизайнере, код её не знает.
+		AmmoRow->SetVisibility(AmmoVisibility);
+	}
+	else
+	{
+		// Фолбэк для раскладки без контейнера: прячем только сами значения.
+		if (AmmoText)
 		{
-			AmmoText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			AmmoText->SetText(FText::FromString(FString::Printf(TEXT("%s%d / %d  (bag %d)"),
-				*AmmoPrefix, Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve(),
-				Player->GetReserveAmmoInInventory())));
+			AmmoText->SetVisibility(AmmoVisibility);
 		}
-		else
+		if (AmmoBagText)
 		{
-			AmmoText->SetVisibility(ESlateVisibility::Collapsed);
+			AmmoBagText->SetVisibility(AmmoVisibility);
+		}
+	}
+
+	if (Ranged)
+	{
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("InClip"), FText::AsNumber(Ranged->GetCurrentAmmoInClip()));
+		Args.Add(TEXT("Reserve"), FText::AsNumber(Ranged->GetCurrentAmmoReserve()));
+		Args.Add(TEXT("Bag"), FText::AsNumber(Player->GetReserveAmmoInInventory()));
+
+		if (AmmoText)
+		{
+			AmmoText->SetText(FText::Format(AmmoFormat, Args));
+		}
+		if (AmmoBagText)
+		{
+			AmmoBagText->SetText(FText::Format(AmmoBagFormat, Args));
 		}
 	}
 
 	if (MoneyText)
 	{
-		MoneyText->SetText(FText::FromString(
-			FString::Printf(TEXT("%s%.0f"), *MoneyPrefix, Stats->GetMoney())));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(Stats->GetMoney())));
+		MoneyText->SetText(FText::Format(MoneyFormat, Args));
 	}
 }
