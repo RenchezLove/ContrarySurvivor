@@ -1520,27 +1520,84 @@ namespace
 			return nullptr;
 		}
 
+		// Свойства слота владельца снимаем ДО переноса: после него слот будет уже другого
+		// типа. Переносим не только отступы, но и выравнивание с размером — иначе строка
+		// съедет, даже если отступы совпадут.
 		const int32 Index = Parent->GetChildIndex(Target);
-		const FMargin OldPadding = [Target]()
+		FMargin OldPadding(0.0f);
+		EHorizontalAlignment OldHAlign = HAlign_Fill;
+		FSlateChildSize OldSize;
+		if (const UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Target->Slot))
 		{
-			if (const UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Target->Slot)) { return VSlot->GetPadding(); }
-			if (const UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(Target->Slot)) { return HSlot->GetPadding(); }
-			return FMargin(0.0f);
-		}();
+			OldPadding = VSlot->GetPadding();
+			OldHAlign = VSlot->GetHorizontalAlignment();
+			OldSize = VSlot->GetSize();
+		}
+		else if (const UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(Target->Slot))
+		{
+			OldPadding = HSlot->GetPadding();
+		}
 
 		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), RowName);
 		Parent->RemoveChild(Target);
-		Row->AddChildToHorizontalBox(Target);
+		if (UHorizontalBoxSlot* BodySlot = Row->AddChildToHorizontalBox(Target))
+		{
+			BodySlot->SetVerticalAlignment(VAlign_Center);
+		}
 
 		if (UPanelSlot* RowSlot = Parent->InsertChildAt(Index, Row))
 		{
-			if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(RowSlot)) { VSlot->SetPadding(OldPadding); }
-			else if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(RowSlot)) { HSlot->SetPadding(OldPadding); }
+			if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(RowSlot))
+			{
+				VSlot->SetPadding(OldPadding);
+				VSlot->SetHorizontalAlignment(OldHAlign);
+				VSlot->SetSize(OldSize);
+			}
+			else if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(RowSlot))
+			{
+				HSlot->SetPadding(OldPadding);
+			}
 		}
 		bChanged = true;
 		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: '%s' обёрнут в ряд '%s'."),
 			AssetName, TargetName, *RowName.ToString());
 		return Row;
+	}
+
+	// Поставить иконку первой в уже созданном ряду. Иконка уже есть — ничего не делаем.
+	void AugPrependIcon(UWidgetTree* Tree, const TCHAR* AssetName, UHorizontalBox* Row,
+		const FName& IconName, const TCHAR* TexturePath, float IconSize, bool& bChanged)
+	{
+		if (!Row || Tree->FindWidget(IconName))
+		{
+			return;
+		}
+		UImage* Icon = AugMakeIcon(Tree, AssetName, IconName, TexturePath, IconSize);
+		if (UHorizontalBoxSlot* IconSlot = Cast<UHorizontalBoxSlot>(Row->InsertChildAt(0, Icon)))
+		{
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
+		}
+		bChanged = true;
+	}
+
+	// Новый текстовый кубик В СТИЛЕ уже лежащего в ассете (шрифт, цвет, тень). Так добавленные
+	// значения выглядят как соседние надписи владельца, а не как чужеродная вставка, — и нам
+	// не приходится задавать стиль самим, то есть навязывать своё оформление.
+	UTextBlock* AugMakeTextLike(UWidgetTree* Tree, const UTextBlock* Sample,
+		const FName& Name, const FText& Text)
+	{
+		UTextBlock* Block = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
+		Block->SetText(Text);
+		if (Sample)
+		{
+			Block->SetFont(Sample->GetFont());
+			Block->SetColorAndOpacity(Sample->GetColorAndOpacity());
+			Block->SetShadowOffset(Sample->GetShadowOffset());
+			Block->SetShadowColorAndOpacity(Sample->GetShadowColorAndOpacity());
+		}
+		Block->bIsVariable = true;
+		return Block;
 	}
 
 	// --- Правки по ассетам (каждая функция работает с уже загруженным деревом) ---
@@ -1602,9 +1659,10 @@ namespace
 				IconSlot->SetVerticalAlignment(VAlign_Center);
 				IconSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
 			}
-			UTextBlock* Value = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), FName(ValueName));
-			Value->SetText(FText::FromString(Sample));
-			Value->bIsVariable = true;
+			// Стиль берём с УДАЛЯЕМОГО кубика: новые числа получают шрифт и цвет, которые
+			// владелец настроил для этой строки, а не наши собственные.
+			UTextBlock* Value = AugMakeTextLike(Tree, Cast<UTextBlock>(OldStats),
+				FName(ValueName), FText::FromString(Sample));
 			if (UHorizontalBoxSlot* ValueSlot = Row->AddChildToHorizontalBox(Value))
 			{
 				ValueSlot->SetVerticalAlignment(VAlign_Center);
@@ -1631,6 +1689,150 @@ namespace
 		bChanged = true;
 		UE_LOG(LogGenerateWbp, Display,
 			TEXT("AUGMENT %s: слипшийся StatsText заменён рядом из трёх пар «иконка + значение»."), Name);
+	}
+
+	// Поставить готовый кубик СРАЗУ ПОСЛЕ существующего, в того же родителя. Нужно, когда
+	// новую строку надо вписать в определённое место столбца, а не в конец.
+	void AugInsertAfter(UWidgetTree* Tree, const TCHAR* AssetName, const TCHAR* AfterName,
+		UWidget* NewWidget, bool& bChanged)
+	{
+		UWidget* After = AugFind(Tree, AssetName, AfterName);
+		if (!After)
+		{
+			return;
+		}
+		UPanelWidget* Parent = After->GetParent();
+		if (!Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: у кубика '%s' нет родителя — вставка пропущена."),
+				AssetName, AfterName);
+			return;
+		}
+		Parent->InsertChildAt(Parent->GetChildIndex(After) + 1, NewWidget);
+		bChanged = true;
+	}
+
+	// WBP_PlayerStats, пункты 3-5. Слова-подписи владельцу не нужны — вместо них иконки
+	// слева от полосок; полоски голода и жажды короче полоски здоровья; строка патронов
+	// оборачивается в контейнер AmmoRow, который код прячет целиком.
+	void AugmentPlayerStats(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_PlayerStats");
+
+		struct FStatRow
+		{
+			const TCHAR* OverlayName;
+			const TCHAR* RowName;
+			const TCHAR* IconName;
+			const TCHAR* TexturePath;
+		};
+		static const FStatRow Rows[] =
+		{
+			{ TEXT("HealthBarOverlay"), TEXT("HealthRow"), TEXT("HealthIcon"), TEXT("/Game/UI/Icons/T_Icon_Health.T_Icon_Health") },
+			{ TEXT("HungerBarOverlay"), TEXT("HungerRow"), TEXT("HungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger") },
+			{ TEXT("ThirstBarOverlay"), TEXT("ThirstRow"), TEXT("ThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst") },
+		};
+		for (const FStatRow& Row : Rows)
+		{
+			UHorizontalBox* IconRow = AugWrapInRow(Tree, Name, Row.OverlayName, Row.RowName, bChanged);
+			AugPrependIcon(Tree, Name, IconRow, Row.IconName, Row.TexturePath, 24.0f, bChanged);
+		}
+
+		// Деньги: иконка монеты перед числом (плашку MoneyPlate не трогаем).
+		UHorizontalBox* MoneyRow = AugWrapInRow(Tree, Name, TEXT("MoneyText"), TEXT("MoneyRow"), bChanged);
+		AugPrependIcon(Tree, Name, MoneyRow, TEXT("MoneyIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"), 22.0f, bChanged);
+
+		// Полоски голода и жажды — доля от полоски здоровья (решение владельца). Ширину
+		// берём с САМОЙ полоски здоровья, а не из числа в коде: владелец мог её менять,
+		// и тогда пропорция всё равно сохранится.
+		const float ShortBarRatio = 0.7f;
+		USizeBox* HealthSize = Cast<USizeBox>(Tree->FindWidget(TEXT("HealthBarSize")));
+		if (!HealthSize)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: кубик 'HealthBarSize' не найден — длину полосок не меняю."), Name);
+		}
+		else
+		{
+			const float TargetWidth = HealthSize->GetWidthOverride() * ShortBarRatio;
+			for (const TCHAR* BarName : { TEXT("HungerBarSize"), TEXT("ThirstBarSize") })
+			{
+				USizeBox* Bar = Cast<USizeBox>(Tree->FindWidget(FName(BarName)));
+				if (!Bar)
+				{
+					UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: кубик '%s' не найден — длина не изменена."),
+						Name, BarName);
+					continue;
+				}
+				if (FMath::IsNearlyEqual(Bar->GetWidthOverride(), TargetWidth))
+				{
+					continue; // уже укорочена прошлым прогоном
+				}
+				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: '%s' ширина %.0f -> %.0f."),
+					Name, BarName, Bar->GetWidthOverride(), TargetWidth);
+				Bar->SetWidthOverride(TargetWidth);
+				bChanged = true;
+			}
+		}
+
+		// Строка патронов: контейнер, который код прячет целиком. Иконки патронов не
+		// нарисовано — ряд без иконки (решение game-lead). В ассете сразу спрятан, потому
+		// что с ножом в руках строки быть не должно; показывает её код.
+		if (!Tree->FindWidget(TEXT("AmmoRow")))
+		{
+			if (UHorizontalBox* AmmoRow = AugWrapInRow(Tree, Name, TEXT("AmmoText"), TEXT("AmmoRow"), bChanged))
+			{
+				AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
+				AmmoRow->bIsVariable = true;
+			}
+		}
+	}
+
+	// WBP_Shop, пункт 6: строка пересчёта пачек в патроны. Показывается только при покупке
+	// патронов, поэтому в ассете сразу спрятана — видимостью управляет код.
+	void AugmentShopAmmoRow(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Shop");
+		if (Tree->FindWidget(TEXT("SliderQtyAmmoRow")))
+		{
+			return;
+		}
+		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("SliderQtyAmmoRow"));
+		Row->SetVisibility(ESlateVisibility::Collapsed);
+		Row->bIsVariable = true;
+
+		// Стиль — с соседней строки количества, чтобы пересчёт выглядел её продолжением.
+		Row->AddChildToHorizontalBox(AugMakeTextLike(Tree,
+			Cast<UTextBlock>(Tree->FindWidget(TEXT("SliderQtyText"))),
+			TEXT("SliderQtyAmmoText"), FText::FromString(TEXT("всего 30 патронов"))));
+
+		AugInsertAfter(Tree, Name, TEXT("SliderQtyText"), Row, bChanged);
+	}
+
+	// WBP_ShopRow, пункт 7: строка «Не хватает монет» рядом с ценой. В ассете спрятана —
+	// код показывает её только в тех товарах, на которые не хватает денег.
+	void AugmentShopRow(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_ShopRow");
+		if (Tree->FindWidget(TEXT("NoMoneyText")))
+		{
+			return;
+		}
+		UTextBlock* NoMoney = AugMakeTextLike(Tree,
+			Cast<UTextBlock>(Tree->FindWidget(TEXT("PriceText"))),
+			TEXT("NoMoneyText"), NSLOCTEXT("Shop", "NotEnoughMoney", "Не хватает монет"));
+		NoMoney->SetVisibility(ESlateVisibility::Collapsed);
+
+		AugInsertAfter(Tree, Name, TEXT("PriceText"), NoMoney, bChanged);
+	}
+
+	// WBP_QuestTracker, пункт 8: в ассете лежит текст-заглушка от генерации. Строку пишет
+	// код, а пока квеста нет — кубик должен быть пустым, иначе заглушка мелькает на экране.
+	void AugmentQuestTracker(UWidgetTree* Tree, bool& bChanged)
+	{
+		AugSetText(Tree, TEXT("WBP_QuestTracker"), TEXT("TrackerText"), FText::GetEmpty(), bChanged);
 	}
 
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
@@ -1773,455 +1975,6 @@ namespace
 		return 0;
 	}
 
-	// ======================================================================
-	// Режим дополнения (-augment)
-	// ======================================================================
-	// Перегенерация с -force стирает ручную стилизацию Рината, поэтому здесь НИ ОДНО
-	// существующее свойство оформления не переписывается: меняем только текст названных
-	// кубиков и ДОБАВЛЯЕМ недостающие. Когда существующий кубик переезжает в новый ряд,
-	// настройки его слота (отступы/выравнивание — их правил Ринат) переносятся на ряд,
-	// иначе раскладка столбца поедет. Каждая правка идемпотентна: повторный прогон
-	// ничего не меняет и ничего не пишет.
-
-	UWidgetBlueprint* LoadWbpForAugment(const TCHAR* ObjectPath, const TCHAR* AssetName)
-	{
-		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, ObjectPath);
-		if (!WBP || !WBP->WidgetTree)
-		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: %s не загрузился."), AssetName);
-			return nullptr;
-		}
-		return WBP;
-	}
-
-	bool SaveAugmented(UWidgetBlueprint* WBP, const TCHAR* PackageName, const TCHAR* AssetName, bool bChanged)
-	{
-		if (!bChanged)
-		{
-			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT SKIP: %s — правки уже на месте, не сохраняю."), AssetName);
-			return true;
-		}
-		FKismetEditorUtilities::CompileBlueprint(WBP);
-		if (WBP->Status == BS_Error)
-		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: %s скомпилировался с ошибками — не сохраняю."), AssetName);
-			return false;
-		}
-		const FString Filename = FPackageName::LongPackageNameToFilename(
-			PackageName, FPackageName::GetAssetPackageExtension());
-		FSavePackageArgs SaveArgs;
-		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
-		if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
-		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: SavePackage не сохранил %s."), *Filename);
-			return false;
-		}
-		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT OK: %s сохранён."), AssetName);
-		return true;
-	}
-
-	// Смена ТОЛЬКО строки существующего кубика: шрифт, цвет, тень остаются Рината.
-	bool SetTextIfDifferent(UWidgetTree* Tree, const TCHAR* CubeName, const FText& NewText)
-	{
-		UTextBlock* Block = Cast<UTextBlock>(Tree->FindWidget(FName(CubeName)));
-		if (!Block)
-		{
-			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT: кубик %s не найден — текст не менял."), CubeName);
-			return false;
-		}
-		if (Block->GetText().EqualTo(NewText))
-		{
-			return false;
-		}
-		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT: %s: «%s» -> «%s»."),
-			CubeName, *Block->GetText().ToString(), *NewText.ToString());
-		Block->SetText(NewText);
-		return true;
-	}
-
-	// Новый кубик В СТИЛЕ соседнего, уже оформленного Ринатом, чтобы не выбивался.
-	UTextBlock* MakeTextLike(UWidgetTree* Tree, const UTextBlock* Sample, const FName& Name, const FText& Text)
-	{
-		UTextBlock* Block = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
-		Block->SetText(Text);
-		if (Sample)
-		{
-			Block->SetFont(Sample->GetFont());
-			Block->SetColorAndOpacity(Sample->GetColorAndOpacity());
-			Block->SetShadowOffset(Sample->GetShadowOffset());
-			Block->SetShadowColorAndOpacity(Sample->GetShadowColorAndOpacity());
-		}
-		Block->bIsVariable = true;
-		return Block;
-	}
-
-	UImage* MakeIconImage(UWidgetTree* Tree, const FName& Name, const TCHAR* TexturePath, float IconSize)
-	{
-		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), Name);
-		if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, TexturePath))
-		{
-			Icon->SetBrushFromTexture(Texture, false);
-		}
-		else
-		{
-			UE_LOG(LogGenerateWbp, Warning,
-				TEXT("AUGMENT: текстура %s не загрузилась — иконка %s осталась пустой."),
-				TexturePath, *Name.ToString());
-		}
-		Icon->SetDesiredSizeOverride(FVector2D(IconSize, IconSize));
-		return Icon;
-	}
-
-	// Заворачивает существующий виджет столбца в горизонтальный ряд «иконка + виджет».
-	// TexturePath = nullptr — ряд без иконки (нужен для строки патронов: иконки нет).
-	UHorizontalBox* WrapInIconRow(UWidgetTree* Tree, UVerticalBox* Column, UWidget* Existing,
-		const FName& RowName, const FName& IconName, const TCHAR* TexturePath, float IconSize)
-	{
-		const int32 Index = Column->GetChildIndex(Existing);
-		if (Index == INDEX_NONE)
-		{
-			return nullptr;
-		}
-
-		// Слот Рината снимаем ДО переноса — потом он будет уже другого типа.
-		FMargin OldPadding(0.0f);
-		EHorizontalAlignment OldHAlign = HAlign_Fill;
-		FSlateChildSize OldSize;
-		if (const UVerticalBoxSlot* OldSlot = Cast<UVerticalBoxSlot>(Existing->Slot))
-		{
-			OldPadding = OldSlot->GetPadding();
-			OldHAlign = OldSlot->GetHorizontalAlignment();
-			OldSize = OldSlot->GetSize();
-		}
-
-		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), RowName);
-		Column->RemoveChild(Existing);
-
-		if (TexturePath)
-		{
-			UImage* Icon = MakeIconImage(Tree, IconName, TexturePath, IconSize);
-			if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(Icon))
-			{
-				IconSlot->SetVerticalAlignment(VAlign_Center);
-				IconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
-			}
-		}
-		if (UHorizontalBoxSlot* BodySlot = Row->AddChildToHorizontalBox(Existing))
-		{
-			BodySlot->SetVerticalAlignment(VAlign_Center);
-		}
-
-		if (UVerticalBoxSlot* RowSlot = Cast<UVerticalBoxSlot>(Column->InsertChildAt(Index, Row)))
-		{
-			RowSlot->SetPadding(OldPadding);
-			RowSlot->SetHorizontalAlignment(OldHAlign);
-			RowSlot->SetSize(OldSize);
-		}
-		return Row;
-	}
-
-	// --- WBP_Shop: русские надписи + строка пересчёта патронов в окне количества ---
-	int32 AugmentShop()
-	{
-		UWidgetBlueprint* WBP = LoadWbpForAugment(TEXT("/Game/UI/WBP_Shop.WBP_Shop"), TEXT("WBP_Shop"));
-		if (!WBP)
-		{
-			return 1;
-		}
-		UWidgetTree* Tree = WBP->WidgetTree;
-		bool bChanged = false;
-
-		bChanged |= SetTextIfDifferent(Tree, TEXT("HeaderText"), NSLOCTEXT("Shop", "ShopHeader", "Торговец"));
-		bChanged |= SetTextIfDifferent(Tree, TEXT("BuyHeaderText"), NSLOCTEXT("Shop", "ShopBuyHeader", "Товары торговца"));
-		bChanged |= SetTextIfDifferent(Tree, TEXT("SellHeaderText"), NSLOCTEXT("Shop", "ShopSellHeader", "Рюкзак"));
-		bChanged |= SetTextIfDifferent(Tree, TEXT("CloseLabel"), NSLOCTEXT("Shop", "ShopClose", "Закрыть"));
-		bChanged |= SetTextIfDifferent(Tree, TEXT("SliderConfirmLabel"), NSLOCTEXT("Shop", "ShopConfirm", "Подтвердить"));
-		bChanged |= SetTextIfDifferent(Tree, TEXT("SliderCancelLabel"), NSLOCTEXT("Shop", "ShopCancel", "Отмена"));
-
-		// Строка «всего N патронов» прячется ЦЕЛИКОМ вместе с подписью, поэтому число
-		// живёт внутри контейнера SliderQtyAmmoRow (ShopScreenWidget.h:177-184).
-		if (!Tree->FindWidget(TEXT("SliderQtyAmmoRow")))
-		{
-			UVerticalBox* SliderBox = Cast<UVerticalBox>(Tree->FindWidget(TEXT("SliderBox")));
-			UTextBlock* QtySample = Cast<UTextBlock>(Tree->FindWidget(TEXT("SliderQtyText")));
-			if (SliderBox && QtySample)
-			{
-				UHorizontalBox* AmmoRow = Tree->ConstructWidget<UHorizontalBox>(
-					UHorizontalBox::StaticClass(), TEXT("SliderQtyAmmoRow"));
-				AmmoRow->SetVisibility(ESlateVisibility::Collapsed); // показ — за кодом
-				AmmoRow->bIsVariable = true;
-
-				UTextBlock* AmmoText = MakeTextLike(Tree, QtySample, TEXT("SliderQtyAmmoText"),
-					NSLOCTEXT("Shop", "ShopQtyAmmoSample", "всего 30 патронов"));
-				AmmoRow->AddChildToHorizontalBox(AmmoText);
-
-				const int32 QtyIndex = SliderBox->GetChildIndex(QtySample);
-				SliderBox->InsertChildAt(QtyIndex == INDEX_NONE ? 0 : QtyIndex + 1, AmmoRow);
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT: WBP_Shop — добавлен SliderQtyAmmoRow с SliderQtyAmmoText."));
-				bChanged = true;
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("AUGMENT: WBP_Shop — нет SliderBox или SliderQtyText, строку патронов не добавил."));
-			}
-		}
-
-		return SaveAugmented(WBP, TEXT("/Game/UI/WBP_Shop"), TEXT("WBP_Shop"), bChanged) ? 0 : 1;
-	}
-
-	// --- WBP_Inventory: слипшийся StatsText -> три кубика значений с иконками ---
-	int32 AugmentInventory()
-	{
-		UWidgetBlueprint* WBP = LoadWbpForAugment(TEXT("/Game/UI/WBP_Inventory.WBP_Inventory"), TEXT("WBP_Inventory"));
-		if (!WBP)
-		{
-			return 1;
-		}
-		UWidgetTree* Tree = WBP->WidgetTree;
-		bool bChanged = false;
-
-		if (!Tree->FindWidget(TEXT("InvMoneyText")))
-		{
-			UVerticalBox* PanelBox = Cast<UVerticalBox>(Tree->FindWidget(TEXT("PanelBox")));
-			UTextBlock* StatsText = Cast<UTextBlock>(Tree->FindWidget(TEXT("StatsText")));
-			if (PanelBox && StatsText)
-			{
-				// Оформление берём с самого StatsText — это стиль, который выбрал Ринат.
-				const int32 Index = PanelBox->GetChildIndex(StatsText);
-				FMargin OldPadding(0.0f);
-				EHorizontalAlignment OldHAlign = HAlign_Fill;
-				if (const UVerticalBoxSlot* OldSlot = Cast<UVerticalBoxSlot>(StatsText->Slot))
-				{
-					OldPadding = OldSlot->GetPadding();
-					OldHAlign = OldSlot->GetHorizontalAlignment();
-				}
-
-				UHorizontalBox* StatsRow = Tree->ConstructWidget<UHorizontalBox>(
-					UHorizontalBox::StaticClass(), TEXT("InvStatsRow"));
-
-				struct FInvStat
-				{
-					const TCHAR* CubeName;
-					const TCHAR* IconName;
-					const TCHAR* TexturePath;
-					const TCHAR* Sample;
-				};
-				const FInvStat Stats[] = {
-					{ TEXT("InvMoneyText"),  TEXT("InvMoneyIcon"),  TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"),   TEXT("0") },
-					{ TEXT("InvHungerText"), TEXT("InvHungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"), TEXT("100 / 100") },
-					{ TEXT("InvThirstText"), TEXT("InvThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"), TEXT("100 / 100") },
-				};
-				for (const FInvStat& Stat : Stats)
-				{
-					UImage* Icon = MakeIconImage(Tree, Stat.IconName, Stat.TexturePath, 20.0f);
-					if (UHorizontalBoxSlot* IconSlot = StatsRow->AddChildToHorizontalBox(Icon))
-					{
-						IconSlot->SetVerticalAlignment(VAlign_Center);
-						IconSlot->SetPadding(FMargin(12.0f, 0.0f, 5.0f, 0.0f));
-					}
-					UTextBlock* Value = MakeTextLike(Tree, StatsText, Stat.CubeName, FText::FromString(Stat.Sample));
-					if (UHorizontalBoxSlot* ValueSlot = StatsRow->AddChildToHorizontalBox(Value))
-					{
-						ValueSlot->SetVerticalAlignment(VAlign_Center);
-					}
-				}
-
-				PanelBox->RemoveChild(StatsText);
-				if (UVerticalBoxSlot* RowSlot = Cast<UVerticalBoxSlot>(
-					PanelBox->InsertChildAt(Index == INDEX_NONE ? 1 : Index, StatsRow)))
-				{
-					RowSlot->SetPadding(OldPadding);
-					RowSlot->SetHorizontalAlignment(OldHAlign);
-				}
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT: WBP_Inventory — StatsText заменён на InvStatsRow (монеты/голод/жажда + иконки)."));
-				bChanged = true;
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("AUGMENT: WBP_Inventory — нет PanelBox или StatsText, кубики не добавил."));
-			}
-		}
-
-		return SaveAugmented(WBP, TEXT("/Game/UI/WBP_Inventory"), TEXT("WBP_Inventory"), bChanged) ? 0 : 1;
-	}
-
-	// --- WBP_PlayerStats: иконки вместо слов, короче полоски, контейнер патронов ---
-	int32 AugmentPlayerStats()
-	{
-		UWidgetBlueprint* WBP = LoadWbpForAugment(
-			TEXT("/Game/UI/WBP_PlayerStats.WBP_PlayerStats"), TEXT("WBP_PlayerStats"));
-		if (!WBP)
-		{
-			return 1;
-		}
-		UWidgetTree* Tree = WBP->WidgetTree;
-		UVerticalBox* StatsBox = Cast<UVerticalBox>(Tree->FindWidget(TEXT("StatsBox")));
-		if (!StatsBox)
-		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("AUGMENT: WBP_PlayerStats — нет StatsBox."));
-			return 1;
-		}
-		bool bChanged = false;
-
-		// Подписи словами Ринат заменил на иконки: слово из кубика убираем (код пишет
-		// туда только число), слева от полоски встаёт иконка.
-		struct FStatRow
-		{
-			const TCHAR* OverlayName;
-			const TCHAR* RowName;
-			const TCHAR* IconName;
-			const TCHAR* TexturePath;
-		};
-		const FStatRow Rows[] = {
-			{ TEXT("HealthBarOverlay"), TEXT("HealthRow"), TEXT("HealthIcon"), TEXT("/Game/UI/Icons/T_Icon_Health.T_Icon_Health") },
-			{ TEXT("HungerBarOverlay"), TEXT("HungerRow"), TEXT("HungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger") },
-			{ TEXT("ThirstBarOverlay"), TEXT("ThirstRow"), TEXT("ThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst") },
-		};
-		for (const FStatRow& Row : Rows)
-		{
-			if (Tree->FindWidget(FName(Row.RowName)))
-			{
-				continue;
-			}
-			if (UWidget* Overlay = Tree->FindWidget(FName(Row.OverlayName)))
-			{
-				if (WrapInIconRow(Tree, StatsBox, Overlay, Row.RowName, Row.IconName, Row.TexturePath, 24.0f))
-				{
-					UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT: WBP_PlayerStats — %s обёрнут в %s с иконкой."),
-						Row.OverlayName, Row.RowName);
-					bChanged = true;
-				}
-			}
-		}
-
-		// Полоски голода и жажды короче полоски здоровья (доля от её ширины).
-		const float ShortBarRatio = 0.7f;
-		if (USizeBox* HealthSize = Cast<USizeBox>(Tree->FindWidget(TEXT("HealthBarSize"))))
-		{
-			const float TargetWidth = HealthSize->GetWidthOverride() * ShortBarRatio;
-			const TCHAR* ShortBars[] = { TEXT("HungerBarSize"), TEXT("ThirstBarSize") };
-			for (const TCHAR* BarName : ShortBars)
-			{
-				if (USizeBox* Bar = Cast<USizeBox>(Tree->FindWidget(FName(BarName))))
-				{
-					if (!FMath::IsNearlyEqual(Bar->GetWidthOverride(), TargetWidth))
-					{
-						UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT: WBP_PlayerStats — %s ширина %.0f -> %.0f."),
-							BarName, Bar->GetWidthOverride(), TargetWidth);
-						Bar->SetWidthOverride(TargetWidth);
-						bChanged = true;
-					}
-				}
-			}
-		}
-
-		// Строка патронов прячется целиком (PlayerStatsWidget.h:91-94). Иконки патронов
-		// среди нарисованных НЕТ, поэтому ряд без иконки — только значение.
-		if (!Tree->FindWidget(TEXT("AmmoRow")))
-		{
-			if (UWidget* AmmoText = Tree->FindWidget(TEXT("AmmoText")))
-			{
-				if (UHorizontalBox* AmmoRow = WrapInIconRow(Tree, StatsBox, AmmoText,
-					TEXT("AmmoRow"), NAME_None, nullptr, 0.0f))
-				{
-					AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
-					AmmoRow->bIsVariable = true;
-					UE_LOG(LogGenerateWbp, Display,
-						TEXT("AUGMENT: WBP_PlayerStats — AmmoText обёрнут в AmmoRow (иконки патронов нет)."));
-					bChanged = true;
-				}
-			}
-		}
-
-		// Монеты: иконка слева от значения внутри плашки.
-		if (!Tree->FindWidget(TEXT("MoneyRow")))
-		{
-			UBorder* MoneyPlate = Cast<UBorder>(Tree->FindWidget(TEXT("MoneyPlate")));
-			UWidget* MoneyText = Tree->FindWidget(TEXT("MoneyText"));
-			if (MoneyPlate && MoneyText)
-			{
-				UHorizontalBox* MoneyRow = Tree->ConstructWidget<UHorizontalBox>(
-					UHorizontalBox::StaticClass(), TEXT("MoneyRow"));
-				MoneyPlate->RemoveChild(MoneyText);
-
-				UImage* Icon = MakeIconImage(Tree, TEXT("MoneyIcon"),
-					TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"), 20.0f);
-				if (UHorizontalBoxSlot* IconSlot = MoneyRow->AddChildToHorizontalBox(Icon))
-				{
-					IconSlot->SetVerticalAlignment(VAlign_Center);
-					IconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
-				}
-				if (UHorizontalBoxSlot* ValueSlot = MoneyRow->AddChildToHorizontalBox(MoneyText))
-				{
-					ValueSlot->SetVerticalAlignment(VAlign_Center);
-				}
-				MoneyPlate->SetContent(MoneyRow);
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT: WBP_PlayerStats — MoneyText обёрнут в MoneyRow с иконкой монет."));
-				bChanged = true;
-			}
-		}
-
-		return SaveAugmented(WBP, TEXT("/Game/UI/WBP_PlayerStats"), TEXT("WBP_PlayerStats"), bChanged) ? 0 : 1;
-	}
-
-	// --- WBP_ShopRow: строка «Не хватает монет» ---
-	int32 AugmentShopRow()
-	{
-		UWidgetBlueprint* WBP = LoadWbpForAugment(TEXT("/Game/UI/WBP_ShopRow.WBP_ShopRow"), TEXT("WBP_ShopRow"));
-		if (!WBP)
-		{
-			return 1;
-		}
-		UWidgetTree* Tree = WBP->WidgetTree;
-		bool bChanged = false;
-
-		if (!Tree->FindWidget(TEXT("NoMoneyText")))
-		{
-			UHorizontalBox* RowBox = Cast<UHorizontalBox>(Tree->FindWidget(TEXT("RowBox")));
-			UTextBlock* PriceSample = Cast<UTextBlock>(Tree->FindWidget(TEXT("PriceText")));
-			if (RowBox && PriceSample)
-			{
-				// Код показывает строку только когда покупка недоступна (ShopRowWidget.h:86-89).
-				UTextBlock* NoMoney = MakeTextLike(Tree, PriceSample, TEXT("NoMoneyText"),
-					NSLOCTEXT("Shop", "NoMoney", "Не хватает монет"));
-				NoMoney->SetVisibility(ESlateVisibility::Collapsed);
-				const int32 PriceIndex = RowBox->GetChildIndex(PriceSample);
-				if (UHorizontalBoxSlot* Slot = Cast<UHorizontalBoxSlot>(
-					RowBox->InsertChildAt(PriceIndex == INDEX_NONE ? 0 : PriceIndex + 1, NoMoney)))
-				{
-					Slot->SetVerticalAlignment(VAlign_Center);
-					Slot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
-				}
-				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT: WBP_ShopRow — добавлен NoMoneyText."));
-				bChanged = true;
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("AUGMENT: WBP_ShopRow — нет RowBox или PriceText, кубик не добавил."));
-			}
-		}
-
-		return SaveAugmented(WBP, TEXT("/Game/UI/WBP_ShopRow"), TEXT("WBP_ShopRow"), bChanged) ? 0 : 1;
-	}
-
-	// --- WBP_QuestTracker: убрать заглушку, кубик заполняет код ---
-	int32 AugmentQuestTracker()
-	{
-		UWidgetBlueprint* WBP = LoadWbpForAugment(
-			TEXT("/Game/UI/WBP_QuestTracker.WBP_QuestTracker"), TEXT("WBP_QuestTracker"));
-		if (!WBP)
-		{
-			return 1;
-		}
-		const bool bChanged = SetTextIfDifferent(WBP->WidgetTree, TEXT("TrackerText"), FText::GetEmpty());
-		return SaveAugmented(WBP, TEXT("/Game/UI/WBP_QuestTracker"), TEXT("WBP_QuestTracker"), bChanged) ? 0 : 1;
-	}
 }
 
 int32 UGenerateWbpCommandlet::Main(const FString& Params)
@@ -2252,10 +2005,17 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		const TCHAR* AssetName;
 		void (*Augment)(UWidgetTree*, bool&);
 	};
+	// Порядок = порядок важности из задания: первыми панели, которые владелец видит сейчас.
+	// У WBP_Shop две записи: надписи и строка патронов — разные правки одного ассета,
+	// каждая со своей проверкой «уже сделано», поэтому их удобнее держать раздельно.
 	static const FAugmentSpec Specs[] =
 	{
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShop },
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventory },
+		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStats },
+		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopAmmoRow },
+		{ TEXT("/Game/UI/WBP_ShopRow"),       TEXT("WBP_ShopRow"),       &AugmentShopRow },
+		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTracker },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
 	};
 
