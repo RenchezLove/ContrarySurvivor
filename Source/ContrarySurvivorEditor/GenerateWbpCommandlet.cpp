@@ -634,7 +634,7 @@ namespace
 		}
 
 		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("TrackerText"),
-			TEXT("Квест: Шкуры волков — Шкура волка 1/3"),
+			TEXT("Квест: Шкуры волков — Собрать шкуры волков 1 из 3"),
 			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 16, TEXT("Regular")); // QuestTrackerColor
 		Line->bIsVariable = true;
 		Plate->SetContent(Line);
@@ -1088,7 +1088,7 @@ namespace
 		UButton* Accept = MakeStyledButton(Tree, TEXT("AcceptButton"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("[ Принять ]"),
+		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("Принять"),
 			FLinearColor::White, 15, TEXT("Regular")));
 		AddAnswer(Accept, 200.0f, 0.0f); // DialogButtonWidth
 
@@ -1096,7 +1096,7 @@ namespace
 		UButton* Decline = MakeStyledButton(Tree, TEXT("DeclineButton"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f));
-		Decline->SetContent(MakeText(Tree, Roboto, TEXT("DeclineLabel"), TEXT("[ Отказаться ]"),
+		Decline->SetContent(MakeText(Tree, Roboto, TEXT("DeclineLabel"), TEXT("Отказаться"),
 			FLinearColor::White, 15, TEXT("Regular")));
 		AddAnswer(Decline, 200.0f, 14.0f);
 
@@ -1105,7 +1105,7 @@ namespace
 		UButton* TurnIn = MakeStyledButton(Tree, TEXT("TurnInButton"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		UTextBlock* TurnInCaption = MakeText(Tree, Roboto, TEXT("TurnInText"), TEXT("[ Сдать (+0) ]"),
+		UTextBlock* TurnInCaption = MakeText(Tree, Roboto, TEXT("TurnInText"), TEXT("Сдать (+0)"),
 			FLinearColor::White, 15, TEXT("Regular"));
 		TurnInCaption->bIsVariable = true;
 		TurnIn->SetContent(TurnInCaption);
@@ -1115,7 +1115,7 @@ namespace
 		UButton* CloseBtn = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f));
-		CloseBtn->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("[ Закрыть ]"),
+		CloseBtn->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
 			FLinearColor::White, 15, TEXT("Regular")));
 		AddAnswer(CloseBtn, 200.0f, 14.0f);
 		return true;

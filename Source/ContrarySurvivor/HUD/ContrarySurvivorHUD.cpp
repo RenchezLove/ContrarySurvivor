@@ -1520,13 +1520,13 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		case EQuestState::Active:
 			// Сборка кодом (формат в редактор не отдаём): Prefix + название + « — » + прогресс + «.»
 			NPCText = FString::Printf(TEXT("%s%s — %s."),
-				*DialogElder->GetDialogueActivePrefix(), *QData.Title, *ObjStr);
+				*DialogElder->GetDialogueActivePrefix().ToString(), *QData.Title, *ObjStr);
 			break;
 		case EQuestState::Completed:
-			NPCText = DialogElder->GetDialogueCompletedText();
+			NPCText = DialogElder->GetDialogueCompletedText().ToString();
 			break;
 		case EQuestState::TurnedIn:
-			NPCText = DialogElder->GetDialogueTurnedInText();
+			NPCText = DialogElder->GetDialogueTurnedInText().ToString();
 			break;
 		default:
 			break;
@@ -1559,7 +1559,7 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	DrawRectOutline(PX, PY, PanelW, PanelH, UIPanelBorderColor, UIPanelBorderThickness);
 
 	// Заголовок — имя NPC (крупно, обводка; имя — поле старосты).
-	DrawShadowedText(DialogElder->GetDialogueDisplayName(), DialogNameColor, PX + Pad, PY + Pad, Font, UIHeaderTextScale);
+	DrawShadowedText(DialogElder->GetDialogueDisplayName().ToString(), DialogNameColor, PX + Pad, PY + Pad, Font, UIHeaderTextScale);
 
 	// Кнопки-ответы (внизу панели); их верхняя граница — жёсткий предел отрисовки реплики.
 	const float BtnY = PY + PanelH - Pad - BtnH;

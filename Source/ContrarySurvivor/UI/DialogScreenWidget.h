@@ -41,12 +41,28 @@ public:
 
 	// --- Настройки (Class Defaults WBP_Dialog; владение переехало из HUD — ADR-048) ---
 
-	// Кнопка сдачи собирается кодом: Prefix + награда + Suffix = «[ Сдать (+150) ]».
+	// Подпись кнопки сдачи: {Reward} — награда монетами. Квадратные скобки вокруг всей
+	// надписи убраны (ADR-049: выглядели как временная затычка), скобки вокруг награды
+	// оставлены — они по делу, показывают прибавку.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "1"))
-	FString TurnInPrefix = TEXT("[ Сдать (+");
+	FText TurnInFormat = NSLOCTEXT("Dialog", "TurnInFormat", "Сдать (+{Reward})");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "2"))
-	FString TurnInSuffix = TEXT(") ]");
+	// Реплика о незаконченном квесте: {Prefix} — начало фразы со старосты, {Title} —
+	// название квеста, {Objectives} — строка целей.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "2", MultiLine = "true"))
+	FText ActiveReplicaFormat = NSLOCTEXT("Dialog", "ActiveReplicaFormat", "{Prefix}{Title} — {Objectives}.");
+
+	// Одна цель квеста: {Objective} — что сделать, {Done} — сделано, {Total} — сколько надо.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "3"))
+	FText ObjectiveFormat = NSLOCTEXT("Quest", "ObjectiveFormat", "{Objective} {Done} из {Total}");
+
+	// Между двумя целями, когда их у квеста две.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "4"))
+	FText ObjectiveSeparator = NSLOCTEXT("Quest", "ObjectiveSeparator", ", ");
+
+	// Ранний сюжетный крючок дописывается к реплике первого квеста через этот разделитель.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "5"))
+	FText EarlyHookSeparator = NSLOCTEXT("Dialog", "EarlyHookSeparator", " ");
 
 protected:
 	virtual void NativeOnInitialized() override;

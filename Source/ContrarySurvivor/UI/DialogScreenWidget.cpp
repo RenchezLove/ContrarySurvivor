@@ -4,6 +4,7 @@
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/UI/QuestObjectiveText.h"
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 
@@ -83,40 +84,37 @@ void UDialogScreenWidget::RefreshDialog()
 
 	if (NPCNameText)
 	{
-		NPCNameText->SetText(FText::FromString(Elder->GetDialogueDisplayName()));
+		NPCNameText->SetText(Elder->GetDialogueDisplayName());
 	}
 
-	// Реплика по состоянию (тексты — EditAnywhere-поля старосты; сборка Active-строки кодом,
-	// формат не в редакторе: Prefix + название + « — » + прогресс + «.»).
-	FString NPCText;
+	// Реплика по состоянию: сами фразы — редактируемые поля старосты, сборка строки с
+	// числами — формат этой панели (ADR-050).
+	FText NPCText;
 	switch (State)
 	{
 		case EQuestState::NotStarted:
-			NPCText = Offered.Description;
+		{
+			NPCText = FText::FromString(Offered.Description);
 			// Ранний сюжетный крючок (ADR-049 п.2) — только в ПЕРВОМ квесте, пока игрок его
 			// не взял. Полный крючок по-прежнему после сдачи ноутбука (кв.3), ADR-044.
 			if (Offered.QuestId == Elder->GetOfferedQuest().QuestId
 				&& !Elder->GetDialogueEarlyHookText().IsEmpty())
 			{
-				NPCText += TEXT(" ") + Elder->GetDialogueEarlyHookText().ToString();
+				NPCText = FText::Join(EarlyHookSeparator,
+					NPCText, Elder->GetDialogueEarlyHookText());
 			}
 			break;
+		}
 		case EQuestState::Active:
 		{
-			FString ObjStr;
-			if (QData.TargetCount > 0)
-			{
-				ObjStr += FString::Printf(TEXT("%s: %d/%d"),
-					*QData.KillTargetTag.ToString(), QData.Progress, QData.TargetCount);
-			}
-			if (QData.RequiredItemCount > 0)
-			{
-				if (!ObjStr.IsEmpty()) { ObjStr += TEXT(", "); }
-				ObjStr += FString::Printf(TEXT("%s: %d/%d"),
-					*QData.RequiredItemName, QData.ItemProgress, QData.RequiredItemCount);
-			}
-			NPCText = FString::Printf(TEXT("%s%s — %s."),
-				*Elder->GetDialogueActivePrefix(), *QData.Title, *ObjStr);
+			// Цели — общий сборщик (тот же, что у трекера квеста): человеческие подписи
+			// вместо служебных тегов, единый формат в одном месте.
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Prefix"), Elder->GetDialogueActivePrefix());
+			Args.Add(TEXT("Title"), FText::FromString(QData.Title));
+			Args.Add(TEXT("Objectives"),
+				QuestObjectiveText::BuildObjectives(QData, ObjectiveFormat, ObjectiveSeparator));
+			NPCText = FText::Format(ActiveReplicaFormat, Args);
 			break;
 		}
 		case EQuestState::Completed:
@@ -130,7 +128,7 @@ void UDialogScreenWidget::RefreshDialog()
 	}
 	if (ReplicaText)
 	{
-		ReplicaText->SetText(FText::FromString(NPCText));
+		ReplicaText->SetText(NPCText);
 	}
 
 	// Видимость кнопок по состоянию (как набор кнопок Canvas DrawDialog).
@@ -148,8 +146,9 @@ void UDialogScreenWidget::RefreshDialog()
 
 	if (TurnInText && State == EQuestState::Completed)
 	{
-		TurnInText->SetText(FText::FromString(FString::Printf(TEXT("%s%.0f%s"),
-			*TurnInPrefix, QData.RewardMoney, *TurnInSuffix)));
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(QData.RewardMoney)));
+		TurnInText->SetText(FText::Format(TurnInFormat, Args));
 	}
 }
 

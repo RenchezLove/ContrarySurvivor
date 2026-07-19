@@ -23,16 +23,24 @@ class CONTRARYSURVIVOR_API UQuestTrackerWidget : public USelfHidingWidget
 public:
 	// --- Настройки (Class Defaults WBP_QuestTracker; владение переехало из HUD — ADR-048) ---
 
-	// Активный квест: «Квест: <название> — <прогресс>».
+	// Строка трекера собирается кодом целиком: слово «Квест» меняется на «Квест выполнен»
+	// по состоянию, поэтому в отдельную статичную подпись оно уйти не может (ADR-050).
+	// Подстановки: {Title} — название квеста, {Objectives} — строка целей.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "1"))
-	FString TrackerPrefix = TEXT("Квест: ");
+	FText TrackerFormat = NSLOCTEXT("QuestTracker", "TrackerFormat", "Квест: {Title} — {Objectives}");
 
-	// Выполненный квест собирается кодом: Prefix + название + (прогресс) + Suffix.
+	// У выполненного квеста прогресс не показываем: он уже 3 из 3 и только удлиняет строку.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "2"))
-	FString DonePrefix = TEXT("Квест выполнен: ");
+	FText DoneFormat = NSLOCTEXT("QuestTracker", "DoneFormat",
+		"Квест выполнен: {Title} — вернись к старосте");
 
+	// Одна цель квеста: {Objective} — что сделать, {Done} — сделано, {Total} — сколько надо.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "3"))
-	FString DoneSuffix = TEXT(" - вернись к старосте");
+	FText ObjectiveFormat = NSLOCTEXT("Quest", "ObjectiveFormat", "{Objective} {Done} из {Total}");
+
+	// Между двумя целями, когда их у квеста две.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "4"))
+	FText ObjectiveSeparator = NSLOCTEXT("Quest", "ObjectiveSeparator", ", ");
 
 	// Цвета строки: активный квест — золотой, выполненный — зелёный (как Canvas).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker", meta = (DisplayPriority = "4"))

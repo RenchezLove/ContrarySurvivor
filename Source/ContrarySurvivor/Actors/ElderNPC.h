@@ -52,10 +52,10 @@ public:
 	// --- Тексты диалога для HUD (директива Рината 07-18: настраиваются на РАЗМЕЩЁННОМ
 	// экземпляре BP_Elder; реплика NotStarted = Description текущего квеста) ---
 
-	const FString& GetDialogueDisplayName() const { return DialogueDisplayName; }
-	const FString& GetDialogueActivePrefix() const { return DialogueActivePrefix; }
-	const FString& GetDialogueCompletedText() const { return DialogueCompletedText; }
-	const FString& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
+	const FText& GetDialogueDisplayName() const { return DialogueDisplayName; }
+	const FText& GetDialogueActivePrefix() const { return DialogueActivePrefix; }
+	const FText& GetDialogueCompletedText() const { return DialogueCompletedText; }
+	const FText& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
 	const FText& GetDialogueEarlyHookText() const { return DialogueEarlyHookText; }
 
 protected:
@@ -63,18 +63,20 @@ protected:
 
 	// Имя NPC в шапке окна диалога.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "1"))
-	FString DialogueDisplayName = TEXT("СТАРОСТА");
+	FText DialogueDisplayName = NSLOCTEXT("Dialog", "ElderName", "СТАРОСТА");
 
-	// Реплика с НЕзавершённым квестом собирается HUD'ом: Prefix + название + « — » + прогресс + «.»
-	// (формат-строки в редактор не отдаём — решение game-lead 07-18).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "2"))
-	FString DialogueActivePrefix = TEXT("Ты ещё не закончил. ");
+	// Начало реплики о незаконченном квесте; дальше диалог подставляет название квеста
+	// и его цели (формат самой сборки — настройка панели диалога).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "2", MultiLine = "true"))
+	FText DialogueActivePrefix = NSLOCTEXT("Dialog", "ElderActivePrefix", "Ты ещё не закончил. ");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "3"))
-	FString DialogueCompletedText = TEXT("Отлично! Задание выполнено. Вот твоя награда.");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "3", MultiLine = "true"))
+	FText DialogueCompletedText = NSLOCTEXT("Dialog", "ElderCompleted",
+		"Отлично! Задание выполнено. Вот твоя награда.");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4"))
-	FString DialogueTurnedInText = TEXT("Спасибо тебе ещё раз. Деревня тебе благодарна.");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4", MultiLine = "true"))
+	FText DialogueTurnedInText = NSLOCTEXT("Dialog", "ElderTurnedIn",
+		"Спасибо тебе ещё раз. Деревня тебе благодарна.");
 
 	// Ранний сюжетный крючок (ADR-049 п.2, решение Рината «ранний намёк одной фразой»):
 	// дописывается к реплике ПЕРВОГО квеста, когда игрок его ещё не взял. Отдельным полем,
