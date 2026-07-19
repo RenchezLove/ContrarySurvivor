@@ -82,10 +82,18 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 
 	if (Ranged)
 	{
+		// «Всего у игрока» = запас при оружии + пачки в рюкзаке. Складывать честно:
+		// перезарядка сама вливает рюкзак в запас (APlayerCharacter::ReloadCurrentWeapon,
+		// единственное место забора из рюкзака во всём проекте), поэтому каждый патрон
+		// из этой суммы игрок реально может расстрелять, ничего дополнительно не делая.
+		const int32 ReserveAmmo = Ranged->GetCurrentAmmoReserve();
+		const int32 BagAmmo = Player->GetReserveAmmoInInventory();
+
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("InClip"), FText::AsNumber(Ranged->GetCurrentAmmoInClip()));
-		Args.Add(TEXT("Reserve"), FText::AsNumber(Ranged->GetCurrentAmmoReserve()));
-		Args.Add(TEXT("Bag"), FText::AsNumber(Player->GetReserveAmmoInInventory()));
+		Args.Add(TEXT("Total"), FText::AsNumber(ReserveAmmo + BagAmmo));
+		Args.Add(TEXT("Reserve"), FText::AsNumber(ReserveAmmo));
+		Args.Add(TEXT("Bag"), FText::AsNumber(BagAmmo));
 
 		if (AmmoText)
 		{

@@ -45,15 +45,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "3"))
 	FText ThirstFormat = NSLOCTEXT("PlayerStatsWidget", "ThirstFormat", "{Current}");
 
-	// Патроны в кубике AmmoText: {InClip} — в магазине оружия, {Reserve} — запас при оружии,
-	// {Bag} — патроны в рюкзаке. Если положишь отдельный кубик AmmoBagText под рюкзак —
-	// убери отсюда «в рюкзаке {Bag}», иначе число покажется дважды.
+	// Патроны — ДВА числа, как в STALKER (решение владельца 2026-07-20): сколько в магазине
+	// и сколько всего есть у игрока. {InClip} — в магазине оружия, {Total} — всё остальное
+	// вместе (запас при оружии + пачки в рюкзаке). Именно {Total} игрок реально может
+	// расстрелять: перезарядка сама досыпает патроны из рюкзака в запас
+	// (APlayerCharacter::ReloadCurrentWeapon), отдельного действия для этого нет.
+	// Раздельные {Reserve} и {Bag} тоже доступны — если захочешь вернуть три числа.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "4"))
-	FText AmmoFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoFormat", "{InClip} / {Reserve}   в рюкзаке {Bag}");
+	FText AmmoFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoFormat", "{InClip} / {Total}");
 
 	// Патроны в отдельном кубике AmmoBagText (если он есть): те же подстановки, что и выше.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "5"))
-	FText AmmoBagFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoBagFormat", "{Bag}");
+	FText AmmoBagFormat = NSLOCTEXT("PlayerStatsWidget", "AmmoBagFormat", "{Total}");
 
 	// Деньги: {Amount} — сколько монет у игрока.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "6"))

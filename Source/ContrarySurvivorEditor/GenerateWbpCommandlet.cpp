@@ -1303,7 +1303,7 @@ namespace
 		ApplyTextShadow(AmmoLabel);
 		AmmoRow->AddChildToHorizontalBox(AmmoLabel);
 
-		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("7 / 21  в рюкзаке 30"),
+		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("7 / 51"),
 			AmmoColor, 14, TEXT("Regular"));
 		ApplyTextShadow(Ammo);
 		Ammo->bIsVariable = true;
