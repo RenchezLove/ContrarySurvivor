@@ -34,7 +34,7 @@ void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	// Строка целей — общий сборщик (тот же, что у реплики старосты): человеческие подписи
 	// целей вместо служебных тегов, единый формат в одном месте (ADR-050, порция 2).
 	FFormatNamedArguments Args;
-	Args.Add(TEXT("Title"), FText::FromString(Tracked->Title));
+	Args.Add(TEXT("Title"), Tracked->Title);
 	Args.Add(TEXT("Objectives"),
 		QuestObjectiveText::BuildObjectives(*Tracked, ObjectiveFormat, ObjectiveSeparator));
 

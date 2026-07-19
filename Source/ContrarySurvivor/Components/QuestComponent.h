@@ -55,13 +55,14 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	FName QuestId = NAME_None;
 
-	// Короткое название (для диалога/журнала).
+	// Короткое название (для диалога/журнала). ПЕРЕВОДИМЫЙ текст: ключом квеста служит
+	// QuestId, название игрок только читает — в сравнениях не участвует (ADR-050).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
-	FString Title;
+	FText Title;
 
-	// Текст задания (что сказать игроку).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
-	FString Description;
+	// Текст задания (что сказать игроку). Переводимый, в сравнениях не участвует.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (MultiLine = "true"))
+	FText Description;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	EQuestType Type = EQuestType::Kill;
@@ -82,8 +83,9 @@ struct FQuest
 	// Подпись KILL-цели для метки на карте («Перебить бандитов»): метка показывает её с
 	// прогрессом, пока цель не выполнена (фидбек Рината 07-06). Пусто = фолбэк на KillTargetTag
 	// (технический тег, для игрока не годится — заполнять при наличии kill-цели).
+	// ПЕРЕВОДИМЫЙ текст: это надпись, а не ключ (ключ цели — KillTargetTag рядом).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
-	FString KillObjectiveLabel;
+	FText KillObjectiveLabel;
 
 	// --- ITEM-цель (Collect/Deliver, Фаза 5 демка) ---
 	// Имя предмета (AMasterInventoryItem::ItemName), который нужно собрать/принести
@@ -100,8 +102,10 @@ struct FQuest
 	int32 ItemProgress = 0;
 
 	// Подпись ITEM-цели для метки на карте («Забрать ноутбук»). Пусто = фолбэк на RequiredItemName.
+	// ПЕРЕВОДИМЫЙ текст: это надпись, а не ключ (ключ предмета — RequiredItemName выше,
+	// он остаётся обычной строкой и посимвольно сравнивается с ItemName предмета).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
-	FString ItemObjectiveLabel;
+	FText ItemObjectiveLabel;
 
 	// Метка цели квеста на карте (Этап D, реюз маркеров NPC): HUD ищет актор-цель по этому
 	// тегу (QuestMarkerTag у AMasterEnemyBase либо стандартный Actor Tag) и рисует метку/

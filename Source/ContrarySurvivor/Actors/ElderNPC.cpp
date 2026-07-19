@@ -45,14 +45,14 @@ AElderNPC::AElderNPC()
 	// шкуры ИЗЫМАЮТСЯ (UQuestComponent::TurnInQuest). Награда 150 монет (DRAFT).
 	// A1: число шкур 5 -> 3 (баланс демки).
 	OfferedQuest.QuestId = FName(TEXT("KillWolves"));
-	OfferedQuest.Title = TEXT("Шкуры волков");
-	OfferedQuest.Description = TEXT("Волки одолели деревню. Перебей стаю у логова на западе и принеси мне три волчьих шкуры. Награда: 150 монет.");
+	OfferedQuest.Title = NSLOCTEXT("Quest", "Q1Title", "Шкуры волков");
+	OfferedQuest.Description = NSLOCTEXT("Quest", "Q1Description", "Волки одолели деревню. Перебей стаю у логова на западе и принеси мне три волчьих шкуры. Награда: 150 монет.");
 	OfferedQuest.Type = EQuestType::Collect;
 	OfferedQuest.KillTargetTag = NAME_None;
 	OfferedQuest.TargetCount = 0;                 // kill-цели нет: гейт — по шкурам
 	OfferedQuest.RequiredItemName = TEXT("Шкура волка"); // имя предмета совпадает с дропом волка (WolfCharacter)
 	OfferedQuest.RequiredItemCount = 3;
-	OfferedQuest.ItemObjectiveLabel = TEXT("Собрать шкуры волков"); // текст метки на карте (с прогрессом x/3)
+	OfferedQuest.ItemObjectiveLabel = NSLOCTEXT("Quest", "Q1ItemObjective", "Собрать шкуры волков"); // текст метки на карте (с прогрессом x/3)
 	OfferedQuest.RewardMoney = 150.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
 	// Этап D: метка цели квеста на HUD — логово волков (BP_WolfDen несёт QuestMarkerTag="WolfDen").
@@ -63,15 +63,15 @@ AElderNPC::AElderNPC()
 	// Тип Deliver: завершённость = KILL-цель (3 бандита) И ITEM-цель (1 Ноутбук в рюкзаке).
 	// Ноутбук изымается при сдаче. Награда 250 монет (DRAFT — больше за более тяжёлый квест).
 	SecondQuest.QuestId = FName(TEXT("ClearBanditBase"));
-	SecondQuest.Title = TEXT("Зачистить базу бандитов");
-	SecondQuest.Description = TEXT("Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
+	SecondQuest.Title = NSLOCTEXT("Quest", "Q2Title", "Зачистить базу бандитов");
+	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне. Награда: 250 монет.");
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
-	SecondQuest.KillObjectiveLabel = TEXT("Перебить бандитов"); // текст метки на карте (с прогрессом x/3)
+	SecondQuest.KillObjectiveLabel = NSLOCTEXT("Quest", "Q2KillObjective", "Перебить бандитов"); // текст метки на карте (с прогрессом x/3)
 	SecondQuest.RequiredItemName = TEXT("Ноутбук"); // имя предмета совпадает со спавном ноутбука (AMasterEnemyBase, BP_BanditBase)
 	SecondQuest.RequiredItemCount = 1;
-	SecondQuest.ItemObjectiveLabel = TEXT("Забрать ноутбук"); // текст метки, когда бандиты перебиты, а ноутбук ещё не взят
+	SecondQuest.ItemObjectiveLabel = NSLOCTEXT("Quest", "Q2ItemObjective", "Забрать ноутбук"); // текст метки, когда бандиты перебиты, а ноутбук ещё не взят
 	SecondQuest.RewardMoney = 250.0f;
 	SecondQuest.State = EQuestState::NotStarted;
 	// Этап D: метка цели квеста — база бандитов (BP_BanditBase несёт QuestMarkerTag="BanditBase").
@@ -83,14 +83,14 @@ AElderNPC::AElderNPC()
 	// приказ (фидбек Рината 07-12: староста предлагает занятие «если хочешь», не командует).
 	// Collect: 3 «Шкуры волка» (волки появились в НОВОМ месте — второе логово), награда 100 (DRAFT).
 	ThirdQuest.QuestId = FName(TEXT("HidesForTrader"));
-	ThirdQuest.Title = TEXT("Шкуры для торговца");
-	ThirdQuest.Description = TEXT("Дай мне время покопаться в ноутбуке. Одно ясно уже сейчас: на нём — данные о тех, кто за тобой охотится. Узнаю, кто именно — расскажу. А пока, если хочешь, есть дело: волков снова видели в округе, а торговец хорошо платит за шкуры. Можешь принести мне три шкуры — я передам ему.");
+	ThirdQuest.Title = NSLOCTEXT("Quest", "Q3Title", "Шкуры для торговца");
+	ThirdQuest.Description = NSLOCTEXT("Quest", "Q3Description", "Дай мне время покопаться в ноутбуке. Одно ясно уже сейчас: на нём — данные о тех, кто за тобой охотится. Узнаю, кто именно — расскажу. А пока, если хочешь, есть дело: волков снова видели в округе, а торговец хорошо платит за шкуры. Можешь принести мне три шкуры — я передам ему.");
 	ThirdQuest.Type = EQuestType::Collect;
 	ThirdQuest.KillTargetTag = NAME_None;
 	ThirdQuest.TargetCount = 0;                  // kill-цели нет: гейт — по шкурам (как кв.1)
 	ThirdQuest.RequiredItemName = TEXT("Шкура волка"); // имя совпадает с дропом волка (WolfCharacter)
 	ThirdQuest.RequiredItemCount = 3;
-	ThirdQuest.ItemObjectiveLabel = TEXT("Добыть волчьи шкуры");
+	ThirdQuest.ItemObjectiveLabel = NSLOCTEXT("Quest", "Q3ItemObjective", "Добыть волчьи шкуры");
 	ThirdQuest.RewardMoney = 100.0f;
 	ThirdQuest.State = EQuestState::NotStarted;
 	// Второе логово волков: BP_WolfDen с QuestMarkerTag="WolfDen2" ставит на карту game-lead.

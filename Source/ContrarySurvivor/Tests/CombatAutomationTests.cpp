@@ -353,7 +353,7 @@ bool FCombatQuestRewardTest::RunTest(const FString& Parameters)
 			// Kill-only квест: убить 1 «Wolf», награда 150.
 			FQuest Q;
 			Q.QuestId = FName(TEXT("TestKillWolf"));
-			Q.Title = TEXT("Test");
+			Q.Title = FText::FromString(TEXT("Test"));
 			Q.Type = EQuestType::Kill;
 			Q.KillTargetTag = FName(TEXT("Wolf"));
 			Q.TargetCount = 1;

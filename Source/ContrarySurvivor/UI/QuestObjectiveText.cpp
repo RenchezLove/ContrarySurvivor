@@ -27,7 +27,7 @@ namespace QuestObjectiveText
 		{
 			const FText Label = Quest.KillObjectiveLabel.IsEmpty()
 				? FText::FromString(Quest.KillTargetTag.ToString())
-				: FText::FromString(Quest.KillObjectiveLabel);
+				: Quest.KillObjectiveLabel;
 			Parts.Add(MakeOne(Label, Quest.Progress, Quest.TargetCount, ObjectiveFormat));
 		}
 
@@ -36,7 +36,7 @@ namespace QuestObjectiveText
 		{
 			const FText Label = Quest.ItemObjectiveLabel.IsEmpty()
 				? FText::FromString(Quest.RequiredItemName)
-				: FText::FromString(Quest.ItemObjectiveLabel);
+				: Quest.ItemObjectiveLabel;
 			Parts.Add(MakeOne(Label, Quest.ItemProgress, Quest.RequiredItemCount, ObjectiveFormat));
 		}
 

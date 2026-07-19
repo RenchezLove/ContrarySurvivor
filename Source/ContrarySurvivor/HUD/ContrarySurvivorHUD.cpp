@@ -1515,12 +1515,12 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 	switch (State)
 	{
 		case EQuestState::NotStarted:
-			NPCText = Offered.Description; // полное описание задания
+			NPCText = Offered.Description.ToString(); // полное описание задания
 			break;
 		case EQuestState::Active:
 			// Сборка кодом (формат в редактор не отдаём): Prefix + название + « — » + прогресс + «.»
 			NPCText = FString::Printf(TEXT("%s%s — %s."),
-				*DialogElder->GetDialogueActivePrefix().ToString(), *QData.Title, *ObjStr);
+				*DialogElder->GetDialogueActivePrefix().ToString(), *QData.Title.ToString(), *ObjStr);
 			break;
 		case EQuestState::Completed:
 			NPCText = DialogElder->GetDialogueCompletedText().ToString();
@@ -1662,11 +1662,11 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 	{
 		// Литералы: тексты переехали в UQuestTrackerWidget (ADR-048).
 		Text = FString::Printf(TEXT("Квест выполнен: %s (%s) - вернись к старосте"),
-			*Tracked->Title, *ObjStr);
+			*Tracked->Title.ToString(), *ObjStr);
 	}
 	else
 	{
-		Text = FString::Printf(TEXT("Квест: %s — %s"), *Tracked->Title, *ObjStr);
+		Text = FString::Printf(TEXT("Квест: %s — %s"), *Tracked->Title.ToString(), *ObjStr);
 	}
 
 	float TextW = 0.0f, TextH = 0.0f;
@@ -2278,14 +2278,14 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 	// К сдаче метка висит над старостой ВЫШЕ его зелёного NPC-ромба (чтобы не сливались),
 	// подпись — «Сдать: <квест>»; на цели — обычный подъём и ТЕКУЩАЯ невыполненная цель.
 	float ZOff = QuestTargetMarkerZOffset;
-	FString Label = Tracked->Title; // фолбэк: целей с подписью нет — название квеста
+	FString Label = Tracked->Title.ToString(); // фолбэк: целей с подписью нет — название квеста
 	if (bToGiver)
 	{
 		if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
 		{
 			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
 		}
-		Label = FString::Printf(TEXT("%s%s"), *QuestTurnInMarkerPrefix, *Tracked->Title);
+		Label = FString::Printf(TEXT("%s%s"), *QuestTurnInMarkerPrefix, *Tracked->Title.ToString());
 	}
 	else
 	{
@@ -2296,13 +2296,13 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		if (Tracked->TargetCount > 0 && Tracked->Progress < Tracked->TargetCount)
 		{
 			const FString Obj = !Tracked->KillObjectiveLabel.IsEmpty()
-				? Tracked->KillObjectiveLabel : Tracked->KillTargetTag.ToString();
+				? Tracked->KillObjectiveLabel.ToString() : Tracked->KillTargetTag.ToString();
 			Label = FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->Progress, Tracked->TargetCount);
 		}
 		else if (Tracked->RequiredItemCount > 0 && Tracked->ItemProgress < Tracked->RequiredItemCount)
 		{
 			const FString Obj = !Tracked->ItemObjectiveLabel.IsEmpty()
-				? Tracked->ItemObjectiveLabel : Tracked->RequiredItemName;
+				? Tracked->ItemObjectiveLabel.ToString() : Tracked->RequiredItemName;
 			// Счётчик (x/N) у единичной цели («Забрать ноутбук») — шум, не показываем.
 			Label = (Tracked->RequiredItemCount > 1)
 				? FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->ItemProgress, Tracked->RequiredItemCount)
