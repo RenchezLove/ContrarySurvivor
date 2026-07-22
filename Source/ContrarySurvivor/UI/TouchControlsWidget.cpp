@@ -444,12 +444,12 @@ void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
 		Font.Size = FpsFontSize;
 		FpsText->SetFont(Font);
 	}
-	if (UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(FpsText))
+	if (UCanvasPanelSlot* CanvasSlot = Canvas->AddChildToCanvas(FpsText))
 	{
-		Slot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f)); // верх-лево, рядом с ПАУЗА
-		Slot->SetAlignment(FVector2D(0.0f, 0.0f));
-		Slot->SetAutoSize(true);
-		Slot->SetPosition(FpsMargin);
+		CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f)); // верх-лево, рядом с ПАУЗА
+		CanvasSlot->SetAlignment(FVector2D(0.0f, 0.0f));
+		CanvasSlot->SetAutoSize(true);
+		CanvasSlot->SetPosition(FpsMargin);
 	}
 }
 
