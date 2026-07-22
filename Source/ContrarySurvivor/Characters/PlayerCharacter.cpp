@@ -342,6 +342,7 @@ void APlayerCharacter::ApplyPostProcessSettings()
         PP.bOverride_FilmGrainIntensity  = false;
         PP.bOverride_AutoExposureMethod  = false;
         PP.bOverride_AutoExposureBias    = false;
+        PP.bOverride_AutoExposureApplyPhysicalCameraExposure = false;
         PP.bOverride_ColorSaturation     = false;
         PP.bOverride_ColorGainHighlights = false;
         PP.bOverride_ColorGainShadows    = false;
@@ -369,12 +370,20 @@ void APlayerCharacter::ApplyPostProcessSettings()
         PP.AutoExposureMethod = AEM_Manual;
         PP.bOverride_AutoExposureBias = true;
         PP.AutoExposureBias = Exposure;
+
+        // Ручной режим БЕЗ «физической камеры». Иначе движок в Manual считает яркость кадра по
+        // ISO/диафрагме/выдержке (дефолт f/4, 1/60, ISO100 = ~EV100 9.9 = яркий день), белая точка
+        // взлетает в сотни раз и игровая сцена, освещённая не в реальных люксах, уходит в ЧЁРНОЕ.
+        // Отключаем — тогда фиксированную экспозицию ведёт только AutoExposureBias (0 = норма, <0 = темнее).
+        PP.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+        PP.AutoExposureApplyPhysicalCameraExposure = false;
     }
     else
     {
         // Авто-экспозиция включена — свои оверрайды не навязываем.
         PP.bOverride_AutoExposureMethod = false;
         PP.bOverride_AutoExposureBias = false;
+        PP.bOverride_AutoExposureApplyPhysicalCameraExposure = false;
     }
 
     // Насыщенность (лёгкая десатурация); множитель одинаков по RGB, W=1 (мастер).
