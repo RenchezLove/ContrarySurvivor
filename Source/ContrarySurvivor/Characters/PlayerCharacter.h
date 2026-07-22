@@ -221,6 +221,25 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess|Intro", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "2"))
     float PPIntroStartSaturation = 0.5f;
 
+    // --- Хромота от низкого HP (Build 1, ТЗ издателя раздел 2) ---
+    // Дёшево, БЕЗ анимации (издатель разрешил): при HP на пороге и ниже — сниженная скорость
+    // ходьбы; после лечения аптечкой скорость восстанавливается — игрок физически чувствует
+    // выздоровление. Порог и коэффициент — тюнинг Рината.
+
+    // Порог здоровья (доля от максимума), НА КОТОРОМ И НИЖЕ включается хромота. 0.5 = при HP <= 50%
+    // (старт игрока — ровно половина HP, поэтому «на пороге» тоже хромает — приходит раненым).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "1"))
+    float LimpHealthFraction = 0.5f;
+
+    // Множитель скорости ходьбы во время хромоты (0.6 = 60% скорости). Тюнинг Рината.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (ClampMin = "0.1", ClampMax = "1.0", DisplayPriority = "2"))
+    float LimpSpeedMultiplier = 0.6f;
+
+    // ПУСТАЯ точка подключения под звук тяжёлого дыхания при хромоте (звук Ринат добавит позже).
+    // Пусто — ничего не играет; задан — зацикливается, пока игрок хромает, и глохнет при выздоровлении.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (DisplayPriority = "3"))
+    USoundBase* LimpBreathingSound = nullptr;
+
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
     // как и у врага: TakeDamage роутится в Stats.
@@ -270,6 +289,15 @@ protected:
     // RestoreState), а BeginPlay сейв не загружает.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
     float StartingMoney = 50.0f;
+
+    // Стартовые статы НОВОЙ игры (Build 1, ТЗ раздел 2: «примерно на половине»). Применяются
+    // ТОЛЬКО при новой игре (сейва ещё нет): HP и голод/жажда ставятся в эту долю от максимума —
+    // раненый приход (нужен для хромоты) и мягкий толчок к еде/воде. При наличии сейва не трогаются.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|New Game", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "1"))
+    float NewGameHealthFraction = 0.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|New Game", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "2"))
+    float NewGameSurvivalFraction = 0.5f;
 
     // Доля MaxHealth, до которой восстанавливается HP при респауне (решение game-lead:
     // респаун = полный HP). 1.0 -> Health = MaxHealth. Остальные статы — из сейва.
@@ -593,6 +621,13 @@ protected:
     // (костёр) + штраф «вне деревни» (ADR-027). Экипировка/оружие/квест-предметы сохраняются.
     virtual void HandleDeath() override;
 
+    // Пересчитывает хромоту по текущему HP (Build 1): HP на пороге и ниже — сниженная скорость
+    // ходьбы (+ зацикленный звук дыхания, если задан), выше — обычная. Привязана к
+    // UStatsComponent::OnHealthChanged и вызывается один раз в BeginPlay. Сигнатура совпадает
+    // с делегатом FOnHealthChanged (NewHealth, MaxHealth).
+    UFUNCTION()
+    void UpdateLimpState(float NewHealth, float InMaxHealth);
+
     // A4/ADR-027: роняет ВСЕ неэкипированные расходники (Consumable) ОДНИМ возвращаемым «мешком»
     // (мульти-предмет APickup) на месте гибели. Квест-предметы/ресурсы/экипировка не трогаются.
     void DropConsumablesAsBag(const FVector& DeathLoc);
@@ -665,4 +700,12 @@ private:
     // Активный компонент фонового эмбиента (зациклен, не авто-уничтожается).
     UPROPERTY()
     UAudioComponent* AmbienceComponent = nullptr;
+
+    // --- Хромота (Build 1) ---
+    // Хромает ли игрок сейчас (HP на пороге и ниже) — меняем скорость/звук только на смене состояния.
+    bool bLimping = false;
+
+    // Активный зациклённый звук тяжёлого дыхания при хромоте (если LimpBreathingSound задан).
+    UPROPERTY()
+    UAudioComponent* LimpBreathingComponent = nullptr;
 };

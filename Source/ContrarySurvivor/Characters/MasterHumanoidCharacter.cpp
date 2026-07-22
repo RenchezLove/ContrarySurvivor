@@ -518,11 +518,25 @@ void AMasterHumanoidCharacter::SetSprint(bool bIsSprinting)
 
     IsSprinting = bIsSprinting;
 
+    // Множитель WalkSpeedMultiplier учитывается И в ходьбе, И в спринте (Build 1: хромота игрока
+    // при низком HP). У врагов/NPC он равен 1 — их скорость не меняется.
     GetCharacterMovement()->MaxWalkSpeed =
-        IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed;
+        (IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed) * WalkSpeedMultiplier;
 
     if (bChanged)
     {
         UE_LOG(LogTemp, Warning, TEXT("Sprint state changed to: %s"), IsSprinting ? TEXT("true") : TEXT("false"));
+    }
+}
+
+void AMasterHumanoidCharacter::SetWalkSpeedMultiplier(float NewMultiplier)
+{
+    WalkSpeedMultiplier = FMath::Max(0.0f, NewMultiplier);
+    // Применяем сразу, с учётом текущего состояния спринта: SetSprint пишет MaxWalkSpeed только на
+    // спринт-событие, а хромота может меняться в любой момент (по изменению HP).
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->MaxWalkSpeed =
+            (IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed) * WalkSpeedMultiplier;
     }
 }

@@ -22,6 +22,11 @@ public:
 	UFUNCTION(BlueprintCallable)
     void SetSprint(bool bIsSprinting);
 
+	// Ставит множитель скорости ходьбы (Build 1: хромота игрока при низком HP) и сразу применяет
+	// к MaxWalkSpeed с учётом текущего спринта. 1 = обычная скорость. У врагов/NPC не трогается.
+	UFUNCTION(BlueprintCallable, Category = "Movement")
+	void SetWalkSpeedMultiplier(float NewMultiplier);
+
 	// Спринтит ли персонаж сейчас (буст MaxWalkSpeed активен). Читается UStatsComponent
 	// для повышенного расхода голода/жажды при спринте (#2). Источник истины — флаг IsSprinting,
 	// выставляемый SetSprint из контроллера по Enhanced Input (Shift).
@@ -247,6 +252,11 @@ protected:
     // Множитель скорости при спринте (Shift): MaxWalkSpeed = BaseWalkSpeed * SprintMultiplier. Тюнинг из BP.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "1.0"))
     float SprintMultiplier = 2.0f;
+
+    // Общий множитель скорости ходьбы поверх базовой/спринтовой (Build 1: хромота игрока при низком
+    // HP). 1 = обычная скорость. Меняется через SetWalkSpeedMultiplier; у врагов/NPC остаётся 1.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
+    float WalkSpeedMultiplier = 1.0f;
 
 private:
     bool IsSprinting = false;

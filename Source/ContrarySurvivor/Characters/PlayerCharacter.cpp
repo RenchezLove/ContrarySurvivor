@@ -225,6 +225,23 @@ void APlayerCharacter::BeginPlay()
         Stats->InitMoney(StartingMoney);
         // Смерть игрока -> респаун (GDD §7.8).
         Stats->OnDeath.AddDynamic(this, &APlayerCharacter::HandleDeath);
+        // Хромота от низкого HP (Build 1): реагируем на любое изменение HP, чтобы после лечения
+        // аптечкой скорость восстанавливалась сама.
+        Stats->OnHealthChanged.AddDynamic(this, &APlayerCharacter::UpdateLimpState);
+
+        // НОВАЯ игра (сейва ещё нет) — стартуем «примерно на половине» (ТЗ раздел 2): раненый
+        // приход + половина голода/жажды (первый урок выживания/экономики). При наличии сейва
+        // статы не трогаем — обычный старт (загрузка идёт позже, при смерти/у костра). SetHealth
+        // бродкастит OnHealthChanged → хромота включится сама.
+        if (!HasSaveGame())
+        {
+            Stats->SetHealth(Stats->GetMaxHealth() * NewGameHealthFraction);
+            Stats->SetHunger(Stats->GetSurvivalMax() * NewGameSurvivalFraction);
+            Stats->SetThirst(Stats->GetSurvivalMax() * NewGameSurvivalFraction);
+        }
+
+        // Первичный пересчёт хромоты по итоговому стартовому HP (у новой игры — половина, хромает).
+        UpdateLimpState(Stats->GetHealth(), Stats->GetMaxHealth());
     }
 
     // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
@@ -377,6 +394,44 @@ void APlayerCharacter::SetIntroGradeAlpha(float Alpha)
 {
     IntroGradeAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
     ApplyPostProcessSettings();
+}
+
+void APlayerCharacter::UpdateLimpState(float NewHealth, float InMaxHealth)
+{
+    // Хромает при HP на пороге и ниже (порог по доле от максимума). «<=» — чтобы старт ровно в
+    // половину HP уже читался как «раненый» (издатель: приходит хромая), а любое лечение выше
+    // порога — как выздоровление.
+    const bool bShouldLimp = (InMaxHealth > 0.0f) && (NewHealth <= InMaxHealth * LimpHealthFraction);
+    if (bShouldLimp == bLimping)
+    {
+        return; // состояние не изменилось — скорость/звук не трогаем
+    }
+    bLimping = bShouldLimp;
+
+    // Скорость: хромота — сниженный множитель, иначе обычная (учитывается и в спринте).
+    SetWalkSpeedMultiplier(bLimping ? LimpSpeedMultiplier : 1.0f);
+
+    // Звук тяжёлого дыхания — пустая точка подключения: играет ТОЛЬКО если Ринат назначил ассет.
+    if (bLimping)
+    {
+        if (LimpBreathingSound && !LimpBreathingComponent)
+        {
+            if (USoundWave* Wave = Cast<USoundWave>(LimpBreathingSound))
+            {
+                Wave->bLooping = true; // как эмбиент: зацикливание — свойство самого ассета (UE 5.5)
+            }
+            LimpBreathingComponent = UGameplayStatics::SpawnSound2D(
+                this, LimpBreathingSound, 1.0f, 1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
+        }
+    }
+    else if (LimpBreathingComponent)
+    {
+        LimpBreathingComponent->Stop();
+        LimpBreathingComponent = nullptr;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("Player limp %s (HP %.0f/%.0f)"),
+        bLimping ? TEXT("ON") : TEXT("OFF"), NewHealth, InMaxHealth);
 }
 
 void APlayerCharacter::Tick(float DeltaTime)
