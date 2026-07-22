@@ -1759,14 +1759,17 @@ void AContrarySurvivorPlayerController::UpdateIntro(float DeltaTime)
 		{
 			IntroAutoWalkElapsed += DeltaTime;
 
-			// Проявление мира: чёрный фон гаснет за IntroRevealDuration.
+			// Проявление мира ПО ВРЕМЕНИ: чёрный фон и экспозиция-грейд светлеют синхронно за
+			// IntroRevealDuration — от 0 (черно/тёмно) к 1 (норма). НЕ по дистанции до деревни:
+			// иначе на старте reveal игрок далеко → Progress≈0 → экспозиция в самом тёмном → чёрный кадр.
+			const float RevealProgress = FMath::Clamp(
+				IntroAutoWalkElapsed / FMath::Max(0.01f, IntroRevealDuration), 0.0f, 1.0f);
 			if (IntroWidget)
 			{
 				IntroWidget->SetTextAlpha(0.0f);
-				const float RevealA = 1.0f - FMath::Clamp(
-					IntroAutoWalkElapsed / FMath::Max(0.01f, IntroRevealDuration), 0.0f, 1.0f);
-				IntroWidget->SetBackgroundAlpha(RevealA);
+				IntroWidget->SetBackgroundAlpha(1.0f - RevealProgress);
 			}
+			PlayerChar->SetIntroGradeAlpha(RevealProgress);
 
 			// Авто-подход: персонаж сам, хромая, идёт к деревне (хромота от низкого HP уже активна).
 			if (bIntroHasVillage)
@@ -1778,11 +1781,6 @@ void AContrarySurvivorPlayerController::UpdateIntro(float DeltaTime)
 					if (IsMoveInputIgnored()) { ResetIgnoreMoveInput(); }
 					PlayerChar->AddMovementInput(Dir.GetSafeNormal(), 1.0f);
 				}
-				// Грейд-арка по дистанции: чем ближе к деревне, тем светлее/насыщеннее.
-				FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
-				ToV.Z = 0.0f;
-				const float Progress = 1.0f - FMath::Clamp(ToV.Size() / IntroInitialDistance, 0.0f, 1.0f);
-				PlayerChar->SetIntroGradeAlpha(Progress);
 			}
 
 			if (IntroPhase == EIntroPhase::Reveal && IntroAutoWalkElapsed >= IntroRevealDuration)
@@ -1799,18 +1797,13 @@ void AContrarySurvivorPlayerController::UpdateIntro(float DeltaTime)
 		}
 		case EIntroPhase::HandOff:
 		{
-			// Управление у игрока. Ведём грейд-арку (если интро не пропущено) и ждём входа в деревню.
+			// Управление у игрока. Экспозиция уже доведена до нормы (1.0) во время reveal по времени —
+			// НЕ затемняем обратно по дистанции. Просто ждём входа в деревню, чтобы сменить задачу.
 			if (bIntroHasVillage)
 			{
 				FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
 				ToV.Z = 0.0f;
-				const float Dist = ToV.Size();
-				if (!bIntroSkipped)
-				{
-					const float Progress = 1.0f - FMath::Clamp(Dist / IntroInitialDistance, 0.0f, 1.0f);
-					PlayerChar->SetIntroGradeAlpha(Progress);
-				}
-				if (Dist <= IntroSafeZoneRadius)
+				if (ToV.Size() <= IntroSafeZoneRadius)
 				{
 					EndIntro();
 				}
