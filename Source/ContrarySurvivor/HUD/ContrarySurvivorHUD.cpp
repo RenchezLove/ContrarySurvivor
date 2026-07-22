@@ -160,6 +160,11 @@ void AContrarySurvivorHUD::DrawHUD()
 			// Этап D: метка цели активного квеста (гаснет после сдачи).
 			DrawQuestTargetMarker(PlayerChar);
 
+			// Build 1 интро: задача сверху по центру + стрелка на деревню (активны только пока
+			// контроллер их выставил во время интро; после — пусто, ничего не рисуется).
+			DrawIntroObjective();
+			DrawIntroDirectionMarker();
+
 			// ADR-048: при назначенном PlayerStatsWidgetClass статы рисует UMG-панель.
 			if (!PlayerStatsWidgetInstance)
 			{
@@ -1619,6 +1624,42 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		default:
 			break;
 	}
+}
+
+void AContrarySurvivorHUD::DrawIntroObjective()
+{
+	if (IntroObjectiveText.IsEmpty() || !Canvas)
+	{
+		return;
+	}
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const FString Text = IntroObjectiveText.ToString();
+	float TextW = 0.0f, TextH = 0.0f;
+	GetTextSize(Text, TextW, TextH, Font);
+
+	// Вверху по центру (ТЗ: задача вверху по центру). Плашка+цвет — как у трекера квеста.
+	const float X = static_cast<float>(Canvas->SizeX) * 0.5f - TextW * 0.5f;
+	const float Y = static_cast<float>(Canvas->SizeY) * 0.06f;
+
+	DrawRect(QuestTrackerPlateColor, X - 12.0f, Y - 6.0f, TextW + 24.0f, TextH + 12.0f);
+	DrawText(Text, QuestTrackerColor, X, Y, Font);
+}
+
+void AContrarySurvivorHUD::DrawIntroDirectionMarker()
+{
+	AActor* Target = IntroDirectionTarget.Get();
+	if (!Target || !Canvas)
+	{
+		return;
+	}
+	// Реюз системы маркеров NPC: маркер над целью + краевая стрелка, если цель за кадром.
+	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, QuestTargetMarkerZOffset),
+		FString(), NPCMarkerColor);
 }
 
 void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)

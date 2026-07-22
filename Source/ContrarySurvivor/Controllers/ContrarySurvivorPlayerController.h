@@ -20,7 +20,19 @@ class APickup;
 class UOnboardingComponent;
 class UTouchControlsWidget;
 class UPauseMenuWidget;
+class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
+
+// Фаза скриптового интро (Build 1, ТЗ раздел 2). Идёт по порядку; None — интро не играет.
+enum class EIntroPhase : uint8
+{
+	None,       // интро не идёт (закончилось / после смерти / отключено)
+	Line1,      // чёрный экран, первая строка проступает и гаснет
+	Line2,      // чёрный экран, вторая строка проступает и гаснет
+	Reveal,     // мир проявляется из черноты, персонаж сам идёт к деревне
+	AutoWalk,   // мир виден, персонаж ещё идёт сам, затем передача управления
+	HandOff     // управление у игрока; ведём грейд-арку и меняем задачу у околицы деревни
+};
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
 // E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
@@ -125,6 +137,28 @@ protected:
 
 	// Каждый кадр поддерживает авто-лок на ближайшей живой цели (см. UpdateAutoTarget).
 	virtual void Tick(float DeltaTime) override;
+
+	// --- Интро (Build 1, ТЗ раздел 2) ---
+
+	// Один раз (когда пешка появилась) решает, играть ли интро, и запускает его. Полное интро —
+	// только новая игра (нет сейва); повторный заход — интро с hold-to-skip; после смерти интро
+	// не запускается (BeginPlay контроллера при респауне не вызывается повторно).
+	void MaybeStartIntro();
+
+	// Запускает интро: чёрный экран, блок ввода движения, тёмный грейд, цель-деревня.
+	void StartIntro(bool bSkippable);
+
+	// Кадровый шаг интро (тайминг строк, проявление мира, авто-подход, грейд-арка, смена задачи).
+	void UpdateIntro(float DeltaTime);
+
+	// Передать управление игроку: снять чёрный, разблокировать ввод, показать подсказку движения.
+	void IntroHandOverControl();
+
+	// Завершить интро полностью (у околицы деревни): сменить задачу на «найти старосту», стоп.
+	void EndIntro();
+
+	// Держит ли игрок сейчас клавишу/палец пропуска (для hold-to-skip на повторных заходах).
+	bool IsIntroSkipHeld() const;
 
 	// Радиус авто-захвата ближайшей живой цели (Unreal units). DRAFT — тюнингуется.
 	// Авто-режим (вариант A, решение Рината): КАЖДЫЙ тик лочим БЛИЖАЙШУЮ живую цель в этом
@@ -276,6 +310,57 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "6"))
 	FText InteractPromptElderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderTouch", "Поговорить");
+
+	// --- Интро (Build 1, ТЗ издателя раздел 2). Тексты дословно из ТЗ; тюнинг длительностей —
+	// Ринату. Тексты видит игрок → FText/NSLOCTEXT (ADR-050). ---
+
+	// Мастер-выключатель интро (удобство отладки команды: снять галку — интро не играет вовсе).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (DisplayPriority = "0"))
+	bool bEnableIntro = true;
+
+	// Две короткие строки на чёрном экране (по очереди, каждая ~IntroLineDuration).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "1", MultiLine = "true"))
+	FText IntroLine1 = NSLOCTEXT("Intro", "Line1", "Столица осталась позади. И всё, что в ней было.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "2", MultiLine = "true"))
+	FText IntroLine2 = NSLOCTEXT("Intro", "Line2", "Впереди — дым над крышами. Значит, там ещё живут.");
+
+	// Задача вверху по центру после проявления мира: дойти до деревни.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "3"))
+	FText IntroObjectiveGoToVillage = NSLOCTEXT("Intro", "ObjGoVillage", "Впереди деревня. Дойти до неё.");
+
+	// Задача при входе в безопасную зону деревни: найти старосту.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "4"))
+	FText IntroObjectiveFindElder = NSLOCTEXT("Intro", "ObjFindElder", "Найти старосту и поговорить.");
+
+	// Подсказка пропуска (показывается только при повторных заходах — hold-to-skip).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "5"))
+	FText IntroSkipHintText = NSLOCTEXT("Intro", "SkipHint", "Зажмите, чтобы пропустить");
+
+	// Длительность показа каждой строки на чёрном, с.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (ClampMin = "0.5", DisplayPriority = "1"))
+	float IntroLineDuration = 3.0f;
+
+	// Длительность плавного проявления мира из черноты, с.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (ClampMin = "0.1", DisplayPriority = "2"))
+	float IntroRevealDuration = 2.0f;
+
+	// Сколько персонаж идёт сам к деревне (от начала проявления мира), с. 2-4 (ТЗ).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (ClampMin = "0.0", DisplayPriority = "3"))
+	float IntroAutoApproachDuration = 3.0f;
+
+	// Радиус вокруг цели-деревни (см), вход в который считается «в деревне» → смена задачи.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (ClampMin = "50.0", DisplayPriority = "4"))
+	float IntroSafeZoneRadius = 1500.0f;
+
+	// Сколько держать клавишу/палец, чтобы пропустить интро (только повторные заходы), с.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (ClampMin = "0.2", DisplayPriority = "5"))
+	float IntroSkipHoldTime = 0.8f;
+
+	// Тег актора-центра деревни: к нему ведёт стрелка интро и от него считается «в деревне».
+	// Пусто/не найден — фолбэк на ближайшего старосту (AElderNPC).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (DisplayPriority = "6"))
+	FName VillageMarkerTag = TEXT("VillageCenter");
 
 	// --- Тач-жесты магазина (G2): свайп = прокрутка списков / количество слайдера ---
 
@@ -580,6 +665,47 @@ private:
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()
 	AElderNPC* NearbyElder = nullptr;
+
+	// --- Рантайм-состояние интро (Build 1) ---
+
+	// Интро уже пытались запустить (решение принимается один раз, когда появилась пешка).
+	bool bIntroChecked = false;
+
+	// Текущая фаза интро (None — не идёт).
+	EIntroPhase IntroPhase = EIntroPhase::None;
+
+	// Общий таймер интро от старта (с) — по нему считаются фазы строк/проявления.
+	float IntroElapsed = 0.0f;
+
+	// Таймер авто-подхода от начала проявления мира (с) — до передачи управления.
+	float IntroAutoWalkElapsed = 0.0f;
+
+	// Повторный заход → доступен hold-to-skip (на новой игре — нет).
+	bool bIntroSkippable = false;
+
+	// Интро пропущено удержанием → грейд-арку не ведём (сразу нормальный кадр).
+	bool bIntroSkipped = false;
+
+	// Накоплено удержания клавиши/пальца пропуска (с).
+	float IntroSkipHeld = 0.0f;
+
+	// Подавлять ввод движения игрока (во время авто-подхода). Проверяется в Move().
+	bool bIntroInputLocked = false;
+
+	// Мировая точка центра деревни (куда ведёт авто-подход и стрелка). Валидна при bIntroHasVillage.
+	FVector IntroVillageLocation = FVector::ZeroVector;
+	bool bIntroHasVillage = false;
+
+	// Начальная дистанция до деревни (для грейд-арки: чем ближе, тем светлее/насыщеннее).
+	float IntroInitialDistance = 0.0f;
+
+	// Актор-цель деревни (стрелка направления интро; фолбэк — ближайший староста).
+	UPROPERTY()
+	TObjectPtr<AActor> IntroVillageActor = nullptr;
+
+	// Экран интро (чёрный фон + строки), строится кодом (UIntroScreenWidget).
+	UPROPERTY()
+	TObjectPtr<UIntroScreenWidget> IntroWidget = nullptr;
 
 	// --- Контекстный interact по E (BUG3) ---
 

@@ -60,6 +60,14 @@ void UOnboardingComponent::TryShowHint(EOnboardingHint Hint)
 	UE_LOG(LogTemp, Log, TEXT("Onboarding: hint %d shown (once per profile)"), Index);
 }
 
+void UOnboardingComponent::CancelPendingMovementHint()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MovementHintTimer);
+	}
+}
+
 void UOnboardingComponent::DismissCurrentHint()
 {
 	HideActiveWidget();

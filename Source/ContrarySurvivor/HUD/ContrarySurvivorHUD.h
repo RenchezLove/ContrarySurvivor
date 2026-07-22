@@ -200,6 +200,15 @@ public:
 	// Рисуется DrawDamageNumbers: поднимается и гаснет за DamageNumberLifetime.
 	void AddDamageNumber(const FVector& WorldLocation, float Amount);
 
+	// --- Интро (Build 1, ТЗ раздел 2) — задача сверху по центру + стрелка на деревню ---
+	// Ставит контроллер (UpdateIntro). Пустой текст/nullptr — ничего не рисуется.
+
+	// Задача интро вверху по центру («Впереди деревня…» → «Найти старосту…»).
+	void SetIntroObjective(const FText& Text) { IntroObjectiveText = Text; }
+
+	// Актор-цель стрелки-направления интро (центр деревни / староста). Реюз маркеров NPC.
+	void SetIntroDirectionTarget(AActor* Target) { IntroDirectionTarget = Target; }
+
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
 	// GDD ч.8: «при приближении ближе ~5 м». 5 м ≈ 500 ед, но для top-down-обзора берём с запасом.
@@ -805,6 +814,19 @@ protected:
 	FLinearColor DeathButtonColor = FLinearColor(0.2f, 0.45f, 0.25f, 1.0f);
 
 private:
+	// --- Интро (Build 1) ---
+	// Текст задачи интро вверху по центру (пусто — не рисуется).
+	FText IntroObjectiveText;
+
+	// Цель стрелки-направления интро (слабая ссылка: цель могла быть уничтожена).
+	TWeakObjectPtr<AActor> IntroDirectionTarget;
+
+	// Рисует задачу интро вверху по центру (плашка + текст) — тем же стилем, что трекер квеста.
+	void DrawIntroObjective();
+
+	// Рисует стрелку/маркер на цель-деревню (реюз DrawNPCMarker: маркер + краевая стрелка за кадром).
+	void DrawIntroDirectionMarker();
+
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
 	// bIsCurrentTarget — текущая залоченная цель (рисуется ярким TargetFillColor).

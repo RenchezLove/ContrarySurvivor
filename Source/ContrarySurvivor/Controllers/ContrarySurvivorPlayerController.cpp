@@ -36,6 +36,7 @@
 #include "ContrarySurvivor/Retention/OnboardingComponent.h" // Этап F1: онбординг-подсказки
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
+#include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
 
@@ -1324,6 +1325,10 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetDialogOpen(true, Elder);
+		// Build 1: игрок дошёл до старосты и заговорил — снимаем интро-задачу и стрелку деревни
+		// (дальше ориентиры даёт квест). Идемпотентно, даже если интро уже кончилось.
+		CSHUD->SetIntroObjective(FText::GetEmpty());
+		CSHUD->SetIntroDirectionTarget(nullptr);
 	}
 
 	FInputModeGameAndUI Mode;
@@ -1529,6 +1534,16 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Интро (Build 1): один раз решаем и запускаем (когда появилась пешка), затем ведём по фазам.
+	if (!bIntroChecked)
+	{
+		MaybeStartIntro();
+	}
+	if (IntroPhase != EIntroPhase::None)
+	{
+		UpdateIntro(DeltaTime);
+	}
+
 	// Поддерживаем авто-лок на ближайшей живой цели (по умолчанию и после смерти текущей).
 	UpdateAutoTarget();
 
@@ -1561,6 +1576,317 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 		}
 		LastLoggedTarget = CurrentTarget;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Интро (Build 1, ТЗ издателя раздел 2)
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::MaybeStartIntro()
+{
+	// Ждём появления пешки-игрока (possess может произойти на пару кадров позже BeginPlay).
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		return; // попробуем в следующем кадре
+	}
+	bIntroChecked = true; // решение принимаем ровно один раз
+
+	if (!bEnableIntro)
+	{
+		return; // интро выключено (отладка команды) — сразу обычная игра
+	}
+
+	// Полное интро — только НОВАЯ игра (сейва ещё нет). Повторный заход (сейв есть) — интро с
+	// hold-to-skip. После смерти BeginPlay контроллера не вызывается повторно (пешка та же),
+	// поэтому «после смерти интро не показывать» выполняется само.
+	const bool bNewGame = !PlayerChar->HasSaveGame();
+	StartIntro(/*bSkippable=*/!bNewGame);
+}
+
+void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
+{
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		return;
+	}
+
+	bIntroSkippable = bSkippable;
+	bIntroSkipped = false;
+	IntroElapsed = 0.0f;
+	IntroAutoWalkElapsed = 0.0f;
+	IntroSkipHeld = 0.0f;
+	IntroPhase = EIntroPhase::Line1;
+
+	// Цель-деревня: актор с тегом VillageMarkerTag; фолбэк — ближайший староста (он в деревне).
+	IntroVillageActor = nullptr;
+	bIntroHasVillage = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (!VillageMarkerTag.IsNone())
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->ActorHasTag(VillageMarkerTag))
+				{
+					IntroVillageActor = *It;
+					break;
+				}
+			}
+		}
+		if (!IntroVillageActor)
+		{
+			float BestSq = TNumericLimits<float>::Max();
+			const FVector Loc = PlayerChar->GetActorLocation();
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
+			{
+				const float DSq = FVector::DistSquared(Loc, It->GetActorLocation());
+				if (DSq < BestSq) { BestSq = DSq; IntroVillageActor = *It; }
+			}
+		}
+	}
+	if (IntroVillageActor)
+	{
+		IntroVillageLocation = IntroVillageActor->GetActorLocation();
+		bIntroHasVillage = true;
+		FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
+		ToV.Z = 0.0f;
+		IntroInitialDistance = FMath::Max(1.0f, ToV.Size());
+	}
+
+	// Чёрный экран + тёмный грейд + блок ввода движения. Курсор прячем — чистый кадр кинематографа.
+	bIntroInputLocked = true;
+	bShowMouseCursor = false;
+	PlayerChar->SetIntroGradeAlpha(0.0f);
+
+	if (!IntroWidget)
+	{
+		IntroWidget = CreateWidget<UIntroScreenWidget>(this, UIntroScreenWidget::StaticClass());
+	}
+	if (IntroWidget)
+	{
+		IntroWidget->SetBackgroundAlpha(1.0f);
+		IntroWidget->SetTextAlpha(0.0f);
+		IntroWidget->SetLineText(IntroLine1);
+		IntroWidget->SetSkipHint(IntroSkipHintText, bIntroSkippable);
+		if (!IntroWidget->IsInViewport())
+		{
+			IntroWidget->AddToViewport(/*ZOrder=*/50); // выше HUD/модалок
+		}
+	}
+
+	// Пока идёт интро — не даём онбордингу показать подсказку движения по авто-таймеру: покажем
+	// её сами ровно при передаче управления (иначе всплыла бы на чёрном экране и «сгорела»).
+	if (UOnboardingComponent* Onb = PlayerChar->GetOnboarding())
+	{
+		Onb->CancelPendingMovementHint();
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: intro started (%s)"), bIntroSkippable ? TEXT("repeat/skippable") : TEXT("new game"));
+}
+
+void AContrarySurvivorPlayerController::UpdateIntro(float DeltaTime)
+{
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		return;
+	}
+
+	IntroElapsed += DeltaTime;
+
+	// Hold-to-skip (только повторные заходы, до передачи управления): копим удержание, сброс при отпускании.
+	if (bIntroSkippable && IntroPhase != EIntroPhase::HandOff)
+	{
+		if (IsIntroSkipHeld())
+		{
+			IntroSkipHeld += DeltaTime;
+			if (IntroSkipHeld >= IntroSkipHoldTime)
+			{
+				bIntroSkipped = true;
+				PlayerChar->SetIntroGradeAlpha(1.0f); // при пропуске — сразу нормальный кадр
+				IntroHandOverControl();
+				return;
+			}
+		}
+		else
+		{
+			IntroSkipHeld = 0.0f;
+		}
+	}
+
+	switch (IntroPhase)
+	{
+		case EIntroPhase::Line1:
+		case EIntroPhase::Line2:
+		{
+			const bool bLine1 = (IntroPhase == EIntroPhase::Line1);
+			const float PhaseStart = bLine1 ? 0.0f : IntroLineDuration;
+			const float LocalT = IntroElapsed - PhaseStart;
+
+			// Треугольная альфа строки: проступает в первой трети, держится, гаснет в последней.
+			const float FadeT = FMath::Max(0.01f, IntroLineDuration / 3.0f);
+			float A = 1.0f;
+			if (LocalT < FadeT)                          { A = LocalT / FadeT; }
+			else if (LocalT > IntroLineDuration - FadeT) { A = (IntroLineDuration - LocalT) / FadeT; }
+			A = FMath::Clamp(A, 0.0f, 1.0f);
+
+			if (IntroWidget)
+			{
+				IntroWidget->SetLineText(bLine1 ? IntroLine1 : IntroLine2);
+				IntroWidget->SetTextAlpha(A);
+				IntroWidget->SetBackgroundAlpha(1.0f);
+			}
+
+			if (LocalT >= IntroLineDuration)
+			{
+				IntroPhase = bLine1 ? EIntroPhase::Line2 : EIntroPhase::Reveal;
+				if (IntroPhase == EIntroPhase::Reveal)
+				{
+					// Мир начинает проявляться — ставим первую задачу и стрелку на деревню.
+					if (AContrarySurvivorHUD* H = GetHUD<AContrarySurvivorHUD>())
+					{
+						H->SetIntroObjective(IntroObjectiveGoToVillage);
+						H->SetIntroDirectionTarget(IntroVillageActor);
+					}
+				}
+			}
+			break;
+		}
+		case EIntroPhase::Reveal:
+		case EIntroPhase::AutoWalk:
+		{
+			IntroAutoWalkElapsed += DeltaTime;
+
+			// Проявление мира: чёрный фон гаснет за IntroRevealDuration.
+			if (IntroWidget)
+			{
+				IntroWidget->SetTextAlpha(0.0f);
+				const float RevealA = 1.0f - FMath::Clamp(
+					IntroAutoWalkElapsed / FMath::Max(0.01f, IntroRevealDuration), 0.0f, 1.0f);
+				IntroWidget->SetBackgroundAlpha(RevealA);
+			}
+
+			// Авто-подход: персонаж сам, хромая, идёт к деревне (хромота от низкого HP уже активна).
+			if (bIntroHasVillage)
+			{
+				FVector Dir = IntroVillageLocation - PlayerChar->GetActorLocation();
+				Dir.Z = 0.0f;
+				if (!Dir.IsNearlyZero())
+				{
+					if (IsMoveInputIgnored()) { ResetIgnoreMoveInput(); }
+					PlayerChar->AddMovementInput(Dir.GetSafeNormal(), 1.0f);
+				}
+				// Грейд-арка по дистанции: чем ближе к деревне, тем светлее/насыщеннее.
+				FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
+				ToV.Z = 0.0f;
+				const float Progress = 1.0f - FMath::Clamp(ToV.Size() / IntroInitialDistance, 0.0f, 1.0f);
+				PlayerChar->SetIntroGradeAlpha(Progress);
+			}
+
+			if (IntroPhase == EIntroPhase::Reveal && IntroAutoWalkElapsed >= IntroRevealDuration)
+			{
+				IntroPhase = EIntroPhase::AutoWalk;
+			}
+
+			// Передача управления: не раньше, чем мир полностью проявился И прошёл авто-подход.
+			if (IntroAutoWalkElapsed >= FMath::Max(IntroAutoApproachDuration, IntroRevealDuration))
+			{
+				IntroHandOverControl();
+			}
+			break;
+		}
+		case EIntroPhase::HandOff:
+		{
+			// Управление у игрока. Ведём грейд-арку (если интро не пропущено) и ждём входа в деревню.
+			if (bIntroHasVillage)
+			{
+				FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
+				ToV.Z = 0.0f;
+				const float Dist = ToV.Size();
+				if (!bIntroSkipped)
+				{
+					const float Progress = 1.0f - FMath::Clamp(Dist / IntroInitialDistance, 0.0f, 1.0f);
+					PlayerChar->SetIntroGradeAlpha(Progress);
+				}
+				if (Dist <= IntroSafeZoneRadius)
+				{
+					EndIntro();
+				}
+			}
+			else
+			{
+				// Нет цели-деревни (не размечена и старосты нет) — просто завершаем интро.
+				EndIntro();
+			}
+			break;
+		}
+		default:
+			break;
+	}
+}
+
+void AContrarySurvivorPlayerController::IntroHandOverControl()
+{
+	bIntroInputLocked = false;
+	bShowMouseCursor = true; // управление у игрока — курсор для выбора цели снова нужен
+	IntroPhase = EIntroPhase::HandOff;
+
+	// Чёрный экран отработал — убираем виджет интро (при пропуске это мгновенно открывает мир).
+	if (IntroWidget && IntroWidget->IsInViewport())
+	{
+		IntroWidget->RemoveFromParent();
+	}
+
+	// Задача и стрелка на деревню (идемпотентно: при пропуске мир не «проявлялся», ставим сейчас).
+	if (AContrarySurvivorHUD* H = GetHUD<AContrarySurvivorHUD>())
+	{
+		H->SetIntroObjective(IntroObjectiveGoToVillage);
+		H->SetIntroDirectionTarget(IntroVillageActor);
+	}
+
+	// Подсказка движения (левый стик) — ровно в момент передачи управления (ТЗ раздел 2).
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UOnboardingComponent* Onb = PlayerChar->GetOnboarding())
+		{
+			Onb->TryShowHint(EOnboardingHint::Movement);
+		}
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: intro control handed to player%s"), bIntroSkipped ? TEXT(" (skipped)") : TEXT(""));
+}
+
+void AContrarySurvivorPlayerController::EndIntro()
+{
+	IntroPhase = EIntroPhase::None;
+
+	// Грейд в норму (на случай, если арка не дотянула до 1 у околицы).
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->SetIntroGradeAlpha(1.0f);
+	}
+
+	// Задача меняется на «найти старосту»; стрелку на деревню оставляем — она ведёт к старосте,
+	// снимется при открытии диалога (OpenDialog).
+	if (AContrarySurvivorHUD* H = GetHUD<AContrarySurvivorHUD>())
+	{
+		H->SetIntroObjective(IntroObjectiveFindElder);
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: intro ended (entered village), objective -> find elder"));
+}
+
+bool AContrarySurvivorPlayerController::IsIntroSkipHeld() const
+{
+	// Пропуск удержанием: любое «действие» — ЛКМ / пробел / Enter / кнопка геймпада / палец.
+	// Тач-клавиши в EKeys — массив TouchKeys[ETouchIndex] (EKeys::Touch1 не существует).
+	return IsInputKeyDown(EKeys::LeftMouseButton)
+		|| IsInputKeyDown(EKeys::SpaceBar)
+		|| IsInputKeyDown(EKeys::Enter)
+		|| IsInputKeyDown(EKeys::Gamepad_FaceButton_Bottom)
+		|| IsInputKeyDown(EKeys::TouchKeys[ETouchIndex::Touch1]);
 }
 
 void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
@@ -1696,9 +2022,10 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин/диалог/экран смерти/меню паузы — движение подавлено
-	// (модальный экран). Гейт общий для WASD и тач-стика: инжекция стика идёт тем же MoveAction.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen)
+	// Пока открыт инвентарь/магазин/диалог/экран смерти/меню паузы ИЛИ идёт авто-подход интро —
+	// движение игрока подавлено. Гейт общий для WASD и тач-стика (инжекция стика идёт тем же
+	// MoveAction). Во время интро персонажа ведёт авто-подход (UpdateIntro), не игрок.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen || bIntroInputLocked)
 	{
 		return;
 	}
@@ -1757,6 +2084,13 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 	// Меню паузы: клики обрабатывают кнопки виджета, не стрельба. При паузе Enhanced Input
 	// и так молчит (bTriggerWhenPaused=false) — гейт на случай кадров до/после SetPause.
 	if (bPauseMenuOpen)
+	{
+		return;
+	}
+
+	// Build 1: во время кинематографа интро (до передачи управления) не стреляем — та же ЛКМ
+	// служит для hold-to-skip, стрельба в пустоту при пропуске была бы лишней.
+	if (bIntroInputLocked)
 	{
 		return;
 	}
