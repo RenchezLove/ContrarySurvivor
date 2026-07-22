@@ -18,6 +18,7 @@
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // GetCurrentWeapon (иконка оружия)
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
+#include "ContrarySurvivor/Utils/ContrarySurvivorStatics.h" // GetCurrentFPS (Блок E)
 
 namespace
 {
@@ -31,9 +32,6 @@ namespace
 		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius;
 		return Brush;
 	}
-
-	// Подсветка активного переключателя БЕГ.
-	const FLinearColor SprintActiveTint(1.0f, 0.85f, 0.2f, 1.0f);
 }
 
 void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InController,
@@ -81,6 +79,11 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 			UE_LOG(LogQA, Warning,
 				TEXT("TouchControlsWidget: кубик WeaponIconImage не найден в WBP — %s"),
 				WeaponIconImage ? TEXT("создан кодом (позиция дефолтная)") : TEXT("корень не канва, иконка отключена"));
+		}
+		// Число кадров: нет кубика в WBP — создаём кодом (позиция дефолтная), логика работает.
+		if (!FpsText)
+		{
+			CreateFpsTextInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
 		}
 	}
 	else
@@ -172,6 +175,9 @@ void UTouchControlsWidget::NativeOnInitialized()
 
 	StickBase->SetRenderOpacity(Config.IdleOpacity);
 	StickThumb->SetRenderOpacity(Config.IdleOpacity);
+
+	// Число кадров рядом с ПАУЗА (Блок E): создаём кубик в кодовом дереве (позиция/стиль из полей).
+	CreateFpsTextInCanvas(RootCanvas);
 }
 
 void UTouchControlsWidget::BuildButtons()
@@ -412,6 +418,8 @@ void UTouchControlsWidget::ResetHeldButtons()
 	bFireHeld = false;
 	bReloadQueued = false;
 	bSprintOn = false;
+	bSprintVisualActive = false; // подсветка бега снята — при новом беге UpdateSprintVisual начнёт заново
+	SprintPulseTime = 0.0f;
 	if (SprintButton)
 	{
 		SprintButton->SetBackgroundColor(SprintIdleColor);
@@ -419,6 +427,85 @@ void UTouchControlsWidget::ResetHeldButtons()
 		{
 			SprintButton->SetRenderOpacity(Config.IdleOpacity);
 		}
+	}
+}
+
+void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
+{
+	if (!Canvas || !WidgetTree || FpsText)
+	{
+		return; // нет канвы / уже есть (в т.ч. кубик из WBP)
+	}
+	FpsText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FpsText"));
+	FpsText->SetVisibility(ESlateVisibility::HitTestInvisible); // только визуал, кликов не ловит
+	FpsText->SetColorAndOpacity(FSlateColor(FpsTextColor));
+	{
+		FSlateFontInfo Font = FpsText->GetFont();
+		Font.Size = FpsFontSize;
+		FpsText->SetFont(Font);
+	}
+	if (UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(FpsText))
+	{
+		Slot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f)); // верх-лево, рядом с ПАУЗА
+		Slot->SetAlignment(FVector2D(0.0f, 0.0f));
+		Slot->SetAutoSize(true);
+		Slot->SetPosition(FpsMargin);
+	}
+}
+
+void UTouchControlsWidget::UpdateFpsText()
+{
+	if (!FpsText)
+	{
+		return; // кубика нет (WBP без него и не кодовое дерево) — нечего обновлять
+	}
+	if (!bShowFps)
+	{
+		FpsText->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	FpsText->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	const int32 Fps = FMath::RoundToInt(UContrarySurvivorStatics::GetCurrentFPS());
+	// Число + приписка. Живое число — culture-invariant строка (перевода не требует).
+	FString Line = FString::FromInt(Fps);
+	if (!FpsSuffix.IsEmpty())
+	{
+		Line += FpsSuffix.ToString();
+	}
+	FpsText->SetText(FText::FromString(Line));
+}
+
+void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
+{
+	if (!SprintButton)
+	{
+		return;
+	}
+	if (bSprintOn)
+	{
+		// Синий + пульсация: цвет подсвечивается на пике синуса (RGB множатся, альфа сохраняется).
+		SprintPulseTime += DeltaTime;
+		const float Pulse = 0.5f + 0.5f * FMath::Sin(SprintPulseTime * SprintPulseSpeed); // 0..1
+		FLinearColor C = SprintActiveColor * (1.0f + SprintPulseStrength * Pulse);
+		C.A = SprintActiveColor.A;
+		SprintButton->SetBackgroundColor(C);
+		if (!bDesignerTree)
+		{
+			SprintButton->SetRenderOpacity(Config.ActiveOpacity);
+		}
+		bSprintVisualActive = true;
+	}
+	else if (bSprintVisualActive)
+	{
+		// Бег выключен — один раз возвращаем кнопку к покою.
+		SprintButton->SetBackgroundColor(SprintIdleColor);
+		if (!bDesignerTree)
+		{
+			SprintButton->SetRenderOpacity(Config.IdleOpacity);
+		}
+		SprintPulseTime = 0.0f;
+		bSprintVisualActive = false;
 	}
 }
 
@@ -444,6 +531,10 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 		return;
 	}
 
+	// Число кадров рядом с ПАУЗА (Блок E): обновляем ДО гейта модалки — кнопка ПАУЗА видна и
+	// на модальных экранах, значит и счётчик рядом с ней должен продолжать тикать.
+	UpdateFpsText();
+
 	// Модальное окно открыто -> боевая группа прячется, инжекция глушится (см. класс-коммент).
 	// СУМКА/ПАУЗА остаются: их обработчики модалкам не вредят (тогл инвентаря / гейт паузы).
 	const bool bModal = OwnerPC->IsAnyModalUIOpen();
@@ -458,6 +549,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	{
 		return;
 	}
+
+	// Подсветка+пульсация кнопки БЕГ при включённом беге (Блок D): вне модалок, кнопка видна.
+	UpdateSprintVisual(InDeltaTime);
 
 	UEnhancedInputLocalPlayerSubsystem* InputSubsystem = GetInputSubsystem();
 	if (!InputSubsystem)
@@ -522,7 +616,8 @@ void UTouchControlsWidget::HandleSprintPressed()
 	bSprintOn = Config.bSprintToggle ? !bSprintOn : true;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveTint : SprintIdleColor);
+		// Немедленная реакция; пульсацию поверх ведёт UpdateSprintVisual каждый кадр (Блок D).
+		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveColor : SprintIdleColor);
 		if (!bDesignerTree)
 		{
 			SprintButton->SetRenderOpacity(bSprintOn ? Config.ActiveOpacity : Config.IdleOpacity);

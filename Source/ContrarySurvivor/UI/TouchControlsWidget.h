@@ -114,6 +114,42 @@ public:
 	TSoftObjectPtr<UTexture2D> KnifeIconTexture =
 		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Knife.T_Icon_Knife")));
 
+	// --- Число кадров рядом с кнопкой ПАУЗА (Build 1, Блок E). Настраивается прямо здесь, в том
+	// же виджете, где кнопка паузы (директива Рината). Значение берётся из GetCurrentFPS. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "1"))
+	bool bShowFps = true;
+
+	// Кегль числа кадров.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (ClampMin = "6", DisplayPriority = "2"))
+	int32 FpsFontSize = 20;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "3"))
+	FLinearColor FpsTextColor = FLinearColor(0.6f, 1.0f, 0.6f, 1.0f);
+
+	// Приписка после числа (например « FPS»). Пусто — только число.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "4"))
+	FText FpsSuffix = NSLOCTEXT("Touch", "FpsSuffix", " FPS");
+
+	// Отступ числа от левого-верхнего угла экрана, px (рядом с кнопкой ПАУЗА).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "5"))
+	FVector2D FpsMargin = FVector2D(120.0f, 40.0f);
+
+	// --- Подсветка кнопки БЕГ при активном беге (Build 1, Блок D): синий цвет + пульсация.
+	// Цвет и скорость/сила пульсации настраиваются здесь (директива Рината). ---
+
+	// Цвет кнопки БЕГ, когда бег включён (синий).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (DisplayPriority = "1"))
+	FLinearColor SprintActiveColor = FLinearColor(0.2f, 0.5f, 1.0f, 1.0f);
+
+	// Скорость пульсации (циклов/сек ~ рад/сек синуса).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", DisplayPriority = "2"))
+	float SprintPulseSpeed = 4.0f;
+
+	// Сила пульсации: доля, на которую цвет подсвечивается на пике [0..1].
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "3"))
+	float SprintPulseStrength = 0.4f;
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -199,6 +235,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> PauseText;
 
+	// Число кадров рядом с ПАУЗА (Build 1). Есть в WBP — код обновляет его; нет — код создаёт сам.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> FpsText;
+
 private:
 	// Угол экрана, к которому прижата кнопка (Margin отсчитывается от него).
 	enum class ETouchCorner : uint8
@@ -256,6 +296,16 @@ private:
 	// Создаёт кубик WeaponIconImage кодом в канву Canvas (кодовое дерево или fallback
 	// для WBP без кубика): 48x48 над кнопкой ОРУЖИЕ (позиция из Config).
 	void CreateWeaponIconInCanvas(UCanvasPanel* Canvas);
+
+	// Создаёт кубик FpsText кодом в канву Canvas (кодовое дерево или fallback для WBP без кубика):
+	// верх-лево, рядом с ПАУЗА, стиль из FpsFontSize/FpsTextColor.
+	void CreateFpsTextInCanvas(UCanvasPanel* Canvas);
+
+	// Обновляет число кадров из GetCurrentFPS (зовётся каждый кадр, до гейта модалки — ПАУЗА видна).
+	void UpdateFpsText();
+
+	// Подсветка+пульсация кнопки БЕГ при включённом беге (Блок D). Зовётся каждый кадр вне модалок.
+	void UpdateSprintVisual(float DeltaTime);
 
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
@@ -318,4 +368,8 @@ private:
 	bool bSprintOn = false;      // бег активен (переключатель или удержание) -> инжекция IA_Sprint
 	bool bReloadQueued = false;  // одноразовая инжекция IA_Reload на следующем кадре
 	bool bCombatGroupVisible = true; // текущее состояние боевой группы (чтобы не дёргать каждый кадр)
+
+	// --- Пульсация кнопки БЕГ (Блок D) ---
+	float SprintPulseTime = 0.0f;      // накопитель фазы синуса пульсации
+	bool bSprintVisualActive = false;  // сейчас показана подсветка бега (для сброса к покою один раз)
 };
