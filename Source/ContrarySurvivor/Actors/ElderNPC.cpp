@@ -48,19 +48,10 @@ AElderNPC::AElderNPC()
 	// A1: число шкур 5 -> 3 (баланс демки).
 	OfferedQuest.QuestId = FName(TEXT("KillWolves"));
 	OfferedQuest.Title = NSLOCTEXT("Quest", "Q1Title", "Шкуры волков");
-	// Реплики первой встречи — ТЕКСТ ИЗДАТЕЛЯ, вставлен дословно (решение владельца
-	// 2026-07-20, источник docs/contrary-survivor/publisher-2026-07-20, раздел 3).
-	// Ветвление ответа игрока («Из столицы» / «Сам не помню») издатель САМ отложил на
-	// следующую версию — вместо выбора староста говорит эту мысль сам одной строкой
-	// (замена предложена издателем в «Ответ на сверку», п.4).
-	// ОБРЕЗАНО до сути (баг владельца 2026-07-20: «свалил в кучу все ответы»). Убрана
-	// строка «Из столицы бредёшь…»: это ОТВЕТ ИГРОКА, который староста произносил за него,
-	// — из-за неё разговор и читался как свалка реплик. Прощальная фраза про чужаков
-	// уехала в DialogueEarlyHookText и говорится ВСЛЕД, после согласия.
+	// Build 1: сама речь первой встречи (приветствие, аптечка, крючок) переехала в скриптовое
+	// интро IntroLines (реплики по очереди, чинит «свалку реплик» — баг издателя). Описание
+	// квеста теперь — ТОЛЬКО задача (как у кв.2/кв.3): его читают в журнале/на HUD, не в интро.
 	OfferedQuest.Description = NSLOCTEXT("Quest", "Q1Description",
-		"Живой. В наших краях уже редкость. Откуда бредёшь такой?\n\n"
-		"Ладно. Держи, затяни раны — до утра иначе не дотянешь.\n\n"
-		"Времена нынче лихие, чужаков у нас не привечают. Хочешь остаться — покажи, чего стоишь.\n"
 		"Волки совсем осмелели, у самой околицы рыщут. Разори логово на западе, принеси три шкуры.");
 	OfferedQuest.Type = EQuestType::Collect;
 	OfferedQuest.KillTargetTag = NAME_None;
@@ -114,6 +105,43 @@ AElderNPC::AElderNPC()
 	// Второе логово волков: BP_WolfDen с QuestMarkerTag="WolfDen2" ставит на карту game-lead.
 	// Пока актора с тегом нет, DrawQuestTargetMarker мягко ничего не рисует (проверено кодом HUD).
 	ThirdQuest.MapMarkerTag = FName(TEXT("WolfDen2"));
+
+	// СКРИПТОВОЕ ИНТРО ПЕРВОЙ ВСТРЕЧИ (Build 1, ТЗ издателя раздел 3 — текст ДОСЛОВНО).
+	// Реплики идут ПО ОЧЕРЕДИ, под каждой ровно ОДНА кнопка-ответ игрока (ветвления нет — решение
+	// Рината: всегда один вариант). Ветку выбора «Из столицы» / «Сам не помню» издатель отложил;
+	// оставлен ответ «Из столицы» — он согласован с интро-текстом («Столица осталась позади»).
+	// Эффекты (аптечка, старт квеста) срабатывают по нажатию кнопки соответствующей реплики.
+	auto MakeLine = [](const FText& NPC, const FText& Btn, EElderIntroAction Act)
+	{
+		FElderIntroLine Line;
+		Line.NPCText = NPC;
+		Line.ButtonLabel = Btn;
+		Line.Action = Act;
+		return Line;
+	};
+	IntroLines.Add(MakeLine(
+		NSLOCTEXT("Dialog", "ElderIntro0", "Живой. В наших краях уже редкость. Откуда бредёшь такой?"),
+		NSLOCTEXT("Dialog", "ElderIntroBtn0", "Из столицы."),
+		EElderIntroAction::None));
+	IntroLines.Add(MakeLine(
+		NSLOCTEXT("Dialog", "ElderIntro1", "Столица… Оттуда давно одни дурные вести доходят."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn1", "Дальше"),
+		EElderIntroAction::None));
+	IntroLines.Add(MakeLine(
+		NSLOCTEXT("Dialog", "ElderIntro2", "Ладно. Держи, затяни раны — до утра иначе не дотянешь."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn2", "Взять аптечку"),
+		EElderIntroAction::GiveGift)); // выдаёт аптечку тем же путём, что магазин (GiveConsumableToBackpack)
+	IntroLines.Add(MakeLine(
+		NSLOCTEXT("Dialog", "ElderIntro3",
+			"Только вот что. Времена нынче лихие, чужаков у нас не привечают. Хочешь остаться — покажи, чего стоишь.\n"
+			"Волки совсем осмелели, у самой околицы рыщут. Разори логово на западе, принеси три шкуры. Тогда и поговорим по-людски."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn3", "Взяться за дело"),
+		EElderIntroAction::StartQuest)); // запускает существующий квест «Шкуры волков»
+	IntroLines.Add(MakeLine(
+		NSLOCTEXT("Dialog", "ElderIntro4",
+			"И вот что странно… За последние недели чужаки всё идут и идут к нам. Будто гонит их что-то. Или кто-то. Не моего ума дело. Ступай."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn4", "Закрыть"),
+		EElderIntroAction::None)); // последняя реплика-крючок: показывается один раз (bElderHookShown)
 }
 
 void AElderNPC::PostInitializeComponents()

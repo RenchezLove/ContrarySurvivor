@@ -14,6 +14,43 @@ class UQuestComponent;
 class APlayerCharacter;
 
 /**
+ * Что делает нажатие кнопки под конкретной репликой интро (Build 1, скриптовый диалог первой
+ * встречи). Эффект срабатывает по действию ИГРОКА — когда он жмёт кнопку этой реплики, — после
+ * чего диалог переходит к следующей реплике.
+ */
+UENUM(BlueprintType)
+enum class EElderIntroAction : uint8
+{
+	None       UMETA(DisplayName = "Просто продолжить"),   // никакого эффекта, просто дальше
+	GiveGift   UMETA(DisplayName = "Выдать подарок (аптечку)"), // положить бинт/аптечку в рюкзак + подсказка
+	StartQuest UMETA(DisplayName = "Начать первый квест")   // принять квест «Шкуры волков»
+};
+
+/**
+ * Одна реплика скриптового интро-диалога старосты (Build 1). Реплики проигрываются ПО ОЧЕРЕДИ:
+ * под каждой репликой ровно ОДНА кнопка-ответ игрока (ветвления нет — решение Рината). Тексты —
+ * переводимые (ADR-050), редактируются на размещённом BP_Elder (директива Рината: игровые
+ * параметры EditAnywhere).
+ */
+USTRUCT(BlueprintType)
+struct FElderIntroLine
+{
+	GENERATED_BODY()
+
+	// Реплика старосты (крупный текст в окне диалога).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro", meta = (MultiLine = "true"))
+	FText NPCText;
+
+	// Единственная кнопка-ответ игрока под этой репликой (квадратные скобки рисует WBP_Dialog).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro")
+	FText ButtonLabel;
+
+	// Что происходит при нажатии кнопки этой реплики (выдать аптечку / начать квест / просто дальше).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro")
+	EElderIntroAction Action = EElderIntroAction::None;
+};
+
+/**
  * Староста деревни (Фаза 5, GDD §7.7 — квестодатель MVP).
  *
  * A3: переведён с болванки AActor на AMasterHumanoidCharacter (модульный гуманоид, как
@@ -68,6 +105,10 @@ public:
 	const FText& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
 	const FText& GetDialogueEarlyHookText() const { return DialogueEarlyHookText; }
 
+	// Скриптовое интро первой встречи (Build 1): реплики старосты по очереди, по одной кнопке-
+	// ответу на реплику. Проигрывается ТОЛЬКО пока первый квест ещё не принят (первая встреча).
+	const TArray<FElderIntroLine>& GetIntroLines() const { return IntroLines; }
+
 protected:
 	virtual void PostInitializeComponents() override;
 
@@ -88,17 +129,19 @@ protected:
 	FText DialogueTurnedInText = NSLOCTEXT("Dialog", "ElderTurnedIn",
 		"Спасибо тебе ещё раз. Деревня тебе благодарна.");
 
-	// Ранний сюжетный крючок (ADR-049 п.2, решение Рината «ранний намёк одной фразой»):
-	// дописывается к реплике ПЕРВОГО квеста, когда игрок его ещё не взял. Отдельным полем,
-	// а не внутри описания квеста, — чтобы Ринат заменил фразу целиком без программиста.
-	// Пусто — ничего не дописывается, диалог работает как раньше.
+	// ЛЕГАСИ (Build 1): раньше эта фраза-крючок дописывалась к реплике активного квеста и потому
+	// повторялась при КАЖДОМ повторном разговоре (баг издателя). Теперь крючок — это ПОСЛЕДНЯЯ
+	// реплика скриптового интро (IntroLines) и показывается один раз (признак bElderHookShown в
+	// сейве). Поле оставлено, чтобы не терять текст/перевод; в потоке диалога больше НЕ участвует.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
-	// Текст ИЗДАТЕЛЯ, вставлен дословно (раздел 3, «посев загадки»): та же мысль, что и в
-	// моей прежней временной фразе, но сформулирована автором и подхватывается дальше
-	// ноутбуком на базе бандитов. Ремарка «машет рукой» опущена — это указание актёру,
-	// а не слова старосты.
 	FText DialogueEarlyHookText = NSLOCTEXT("Dialog", "ElderEarlyHook",
 		"И вот что странно… За последние недели чужаки всё идут и идут к нам. Будто гонит их что-то. Или кто-то. Не моего ума дело. Ступай.");
+
+	// Скриптовое интро первой встречи (Build 1, ТЗ издателя раздел 3): реплики старосты по очереди,
+	// под каждой — ровно одна кнопка-ответ игрока. Заполняется в конструкторе дословным текстом ТЗ;
+	// Ринат правит реплики/подписи кнопок прямо на BP_Elder. Играется, пока первый квест не принят.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro", meta = (DisplayPriority = "1", TitleProperty = "ButtonLabel"))
+	TArray<FElderIntroLine> IntroLines;
 
 	// --- Подарок первой встречи (см. TryGiveFirstMeetingGift) ---
 

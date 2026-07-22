@@ -99,6 +99,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bElderFirstGiftGiven = false;
 
+	// Финальная реплика-крючок интро («кто-то гонит чужаков») уже показана в этом профиле.
+	// Build 1: раньше крючок дописывался к каждому повторному разговору и потому повторялся
+	// (баг издателя). Теперь он — последняя реплика интро и показывается один раз; признак в
+	// сейве переживает смерть/перезапуск, поэтому при повторном разговоре крючок не повторяется.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bElderHookShown = false;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

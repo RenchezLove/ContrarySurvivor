@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
+#include "ContrarySurvivor/Save/ContrarySaveGame.h" // признак «крючок показан» (bElderHookShown)
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 
@@ -43,6 +44,14 @@ void UDialogScreenWidget::InitDialog(AElderNPC* InElder, APlayerCharacter* InPla
 	Elder = InElder;
 	Player = InPlayer;
 	bEverRefreshed = false; // форс-обновление на первом тике/сразу
+
+	// Решаем ОДИН раз на всю сессию диалога: играть ли скриптовое интро первой встречи. Дальше
+	// поток ведётся по IntroStep и НЕ переоценивается по состоянию квеста — иначе после «Взяться
+	// за дело» квест стал бы Active и последняя реплика-крючок не показалась бы в этой же сессии.
+	bInIntroSequence = ShouldPlayIntro();
+	IntroStep = 0;
+	LastShownIntroStep = INDEX_NONE;
+
 	RefreshDialog();
 }
 
@@ -56,6 +65,14 @@ void UDialogScreenWidget::RefreshDialog()
 {
 	if (!Elder || !Player)
 	{
+		return;
+	}
+
+	// Build 1: пока идёт скриптовое интро первой встречи — реплики по очереди, обычный поток по
+	// состоянию квеста отключён (см. RefreshIntroLine/AdvanceIntro).
+	if (bInIntroSequence)
+	{
+		RefreshIntroLine();
 		return;
 	}
 
@@ -120,14 +137,10 @@ void UDialogScreenWidget::RefreshDialog()
 				QuestObjectiveText::BuildObjectives(QData, ObjectiveFormat, ObjectiveSeparator));
 			NPCText = FText::Format(ActiveReplicaFormat, Args);
 
-			// Прощальная фраза-крючок (ADR-049 п.2) — говорится ВСЛЕД, когда игрок уже
-			// согласился, и только по ПЕРВОМУ квесту, пока он в работе. Дальше её место
-			// занимает полный крючок после сдачи ноутбука (кв.3, ADR-044).
-			if (QData.QuestId == Elder->GetOfferedQuest().QuestId
-				&& !Elder->GetDialogueEarlyHookText().IsEmpty())
-			{
-				NPCText = FText::Join(EarlyHookSeparator, NPCText, Elder->GetDialogueEarlyHookText());
-			}
+			// Build 1: крючок «кто-то гонит чужаков» БОЛЬШЕ не дописывается сюда. Раньше он
+			// добавлялся к реплике активного квеста и потому повторялся при каждом повторном
+			// разговоре (баг издателя). Теперь крючок — последняя реплика скриптового интро и
+			// показывается ОДИН раз (признак bElderHookShown в сейве).
 			break;
 		}
 		case EQuestState::Completed:
@@ -157,6 +170,12 @@ void UDialogScreenWidget::RefreshDialog()
 	SetShown(TurnInButton,  State == EQuestState::Completed);
 	SetShown(CloseButton,   State == EQuestState::Active || State == EQuestState::TurnedIn);
 
+	// Подпись кнопки принятия обычного предложения квеста (кв.2/кв.3) — из настройки панели.
+	if (AcceptText && State == EQuestState::NotStarted)
+	{
+		AcceptText->SetText(AcceptButtonLabel);
+	}
+
 	if (TurnInText && State == EQuestState::Completed)
 	{
 		FFormatNamedArguments Args;
@@ -167,6 +186,13 @@ void UDialogScreenWidget::RefreshDialog()
 
 void UDialogScreenWidget::HandleAcceptClicked()
 {
+	// В скриптовом интро AcceptButton — единственная кнопка-ответ: она ведёт диалог по репликам.
+	if (bInIntroSequence)
+	{
+		AdvanceIntro();
+		return;
+	}
+
 	UE_LOG(LogQA, Display, TEXT("QA: dialog choice ACCEPT (UMG)"));
 	if (Player && Elder)
 	{
@@ -200,4 +226,147 @@ void UDialogScreenWidget::HandleCloseClicked()
 {
 	UE_LOG(LogQA, Display, TEXT("QA: dialog choice CLOSE (UMG)"));
 	OnCloseRequested.Broadcast();
+}
+
+// ---------------------------------------------------------------------------
+// Скриптовое интро первой встречи (Build 1, ТЗ издателя раздел 3)
+// ---------------------------------------------------------------------------
+
+bool UDialogScreenWidget::ShouldPlayIntro() const
+{
+	if (!Elder || !Player)
+	{
+		return false;
+	}
+	if (Elder->GetIntroLines().Num() == 0)
+	{
+		return false; // у старосты нет реплик интро — работает обычный диалог
+	}
+
+	UQuestComponent* Quests = Player->GetQuests();
+	if (!Quests)
+	{
+		return false;
+	}
+
+	// Интро — только ПЕРВАЯ встреча: первый квест уже предложен журналу (OfferQuest на открытии
+	// диалога), но ещё не принят. Принял/сдал — интро не повторяем, идёт обычный поток по состоянию.
+	const FQuest* Q1 = Quests->FindQuest(Elder->GetOfferedQuest().QuestId);
+	if (!Q1 || Q1->State != EQuestState::NotStarted)
+	{
+		return false;
+	}
+
+	// Крючок этого профиля уже показан — интро больше не играем (страховка от повтора крючка).
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		if (Save->bElderHookShown)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void UDialogScreenWidget::RefreshIntroLine()
+{
+	const TArray<FElderIntroLine>& Lines = Elder->GetIntroLines();
+	if (!Lines.IsValidIndex(IntroStep))
+	{
+		// Реплик не осталось — закрываем (обычно закрытие происходит в AdvanceIntro).
+		OnCloseRequested.Broadcast();
+		return;
+	}
+	if (LastShownIntroStep == IntroStep)
+	{
+		return; // эта реплика уже на экране — не трогаем текст каждый кадр
+	}
+	LastShownIntroStep = IntroStep;
+
+	const FElderIntroLine& Line = Lines[IntroStep];
+
+	if (NPCNameText)
+	{
+		NPCNameText->SetText(Elder->GetDialogueDisplayName());
+	}
+	if (ReplicaText)
+	{
+		ReplicaText->SetText(Line.NPCText);
+	}
+	if (AcceptText)
+	{
+		AcceptText->SetText(Line.ButtonLabel);
+	}
+
+	// Ровно ОДНА кнопка-ответ (AcceptButton); остальные кнопки на время интро скрыты.
+	auto SetShown = [](UButton* Button, bool bShown)
+	{
+		if (Button)
+		{
+			Button->SetVisibility(bShown ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+	};
+	SetShown(AcceptButton,  true);
+	SetShown(DeclineButton, false);
+	SetShown(TurnInButton,  false);
+	SetShown(CloseButton,   false);
+
+	// Последняя реплика интро — сюжетный крючок. Помечаем «показан» в сейве, чтобы при повторном
+	// разговоре он не повторялся (баг издателя). Пишем один раз за профиль.
+	if (IntroStep == Lines.Num() - 1)
+	{
+		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			if (!Save->bElderHookShown)
+			{
+				Save->bElderHookShown = true;
+				Player->WriteSaveObject(Save);
+			}
+		}
+	}
+}
+
+void UDialogScreenWidget::AdvanceIntro()
+{
+	if (!Elder || !Player)
+	{
+		OnCloseRequested.Broadcast();
+		return;
+	}
+
+	const TArray<FElderIntroLine>& Lines = Elder->GetIntroLines();
+	if (!Lines.IsValidIndex(IntroStep))
+	{
+		OnCloseRequested.Broadcast();
+		return;
+	}
+
+	// Эффект текущей реплики срабатывает по нажатию её кнопки (действие игрока).
+	switch (Lines[IntroStep].Action)
+	{
+		case EElderIntroAction::GiveGift:
+			// Аптечка кладётся в рюкзак тем же путём, что покупки магазина (внутри —
+			// GiveConsumableToBackpack), признак «уже выдал» в сейве — повторно не выдаётся.
+			Elder->TryGiveFirstMeetingGift(Player);
+			break;
+		case EElderIntroAction::StartQuest:
+			if (UQuestComponent* Quests = Player->GetQuests())
+			{
+				// Кв.1 уже в журнале (OfferQuest на открытии диалога) — принимаем «Шкуры волков».
+				Quests->AcceptQuest(Elder->GetOfferedQuest().QuestId);
+				UE_LOG(LogQA, Display, TEXT("QA: dialog intro START QUEST (UMG)"));
+			}
+			break;
+		default:
+			break;
+	}
+
+	++IntroStep;
+	if (!Lines.IsValidIndex(IntroStep))
+	{
+		// Реплики кончились (последняя кнопка = «Закрыть») — закрываем диалог.
+		OnCloseRequested.Broadcast();
+		return;
+	}
+	RefreshIntroLine();
 }

@@ -1312,9 +1312,10 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 			PlayerQuests->OfferQuest(Elder->GetQuestForPlayer(PlayerQuests));
 		}
 
-		// Подарок первой встречи («Держи, затяни раны»): выдаётся ровно один раз за
-		// профиль, дальше сам метод молча ничего не делает.
-		Elder->TryGiveFirstMeetingGift(PlayerChar);
+		// Build 1: подарок первой встречи (аптечка) больше НЕ выдаётся при открытии — иначе
+		// подсказка «Получена аптечка» всплывала бы до реплики. Теперь аптечку выдаёт
+		// скриптовое интро на реплике «Держи, затяни раны» (DialogScreenWidget::AdvanceIntro,
+		// действие GiveGift). Признак «уже выдал» по-прежнему в сейве — фарм невозможен.
 	}
 
 	bDialogOpen = true;

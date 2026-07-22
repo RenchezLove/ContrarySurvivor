@@ -75,6 +75,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "7"))
 	FText RewardLineSeparator = NSLOCTEXT("Dialog", "RewardLineSeparator", "\n\n");
 
+	// Подпись кнопки принятия квеста в ОБЫЧНОМ диалоге (предложение кв.2/кв.3). В скриптовом
+	// интро первой встречи подпись берётся из самой реплики (FElderIntroLine::ButtonLabel).
+	// Действует только если в WBP_Dialog есть текстовый кубик AcceptText внутри AcceptButton;
+	// нет кубика — кнопка показывает статичную подпись, которую Ринат написал в дизайнере.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "8"))
+	FText AcceptButtonLabel = NSLOCTEXT("Dialog", "AcceptButtonLabel", "Принять");
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -89,6 +96,20 @@ protected:
 
 	// Полное обновление: реплика + имя NPC + видимость кнопок по состоянию квеста.
 	void RefreshDialog();
+
+	// --- Скриптовое интро первой встречи (Build 1, ТЗ издателя раздел 3) ---
+
+	// Нужно ли играть интро СЕЙЧАС: у старосты есть реплики интро, первый квест ещё предложен
+	// (NotStarted, не принят) и крючок в этом профиле ещё не показан. Решается один раз в InitDialog.
+	bool ShouldPlayIntro() const;
+
+	// Показать текущую реплику интро (IntroLines[IntroStep]): текст + единственная кнопка-ответ,
+	// остальные кнопки скрыты. На последней реплике-крючке ставит признак bElderHookShown в сейв.
+	void RefreshIntroLine();
+
+	// Нажата кнопка текущей реплики: выполнить её эффект (аптечка/старт квеста) и перейти к
+	// следующей реплике; после последней — закрыть диалог.
+	void AdvanceIntro();
 
 	// --- Кубики WBP_Dialog (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 
@@ -118,6 +139,12 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TurnInText;
 
+	// Подпись кнопки-ответа (лежит ВНУТРИ AcceptButton). В скриптовом интро код ставит сюда
+	// подпись текущей реплики («Из столицы.», «Взяться за дело», «Закрыть» и т.д.); в обычном
+	// диалоге — AcceptButtonLabel. Нет кубика — показывается статичная подпись из WBP_Dialog.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AcceptText;
+
 private:
 	UPROPERTY()
 	TObjectPtr<AElderNPC> Elder;
@@ -129,4 +156,16 @@ private:
 	FName LastQuestId = NAME_None;
 	EQuestState LastState = EQuestState::NotStarted;
 	bool bEverRefreshed = false;
+
+	// --- Состояние скриптового интро (латчится в InitDialog на всю сессию диалога) ---
+
+	// Идёт ли сейчас скриптовое интро (решается один раз при открытии). Пока true — диалог
+	// показывает реплики по очереди, а обычный поток по состоянию квеста не работает.
+	bool bInIntroSequence = false;
+
+	// Индекс текущей реплики интро в IntroLines старосты.
+	int32 IntroStep = 0;
+
+	// Какая реплика уже выведена на экран — чтобы не переустанавливать текст каждый кадр.
+	int32 LastShownIntroStep = INDEX_NONE;
 };
