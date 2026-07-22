@@ -482,7 +482,14 @@ void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
 	{
 		return;
 	}
-	if (bSprintOn)
+	// Источник истины «бег включён» — реальное состояние персонажа GetIsSprinting() (директива
+	// game-lead), а не флаг тач-кнопки: подсветка отражает фактический буст скорости, а не намерение.
+	bool bSprinting = false;
+	if (const AMasterHumanoidCharacter* Char = OwnerPC ? Cast<AMasterHumanoidCharacter>(OwnerPC->GetPawn()) : nullptr)
+	{
+		bSprinting = Char->GetIsSprinting();
+	}
+	if (bSprinting)
 	{
 		// Синий + пульсация: цвет подсвечивается на пике синуса (RGB множатся, альфа сохраняется).
 		SprintPulseTime += DeltaTime;
