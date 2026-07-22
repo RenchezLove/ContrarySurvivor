@@ -173,6 +173,54 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Shake", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "32"))
     float DamageShakeTrauma = 0.5f;
 
+    // --- Постобработка камеры (Build 1, ТЗ издателя раздел 4) ---
+    // Умеренные стартовые значения, Ринат подправит. Применяются к PostProcessSettings камеры в
+    // ApplyCameraSettings (OnConstruction — живой knob на размещённом экземпляре). Туман — НЕ здесь.
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "1"))
+    bool bEnablePostProcess = true;
+
+    // Виньетка — мягкое затемнение краёв. Умеренно (~0.35), НЕ «тоннель».
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "2"))
+    float PPVignetteIntensity = 0.35f;
+
+    // Фиксированная экспозиция: отключает авто-адаптацию глаза (кадр не «дышит» яркостью).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "3"))
+    bool bPPFixedExposure = true;
+
+    // Значение экспозиции (EV) в ручном режиме. 0 — нейтрально.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "4"))
+    float PPExposureCompensation = 0.0f;
+
+    // Лёгкое зерно (film grain), очень слабое — «плёнка/потрёпанность».
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
+    float PPFilmGrainIntensity = 0.1f;
+
+    // Насыщенность (1 — как есть, <1 — лёгкая десатурация под тон «потрёпанного новичка»).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "6"))
+    float PPSaturation = 0.92f;
+
+    // Теплота светов [0..~0.3]: сдвигает света к тёплому (больше красного, меньше синего).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "0.3", DisplayPriority = "7"))
+    float PPHighlightWarmth = 0.05f;
+
+    // Холод теней [0..~0.3]: сдвигает тени к холодному (больше синего, меньше красного).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "0.3", DisplayPriority = "8"))
+    float PPShadowCoolness = 0.05f;
+
+    // --- Арка постобработки интро (Build 1, ТЗ раздел 4): по пути к деревне грейд плавно идёт
+    // от «темнее и обесцвеченнее» к нормальному. Интерполяция альфой [0..1]: 0 = старт (значения
+    // ниже), 1 = норма (значения выше). Альфу ведёт интро-последовательность (SetIntroGradeAlpha).
+    // Без нового арта — только интерполяция экспозиции и насыщенности. ---
+
+    // Экспозиция на старте интро (темнее нормы), EV.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess|Intro", meta = (DisplayPriority = "1"))
+    float PPIntroStartExposure = -1.5f;
+
+    // Насыщенность на старте интро (сильнее обесцвечено).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess|Intro", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "2"))
+    float PPIntroStartSaturation = 0.5f;
+
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
     // как и у врага: TakeDamage роутится в Stats.
@@ -349,6 +397,10 @@ protected:
     // и из OnConstruction (после сериализации BP-оверрайдов → они применяются и видны в редакторе).
     void ApplyCameraSettings();
 
+    // Применяет постобработку (виньетка/экспозиция/зерно/цветокор) к PostProcessSettings камеры с
+    // учётом IntroGradeAlpha (экспозиция и насыщенность интерполируются от старта интро к норме).
+    void ApplyPostProcessSettings();
+
     // Спавнит DefaultWeaponClass и экипирует через EquipWeapon (если класс задан).
     void EquipDefaultWeapon();
 
@@ -409,6 +461,12 @@ public:
     // Зовут: TakeDamage игрока (DamageShakeTrauma) и выстрел игрока (ARangedWeapon, лёгкая).
     UFUNCTION(BlueprintCallable, Category = "Camera|Shake")
     void AddCameraShake(float Trauma);
+
+    // Ставит альфу арки грейда интро [0..1] и сразу применяет пост-процесс (экспозиция и
+    // насыщенность интерполируются от старта интро к норме). 1 — обычная игра (по умолчанию),
+    // 0 — самый тёмный/обесцвеченный старт интро. Зовёт интро-последовательность по пути к деревне.
+    UFUNCTION(BlueprintCallable, Category = "Camera|PostProcess")
+    void SetIntroGradeAlpha(float Alpha);
 
     // Переключение между дальним (пистолет) и ближним (нож) оружием.
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
@@ -577,6 +635,10 @@ private:
 
     // Кэш инвентаря (UInventoryComponent на базе AMasterHumanoidCharacter, защищён).
     // Доступ к нему — через каст в .cpp (Inventory protected в базе).
+
+    // Альфа арки грейда интро [0..1]: 1 = нормальный грейд (по умолчанию, обычная игра),
+    // 0 = старт интро (темнее/обесцвеченнее). Ведёт интро-последовательность (SetIntroGradeAlpha).
+    float IntroGradeAlpha = 1.0f;
 
     // --- Рантайм-состояние процедурных эффектов камеры (#28) ---
     // Накопленное время для синусного «дыхания».

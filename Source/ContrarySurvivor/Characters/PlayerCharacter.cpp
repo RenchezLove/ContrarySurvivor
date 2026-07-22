@@ -7,6 +7,7 @@
 
 #include "PlayerCharacter.h"
 #include "Camera/CameraComponent.h"
+#include "Engine/Scene.h" // FPostProcessSettings / AEM_Manual (постобработка камеры, Build 1)
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -302,6 +303,80 @@ void APlayerCharacter::ApplyCameraSettings()
         CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
         CameraComponent->SetFieldOfView(CameraFieldOfView);
     }
+
+    // Постобработка кадра (Build 1) — отдельным шагом, чтобы её же можно было переприменить
+    // в рантайме при смене IntroGradeAlpha, не трогая руку/FOV.
+    ApplyPostProcessSettings();
+}
+
+void APlayerCharacter::ApplyPostProcessSettings()
+{
+    if (!CameraComponent)
+    {
+        return;
+    }
+
+    FPostProcessSettings& PP = CameraComponent->PostProcessSettings;
+
+    if (!bEnablePostProcess)
+    {
+        // Снимаем наши оверрайды — камера рисует без нашей постобработки.
+        PP.bOverride_VignetteIntensity   = false;
+        PP.bOverride_FilmGrainIntensity  = false;
+        PP.bOverride_AutoExposureMethod  = false;
+        PP.bOverride_AutoExposureBias    = false;
+        PP.bOverride_ColorSaturation     = false;
+        PP.bOverride_ColorGainHighlights = false;
+        PP.bOverride_ColorGainShadows    = false;
+        return;
+    }
+
+    // Арка интро: экспозиция и насыщенность интерполируются от старта интро (Alpha=0) к норме
+    // (Alpha=1). В обычной игре Alpha=1 → берутся базовые значения.
+    const float Alpha = FMath::Clamp(IntroGradeAlpha, 0.0f, 1.0f);
+    const float Exposure   = FMath::Lerp(PPIntroStartExposure,   PPExposureCompensation, Alpha);
+    const float Saturation = FMath::Lerp(PPIntroStartSaturation, PPSaturation,           Alpha);
+
+    // Виньетка.
+    PP.bOverride_VignetteIntensity = true;
+    PP.VignetteIntensity = PPVignetteIntensity;
+
+    // Лёгкое зерно.
+    PP.bOverride_FilmGrainIntensity = true;
+    PP.FilmGrainIntensity = PPFilmGrainIntensity;
+
+    // Фиксированная экспозиция (отключить авто-адаптацию глаза): ручной режим + компенсация EV.
+    if (bPPFixedExposure)
+    {
+        PP.bOverride_AutoExposureMethod = true;
+        PP.AutoExposureMethod = AEM_Manual;
+        PP.bOverride_AutoExposureBias = true;
+        PP.AutoExposureBias = Exposure;
+    }
+    else
+    {
+        // Авто-экспозиция включена — свои оверрайды не навязываем.
+        PP.bOverride_AutoExposureMethod = false;
+        PP.bOverride_AutoExposureBias = false;
+    }
+
+    // Насыщенность (лёгкая десатурация); множитель одинаков по RGB, W=1 (мастер).
+    PP.bOverride_ColorSaturation = true;
+    PP.ColorSaturation = FVector4(Saturation, Saturation, Saturation, 1.0f);
+
+    // Тёплые света: усиление красного, ослабление синего в светах (gain, W=1).
+    PP.bOverride_ColorGainHighlights = true;
+    PP.ColorGainHighlights = FVector4(1.0f + PPHighlightWarmth, 1.0f, 1.0f - PPHighlightWarmth, 1.0f);
+
+    // Холодные тени: усиление синего, ослабление красного в тенях.
+    PP.bOverride_ColorGainShadows = true;
+    PP.ColorGainShadows = FVector4(1.0f - PPShadowCoolness, 1.0f, 1.0f + PPShadowCoolness, 1.0f);
+}
+
+void APlayerCharacter::SetIntroGradeAlpha(float Alpha)
+{
+    IntroGradeAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+    ApplyPostProcessSettings();
 }
 
 void APlayerCharacter::Tick(float DeltaTime)
