@@ -128,6 +128,61 @@ namespace
 	}
 
 	// ======================================================================
+	// Канвас-первая раскладка экранов (ADR-051 п.1, добро лида 07-24)
+	// ======================================================================
+	//
+	// Ручки перетаскивания/ресайза мышкой в дизайнере есть ТОЛЬКО у виджета в
+	// канвас-слоте (STransformHandle::CanResize: Cast<UCanvasPanelSlot> != nullptr,
+	// UMGEditor/Private/Designer/STransformHandle.cpp:153). Поэтому кнопки, подложки
+	// и списки кладём каждый в СВОЙ канвас-слот, а контейнерные коробки
+	// (VerticalBox/SizeBox) для статичной раскладки не используем. Тексты — авторазмером
+	// (размер задаёт шрифт), кнопки/списки/панели — явным прямоугольником или растяжкой.
+
+	// Виджет в канвас-слот с явным прямоугольником (якорь и выравнивание — верх-лево).
+	UCanvasPanelSlot* CanvasAt(UCanvasPanel* Canvas, UWidget* Widget,
+		const FVector2D& Pos, const FVector2D& Size)
+	{
+		UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget);
+		if (Slot)
+		{
+			Slot->SetAnchors(FAnchors());
+			Slot->SetAlignment(FVector2D::ZeroVector);
+			Slot->SetPosition(Pos);
+			Slot->SetSize(Size);
+		}
+		return Slot;
+	}
+
+	// Виджет в канвас-слот авторазмером: позиция фиксирована, габарит — по содержимому.
+	UCanvasPanelSlot* CanvasAuto(UCanvasPanel* Canvas, UWidget* Widget,
+		const FVector2D& Pos, const FAnchors& Anchors = FAnchors())
+	{
+		UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget);
+		if (Slot)
+		{
+			Slot->SetAnchors(Anchors);
+			Slot->SetAlignment(FVector2D::ZeroVector);
+			Slot->SetPosition(Pos);
+			Slot->SetAutoSize(true);
+		}
+		return Slot;
+	}
+
+	// Виджет-растяжка по долевым якорям с отступами (списки: при ресайзе панели мышкой
+	// тянутся следом). При растянутой оси Offsets = отступы от якорей, не позиция/размер.
+	UCanvasPanelSlot* CanvasStretch(UCanvasPanel* Canvas, UWidget* Widget,
+		const FAnchors& Anchors, const FMargin& Offsets)
+	{
+		UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget);
+		if (Slot)
+		{
+			Slot->SetAnchors(Anchors);
+			Slot->SetOffsets(Offsets);
+		}
+		return Slot;
+	}
+
+	// ======================================================================
 	// Дефолты тач-слоя — с CDO BP-контроллера (живые значения игры, включая
 	// возможный тюнинг Рината в BP; поля protected — читаем через reflection)
 	// ======================================================================
@@ -371,8 +426,9 @@ namespace
 		return true;
 	}
 
-	// Слот брони paper-doll: кнопка (клик по занятому — снять) с подписью, иконкой и текстом.
-	void AddArmorSlotButton(UWidgetTree* Tree, UVerticalBox* Column, UObject* Roboto,
+	// Слот брони paper-doll: кнопка (клик по занятому — снять) с подписью, иконкой и текстом
+	// надетого. Габарит задаёт канвас-слот вызывающего (ADR-051: ручки мышкой).
+	UButton* MakeArmorSlotButton(UWidgetTree* Tree, UObject* Roboto,
 		const FString& StaticCaption, const FName& ButtonName, const FName& IconName, const FName& TextName)
 	{
 		UButton* SlotButton = MakeStyledButton(Tree, ButtonName,
@@ -413,18 +469,17 @@ namespace
 			WornSlot->SetVerticalAlignment(VAlign_Center);
 			WornSlot->SetPadding(FMargin(8.0f, 0.0f));
 		}
-
-		USizeBox* Height = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-			FName(*(ButtonName.ToString() + TEXT("Size"))));
-		Height->SetHeightOverride(56.0f); // InvSlotHeight
-		Height->SetContent(SlotButton);
-		if (UVerticalBoxSlot* RowSlot = Column->AddChildToVerticalBox(Height))
-		{
-			RowSlot->SetPadding(FMargin(0.0f, 5.0f)); // InvSlotGap/2
-		}
+		return SlotButton;
 	}
 
-	// Экран инвентаря: затемнение -> центральная панель -> статы, две колонки, закрытие.
+	// Экран инвентаря — КАНВАС-ПЕРВЫЙ (ADR-051 п.1, добро лида 07-24): каждая кнопка,
+	// подложка и список — в своём канвас-слоте, чтобы владелец тянул их мышкой за край
+	// в дизайнере (см. шапку раздела канвас-помощников). Числа позиций — арифметика от
+	// той же геометрии, что у прежней контейнерной раскладки (панель 960x600, отступ 16
+	// -> внутренняя область 928x568, колонки 0.42/0.58, слот брони 56 + зазор 10):
+	// вид тот же, изменилась только механика раскладки. Строка статов — иконки+значения
+	// (перенос augment-вида в базовую генерацию); подписи «Защита»/«Оружие» — отдельные
+	// кубики (догон ADR-050: код пишет в ProtectionText/WeaponText только значение).
 	bool BuildInventory(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -442,7 +497,9 @@ namespace
 			DimSlot->SetOffsets(FMargin(0.0f));
 		}
 
-		// Центральная панель 960x600 (UIPanelMaxWidth/Height) с золотой рамкой (#18).
+		// Центральная панель 960x600 (UIPanelMaxWidth/Height) с золотой рамкой (#18) —
+		// канвас-слот, тянется мышкой. Внутри — собственный канвас: содержимое
+		// позиционируется в области за вычетом отступа 16 (928x568).
 		UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
 		Panel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
 			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
@@ -455,127 +512,109 @@ namespace
 			PanelSlot->SetSize(FVector2D(960.0f, 600.0f));
 		}
 
-		UVerticalBox* PanelBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelBox"));
-		Panel->SetContent(PanelBox);
+		UCanvasPanel* PanelCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
+		Panel->SetContent(PanelCanvas);
 
-		// Заголовок (статичный текст Рината) + строка статов.
-		PanelBox->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("HeaderText"),
-			TEXT("Инвентарь"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")));
+		// Заголовок (статичный текст Рината), высота строки ~26 при 22pt.
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("HeaderText"),
+			TEXT("Инвентарь"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")),
+			FVector2D(0.0f, 0.0f));
 
-		// Раньше все три стата были слеплены в ОДИН кубик. Теперь у каждого своя пара
-		// «статичная подпись + значение»: подписи не переменные, код их не трогает (ADR-050).
+		// Строка статов: три пары «иконка + значение» ОДНИМ рядом. Ряд остаётся HBox
+		// сознательно: числа меняются в игре и толкают соседей — по отдельности на канвасе
+		// пары наезжали бы друг на друга при росте числа. Ряд целиком двигается мышкой.
 		const FLinearColor StatsColor(1.0f, 0.85f, 0.2f, 1.0f); // UIMoneyColor
 		UHorizontalBox* StatsRow = Tree->ConstructWidget<UHorizontalBox>(
 			UHorizontalBox::StaticClass(), TEXT("StatsRow"));
-		if (UVerticalBoxSlot* StatsSlot = PanelBox->AddChildToVerticalBox(StatsRow))
-		{
-			StatsSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 12.0f));
-		}
-
-		auto AddStat = [&](const TCHAR* LabelName, const TCHAR* Caption,
+		auto AddStatPair = [&](const TCHAR* IconName, const TCHAR* TexturePath,
 			const TCHAR* ValueName, const TCHAR* ValueSample, float LeftPad)
 		{
-			if (UHorizontalBoxSlot* LabelSlot = StatsRow->AddChildToHorizontalBox(
-				MakeText(Tree, Roboto, FName(LabelName), Caption, StatsColor, 16, TEXT("Regular"))))
+			UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), FName(IconName));
+			if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, TexturePath))
 			{
-				LabelSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+				Icon->SetBrushFromTexture(Texture, /*bMatchSize=*/false);
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Warning, TEXT("WBP_Inventory: текстура %s не загрузилась."), TexturePath);
+			}
+			Icon->SetDesiredSizeOverride(FVector2D(22.0f, 22.0f));
+			if (UHorizontalBoxSlot* IconSlot = StatsRow->AddChildToHorizontalBox(Icon))
+			{
+				IconSlot->SetVerticalAlignment(VAlign_Center);
+				IconSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
 			}
 			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
 				StatsColor, 16, TEXT("Regular"));
 			Value->bIsVariable = true;
 			if (UHorizontalBoxSlot* ValueSlot = StatsRow->AddChildToHorizontalBox(Value))
 			{
+				ValueSlot->SetVerticalAlignment(VAlign_Center);
 				ValueSlot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
 			}
 		};
-		AddStat(TEXT("InvMoneyLabel"), TEXT("Монеты"), TEXT("InvMoneyText"), TEXT("0"), 0.0f);
-		AddStat(TEXT("InvHungerLabel"), TEXT("Голод"), TEXT("InvHungerText"), TEXT("100 из 100"), 28.0f);
-		AddStat(TEXT("InvThirstLabel"), TEXT("Жажда"), TEXT("InvThirstText"), TEXT("100 из 100"), 28.0f);
+		AddStatPair(TEXT("InvMoneyIcon"), TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"),
+			TEXT("InvMoneyText"), TEXT("0"), 0.0f);
+		AddStatPair(TEXT("InvHungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"),
+			TEXT("InvHungerText"), TEXT("100 из 100"), 24.0f);
+		AddStatPair(TEXT("InvThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"),
+			TEXT("InvThirstText"), TEXT("100 из 100"), 24.0f);
+		CanvasAuto(PanelCanvas, StatsRow, FVector2D(0.0f, 34.0f)); // под заголовком (+8)
 
-		// Две колонки: слева снаряжение (0.42 ширины — InvLeftColumnFrac), справа рюкзак.
-		UHorizontalBox* Columns = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ColumnsBox"));
-		if (UVerticalBoxSlot* ColumnsSlot = PanelBox->AddChildToVerticalBox(Columns))
-		{
-			ColumnsSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		}
+		// Левая колонка: снаряжение. Ширина = прежняя доля 0.42 от 928 минус зазор 12 ≈ 378.
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("EquipHeaderText"),
+			TEXT("СНАРЯЖЕНИЕ"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")),
+			FVector2D(0.0f, 68.0f));
+		CanvasAt(PanelCanvas, MakeArmorSlotButton(Tree, Roboto, TEXT("Голова"),
+			TEXT("HeadSlotButton"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText")),
+			FVector2D(0.0f, 94.0f), FVector2D(378.0f, 56.0f));
+		CanvasAt(PanelCanvas, MakeArmorSlotButton(Tree, Roboto, TEXT("Торс"),
+			TEXT("TorsoSlotButton"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText")),
+			FVector2D(0.0f, 160.0f), FVector2D(378.0f, 56.0f));
+		CanvasAt(PanelCanvas, MakeArmorSlotButton(Tree, Roboto, TEXT("Штаны"),
+			TEXT("LegsSlotButton"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText")),
+			FVector2D(0.0f, 226.0f), FVector2D(378.0f, 56.0f));
 
-		UVerticalBox* EquipColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("EquipBox"));
-		if (UHorizontalBoxSlot* EquipSlot = Columns->AddChildToHorizontalBox(EquipColumn))
-		{
-			FSlateChildSize LeftSize(ESlateSizeRule::Fill);
-			LeftSize.Value = 0.42f;
-			EquipSlot->SetSize(LeftSize);
-			EquipSlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
-		}
-		EquipColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("EquipHeaderText"),
-			TEXT("СНАРЯЖЕНИЕ"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
-
-		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Голова"),
-			TEXT("HeadSlotButton"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"));
-		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Торс"),
-			TEXT("TorsoSlotButton"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"));
-		AddArmorSlotButton(Tree, EquipColumn, Roboto, TEXT("Штаны"),
-			TEXT("LegsSlotButton"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"));
-
-		// Защита и оружие — тоже пары «статичная подпись + значение» (ADR-050).
-		auto AddEquipLine = [&](const TCHAR* LabelName, const TCHAR* Caption,
-			const TCHAR* ValueName, const TCHAR* ValueSample, const FLinearColor& ValueColor,
-			float TopPad)
-		{
-			UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
-				UHorizontalBox::StaticClass(), FName(*(FString(ValueName) + TEXT("Row"))));
-			Row->AddChildToHorizontalBox(
-				MakeText(Tree, Roboto, FName(LabelName), Caption, FLinearColor::White, 15, TEXT("Regular")));
-
-			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
-				ValueColor, 15, TEXT("Regular"));
-			Value->bIsVariable = true;
-			if (UHorizontalBoxSlot* ValueSlot = Row->AddChildToHorizontalBox(Value))
-			{
-				ValueSlot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
-			}
-
-			if (UVerticalBoxSlot* RowSlot = EquipColumn->AddChildToVerticalBox(Row))
-			{
-				RowSlot->SetPadding(FMargin(0.0f, TopPad, 0.0f, 2.0f));
-			}
-		};
+		// Защита и оружие: подпись и значение — ОТДЕЛЬНЫЕ кубики (каждый двигается мышкой).
 		// Цвет значения защиты — нейтральный: при нулевой защите зелёный читался бы как
 		// «всё хорошо», хотя брони нет (ADR-049). Итоговый цвет всё равно за Ринатом.
-		AddEquipLine(TEXT("ProtectionLabel"), TEXT("Защита"), TEXT("ProtectionText"), TEXT("0%"),
-			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 10.0f);
-		AddEquipLine(TEXT("WeaponLabel"), TEXT("Оружие"), TEXT("WeaponText"), TEXT("Пусто"),
-			FLinearColor::White, 2.0f);
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("ProtectionLabel"), TEXT("Защита"),
+			FLinearColor::White, 15, TEXT("Regular")), FVector2D(0.0f, 297.0f));
+		UTextBlock* Protection = MakeText(Tree, Roboto, TEXT("ProtectionText"), TEXT("0%"),
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 15, TEXT("Regular"));
+		Protection->bIsVariable = true;
+		CanvasAuto(PanelCanvas, Protection, FVector2D(64.0f, 297.0f));
 
-		UVerticalBox* BackpackColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BackpackBox"));
-		if (UHorizontalBoxSlot* PackSlot = Columns->AddChildToHorizontalBox(BackpackColumn))
-		{
-			FSlateChildSize RightSize(ESlateSizeRule::Fill);
-			RightSize.Value = 0.58f;
-			PackSlot->SetSize(RightSize);
-		}
-		BackpackColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("BackpackHeaderText"),
-			TEXT("РЮКЗАК"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("WeaponLabel"), TEXT("Оружие"),
+			FLinearColor::White, 15, TEXT("Regular")), FVector2D(0.0f, 319.0f));
+		UTextBlock* Weapon = MakeText(Tree, Roboto, TEXT("WeaponText"), TEXT("Пусто"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		Weapon->bIsVariable = true;
+		CanvasAuto(PanelCanvas, Weapon, FVector2D(64.0f, 319.0f));
+
+		// Правая колонка: рюкзак. Заголовок — у прежней доли 0.42; список — якоря-РАСТЯЖКА
+		// до краёв панели (низ — над кнопкой закрытия): при ресайзе панели тянется следом.
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("BackpackHeaderText"),
+			TEXT("РЮКЗАК"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")),
+			FVector2D(0.0f, 68.0f), FAnchors(0.42f, 0.0f, 0.42f, 0.0f));
 
 		UScrollBox* Backpack = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BackpackList"));
 		Backpack->bIsVariable = true;
-		if (UVerticalBoxSlot* ListSlot = BackpackColumn->AddChildToVerticalBox(Backpack))
-		{
-			ListSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			ListSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
-		}
+		CanvasStretch(PanelCanvas, Backpack, FAnchors(0.42f, 0.0f, 1.0f, 1.0f),
+			FMargin(0.0f, 95.0f, 0.0f, 38.0f));
 
-		// Кнопка закрытия (низ-право; дублирует Tab — по guide необязательная, но кладём).
+		// Кнопка закрытия (низ-право; дублирует Tab). Явный габарит — ручки мышкой.
 		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), FLinearColor(0.4f, 0.4f, 0.45f, 1.0f),
 			FLinearColor(0.5f, 0.5f, 0.55f, 1.0f));
-		UTextBlock* CloseCaption = MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть (Tab)"),
-			FLinearColor::White, 15, TEXT("Regular"));
-		Close->SetContent(CloseCaption);
-		if (UVerticalBoxSlot* CloseSlot = PanelBox->AddChildToVerticalBox(Close))
+		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть (Tab)"),
+			FLinearColor::White, 15, TEXT("Regular")));
+		if (UCanvasPanelSlot* CloseSlot = PanelCanvas->AddChildToCanvas(Close))
 		{
-			CloseSlot->SetHorizontalAlignment(HAlign_Right);
-			CloseSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 0.0f));
+			CloseSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+			CloseSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+			CloseSlot->SetPosition(FVector2D::ZeroVector);
+			CloseSlot->SetSize(FVector2D(120.0f, 28.0f));
 		}
 		return true;
 	}
@@ -813,8 +852,10 @@ namespace
 		return true;
 	}
 
-	// Экран магазина: затемнение -> центральная панель (шапка, деньги, две колонки списков)
-	// + панель количества ПОВЕРХ (код показывает её только на время транзакции).
+	// Экран магазина — КАНВАС-ПЕРВЫЙ (ADR-051 п.1; механика и арифметика — как BuildInventory:
+	// панель 960x600, отступ 16 -> область 928x568, доли колонок 0.52/0.48). Подпись «Монеты»
+	// и подпись «Количество» слайдера — отдельные кубики (догон ADR-050: код пишет в
+	// MoneyText/SliderQtyText только значение). Панель количества — поверх, на время сделки.
 	bool BuildShop(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -845,100 +886,61 @@ namespace
 			PanelSlot->SetSize(FVector2D(960.0f, 600.0f));
 		}
 
-		UVerticalBox* PanelBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelBox"));
-		Panel->SetContent(PanelBox);
+		UCanvasPanel* PanelCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
+		Panel->SetContent(PanelCanvas);
 
-		// Шапка: заголовок (статичный текст Рината, литерал Canvas) + кнопка Close 90x28.
-		UHorizontalBox* HeaderRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HeaderRow"));
-		PanelBox->AddChildToVerticalBox(HeaderRow);
-
-		UTextBlock* Header = MakeText(Tree, Roboto, TEXT("HeaderText"),
-			TEXT("Торговец"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold"));
-		if (UHorizontalBoxSlot* HeaderSlot = HeaderRow->AddChildToHorizontalBox(Header))
-		{
-			HeaderSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			HeaderSlot->SetVerticalAlignment(VAlign_Center);
-		}
+		// Шапка: заголовок слева (статичный текст Рината), закрытие 90x28 в правом-верхнем углу.
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("HeaderText"),
+			TEXT("Торговец"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")),
+			FVector2D(0.0f, 0.0f));
 
 		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f)); // InvDropColor
 		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
 			FLinearColor::White, 14, TEXT("Regular")));
-		USizeBox* CloseSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CloseSize"));
-		CloseSize->SetWidthOverride(90.0f);  // ShopCloseButtonWidth
-		CloseSize->SetHeightOverride(28.0f); // ShopCloseButtonHeight
-		CloseSize->SetContent(Close);
-		if (UHorizontalBoxSlot* CloseSlot = HeaderRow->AddChildToHorizontalBox(CloseSize))
+		if (UCanvasPanelSlot* CloseSlot = PanelCanvas->AddChildToCanvas(Close))
 		{
-			CloseSlot->SetVerticalAlignment(VAlign_Center);
+			CloseSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
+			CloseSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+			CloseSlot->SetPosition(FVector2D::ZeroVector);
+			CloseSlot->SetSize(FVector2D(90.0f, 28.0f)); // ShopCloseButtonWidth/Height
 		}
 
 		// Деньги игрока: статичная подпись «Монеты» (код её НЕ трогает) + значение, которое
-		// код обновляет каждый кадр (ADR-050 — подпись и значение разные кубики).
+		// код обновляет каждый кадр (ADR-050) — отдельные кубики, двигаются порознь.
 		const FLinearColor ShopMoneyColor(1.0f, 0.85f, 0.2f, 1.0f);
-		UHorizontalBox* MoneyRow = Tree->ConstructWidget<UHorizontalBox>(
-			UHorizontalBox::StaticClass(), TEXT("MoneyRow"));
-		if (UVerticalBoxSlot* MoneySlot = PanelBox->AddChildToVerticalBox(MoneyRow))
-		{
-			MoneySlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 12.0f));
-		}
-
-		MoneyRow->AddChildToHorizontalBox(MakeText(Tree, Roboto, TEXT("MoneyLabel"),
-			TEXT("Монеты"), ShopMoneyColor, 16, TEXT("Regular")));
-
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("MoneyLabel"),
+			TEXT("Монеты"), ShopMoneyColor, 16, TEXT("Regular")), FVector2D(0.0f, 34.0f));
 		UTextBlock* Money = MakeText(Tree, Roboto, TEXT("MoneyText"), TEXT("0"),
 			ShopMoneyColor, 16, TEXT("Regular"));
 		Money->bIsVariable = true;
-		if (UHorizontalBoxSlot* MoneyValueSlot = MoneyRow->AddChildToHorizontalBox(Money))
-		{
-			MoneyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
-		}
+		CanvasAuto(PanelCanvas, Money, FVector2D(66.0f, 34.0f));
 
-		// Колонки: слева каталог (0.52 — ShopLeftColumnFrac), справа рюкзак на продажу.
-		UHorizontalBox* Columns = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ColumnsBox"));
-		if (UVerticalBoxSlot* ColumnsSlot = PanelBox->AddChildToVerticalBox(Columns))
-		{
-			ColumnsSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		}
-
-		UVerticalBox* BuyColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BuyBox"));
-		if (UHorizontalBoxSlot* BuySlot = Columns->AddChildToHorizontalBox(BuyColumn))
-		{
-			FSlateChildSize LeftSize(ESlateSizeRule::Fill);
-			LeftSize.Value = 0.52f;
-			BuySlot->SetSize(LeftSize);
-			BuySlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
-		}
-		BuyColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("BuyHeaderText"),
-			TEXT("Товары торговца"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+		// Колонки прежними долями (0.52 каталог / 0.48 рюкзак — ShopLeftColumnFrac);
+		// спискам — якоря-РАСТЯЖКА до низа панели: при ресайзе панели тянутся следом.
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("BuyHeaderText"),
+			TEXT("Товары торговца"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")),
+			FVector2D(0.0f, 65.0f));
 		UScrollBox* Buy = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuyList"));
 		Buy->bIsVariable = true;
-		if (UVerticalBoxSlot* BuyListSlot = BuyColumn->AddChildToVerticalBox(Buy))
-		{
-			BuyListSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			BuyListSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
-		}
+		CanvasStretch(PanelCanvas, Buy, FAnchors(0.0f, 0.0f, 0.52f, 1.0f),
+			FMargin(0.0f, 92.0f, 12.0f, 0.0f));
 
-		UVerticalBox* SellColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SellBox"));
-		if (UHorizontalBoxSlot* SellSlot = Columns->AddChildToHorizontalBox(SellColumn))
-		{
-			FSlateChildSize RightSize(ESlateSizeRule::Fill);
-			RightSize.Value = 0.48f;
-			SellSlot->SetSize(RightSize);
-		}
-		SellColumn->AddChildToVerticalBox(MakeText(Tree, Roboto, TEXT("SellHeaderText"),
-			TEXT("Рюкзак"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")));
+		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("SellHeaderText"),
+			TEXT("Рюкзак"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 18, TEXT("Bold")),
+			FVector2D(0.0f, 65.0f), FAnchors(0.52f, 0.0f, 0.52f, 0.0f));
 		UScrollBox* Sell = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SellList"));
 		Sell->bIsVariable = true;
-		if (UVerticalBoxSlot* SellListSlot = SellColumn->AddChildToVerticalBox(Sell))
-		{
-			SellListSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			SellListSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
-		}
+		CanvasStretch(PanelCanvas, Sell, FAnchors(0.52f, 0.0f, 1.0f, 1.0f),
+			FMargin(0.0f, 92.0f, 0.0f, 0.0f));
 
 		// Панель количества 600x260 (SliderPanelMaxWidth/Height) — последний ребёнок канвы,
 		// рисуется поверх; в ассете сразу Collapsed (Visible/Collapsed переключает код).
+		// Внутри — свой канвас (564x224 за вычетом отступа 18). Разметка — в варианте
+		// «строка пересчёта патронов ВИДНА»: на канвасе скрытый ряд места не освобождает,
+		// поэтому при покупке НЕ патронов между строкой количества и ползунком остаётся
+		// пустой зазор (в контейнерном виде ползунок подъезжал вверх).
 		UBorder* SliderPanel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SliderPanel"));
 		SliderPanel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
 			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
@@ -953,33 +955,22 @@ namespace
 			SliderPanelSlot->SetSize(FVector2D(600.0f, 260.0f));
 		}
 
-		UVerticalBox* SliderBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SliderBox"));
-		SliderPanel->SetContent(SliderBox);
+		UCanvasPanel* SliderCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("SliderCanvas"));
+		SliderPanel->SetContent(SliderCanvas);
 
 		UTextBlock* SliderTitle = MakeText(Tree, Roboto, TEXT("SliderTitleText"), TEXT("Купить: —"),
 			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 20, TEXT("Bold"));
 		SliderTitle->bIsVariable = true;
-		SliderBox->AddChildToVerticalBox(SliderTitle);
+		CanvasAuto(SliderCanvas, SliderTitle, FVector2D(0.0f, 0.0f));
 
 		// Количество: статичная подпись + значение разными кубиками (ADR-050).
 		const FLinearColor SliderQtyColor(1.0f, 0.97f, 0.7f, 1.0f);
-		UHorizontalBox* QtyTextRow = Tree->ConstructWidget<UHorizontalBox>(
-			UHorizontalBox::StaticClass(), TEXT("QtyTextRow"));
-		if (UVerticalBoxSlot* QtyTextSlot = SliderBox->AddChildToVerticalBox(QtyTextRow))
-		{
-			QtyTextSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
-		}
-
-		QtyTextRow->AddChildToHorizontalBox(MakeText(Tree, Roboto, TEXT("SliderQtyLabel"),
-			TEXT("Количество"), SliderQtyColor, 18, TEXT("Regular")));
-
+		CanvasAuto(SliderCanvas, MakeText(Tree, Roboto, TEXT("SliderQtyLabel"),
+			TEXT("Количество"), SliderQtyColor, 18, TEXT("Regular")), FVector2D(0.0f, 32.0f));
 		UTextBlock* SliderQty = MakeText(Tree, Roboto, TEXT("SliderQtyText"), TEXT("1 из 1"),
 			SliderQtyColor, 18, TEXT("Regular"));
 		SliderQty->bIsVariable = true;
-		if (UHorizontalBoxSlot* QtyValueSlot = QtyTextRow->AddChildToHorizontalBox(SliderQty))
-		{
-			QtyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
-		}
+		CanvasAuto(SliderCanvas, SliderQty, FVector2D(118.0f, 32.0f));
 
 		// Пересчёт пачек в патроны: показывается ТОЛЬКО при покупке патронов. Прячется
 		// ЦЕЛИКОМ контейнер SliderQtyAmmoRow — вместе с подписью, иначе она висела бы при
@@ -988,93 +979,60 @@ namespace
 			UHorizontalBox::StaticClass(), TEXT("SliderQtyAmmoRow"));
 		AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
 		AmmoRow->bIsVariable = true;
-		if (UVerticalBoxSlot* AmmoRowSlot = SliderBox->AddChildToVerticalBox(AmmoRow))
-		{
-			AmmoRowSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
-		}
-
 		UTextBlock* SliderQtyAmmo = MakeText(Tree, Roboto, TEXT("SliderQtyAmmoText"),
 			TEXT("всего 30 патронов"), SliderQtyColor, 16, TEXT("Regular"));
 		SliderQtyAmmo->bIsVariable = true;
 		AmmoRow->AddChildToHorizontalBox(SliderQtyAmmo);
+		CanvasAuto(SliderCanvas, AmmoRow, FVector2D(0.0f, 57.0f));
 
 		// Ползунок: диапазон/шаг выставляет код при каждой транзакции — тут только кубик.
+		// По ширине — растяжка (при ресайзе панели тянется), высота фиксированная.
 		USlider* Qty = Tree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("QtySlider"));
 		Qty->bIsVariable = true;
-		if (UVerticalBoxSlot* QtySliderSlot = SliderBox->AddChildToVerticalBox(Qty))
-		{
-			QtySliderSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 0.0f));
-		}
+		CanvasStretch(SliderCanvas, Qty, FAnchors(0.0f, 0.0f, 1.0f, 0.0f),
+			FMargin(0.0f, 86.0f, 0.0f, 16.0f));
 
-		// Ряд [-] [+] и живой итог справа.
-		UHorizontalBox* QtyRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("QtyRow"));
-		if (UVerticalBoxSlot* QtyRowSlot = SliderBox->AddChildToVerticalBox(QtyRow))
-		{
-			QtyRowSlot->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
-		}
-
+		// [-] [+] (48x30 — SliderSmallButtonWidth/Height) и живой итог справа.
 		auto AddSmallButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName,
-			const TCHAR* Caption, float LeftPad)
+			const TCHAR* Caption, float X)
 		{
 			UButton* Small = MakeStyledButton(Tree, FName(ButtonName),
 				FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 				FLinearColor(0.25f, 0.27f, 0.33f, 1.0f)); // InvSlotColor + подсветки
 			Small->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
 				FLinearColor::White, 15, TEXT("Bold")));
-			USizeBox* SmallSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(FString(ButtonName) + TEXT("Size"))));
-			SmallSize->SetWidthOverride(48.0f);  // SliderSmallButtonWidth
-			SmallSize->SetHeightOverride(30.0f); // SliderSmallButtonHeight
-			SmallSize->SetContent(Small);
-			if (UHorizontalBoxSlot* SmallSlot = QtyRow->AddChildToHorizontalBox(SmallSize))
-			{
-				SmallSlot->SetVerticalAlignment(VAlign_Center);
-				SmallSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
-			}
+			CanvasAt(SliderCanvas, Small, FVector2D(X, 114.0f), FVector2D(48.0f, 30.0f));
 		};
 		AddSmallButton(TEXT("QtyMinusButton"), TEXT("QtyMinusLabel"), TEXT("-"), 0.0f);
-		AddSmallButton(TEXT("QtyPlusButton"), TEXT("QtyPlusLabel"), TEXT("+"), 8.0f);
+		AddSmallButton(TEXT("QtyPlusButton"), TEXT("QtyPlusLabel"), TEXT("+"), 56.0f);
 
 		UTextBlock* SliderTotal = MakeText(Tree, Roboto, TEXT("SliderTotalText"), TEXT("Итого: 0"),
 			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 19, TEXT("Regular")); // UIMoneyColor
 		SliderTotal->bIsVariable = true;
-		if (UHorizontalBoxSlot* TotalSlot = QtyRow->AddChildToHorizontalBox(SliderTotal))
-		{
-			TotalSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			TotalSlot->SetVerticalAlignment(VAlign_Center);
-			TotalSlot->SetPadding(FMargin(24.0f, 0.0f, 0.0f, 0.0f));
-		}
+		CanvasAuto(SliderCanvas, SliderTotal, FVector2D(128.0f, 119.0f));
 
-		// Ряд подтверждения (Cancel красная, Confirm зелёная) — правый низ панели.
-		UHorizontalBox* ActionRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ActionRow"));
-		if (UVerticalBoxSlot* ActionRowSlot = SliderBox->AddChildToVerticalBox(ActionRow))
-		{
-			ActionRowSlot->SetHorizontalAlignment(HAlign_Right);
-			ActionRowSlot->SetPadding(FMargin(0.0f, 14.0f, 0.0f, 0.0f));
-		}
-
+		// Подтверждение (Отмена красная, Подтвердить зелёная, 120x34) — якоря низ-право:
+		// при ресайзе панели мышкой кнопки остаются в углу.
 		auto AddBigButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName, const TCHAR* Caption,
-			const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed, float LeftPad)
+			const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed, float RightX)
 		{
 			UButton* Big = MakeStyledButton(Tree, FName(ButtonName), Normal, Hovered, Pressed);
 			Big->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
 				FLinearColor::White, 15, TEXT("Regular")));
-			USizeBox* BigSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(FString(ButtonName) + TEXT("Size"))));
-			BigSize->SetWidthOverride(120.0f);  // SliderBigButtonWidth
-			BigSize->SetHeightOverride(34.0f);  // SliderBigButtonHeight
-			BigSize->SetContent(Big);
-			if (UHorizontalBoxSlot* BigSlot = ActionRow->AddChildToHorizontalBox(BigSize))
+			if (UCanvasPanelSlot* BigSlot = SliderCanvas->AddChildToCanvas(Big))
 			{
-				BigSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+				BigSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+				BigSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+				BigSlot->SetPosition(FVector2D(RightX, -32.0f));
+				BigSlot->SetSize(FVector2D(120.0f, 34.0f)); // SliderBigButtonWidth/Height
 			}
 		};
 		AddBigButton(TEXT("SliderCancelButton"), TEXT("SliderCancelLabel"), TEXT("Отмена"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
-			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), 0.0f);
+			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), -130.0f);
 		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Подтвердить"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
-			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 10.0f);
+			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 0.0f);
 		return true;
 	}
 
@@ -1882,6 +1840,52 @@ namespace
 			Name, *IconPos.ToString());
 	}
 
+	// Экраны со списками: класс строки на CDO (без него списки пусты; guide требовал ручного
+	// шага, генератор делает его сам — просьба лида). Зовётся ПОСЛЕ компиляции (CDO свежий)
+	// и при генерации, и при пересборке (-rebuild).
+	void ApplyRowClassFixup(const FWbpSpec& Spec, UWidgetBlueprint* WBP)
+	{
+		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Inventory")) == 0)
+		{
+			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
+				TEXT("/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C"));
+			UInventoryScreenWidget* CDO = WBP->GeneratedClass
+				? Cast<UInventoryScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+				: nullptr;
+			if (RowClass && CDO)
+			{
+				CDO->RowWidgetClass = RowClass;
+				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Inventory: Row Widget Class = %s."), *RowClass->GetName());
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("WBP_Inventory: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
+					RowClass ? 1 : 0, CDO ? 1 : 0);
+			}
+		}
+
+		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
+		{
+			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
+				TEXT("/Game/UI/WBP_ShopRow.WBP_ShopRow_C"));
+			UShopScreenWidget* CDO = WBP->GeneratedClass
+				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+				: nullptr;
+			if (RowClass && CDO)
+			{
+				CDO->RowWidgetClass = RowClass;
+				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Shop: Row Widget Class = %s."), *RowClass->GetName());
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("WBP_Shop: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
+					RowClass ? 1 : 0, CDO ? 1 : 0);
+			}
+		}
+	}
+
 	// Генерация одного ассета по спеке. 0 — успех, 1 — ошибка.
 	int32 GenerateOne(const FWbpSpec& Spec)
 	{
@@ -1915,49 +1919,7 @@ namespace
 			return 1;
 		}
 
-		// WBP_Inventory: строкой рюкзака назначаем сгенерированный WBP_InventoryRow — без этого
-		// список пуст (guide требовал ручного шага, генератор делает его сам; просьба лида).
-		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Inventory")) == 0)
-		{
-			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
-				TEXT("/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C"));
-			UInventoryScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UInventoryScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (RowClass && CDO)
-			{
-				CDO->RowWidgetClass = RowClass;
-				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Inventory: Row Widget Class = %s."), *RowClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("WBP_Inventory: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
-					RowClass ? 1 : 0, CDO ? 1 : 0);
-			}
-		}
-
-		// WBP_Shop: строкой списков назначаем сгенерированный WBP_ShopRow (тот же приём,
-		// что у инвентаря выше) — без этого оба списка магазина пусты.
-		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
-		{
-			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
-				TEXT("/Game/UI/WBP_ShopRow.WBP_ShopRow_C"));
-			UShopScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (RowClass && CDO)
-			{
-				CDO->RowWidgetClass = RowClass;
-				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Shop: Row Widget Class = %s."), *RowClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("WBP_Shop: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
-					RowClass ? 1 : 0, CDO ? 1 : 0);
-			}
-		}
+		ApplyRowClassFixup(Spec, WBP);
 
 		WBP->SetFlags(RF_Public | RF_Standalone);
 		FAssetRegistryModule::AssetCreated(WBP);
@@ -1977,6 +1939,89 @@ namespace
 		return 0;
 	}
 
+	// Пересборка дерева СУЩЕСТВУЮЩЕГО ассета текущей Build-функцией спеки (режим -rebuild,
+	// ADR-051 п.1, добро лида 07-24). 0 — успех, 1 — ошибка.
+	//
+	// Почему пересборка, а не точечный конвертер живого дерева: в WBP_Shop/WBP_Inventory
+	// нет ручных правок владельца (git-история файлов — только прогоны этого коммандлета),
+	// а замер Slate-геометрии в коммандлете недоступен (FSlateApplication при -run= не
+	// создаётся — LaunchEngineLoop.cpp:3228). Blueprint НЕ пересоздаётся — правится только
+	// WidgetTree, поэтому ссылки на класс _C из слотов HUD остаются живыми. Старые виджеты
+	// выселяются в transient-пакет, чтобы новые могли занять ТЕ ЖЕ имена (штатный приём
+	// редактора — WidgetBlueprintEditorUtils.cpp:595 «so that it doesn't conflict with
+	// future widgets sharing the same name»).
+	int32 RebuildOne(const FWbpSpec& Spec)
+	{
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPathOf(Spec));
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("REBUILD: %s не найден/без дерева — генерирую с нуля."),
+				Spec.AssetName);
+			return GenerateOne(Spec);
+		}
+
+		WBP->Modify();
+
+		TArray<UWidget*> OldWidgets;
+		WBP->WidgetTree->GetAllWidgets(OldWidgets);
+		for (UWidget* Old : OldWidgets)
+		{
+			Old->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors);
+		}
+		WBP->WidgetTree->RootWidget = nullptr;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("REBUILD %s: старое дерево (%d виджетов) выселено, строю канвас-первую раскладку."),
+			Spec.AssetName, OldWidgets.Num());
+
+		if (!Spec.Build(WBP->WidgetTree))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: %s — Build-функция вернула ошибку, НЕ сохраняю."),
+				Spec.AssetName);
+			return 1;
+		}
+
+		// Контракт кубиков — ДО сохранения: пропал хоть один — на диск не пишем.
+		int32 MissingCount = 0;
+		for (const TCHAR* Cube : Spec.ExpectedCubes)
+		{
+			if (!WBP->WidgetTree->FindWidget(FName(Cube)))
+			{
+				UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: %s — кубик %s пропал из новой раскладки."),
+					Spec.AssetName, Cube);
+				++MissingCount;
+			}
+		}
+		if (MissingCount > 0)
+		{
+			return 1;
+		}
+
+		FKismetEditorUtilities::CompileBlueprint(WBP);
+		if (WBP->Status == BS_Error)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("REBUILD: %s скомпилировался с ошибками — НЕ сохраняю (ассет на диске цел)."),
+				Spec.AssetName);
+			return 1;
+		}
+
+		ApplyRowClassFixup(Spec, WBP);
+
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			Spec.PackageName, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: SavePackage не сохранил %s."), *Filename);
+			return 1;
+		}
+
+		UE_LOG(LogGenerateWbp, Display, TEXT("REBUILD OK: %s пересобран и сохранён (%s)."),
+			Spec.AssetName, *Filename);
+		return 0;
+	}
+
 }
 
 int32 UGenerateWbpCommandlet::Main(const FString& Params)
@@ -1993,7 +2038,47 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return AugmentAll();
 	}
+	if (Switches.Contains(TEXT("rebuild")))
+	{
+		return RebuildWindows();
+	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
+}
+
+int32 UGenerateWbpCommandlet::RebuildWindows()
+{
+	// Пересборка канвас-первой раскладкой — ТОЛЬКО окна магазина и инвентаря (решение
+	// лида 07-24): остальные ассеты содержат ручную стилизацию владельца, их пересборка
+	// запрещена. Процессный предохранитель (проверяет лид перед запуском): git status
+	// обоих .uasset должен быть чист — иначе прогон затёр бы несохранённые правки.
+	static const TCHAR* RebuildAssets[] = { TEXT("WBP_Shop"), TEXT("WBP_Inventory") };
+
+	int32 FailCount = 0;
+	for (const TCHAR* AssetName : RebuildAssets)
+	{
+		bool bFound = false;
+		for (const FWbpSpec& Spec : GAssets)
+		{
+			if (FCString::Strcmp(Spec.AssetName, AssetName) == 0)
+			{
+				bFound = true;
+				if (RebuildOne(Spec) != 0)
+				{
+					++FailCount;
+				}
+				break;
+			}
+		}
+		if (!bFound)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: %s не найден в таблице ассетов."), AssetName);
+			++FailCount;
+		}
+	}
+
+	UE_LOG(LogGenerateWbp, Display, TEXT("REBUILD ИТОГ: ошибок %d из %d ассетов."),
+		FailCount, static_cast<int32>(UE_ARRAY_COUNT(RebuildAssets)));
+	return FailCount > 0 ? 1 : 0;
 }
 
 int32 UGenerateWbpCommandlet::AugmentAll()
