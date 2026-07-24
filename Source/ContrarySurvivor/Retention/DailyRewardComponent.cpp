@@ -24,8 +24,60 @@ void UDailyRewardComponent::BeginPlay()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(EvaluateTimer, this,
-			&UDailyRewardComponent::EvaluateDailyReward, FMath::Max(ShowWindowDelay, 0.01f), false);
+			&UDailyRewardComponent::EvaluateOrDefer, FMath::Max(ShowWindowDelay, 0.01f), false);
 	}
+}
+
+void UDailyRewardComponent::EvaluateOrDefer()
+{
+	// Build 1 (решение Рината 07-24): интро первой встречи ещё впереди (крючок не показан) —
+	// окно награды портило бы атмосферу интро. Откладываем ВСЮ проверку (не только окно):
+	// начислить молча и показать окно позже без начисления нельзя — начисление и окно идут
+	// одним шагом EvaluateDailyReward.
+	APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
+	if (Player)
+	{
+		if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			if (!Save->bElderHookShown)
+			{
+				bAwaitingElderDialog = true;
+				UE_LOG(LogTemp, Log,
+					TEXT("DailyReward: intro pending, window deferred until elder dialog closes"));
+				return;
+			}
+		}
+	}
+	EvaluateDailyReward();
+}
+
+void UDailyRewardComponent::NotifyElderDialogClosed()
+{
+	if (!bAwaitingElderDialog)
+	{
+		return;
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(EvaluateTimer, this,
+			&UDailyRewardComponent::HandleDeferredShow, FMath::Max(PostIntroShowDelay, 0.01f), false);
+	}
+}
+
+void UDailyRewardComponent::HandleDeferredShow()
+{
+	// За время задержки игрок успел открыть другое модальное окно (или умер — экран смерти) —
+	// поверх не лезем. Ожидание остаётся: покажемся после следующего закрытия диалога старосты.
+	APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
+	AContrarySurvivorPlayerController* PC = Player
+		? Cast<AContrarySurvivorPlayerController>(Player->GetController()) : nullptr;
+	if (PC && PC->IsAnyModalUIOpen())
+	{
+		UE_LOG(LogTemp, Log, TEXT("DailyReward: deferred window postponed (modal UI open)"));
+		return;
+	}
+	bAwaitingElderDialog = false;
+	EvaluateDailyReward();
 }
 
 void UDailyRewardComponent::EvaluateDailyReward()

@@ -535,6 +535,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "Retention")
     UOnboardingComponent* GetOnboarding() const { return Onboarding; }
 
+    // Компонент ежедневной награды (F2) — контроллер сообщает о закрытии диалога старосты
+    // (Build 1: окно награды отложено до конца интро, NotifyElderDialogClosed).
+    UFUNCTION(BlueprintPure, Category = "Retention")
+    UDailyRewardComponent* GetDailyReward() const { return DailyReward; }
+
     // --- Тестирование брони без UI (Фаза 4, UI — отдельная волна) ---
     // Консольные команды (открыть консоль `~`, ввести имя). Pawn должен быть под управлением.
     //   EquipTestArmor   — (пере)спавнит и надевает тест-комплект Test*ArmorClass (дефолт — полный Т3).

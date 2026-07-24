@@ -15,6 +15,12 @@
  * в UStatsComponent, зеркалит их в поле Money сейва (чтобы награда пережила смерть/загрузку),
  * пишет новую дату/серию в слот и показывает окно UDailyRewardWidget. Тот же календарный
  * день — тихо ничего не делает. Все числа настраиваются в редакторе.
+ *
+ * Build 1 (решение Рината 07-24): если игроку ещё предстоит интро первой встречи со старостой
+ * (признак bElderHookShown в сейве не стоит), окно при входе НЕ показывается — оно портило
+ * атмосферу интро. Проверка и показ откладываются до закрытия диалога старосты (контроллер
+ * зовёт NotifyElderDialogClosed) + задержка PostIntroShowDelay. Интро уже было — прежнее
+ * поведение.
  */
 UCLASS(ClassGroup = (Retention), meta = (BlueprintSpawnableComponent))
 class CONTRARYSURVIVOR_API UDailyRewardComponent : public UActorComponent
@@ -40,15 +46,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.0", DisplayPriority = "4"))
 	float ShowWindowDelay = 0.8f;
 
+	// Задержка окна после закрытия интро-диалога старосты (сек), когда показ был отложен
+	// из-за предстоящего интро (Build 1, решение Рината 07-24).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.0", DisplayPriority = "5"))
+	float PostIntroShowDelay = 1.0f;
+
 	// Стиль окна (цвета/тексты/шрифты) — применяется при создании виджета
 	// (директива Рината 07-18: настройка в BP_PlayerCharacter без пересборки).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "5"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "6"))
 	FDailyRewardStyle WindowStyle;
+
+	// Зовёт контроллер при КАЖДОМ закрытии диалога старосты (Build 1): если окно награды было
+	// отложено из-за интро — показать его теперь (через PostIntroShowDelay). Без отложенного
+	// окна — тихий no-op.
+	void NotifyElderDialogClosed();
 
 protected:
 	virtual void BeginPlay() override;
 
 private:
+	// Первый шаг после старта уровня (таймер BeginPlay): интро первой встречи ещё впереди —
+	// отложить окно до закрытия диалога старосты, иначе прежний путь (EvaluateDailyReward).
+	void EvaluateOrDefer();
+
+	// Отложенный показ после закрытия диалога. Если открыт другой модальный экран (например,
+	// экран смерти) — не лезем поверх: ожидание остаётся до следующего закрытия диалога.
+	void HandleDeferredShow();
+
 	// Проверка даты + начисление + запись в сейв + показ окна. Зовётся таймером из BeginPlay.
 	void EvaluateDailyReward();
 
@@ -59,4 +83,7 @@ private:
 	TObjectPtr<UDailyRewardWidget> ActiveWindow;
 
 	FTimerHandle EvaluateTimer;
+
+	// Окно отложено до закрытия диалога старосты (интро первой встречи ещё впереди).
+	bool bAwaitingElderDialog = false;
 };

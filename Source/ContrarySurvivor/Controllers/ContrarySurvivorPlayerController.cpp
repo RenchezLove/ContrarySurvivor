@@ -34,6 +34,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 #include "ContrarySurvivor/Retention/OnboardingComponent.h" // Этап F1: онбординг-подсказки
+#include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Build 1: отложенное окно ежедневки (после интро-диалога)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
@@ -1357,6 +1358,17 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	SetInputMode(FInputModeGameOnly());
 	bShowMouseCursor = true;
 	UE_LOG(LogTemp, Log, TEXT("Dialog CLOSED"));
+
+	// Build 1 (решение Рината 07-24): окно ежедневной награды могло быть отложено до конца
+	// интро-диалога (банер портил атмосферу интро) — сообщаем компоненту, что диалог старосты
+	// закрылся. Без отложенного окна вызов — тихий no-op.
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UDailyRewardComponent* Daily = PlayerChar->GetDailyReward())
+		{
+			Daily->NotifyElderDialogClosed();
+		}
+	}
 }
 
 void AContrarySurvivorPlayerController::CloseAllUI()
