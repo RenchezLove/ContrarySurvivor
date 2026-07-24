@@ -19,7 +19,10 @@
  * Build 1 (решение Рината 07-24): если игроку ещё предстоит интро первой встречи со старостой
  * (признак bElderHookShown в сейве не стоит), окно при входе НЕ показывается — оно портило
  * атмосферу интро. Проверка и показ откладываются до закрытия диалога старосты (контроллер
- * зовёт NotifyElderDialogClosed) + задержка PostIntroShowDelay. Интро уже было — прежнее
+ * зовёт NotifyElderDialogClosed) + задержка PostIntroShowDelay. Если в момент отложенного
+ * показа открыт другой модальный экран (инвентарь/магазин/смерть/пауза) — показ не отменяется,
+ * а повторяется по таймеру DeferredRetryDelay, пока экраны не освободятся (баг живого PIE
+ * 07-24: ожидание СЛЕДУЮЩЕГО диалога старосты теряло баннер). Интро уже было — прежнее
  * поведение.
  */
 UCLASS(ClassGroup = (Retention), meta = (BlueprintSpawnableComponent))
@@ -51,9 +54,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.0", DisplayPriority = "5"))
 	float PostIntroShowDelay = 1.0f;
 
+	// Интервал повторных попыток отложенного показа (сек), когда в момент показа открыт
+	// другой модальный экран. Попытки идут, пока экраны не освободятся.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.1", DisplayPriority = "6"))
+	float DeferredRetryDelay = 1.0f;
+
 	// Стиль окна (цвета/тексты/шрифты) — применяется при создании виджета
 	// (директива Рината 07-18: настройка в BP_PlayerCharacter без пересборки).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "6"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "7"))
 	FDailyRewardStyle WindowStyle;
 
 	// Зовёт контроллер при КАЖДОМ закрытии диалога старосты (Build 1): если окно награды было
@@ -70,10 +78,14 @@ private:
 	void EvaluateOrDefer();
 
 	// Отложенный показ после закрытия диалога. Если открыт другой модальный экран (например,
-	// экран смерти) — не лезем поверх: ожидание остаётся до следующего закрытия диалога.
+	// инвентарь или экран смерти) — не лезем поверх, но и не бросаем: сами повторяем попытку
+	// по таймеру DeferredRetryDelay, пока экраны не освободятся (следующего диалога старосты
+	// может не быть — прежнее ожидание его теряло баннер, живой PIE 07-24).
 	void HandleDeferredShow();
 
 	// Проверка даты + начисление + запись в сейв + показ окна. Зовётся таймером из BeginPlay.
+	// Контроллер и окно готовятся ДО начисления и записи даты: показ не состоялся — день в
+	// сейве не помечен выданным, награда не сгорает молча.
 	void EvaluateDailyReward();
 
 	// Кнопка «Забрать»: вернуть игровой режим ввода (если не открыт другой модальный экран).

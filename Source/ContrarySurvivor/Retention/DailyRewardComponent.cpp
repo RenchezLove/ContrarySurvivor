@@ -67,13 +67,22 @@ void UDailyRewardComponent::NotifyElderDialogClosed()
 void UDailyRewardComponent::HandleDeferredShow()
 {
 	// За время задержки игрок успел открыть другое модальное окно (или умер — экран смерти) —
-	// поверх не лезем. Ожидание остаётся: покажемся после следующего закрытия диалога старосты.
+	// поверх не лезем, но и не бросаем: повторяем попытку сами по таймеру. Ждать СЛЕДУЮЩЕГО
+	// диалога старосты нельзя — его может не быть, и баннер терялся (живой PIE 07-24:
+	// инвентарь открыт через секунду после интро — показ отменился навсегда).
 	APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
 	AContrarySurvivorPlayerController* PC = Player
 		? Cast<AContrarySurvivorPlayerController>(Player->GetController()) : nullptr;
-	if (PC && PC->IsAnyModalUIOpen())
+	if (!PC || PC->IsAnyModalUIOpen())
 	{
-		UE_LOG(LogTemp, Log, TEXT("DailyReward: deferred window postponed (modal UI open)"));
+		const float RetryIn = FMath::Max(DeferredRetryDelay, 0.1f);
+		UE_LOG(LogTemp, Log, TEXT("DailyReward: deferred window postponed (%s), retry in %.1f s"),
+			PC ? TEXT("modal UI open") : TEXT("no controller"), RetryIn);
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(EvaluateTimer, this,
+				&UDailyRewardComponent::HandleDeferredShow, RetryIn, false);
+		}
 		return;
 	}
 	bAwaitingElderDialog = false;
@@ -105,6 +114,22 @@ void UDailyRewardComponent::EvaluateDailyReward()
 		return;
 	}
 
+	// Контроллер и окно готовим ДО начисления и записи даты: показ не состоялся — день в
+	// сейве НЕ помечен выданным, награда не сгорает молча (защита по ADR-051 п.2).
+	AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController());
+	if (!PC)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DailyReward: no player controller, day NOT consumed"));
+		return;
+	}
+
+	ActiveWindow = CreateWidget<UDailyRewardWidget>(PC, UDailyRewardWidget::StaticClass());
+	if (!ActiveWindow)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DailyReward: window creation failed, day NOT consumed"));
+		return;
+	}
+
 	// Начисляем в живые статы и зеркалим в сейв: загрузка сейва при смерти перетирает деньги
 	// значением из слота — без зеркала награда терялась бы при первой же смерти.
 	Player->GetStats()->AddMoney(Result.Reward);
@@ -127,17 +152,6 @@ void UDailyRewardComponent::EvaluateDailyReward()
 
 	// Окно «Ежедневная награда». Курсор в игре и так виден; режим GameAndUI — чтобы кнопка
 	// ловила клик (паттерн модалок контроллера: диалог/магазин).
-	AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController());
-	if (!PC)
-	{
-		return;
-	}
-
-	ActiveWindow = CreateWidget<UDailyRewardWidget>(PC, UDailyRewardWidget::StaticClass());
-	if (!ActiveWindow)
-	{
-		return;
-	}
 	ActiveWindow->ApplyStyle(WindowStyle); // стиль с компонента (EditAnywhere) поверх дефолтов
 	ActiveWindow->SetupContent(Result.NewStreak, Result.Reward);
 	ActiveWindow->OnClosed.AddUObject(this, &UDailyRewardComponent::HandleWindowClosed);
