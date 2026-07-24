@@ -22,7 +22,9 @@ class APlayerCharacter;
  *   NotStarted -> реплика-описание квеста + [Принять]/[Отказаться];
  *   Active     -> «Ты ещё не закончил…» + [Закрыть];
  *   Completed  -> «Отлично! …» + [Сдать (+награда)];
- *   TurnedIn   -> «Спасибо…» + [Закрыть].
+ *   TurnedIn   -> короткое напоминание про ноутбук/волков (фолбэк «Спасибо…») + [Закрыть].
+ * Build 1: подписи кнопок — реплики героя из полей квеста (AcceptReplyText и др.); после
+ * сдачи кв.2 один раз играется сценка-намёк NotebookHintLines (замена формального кв.3).
  * Реплики состояний — EditAnywhere-поля AElderNPC (у каждого старосты свои);
  * действия — существующие UQuestComponent::OfferQuest/AcceptQuest/TurnInQuest.
  * Закрытие — делегат OnCloseRequested (подписан контроллер, CloseDialog).
@@ -111,6 +113,21 @@ protected:
 	// следующей реплике; после последней — закрыть диалог.
 	void AdvanceIntro();
 
+	// --- Сценка-намёк после сдачи кв.2 (Build 1: замена формального кв.3 намёком в диалоге) ---
+
+	// Пора ли играть сценку СЕЙЧАС: у старосты есть реплики намёка, кв.2 сдан (TurnedIn) и
+	// признак bElderNotebookHintShown в сейве ещё не стоит. Зовётся из InitDialog и после
+	// успешной сдачи квеста (HandleTurnInClicked) — сценка начинается в той же сессии диалога.
+	bool ShouldPlayNotebookHint() const;
+
+	// Показать текущую реплику сценки (NotebookHintLines[NotebookHintStep]) — по образцу
+	// RefreshIntroLine. На последней реплике ставит bElderNotebookHintShown в сейв.
+	void RefreshNotebookHintLine();
+
+	// Нажата кнопка текущей реплики сценки: перейти к следующей; после последней — закрыть
+	// диалог. Эффектов (Action) у реплик сценки нет — поле игнорируется.
+	void AdvanceNotebookHint();
+
 	// --- Кубики WBP_Dialog (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 
 	// Имя NPC в шапке («СТАРОСТА» — из поля старосты).
@@ -141,9 +158,21 @@ protected:
 
 	// Подпись кнопки-ответа (лежит ВНУТРИ AcceptButton). В скриптовом интро код ставит сюда
 	// подпись текущей реплики («Из столицы.», «Взяться за дело», «Закрыть» и т.д.); в обычном
-	// диалоге — AcceptButtonLabel. Нет кубика — показывается статичная подпись из WBP_Dialog.
+	// диалоге — реплика принятия из квеста (AcceptReplyText), фолбэк — AcceptButtonLabel.
+	// Нет кубика — показывается статичная подпись из WBP_Dialog.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> AcceptText;
+
+	// Подпись кнопки отказа (лежит ВНУТРИ DeclineButton). Build 1: сюда ставится реплика героя,
+	// закрывающая диалог (CloseReplyText квеста, «Мне пора.» — отказ и есть «уйти»). Нет
+	// кубика — статичная подпись из WBP_Dialog.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DeclineText;
+
+	// Подпись кнопки закрытия (лежит ВНУТРИ CloseButton). Build 1: реплика героя CloseReplyText
+	// квеста («Мне пора.»). Нет кубика — статичная подпись из WBP_Dialog.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CloseText;
 
 private:
 	UPROPERTY()
@@ -168,4 +197,16 @@ private:
 
 	// Какая реплика уже выведена на экран — чтобы не переустанавливать текст каждый кадр.
 	int32 LastShownIntroStep = INDEX_NONE;
+
+	// --- Состояние сценки-намёка после сдачи кв.2 (Build 1, по образцу интро) ---
+
+	// Идёт ли сценка-намёк. Включается в InitDialog (диалог открыт, когда кв.2 уже сдан, а намёк
+	// не показан) либо сразу после сдачи кв.2 в этой же сессии диалога (HandleTurnInClicked).
+	bool bInNotebookHintSequence = false;
+
+	// Индекс текущей реплики сценки в NotebookHintLines старосты.
+	int32 NotebookHintStep = 0;
+
+	// Какая реплика сценки уже на экране (защита от переустановки текста каждый кадр).
+	int32 LastShownNotebookHintStep = INDEX_NONE;
 };

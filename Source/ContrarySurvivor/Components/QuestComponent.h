@@ -117,6 +117,24 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	float RewardMoney = 150.0f;
 
+	// --- Реплики героя на кнопках диалога (Build 1, решение Рината 07-24: кнопка = осмысленный
+	// ответ героя, а не служебное «Принять»). Переводимые тексты, черновики утверждает Ринат. ---
+
+	// Ответ героя при принятии квеста («Хорошо, берусь.»). Пусто — панель диалога покажет свою
+	// общую подпись (AcceptButtonLabel).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FText AcceptReplyText;
+
+	// Ответ героя при сдаче квеста («Готово. Вот, что ты просил.»). Можно вставить {Reward} —
+	// подставится награда монетами. Пусто — панель покажет свой формат «Сдать (+N)».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FText TurnInReplyText;
+
+	// Ответ героя, закрывающий диалог («Мне пора.»): им подписываются кнопки [Отказаться]
+	// (отказ = уйти) и [Закрыть]. Пусто — остаются статичные подписи из WBP_Dialog.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FText CloseReplyText;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	EQuestState State = EQuestState::NotStarted;
 };

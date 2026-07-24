@@ -52,6 +52,13 @@ void UDialogScreenWidget::InitDialog(AElderNPC* InElder, APlayerCharacter* InPla
 	IntroStep = 0;
 	LastShownIntroStep = INDEX_NONE;
 
+	// Build 1: сценка-намёк после сдачи кв.2 (замена формального кв.3). Здесь ловится случай
+	// «кв.2 сдан раньше, намёк недосмотрен» (закрыл диалог на середине); случай «сдал только
+	// что» включает HandleTurnInClicked в той же сессии диалога.
+	bInNotebookHintSequence = !bInIntroSequence && ShouldPlayNotebookHint();
+	NotebookHintStep = 0;
+	LastShownNotebookHintStep = INDEX_NONE;
+
 	RefreshDialog();
 }
 
@@ -73,6 +80,13 @@ void UDialogScreenWidget::RefreshDialog()
 	if (bInIntroSequence)
 	{
 		RefreshIntroLine();
+		return;
+	}
+
+	// Build 1: сценка-намёк после сдачи кв.2 — тоже реплики по очереди вместо потока состояний.
+	if (bInNotebookHintSequence)
+	{
+		RefreshNotebookHintLine();
 		return;
 	}
 
@@ -147,7 +161,12 @@ void UDialogScreenWidget::RefreshDialog()
 			NPCText = Elder->GetDialogueCompletedText();
 			break;
 		case EQuestState::TurnedIn:
-			NPCText = Elder->GetDialogueTurnedInText();
+			// Build 1: TurnedIn здесь = сдан ТЕРМИНАЛЬНЫЙ квест (кв.2 — ноутбук; промежуточные
+			// состояния GetQuestForPlayer перескакивает на следующий квест). Сценка-намёк уже
+			// показана (иначе шла бы она) — повторные разговоры получают короткое напоминание
+			// про ноутбук и волков; поле пустое — прежняя «Спасибо…».
+			NPCText = !Elder->GetNotebookHintRepeatText().IsEmpty()
+				? Elder->GetNotebookHintRepeatText() : Elder->GetDialogueTurnedInText();
 			break;
 		default:
 			break;
@@ -170,17 +189,35 @@ void UDialogScreenWidget::RefreshDialog()
 	SetShown(TurnInButton,  State == EQuestState::Completed);
 	SetShown(CloseButton,   State == EQuestState::Active || State == EQuestState::TurnedIn);
 
-	// Подпись кнопки принятия обычного предложения квеста (кв.2/кв.3) — из настройки панели.
+	// Подписи кнопок — реплики героя из самого квеста (Build 1, решение Рината 07-24: игрок
+	// отвечает старосте нормально, а не жмёт служебное «Принять»). Поле квеста пустое — фолбэк
+	// на прежние подписи (AcceptButtonLabel / формат «Сдать (+N)» / статичный текст WBP).
 	if (AcceptText && State == EQuestState::NotStarted)
 	{
-		AcceptText->SetText(AcceptButtonLabel);
+		AcceptText->SetText(!QData.AcceptReplyText.IsEmpty() ? QData.AcceptReplyText : AcceptButtonLabel);
 	}
 
 	if (TurnInText && State == EQuestState::Completed)
 	{
+		// {Reward} подставляется и в реплику героя, если Ринат впишет его в текст; без
+		// плейсхолдера Format просто вернёт текст как есть.
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(QData.RewardMoney)));
-		TurnInText->SetText(FText::Format(TurnInFormat, Args));
+		TurnInText->SetText(FText::Format(
+			!QData.TurnInReplyText.IsEmpty() ? QData.TurnInReplyText : TurnInFormat, Args));
+	}
+
+	if (!QData.CloseReplyText.IsEmpty())
+	{
+		// «Мне пора.» — и на [Отказаться] (отказ = уйти из диалога), и на [Закрыть].
+		if (DeclineText && State == EQuestState::NotStarted)
+		{
+			DeclineText->SetText(QData.CloseReplyText);
+		}
+		if (CloseText && (State == EQuestState::Active || State == EQuestState::TurnedIn))
+		{
+			CloseText->SetText(QData.CloseReplyText);
+		}
 	}
 }
 
@@ -190,6 +227,13 @@ void UDialogScreenWidget::HandleAcceptClicked()
 	if (bInIntroSequence)
 	{
 		AdvanceIntro();
+		return;
+	}
+
+	// В сценке-намёке (после сдачи кв.2) AcceptButton так же ведёт реплики по очереди.
+	if (bInNotebookHintSequence)
+	{
+		AdvanceNotebookHint();
 		return;
 	}
 
@@ -217,7 +261,17 @@ void UDialogScreenWidget::HandleTurnInClicked()
 	{
 		if (UQuestComponent* Quests = Player->GetQuests())
 		{
-			Quests->TurnInQuest(Elder->GetQuestForPlayer(Quests).QuestId);
+			const bool bTurnedIn = Quests->TurnInQuest(Elder->GetQuestForPlayer(Quests).QuestId);
+
+			// Build 1: сдали кв.2 (ноутбук) — сразу, в этой же сессии диалога, начинается
+			// сценка-намёк (раньше на этом месте предлагался формальный кв.3). Внутри проверки:
+			// сдан именно кв.2 и намёк ещё не показывался.
+			if (bTurnedIn && ShouldPlayNotebookHint())
+			{
+				bInNotebookHintSequence = true;
+				NotebookHintStep = 0;
+				LastShownNotebookHintStep = INDEX_NONE;
+			}
 		}
 	}
 }
@@ -369,4 +423,124 @@ void UDialogScreenWidget::AdvanceIntro()
 		return;
 	}
 	RefreshIntroLine();
+}
+
+// ---------------------------------------------------------------------------
+// Сценка-намёк после сдачи кв.2 (Build 1: замена формального кв.3 намёком в диалоге)
+// ---------------------------------------------------------------------------
+
+bool UDialogScreenWidget::ShouldPlayNotebookHint() const
+{
+	if (!Elder || !Player)
+	{
+		return false;
+	}
+	if (Elder->GetNotebookHintLines().Num() == 0)
+	{
+		return false; // реплик сценки нет — работает обычный поток состояний
+	}
+
+	UQuestComponent* Quests = Player->GetQuests();
+	if (!Quests)
+	{
+		return false;
+	}
+
+	// Сценка — только когда кв.2 (ноутбук) сдан.
+	const FQuest* Q2 = Quests->FindQuest(Elder->GetSecondQuest().QuestId);
+	if (!Q2 || Q2->State != EQuestState::TurnedIn)
+	{
+		return false;
+	}
+
+	// Намёк в этом профиле уже показан — повторные разговоры идут коротким напоминанием
+	// (NotebookHintRepeatText в ветке TurnedIn RefreshDialog).
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		if (Save->bElderNotebookHintShown)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void UDialogScreenWidget::RefreshNotebookHintLine()
+{
+	const TArray<FElderIntroLine>& Lines = Elder->GetNotebookHintLines();
+	if (!Lines.IsValidIndex(NotebookHintStep))
+	{
+		// Реплик не осталось — закрываем (обычно закрытие происходит в AdvanceNotebookHint).
+		OnCloseRequested.Broadcast();
+		return;
+	}
+	if (LastShownNotebookHintStep == NotebookHintStep)
+	{
+		return; // эта реплика уже на экране — не трогаем текст каждый кадр
+	}
+	LastShownNotebookHintStep = NotebookHintStep;
+
+	const FElderIntroLine& Line = Lines[NotebookHintStep];
+
+	if (NPCNameText)
+	{
+		NPCNameText->SetText(Elder->GetDialogueDisplayName());
+	}
+	if (ReplicaText)
+	{
+		ReplicaText->SetText(Line.NPCText);
+	}
+	if (AcceptText)
+	{
+		AcceptText->SetText(Line.ButtonLabel);
+	}
+
+	// Ровно ОДНА кнопка-ответ (AcceptButton), как в интро; остальные кнопки скрыты.
+	auto SetShown = [](UButton* Button, bool bShown)
+	{
+		if (Button)
+		{
+			Button->SetVisibility(bShown ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+	};
+	SetShown(AcceptButton,  true);
+	SetShown(DeclineButton, false);
+	SetShown(TurnInButton,  false);
+	SetShown(CloseButton,   false);
+
+	// Последняя реплика сценки на экране — помечаем «намёк показан» в сейве (один раз за
+	// профиль), чтобы при повторных разговорах шло короткое напоминание, а не вся сценка.
+	if (NotebookHintStep == Lines.Num() - 1)
+	{
+		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			if (!Save->bElderNotebookHintShown)
+			{
+				Save->bElderNotebookHintShown = true;
+				Player->WriteSaveObject(Save);
+			}
+		}
+	}
+}
+
+void UDialogScreenWidget::AdvanceNotebookHint()
+{
+	if (!Elder || !Player)
+	{
+		OnCloseRequested.Broadcast();
+		return;
+	}
+
+	// Эффектов у реплик сценки нет (Action игнорируется сознательно: намёк только говорит,
+	// ничего не выдаёт и не запускает).
+	const TArray<FElderIntroLine>& Lines = Elder->GetNotebookHintLines();
+	++NotebookHintStep;
+	if (!Lines.IsValidIndex(NotebookHintStep))
+	{
+		// Реплики кончились — закрываем диалог.
+		UE_LOG(LogQA, Display, TEXT("QA: dialog notebook hint finished (UMG)"));
+		OnCloseRequested.Broadcast();
+		return;
+	}
+	RefreshNotebookHintLine();
 }

@@ -106,6 +106,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bElderHookShown = false;
 
+	// Сценка-намёк после сдачи кв.2 («на ноутбуке — данные о тех, кто за тобой охотится» +
+	// «волки к югу, торговец платит за шкуры») уже показана в этом профиле. Build 1: вместо
+	// формального квеста 3 староста один раз проговаривает намёк (NotebookHintLines старосты);
+	// при повторных разговорах — короткое напоминание. Признак по образцу bElderHookShown.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bElderNotebookHintShown = false;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

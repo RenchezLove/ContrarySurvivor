@@ -77,9 +77,14 @@ public:
 	// Первый квест старосты (DRAFT: «Шкуры волков»). Заполняется в конструкторе.
 	const FQuest& GetOfferedQuest() const { return OfferedQuest; }
 
+	// Второй (терминальный) квест («Зачистить базу бандитов») — по нему панель диалога решает,
+	// пора ли играть сценку-намёк после сдачи ноутбука.
+	const FQuest& GetSecondQuest() const { return SecondQuest; }
+
 	// Квест, актуальный для игрока СЕЙЧАС (выдача по порядку, Фаза 5):
 	//  - пока кв.1 не сдан (TurnedIn) — возвращает кв.1;
-	//  - после сдачи кв.1 — возвращает кв.2 («Зачистить базу бандитов»).
+	//  - после сдачи кв.1 — возвращает кв.2 («Зачистить базу бандитов»); кв.2 — последний
+	//    (Build 1: формального кв.3 больше нет, вместо него сценка-намёк NotebookHintLines).
 	// Возвращается ссылка на член (валидна, пока жив актор). PlayerQuests может быть null
 	// (тогда возвращается кв.1).
 	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
@@ -108,6 +113,13 @@ public:
 	// Скриптовое интро первой встречи (Build 1): реплики старосты по очереди, по одной кнопке-
 	// ответу на реплику. Проигрывается ТОЛЬКО пока первый квест ещё не принят (первая встреча).
 	const TArray<FElderIntroLine>& GetIntroLines() const { return IntroLines; }
+
+	// Сценка-намёк после сдачи кв.2 (Build 1, замена формального кв.3): реплики по очереди,
+	// как IntroLines. Показывается один раз (признак bElderNotebookHintShown в сейве).
+	const TArray<FElderIntroLine>& GetNotebookHintLines() const { return NotebookHintLines; }
+
+	// Короткая реплика при повторных разговорах после показанного намёка.
+	const FText& GetNotebookHintRepeatText() const { return NotebookHintRepeatText; }
 
 protected:
 	virtual void PostInitializeComponents() override;
@@ -184,12 +196,19 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest SecondQuest;
 
-	// Квест 3 (Этап F, ADR-044 п.1-2: крючок «кто охотится за ГГ» + сторонняя активность на время
-	// «расследования» старосты). Collect: 3 «Шкуры волка» для торговца, награда 100. Выдаётся
-	// ПОСЛЕ сдачи кв.2. Метка цели — второе логово (BP_WolfDen с тегом WolfDen2 ставит game-lead;
-	// пока актора с тегом нет на карте, HUD метку просто не рисует). Тюнингуется в редакторе.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
-	FQuest ThirdQuest;
+	// Сценка-намёк после сдачи кв.2 (Build 1, решение Рината 07-24: формальный квест 3 «Шкуры
+	// для торговца» ЗАМЕНЁН намёком в диалоге — без трекера, метки на карте и награды). Сюжетный
+	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится») сохранён в первой
+	// реплике. Реплики по очереди, по образцу IntroLines; показывается один раз (признак
+	// bElderNotebookHintShown в сейве). Поле Action у реплик здесь НЕ действует (эффектов нет).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint", meta = (DisplayPriority = "1", TitleProperty = "ButtonLabel"))
+	TArray<FElderIntroLine> NotebookHintLines;
+
+	// Короткая реплика при повторных разговорах, когда намёк уже показан. Пусто — фолбэк на
+	// DialogueTurnedInText («Спасибо тебе ещё раз…»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint", meta = (DisplayPriority = "2", MultiLine = "true"))
+	FText NotebookHintRepeatText = NSLOCTEXT("Dialog", "ElderNotebookHintRepeat",
+		"Копаюсь в ноутбуке, дай срок. А волки к югу никуда не делись.");
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
