@@ -6,6 +6,7 @@
 //
 // Покрывают ЧИСТУЮ логику серии ежедневной награды (DailyReward::Compute, ADR-044 п.4) —
 // без мира/сейва/виджетов. Числа = дефолты UDailyRewardComponent (25 / +10 / потолок 75).
+// Плюс логика «раз за сессию» разовой подсказки хромоты (FLimpFirstHintState, Build 1).
 // НЕ покрывается headless: показ окна/тостов (нужен PIE), запись в слот сейва.
 
 #include "Misc/AutomationTest.h"
@@ -13,6 +14,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "ContrarySurvivor/Retention/DailyRewardLogic.h"
+#include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // FLimpFirstHintState (разовая подсказка хромоты)
 
 // Контекст всех приложений + продуктовый фильтр — как у боевых тестов (CombatAutomationTests).
 static constexpr EAutomationTestFlags RetentionTestFlags =
@@ -112,6 +114,22 @@ bool FDailyRewardClockRollbackTest::RunTest(const FString& Parameters)
 	const DailyReward::FComputeResult R = DailyReward::Compute(Today, Tomorrow, 4, Base, Step, Cap);
 	TestFalse(TEXT("часы назад: награды нет"), R.bGrant);
 	TestEqual(TEXT("часы назад: серия сохранена (4)"), R.NewStreak, 4);
+	return true;
+}
+
+// Разовая подсказка хромоты (Build 1): срабатывает один раз за сессию, только когда игрок
+// хромает и управление свободно; после Rearm (вылечился до показа) готова снова.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLimpFirstHintOnceTest,
+	"ContrarySurvivor.Retention.LimpHint.FirstShowOnce", RetentionTestFlags)
+bool FLimpFirstHintOnceTest::RunTest(const FString& Parameters)
+{
+	FLimpFirstHintState State;
+	TestFalse(TEXT("не хромает: показа нет"), State.ShouldTrigger(/*bLimping=*/false, /*bControlFree=*/true));
+	TestFalse(TEXT("хромает, но управление занято (интро/модалка): ждём"), State.ShouldTrigger(true, false));
+	TestTrue(TEXT("хромает + управление свободно: показ"), State.ShouldTrigger(true, true));
+	TestFalse(TEXT("повторный вызов: показа нет (раз за сессию)"), State.ShouldTrigger(true, true));
+	State.Rearm();
+	TestTrue(TEXT("после Rearm (вылечился до показа): подсказка снова готова"), State.ShouldTrigger(true, true));
 	return true;
 }
 

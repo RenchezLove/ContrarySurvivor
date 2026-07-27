@@ -45,6 +45,7 @@
 #include "Components/AudioComponent.h"
 #include "NavigationInvokerComponent.h" // Navigation Invoker: навмеш следует за игроком
 #include "UObject/ConstructorHelpers.h"
+#include "TimerManager.h" // таймеры разовой подсказки хромоты (Build 1)
 
 APlayerCharacter::APlayerCharacter()
 {
@@ -443,9 +444,87 @@ void APlayerCharacter::UpdateLimpState(float NewHealth, float InMaxHealth)
         bLimping ? TEXT("ON") : TEXT("OFF"), NewHealth, InMaxHealth);
 }
 
+void APlayerCharacter::UpdateLimpIndicator()
+{
+    // Кодовый UMG-виджет без .uasset (паттерн ADR-048: новые экраны — UMG из C++). Владелец —
+    // локальный контроллер; без него или без вьюпорта (headless-тесты/коммандлеты) тихо выходим.
+    AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController());
+    UWorld* World = GetWorld();
+    if (!PC || !PC->IsLocalController() || !World || !World->GetGameViewport())
+    {
+        return;
+    }
+
+    if (!LimpIndicatorWidget)
+    {
+        if (!bLimping)
+        {
+            return; // виджет не нужен, пока игрок ни разу не захромал
+        }
+        LimpIndicatorWidget = CreateWidget<ULimpIndicatorWidget>(PC, ULimpIndicatorWidget::StaticClass());
+        if (!LimpIndicatorWidget)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("LimpIndicator: widget creation failed"));
+            return;
+        }
+        LimpIndicatorWidget->ApplyStyle(LimpIndicatorStyle);
+        LimpIndicatorWidget->SetIndicatorText(bLimpHintExpandedActive ? LimpFirstHintText : LimpIndicatorText);
+    }
+
+    // Постоянные панели живут на ZOrder 5 (как в BeginPlay HUD); интро-экран (50) и модалки (30)
+    // выше. Дальше видимость ведёт сам виджет (NativeTick: хромота + отсутствие модалок).
+    if (!LimpIndicatorWidget->IsInViewport())
+    {
+        LimpIndicatorWidget->AddToViewport(/*ZOrder=*/5);
+    }
+
+    // Разовая развёрнутая подсказка — при ПЕРВОМ входе в хромоту со свободным управлением:
+    // интро уже передало управление игроку (иначе всплыла бы на чёрном экране/на авто-подходе)
+    // и не открыт модальный экран (не спорим с диалогом старосты). «Раз за сессию» обеспечивает
+    // FLimpFirstHintState; повторные вызовы каждый тик бесплатны.
+    const bool bControlFree = !PC->IsIntroMoveInputLocked() && !PC->IsAnyModalUIOpen();
+    if (LimpFirstHint.ShouldTrigger(bLimping, bControlFree))
+    {
+        GetWorldTimerManager().SetTimer(LimpHintTimer, this, &APlayerCharacter::ShowLimpFirstHint,
+            FMath::Max(LimpFirstHintDelay, 0.01f), false);
+    }
+}
+
+void APlayerCharacter::ShowLimpFirstHint()
+{
+    if (!bLimping)
+    {
+        // Вылечился, пока подсказка ждала показа — не тратим её: объяснение пригодится,
+        // когда игрок снова захромает и удивится потере скорости.
+        LimpFirstHint.Rearm();
+        return;
+    }
+    bLimpHintExpandedActive = true;
+    if (LimpIndicatorWidget)
+    {
+        LimpIndicatorWidget->SetIndicatorText(LimpFirstHintText);
+    }
+    GetWorldTimerManager().SetTimer(LimpHintTimer, this, &APlayerCharacter::EndLimpFirstHint,
+        FMath::Max(LimpFirstHintDuration, 1.0f), false);
+    UE_LOG(LogQA, Display, TEXT("QA: limp first-hint shown (expanded for %.1f s)"), LimpFirstHintDuration);
+}
+
+void APlayerCharacter::EndLimpFirstHint()
+{
+    bLimpHintExpandedActive = false;
+    if (LimpIndicatorWidget)
+    {
+        LimpIndicatorWidget->SetIndicatorText(LimpIndicatorText);
+    }
+}
+
 void APlayerCharacter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    // Экранный индикатор хромоты (Build 1): лениво создаём/держим в viewport и ловим момент
+    // разовой развёрнутой подсказки. СТРОГО до раннего выхода по SpringArm ниже.
+    UpdateLimpIndicator();
 
     // --- Процедурные эффекты камеры (#28): дыхание + look-ahead ---
     // Оба ЕДВА ЗАМЕТНЫ (запрос «чуть-чуть»). Подмешиваем в SpringArm->TargetOffset (world space),
