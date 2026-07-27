@@ -24,12 +24,14 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
-#include "Engine/Texture2D.h" // LoadObject<UTexture2D> в режиме дополнения (в Image.h только объявление)
+#include "Engine/Texture2D.h" // LoadObject<UTexture2D> для иконок (в Image.h только объявление)
 #include "GameFramework/PlayerController.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/PackageName.h"
 #include "Styling/SlateTypes.h"
+#include "UObject/PropertyPortFlags.h" // PPF_None для переноса стилизации владельца
 #include "UObject/SavePackage.h"
+#include "UObject/UnrealType.h" // FindFProperty/FProperty для переноса стилизации владельца
 #include "WidgetBlueprint.h"
 
 // Геймплей-модуль (включение по конвенции проекта, путь Source/ добавлен в Build.cs).
@@ -110,6 +112,30 @@ namespace
 		Block->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f));
 	}
 
+	// Иконка из Content/UI/Icons. Размер пишется В КИСТЬ (Brush.ImageSize): прежний путь
+	// через SetDesiredSizeOverride менял только живой Slate-виджет и в ассет НЕ попадал
+	// (UImage::SetDesiredSizeOverride пишет в MyImage, не в UPROPERTY — Image.cpp:122-128),
+	// поэтому иконки выходили дефолтных 32x32. Текстуры нет — кубик всё равно создаётся
+	// (пустая картинка заметна в редакторе), об этом предупреждаем.
+	UImage* MakeIcon(UWidgetTree* Tree, const TCHAR* ContextName, const FName& IconName,
+		const TCHAR* TexturePath, float IconSize)
+	{
+		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), IconName);
+		FSlateBrush IconBrush;
+		if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, TexturePath))
+		{
+			IconBrush.SetResourceObject(Texture);
+		}
+		else
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("%s: текстура %s не загрузилась."),
+				ContextName, TexturePath);
+		}
+		IconBrush.SetImageSize(FVector2D(IconSize, IconSize));
+		Icon->SetBrush(IconBrush);
+		return Icon;
+	}
+
 	// Кнопка со сплошным стилем всех состояний (для экранов; Ринат перекрасит в дизайнере).
 	UButton* MakeStyledButton(UWidgetTree* Tree, const FName& Name,
 		const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed)
@@ -170,6 +196,18 @@ namespace
 			{
 				LockSubtreeInDesigner(Panel->GetChildAt(Index));
 			}
+		}
+	}
+
+	// Замкнуть только ДЕТЕЙ панели: сама панель остаётся свободной (она лежит в
+	// канвас-слоте, её выделяют и таскают мышкой), а вся начинка проваливает клик к
+	// панели. Для рядов панели статов это аналог SetButtonContent, где роль «кнопки»
+	// играет ряд. Звать ПОСЛЕ сборки поддерева (замок не наследуется).
+	void LockPanelChildrenInDesigner(UPanelWidget* Panel)
+	{
+		for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
+		{
+			LockSubtreeInDesigner(Panel->GetChildAt(Index));
 		}
 	}
 
@@ -1219,7 +1257,7 @@ namespace
 	// Ринат правит текст и стиль сам (ADR-050). Значение — кубик с точным именем.
 	UOverlay* MakeStatBar(UWidgetTree* Tree, UObject* Roboto, const TCHAR* BarName,
 		const TCHAR* ValueName, const FString& LabelCaption, const FString& ValueSample,
-		const FLinearColor& FillColor, float Height)
+		const FLinearColor& FillColor, float Width, float Height)
 	{
 		UOverlay* Overlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(),
 			FName(*(FString(BarName) + TEXT("Overlay"))));
@@ -1236,7 +1274,7 @@ namespace
 
 		USizeBox* BarSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
 			FName(*(FString(BarName) + TEXT("Size"))));
-		BarSize->SetWidthOverride(320.0f); // PlayerHealthBarWidth (все бары одной ширины)
+		BarSize->SetWidthOverride(Width);
 		BarSize->SetHeightOverride(Height);
 		BarSize->SetContent(Bar);
 		Overlay->AddChildToOverlay(BarSize);
@@ -1266,7 +1304,41 @@ namespace
 		return Overlay;
 	}
 
+	// Ряд стата «иконка + тело»: HorizontalBox, иконка слева по центру вертикали — та же
+	// геометрия, что раньше делал -augment (AugPrependIcon). Ряд — верхнеуровневый элемент
+	// канваса; его начинку BuildPlayerStats замыкает (LockPanelChildrenInDesigner).
+	UHorizontalBox* MakeStatRow(UWidgetTree* Tree, const FName& RowName, const FName& IconName,
+		const TCHAR* TexturePath, float IconSize, UWidget* Body)
+	{
+		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), RowName);
+		if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(
+			MakeIcon(Tree, TEXT("WBP_PlayerStats"), IconName, TexturePath, IconSize)))
+		{
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
+		}
+		if (UHorizontalBoxSlot* BodySlot = Row->AddChildToHorizontalBox(Body))
+		{
+			BodySlot->SetVerticalAlignment(VAlign_Center);
+		}
+		return Row;
+	}
+
 	// Панель статов: столбец верх-лево (HP -> голод -> жажда -> патроны -> деньги).
+	// Канвас-первая раскладка (ADR-051 п.1, жалоба владельца 07-27): каждый ряд лежит в
+	// СВОЁМ канвас-слоте — в дизайнере у него ручки, его таскают мышкой. Прежний столб
+	// StatsBox (VerticalBox) убран: его слоты ручек не дают. Начинка рядов замкнута —
+	// клик в дизайнере выделяет весь ряд. Ряды сразу с иконками (нынешний вид панели
+	// после доводок -augment; слова-подписи владелец из своего ассета удалил — при
+	// -rebuild их убирает перенос стилизации, см. TransferOwnerStyle).
+	//
+	// Геометрия прежнего столба: старт 24,24 (PlayerHudMarginX/Y), высоты рядов 28/24/24,
+	// отступы 6/4/8/8 -> позиции Y: 24, 58, 86, 118 (патроны), 146 (деньги). Позиция
+	// денег резервирует ~20 px под строку патронов: столб сжимался, пока патроны спрятаны,
+	// канвас-слот не сжимается — с ножом в руках между жаждой и деньгами будет зазор
+	// (цена ручек; владелец волен перетащить плашку). Эти числа — для СВЕЖЕЙ генерации;
+	// при -rebuild столбец перекладывается по фактическим высотам виджетов владельца
+	// (ReflowPlayerStatsColumn — в реальном ассете иконки 32 px, ряды выше).
 	bool BuildPlayerStats(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1274,41 +1346,48 @@ namespace
 		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
 		Tree->RootWidget = Root;
 
-		UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("StatsBox"));
-		// Панель живёт на экране всю игру: HitTestInvisible на столбе — тапы/клики сквозь
-		// ВСЁ поддерево уходят в мир (иначе бары и плашка денег глотали бы касания).
-		Column->SetVisibility(ESlateVisibility::HitTestInvisible);
-		if (UCanvasPanelSlot* ColSlot = Root->AddChildToCanvas(Column))
+		// Панель живёт на экране всю игру: раньше тапы/клики в мир пропускал один зонтик
+		// HitTestInvisible на столбе, теперь зонтик у КАЖДОГО верхнеуровневого элемента
+		// (HitTestInvisible гасит хит-тест себе И всему поддереву — Visibility.h:22).
+		auto PlaceTopLevel = [Root](UWidget* Widget, float Y)
 		{
-			ColSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
-			ColSlot->SetAlignment(FVector2D(0.0f, 0.0f));
-			ColSlot->SetPosition(FVector2D(24.0f, 24.0f)); // PlayerHudMarginX/Y
-			ColSlot->SetAutoSize(true);
-		}
+			Widget->SetVisibility(ESlateVisibility::HitTestInvisible);
+			CanvasAuto(Root, Widget, FVector2D(24.0f, Y));
+		};
 
-		Column->AddChildToVerticalBox(MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
-			TEXT("Здоровье"), TEXT("100/100"),
-			FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 28.0f)); // PlayerHealthFillColor, 320x28
+		// Здоровье: полоска 320x28 (PlayerHealthBarWidth, PlayerHealthFillColor).
+		UHorizontalBox* HealthRow = MakeStatRow(Tree, TEXT("HealthRow"), TEXT("HealthIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_Health.T_Icon_Health"), 24.0f,
+			MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
+				TEXT("Здоровье"), TEXT("100/100"),
+				FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 320.0f, 28.0f));
+		PlaceTopLevel(HealthRow, 24.0f);
+		LockPanelChildrenInDesigner(HealthRow);
 
-		UOverlay* Hunger = MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
-			TEXT("Голод"), TEXT("100"),
-			FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 24.0f); // HungerColor, высота 24
-		if (UVerticalBoxSlot* HungerSlot = Column->AddChildToVerticalBox(Hunger))
-		{
-			HungerSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
-		}
+		// Голод и жажда: полоски 224x24 — 0.7 длины здоровья (решение владельца,
+		// перенесено из доводки -augment).
+		UHorizontalBox* HungerRow = MakeStatRow(Tree, TEXT("HungerRow"), TEXT("HungerIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"), 24.0f,
+			MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
+				TEXT("Голод"), TEXT("100"),
+				FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 224.0f, 24.0f)); // HungerColor
+		PlaceTopLevel(HungerRow, 58.0f);
+		LockPanelChildrenInDesigner(HungerRow);
 
-		UOverlay* Thirst = MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
-			TEXT("Жажда"), TEXT("100"),
-			FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 24.0f); // ThirstColor
-		if (UVerticalBoxSlot* ThirstSlot = Column->AddChildToVerticalBox(Thirst))
-		{
-			ThirstSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
-		}
+		UHorizontalBox* ThirstRow = MakeStatRow(Tree, TEXT("ThirstRow"), TEXT("ThirstIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"), 24.0f,
+			MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
+				TEXT("Жажда"), TEXT("100"),
+				FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 224.0f, 24.0f)); // ThirstColor
+		PlaceTopLevel(ThirstRow, 86.0f);
+		LockPanelChildrenInDesigner(ThirstRow);
 
 		// Патроны: код показывает строку только с огнестрелом в руках. Прячется ЦЕЛИКОМ
 		// контейнер AmmoRow — вместе с подписью «Патроны», иначе подпись висела бы одна
-		// при ноже в руках (ловушка скрытия, ADR-050). В ассете сразу Collapsed.
+		// при ноже в руках (ловушка скрытия, ADR-050). В ассете сразу Collapsed, поэтому
+		// PlaceTopLevel сюда не годится — он перетёр бы Collapsed зонтиком. Показывая ряд,
+		// код ставит ему SelfHitTestInvisible (PlayerStatsWidget.cpp:62-63): сам ряд хиты
+		// не ловит, но детей это НЕ укрывает — детям HitTestInvisible прописан явно.
 		const FLinearColor AmmoColor(0.95f, 0.95f, 0.95f, 1.0f);
 		UHorizontalBox* AmmoRow = Tree->ConstructWidget<UHorizontalBox>(
 			UHorizontalBox::StaticClass(), TEXT("AmmoRow"));
@@ -1318,23 +1397,22 @@ namespace
 		UTextBlock* AmmoLabel = MakeText(Tree, Roboto, TEXT("AmmoLabel"), TEXT("Патроны"),
 			AmmoColor, 14, TEXT("Regular"));
 		ApplyTextShadow(AmmoLabel);
+		AmmoLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
 		AmmoRow->AddChildToHorizontalBox(AmmoLabel);
 
 		UTextBlock* Ammo = MakeText(Tree, Roboto, TEXT("AmmoText"), TEXT("7 / 51"),
 			AmmoColor, 14, TEXT("Regular"));
 		ApplyTextShadow(Ammo);
+		Ammo->SetVisibility(ESlateVisibility::HitTestInvisible); // рантайм-видимость ставит код
 		Ammo->bIsVariable = true;
 		if (UHorizontalBoxSlot* AmmoValueSlot = AmmoRow->AddChildToHorizontalBox(Ammo))
 		{
 			AmmoValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
 		}
+		CanvasAuto(Root, AmmoRow, FVector2D(24.0f, 118.0f));
+		LockPanelChildrenInDesigner(AmmoRow);
 
-		if (UVerticalBoxSlot* AmmoSlot = Column->AddChildToVerticalBox(AmmoRow))
-		{
-			AmmoSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
-		}
-
-		// Деньги — золотые на тёмной плашке (MoneyPlateColor): подпись + значение.
+		// Деньги — золотые на тёмной плашке (MoneyPlateColor): иконка + подпись + значение.
 		const FLinearColor MoneyColor(1.0f, 0.85f, 0.2f, 1.0f); // PlayerMoneyColor
 		UBorder* MoneyPlate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MoneyPlate"));
 		MoneyPlate->SetBrush(MakeRoundedBrush(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f), 3.0f));
@@ -1342,6 +1420,13 @@ namespace
 
 		UHorizontalBox* MoneyRow = Tree->ConstructWidget<UHorizontalBox>(
 			UHorizontalBox::StaticClass(), TEXT("MoneyRow"));
+		if (UHorizontalBoxSlot* MoneyIconSlot = MoneyRow->AddChildToHorizontalBox(
+			MakeIcon(Tree, TEXT("WBP_PlayerStats"), TEXT("MoneyIcon"),
+				TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"), 22.0f)))
+		{
+			MoneyIconSlot->SetVerticalAlignment(VAlign_Center);
+			MoneyIconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
+		}
 
 		UTextBlock* MoneyLabel = MakeText(Tree, Roboto, TEXT("MoneyLabel"), TEXT("Монеты"),
 			MoneyColor, 15, TEXT("Regular"));
@@ -1357,11 +1442,8 @@ namespace
 			MoneyValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
 		}
 		MoneyPlate->SetContent(MoneyRow);
-		if (UVerticalBoxSlot* MoneySlot = Column->AddChildToVerticalBox(MoneyPlate))
-		{
-			MoneySlot->SetHorizontalAlignment(HAlign_Left);
-			MoneySlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
-		}
+		PlaceTopLevel(MoneyPlate, 146.0f);
+		LockSubtreeInDesigner(MoneyRow); // вся начинка плашки; сама плашка свободна
 		return true;
 	}
 
@@ -1438,15 +1520,16 @@ namespace
 		return FString::Printf(TEXT("%s.%s"), Spec.PackageName, Spec.AssetName);
 	}
 
-	// Контракт замков (см. SetButtonContent): контент кнопок статичной раскладки
-	// обязан быть замкнут (клик в дизайнере выделяет саму кнопку), сами кнопки —
+	// Контракт замков (см. SetButtonContent / LockPanelChildrenInDesigner): начинка
+	// кнопок и рядов статичной раскладки обязана быть замкнута (клик в дизайнере
+	// выделяет верхнеуровневый элемент целиком), сами верхнеуровневые элементы —
 	// свободны (иначе их нельзя было бы выделить и тянуть). Проверяется в -verify:
 	// это артефакт вместо ручного мышиного теста на каждый прогон.
 	struct FLockContract
 	{
 		const TCHAR* AssetName;
 		std::initializer_list<const TCHAR*> LockedContent;     // bLockedInDesigner == true
-		std::initializer_list<const TCHAR*> SelectableButtons; // bLockedInDesigner == false
+		std::initializer_list<const TCHAR*> SelectableWidgets; // bLockedInDesigner == false
 	};
 
 	const FLockContract GLockContracts[] =
@@ -1462,6 +1545,16 @@ namespace
 			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel") },
 			{ TEXT("CloseButton"), TEXT("QtyMinusButton"), TEXT("QtyPlusButton"),
 			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton") } },
+		// Подписи-слова (HealthBarLabel и родня) в контракт НЕ входят: владелец удалил их
+		// из своего ассета, перенос стилизации при -rebuild убирает их и из новой раскладки
+		// (в свежесгенерированном ассете они есть и тоже замкнуты, но контракт проверяет
+		// реальный ассет проекта).
+		{ TEXT("WBP_PlayerStats"),
+			{ TEXT("HealthIcon"), TEXT("HealthBarOverlay"), TEXT("HealthBarSize"), TEXT("HealthBar"), TEXT("HealthText"),
+			  TEXT("HungerIcon"), TEXT("HungerBarOverlay"), TEXT("HungerBarSize"), TEXT("HungerBar"), TEXT("HungerText"),
+			  TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"), TEXT("ThirstBarSize"), TEXT("ThirstBar"), TEXT("ThirstText"),
+			  TEXT("AmmoText"), TEXT("MoneyRow"), TEXT("MoneyIcon"), TEXT("MoneyText") },
+			{ TEXT("HealthRow"), TEXT("HungerRow"), TEXT("ThirstRow"), TEXT("AmmoRow"), TEXT("MoneyPlate") } },
 	};
 
 	// ======================================================================
@@ -1518,25 +1611,6 @@ namespace
 		bChanged = true;
 		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: '%s' -> «%s»."),
 			AssetName, WidgetName, *NewText.ToString());
-	}
-
-	// Иконка из Content/UI/Icons. Текстуры нет — кубик всё равно создаётся (пустая картинка
-	// заметна в редакторе), об этом предупреждаем.
-	UImage* AugMakeIcon(UWidgetTree* Tree, const TCHAR* AssetName, const FName& IconName,
-		const TCHAR* TexturePath, float IconSize)
-	{
-		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), IconName);
-		if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, TexturePath))
-		{
-			Icon->SetBrushFromTexture(Texture, /*bMatchSize=*/false);
-		}
-		else
-		{
-			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: текстура %s не загрузилась."),
-				AssetName, TexturePath);
-		}
-		Icon->SetDesiredSizeOverride(FVector2D(IconSize, IconSize));
-		return Icon;
 	}
 
 	// Обернуть существующий кубик в горизонтальный ряд с заданным именем, поставив ряд на
@@ -1614,7 +1688,7 @@ namespace
 		{
 			return;
 		}
-		UImage* Icon = AugMakeIcon(Tree, AssetName, IconName, TexturePath, IconSize);
+		UImage* Icon = MakeIcon(Tree, AssetName, IconName, TexturePath, IconSize);
 		if (UHorizontalBoxSlot* IconSlot = Cast<UHorizontalBoxSlot>(Row->InsertChildAt(0, Icon)))
 		{
 			IconSlot->SetVerticalAlignment(VAlign_Center);
@@ -1698,7 +1772,7 @@ namespace
 			const TCHAR* ValueName, const TCHAR* Sample, float LeftPad)
 		{
 			if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(
-				AugMakeIcon(Tree, Name, FName(IconName), TexturePath, 22.0f)))
+				MakeIcon(Tree, Name, FName(IconName), TexturePath, 22.0f)))
 			{
 				IconSlot->SetVerticalAlignment(VAlign_Center);
 				IconSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
@@ -2023,18 +2097,300 @@ namespace
 		return 0;
 	}
 
+	// ======================================================================
+	// Перенос ручной стилизации владельца при -rebuild (сейчас — WBP_PlayerStats)
+	// ======================================================================
+	//
+	// В WBP_PlayerStats лежит ручная стилизация Рината (коммит dfaffd0), которой нет в
+	// коде генерации. Пересборка выселяет старое дерево, но старые виджеты остаются
+	// живыми UObject'ами в transient-пакете — их свойства читаются и ПОСЛЕ выселения.
+	// Порядок: до выселения снимается срез «имя -> старый виджет», после пересборки на
+	// одноимённые новые виджеты того же класса переносится БЕЛЫЙ СПИСОК свойств стиля
+	// через рефлексию. Именно белый список, а не «все свойства»: слепое копирование
+	// утащило бы Slot, bIsVariable и Visibility и сломало бы контракты новой раскладки
+	// (зонтики хит-теста, Collapsed у AmmoRow). Каждое перенесённое значение и каждое
+	// расхождение пишется в лог.
+
+	// Свойства, которые владелец мог править в дизайнере. Имена сверены с заголовками
+	// UE 5.5: Components/TextBlock.h, TextWidgetTypes.h (Justification), ProgressBar.h,
+	// SizeBox.h, Image.h, Border.h.
+	void CollectOwnerStyleProps(const UWidget* Widget, TArray<FName>& OutProps)
+	{
+		if (Widget->IsA<UTextBlock>())
+		{
+			// Text переносится тоже: у подписей это текст владельца, а образцы значений
+			// код игры всё равно переписывает каждый кадр.
+			OutProps.Append({ TEXT("Text"), TEXT("Font"), TEXT("ColorAndOpacity"),
+				TEXT("ShadowOffset"), TEXT("ShadowColorAndOpacity"),
+				TEXT("Justification"), TEXT("MinDesiredWidth") });
+		}
+		else if (Widget->IsA<UProgressBar>())
+		{
+			OutProps.Append({ TEXT("WidgetStyle"), TEXT("FillColorAndOpacity") });
+		}
+		else if (Widget->IsA<UImage>())
+		{
+			OutProps.Append({ TEXT("Brush"), TEXT("ColorAndOpacity") });
+		}
+		else if (Widget->IsA<USizeBox>())
+		{
+			OutProps.Append({ TEXT("bOverride_WidthOverride"), TEXT("WidthOverride"),
+				TEXT("bOverride_HeightOverride"), TEXT("HeightOverride") });
+		}
+		else if (Widget->IsA<UBorder>())
+		{
+			OutProps.Append({ TEXT("Background"), TEXT("BrushColor"), TEXT("Padding"),
+				TEXT("ContentColorAndOpacity"),
+				TEXT("HorizontalAlignment"), TEXT("VerticalAlignment") });
+		}
+		// Контейнеры (канвас, ряды-коробки) — переносить нечего.
+	}
+
+	// Декоративные подписи-слова, которыми владеет Ринат: из своего ассета он их УДАЛИЛ
+	// (в таблице имён WBP_PlayerStats.uasset этих имён нет — сверено поиском по бинарнику
+	// 07-27). Если подписи не было в старом дереве, из новой раскладки она убирается
+	// тоже — иначе пересборка вернула бы владельцу удалённые им слова. Кубики кода
+	// (значения, полоски, AmmoRow) сюда класть нельзя — тут только декор.
+	const TCHAR* GOwnerDeletedLabels[] =
+	{
+		TEXT("HealthBarLabel"), TEXT("HungerBarLabel"), TEXT("ThirstBarLabel"),
+		TEXT("AmmoLabel"), TEXT("MoneyLabel"),
+	};
+
+	// Обрезка длинных значений для лога (стили-кисти разворачиваются в сотни символов).
+	FString ClipForLog(FString Value)
+	{
+		constexpr int32 MaxLen = 160;
+		if (Value.Len() > MaxLen)
+		{
+			Value = Value.Left(MaxLen) + TEXT("...");
+		}
+		return Value;
+	}
+
+	// Вертикальная перестройка столбца статов ПОСЛЕ переноса стиля: прежний VerticalBox
+	// складывал ряды по фактической высоте содержимого, канвас так не умеет — считаем
+	// сами той же формулой (отступы прежние: 6/4/8/8). Высота ряда = max(иконка, полоска);
+	// размеры берутся из УЖЕ перенесённых значений владельца — в реальном ассете иконки
+	// 32 px, а не 24: прежний -augment писал размер мимо ассета (см. MakeIcon), чинить
+	// это сейчас нельзя — изменился бы принятый владельцем вид. Строка патронов — оценка
+	// 20 px (замер Slate в коммандлете недоступен): место под неё резервируется, поэтому
+	// с ножом в руках между жаждой и деньгами остаётся зазор (столб сжимался, канвас-слот
+	// не сжимается — цена ручек; владелец волен перетащить плашку денег).
+	void ReflowPlayerStatsColumn(UWidgetTree* Tree, const TCHAR* AssetName)
+	{
+		struct FRowSpec
+		{
+			const TCHAR* RowName;
+			const TCHAR* IconName;
+			const TCHAR* SizeName;
+			float TopPad;
+		};
+		const FRowSpec Rows[] =
+		{
+			{ TEXT("HealthRow"), TEXT("HealthIcon"), TEXT("HealthBarSize"), 0.0f },
+			{ TEXT("HungerRow"), TEXT("HungerIcon"), TEXT("HungerBarSize"), 6.0f },
+			{ TEXT("ThirstRow"), TEXT("ThirstIcon"), TEXT("ThirstBarSize"), 4.0f },
+		};
+
+		// База — фактическая позиция ряда здоровья (уже учитывает сдвиг столба владельца).
+		UWidget* Health = Tree->FindWidget(FName(TEXT("HealthRow")));
+		UCanvasPanelSlot* HealthSlot = Health ? Cast<UCanvasPanelSlot>(Health->Slot) : nullptr;
+		if (!HealthSlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("REBUILD %s: HealthRow без канвас-слота — перестройка столбца пропущена."), AssetName);
+			return;
+		}
+		const float X = HealthSlot->GetPosition().X;
+		float Y = HealthSlot->GetPosition().Y;
+
+		for (const FRowSpec& Row : Rows)
+		{
+			UWidget* RowWidget = Tree->FindWidget(FName(Row.RowName));
+			UCanvasPanelSlot* Slot = RowWidget ? Cast<UCanvasPanelSlot>(RowWidget->Slot) : nullptr;
+			if (!Slot)
+			{
+				continue;
+			}
+			Y += Row.TopPad;
+			Slot->SetPosition(FVector2D(X, Y));
+
+			float RowHeight = 0.0f;
+			if (const UImage* Icon = Cast<UImage>(Tree->FindWidget(FName(Row.IconName))))
+			{
+				const FVector2D IconSize = Icon->GetBrush().GetImageSize();
+				RowHeight = FMath::Max(RowHeight, IconSize.Y);
+			}
+			if (const USizeBox* Size = Cast<USizeBox>(Tree->FindWidget(FName(Row.SizeName))))
+			{
+				RowHeight = FMath::Max(RowHeight, Size->GetHeightOverride());
+			}
+			Y += RowHeight;
+		}
+
+		const float AmmoRowHeightEstimate = 20.0f; // текст Roboto 14 с тенью
+		if (UWidget* AmmoRow = Tree->FindWidget(FName(TEXT("AmmoRow"))))
+		{
+			if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(AmmoRow->Slot))
+			{
+				Y += 8.0f;
+				Slot->SetPosition(FVector2D(X, Y));
+				Y += AmmoRowHeightEstimate;
+			}
+		}
+		if (UWidget* MoneyPlate = Tree->FindWidget(FName(TEXT("MoneyPlate"))))
+		{
+			if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(MoneyPlate->Slot))
+			{
+				Y += 8.0f;
+				Slot->SetPosition(FVector2D(X, Y));
+			}
+		}
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("REBUILD %s: столбец статов переложен по фактическим высотам, нижняя точка Y=%.0f."),
+			AssetName, Y);
+	}
+
+	void TransferOwnerStyle(UWidgetTree* Tree, const TCHAR* AssetName,
+		const TMap<FName, UWidget*>& OldWidgets)
+	{
+		// 1. Подписи, удалённые владельцем, убрать из новой раскладки.
+		for (const TCHAR* LabelName : GOwnerDeletedLabels)
+		{
+			UWidget* NewLabel = Tree->FindWidget(FName(LabelName));
+			if (!NewLabel || OldWidgets.Contains(FName(LabelName)))
+			{
+				continue; // в новой раскладке подписи нет ИЛИ владелец её не удалял
+			}
+			if (UPanelWidget* Parent = NewLabel->GetParent())
+			{
+				Parent->RemoveChild(NewLabel);
+			}
+			Tree->RemoveWidget(NewLabel);
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("REBUILD %s: подпись '%s' убрана — владелец удалил её из ассета."),
+				AssetName, LabelName);
+		}
+
+		// 2. Сдвиг всего столба: владелец мог передвинуть StatsBox — его позиция переносится
+		// как смещение всех верхнеуровневых канвас-слотов от штатного старта 24,24.
+		if (UWidget* const* OldColumn = OldWidgets.Find(FName(TEXT("StatsBox"))))
+		{
+			if (const UCanvasPanelSlot* OldSlot = Cast<UCanvasPanelSlot>((*OldColumn)->Slot))
+			{
+				const FVector2D Delta = OldSlot->GetPosition() - FVector2D(24.0f, 24.0f);
+				UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget);
+				if (!Delta.IsNearlyZero() && Root)
+				{
+					for (int32 Index = 0; Index < Root->GetChildrenCount(); ++Index)
+					{
+						if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Root->GetChildAt(Index)->Slot))
+						{
+							Slot->SetPosition(Slot->GetPosition() + Delta);
+						}
+					}
+					UE_LOG(LogGenerateWbp, Display,
+						TEXT("REBUILD %s: столб владельца стоял в %s — вся раскладка сдвинута на %s."),
+						AssetName, *OldSlot->GetPosition().ToString(), *Delta.ToString());
+				}
+			}
+		}
+
+		// 3. Посвойственный перенос стиля на одноимённые виджеты того же класса.
+		TArray<UWidget*> NewWidgets;
+		Tree->GetAllWidgets(NewWidgets);
+		TSet<FName> MatchedNames;
+		int32 MovedCount = 0;
+		for (UWidget* NewWidget : NewWidgets)
+		{
+			UWidget* const* OldPtr = OldWidgets.Find(NewWidget->GetFName());
+			if (!OldPtr)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("REBUILD %s: '%s' — новый кубик, в старом ассете его не было (переносить нечего)."),
+					AssetName, *NewWidget->GetName());
+				continue;
+			}
+			MatchedNames.Add(NewWidget->GetFName());
+			UWidget* OldWidget = *OldPtr;
+			if (OldWidget->GetClass() != NewWidget->GetClass())
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("REBUILD %s: у '%s' сменился класс (%s -> %s) — стиль НЕ перенесён, сверить вид глазами."),
+					AssetName, *NewWidget->GetName(),
+					*OldWidget->GetClass()->GetName(), *NewWidget->GetClass()->GetName());
+				continue;
+			}
+
+			TArray<FName> PropNames;
+			CollectOwnerStyleProps(NewWidget, PropNames);
+			for (const FName& PropName : PropNames)
+			{
+				FProperty* Prop = FindFProperty<FProperty>(NewWidget->GetClass(), PropName);
+				if (!Prop)
+				{
+					UE_LOG(LogGenerateWbp, Warning,
+						TEXT("REBUILD %s: у класса %s нет свойства '%s' — белый список разошёлся с движком, свойство НЕ перенесено."),
+						AssetName, *NewWidget->GetClass()->GetName(), *PropName.ToString());
+					continue;
+				}
+				const void* OldValue = Prop->ContainerPtrToValuePtr<const void>(OldWidget);
+				void* NewValue = Prop->ContainerPtrToValuePtr<void>(NewWidget);
+				if (Prop->Identical(OldValue, NewValue, PPF_None))
+				{
+					continue; // значение и так совпадает — не шумим в логе
+				}
+				FString OldText, NewText;
+				Prop->ExportTextItem_Direct(OldText, OldValue, nullptr, OldWidget, PPF_None);
+				Prop->ExportTextItem_Direct(NewText, NewValue, nullptr, NewWidget, PPF_None);
+				Prop->CopyCompleteValue(NewValue, OldValue);
+				++MovedCount;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("REBUILD %s: '%s'.%s: %s -> %s (значение владельца)."),
+					AssetName, *NewWidget->GetName(), *PropName.ToString(),
+					*ClipForLog(NewText), *ClipForLog(OldText));
+			}
+		}
+
+		// 4. Старое, чему в новой раскладке пары не нашлось. StatsBox выброшен намеренно
+		// (его заменили канвас-слоты); всё остальное — громко: владелец мог создать кубик
+		// руками (например, AmmoBagText), автоматически его не вернуть — только руками
+		// по этому логу.
+		for (const TPair<FName, UWidget*>& Old : OldWidgets)
+		{
+			if (MatchedNames.Contains(Old.Key) || Old.Key == FName(TEXT("StatsBox")))
+			{
+				continue;
+			}
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("REBUILD %s: кубик '%s' (%s) из старого ассета в новую раскладку не попал — его вид не перенесён."),
+				AssetName, *Old.Key.ToString(), *Old.Value->GetClass()->GetName());
+		}
+
+		// 5. Столбец статов складывается заново по фактическим (перенесённым) высотам.
+		if (FCString::Strcmp(AssetName, TEXT("WBP_PlayerStats")) == 0)
+		{
+			ReflowPlayerStatsColumn(Tree, AssetName);
+		}
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("REBUILD %s: перенос стилизации владельца завершён, перенесено значений: %d."),
+			AssetName, MovedCount);
+	}
+
 	// Пересборка дерева СУЩЕСТВУЮЩЕГО ассета текущей Build-функцией спеки (режим -rebuild,
 	// ADR-051 п.1, добро лида 07-24). 0 — успех, 1 — ошибка.
 	//
-	// Почему пересборка, а не точечный конвертер живого дерева: в WBP_Shop/WBP_Inventory
-	// нет ручных правок владельца (git-история файлов — только прогоны этого коммандлета),
-	// а замер Slate-геометрии в коммандлете недоступен (FSlateApplication при -run= не
-	// создаётся — LaunchEngineLoop.cpp:3228). Blueprint НЕ пересоздаётся — правится только
+	// Почему пересборка, а не точечный конвертер живого дерева: замер Slate-геометрии в
+	// коммандлете недоступен (FSlateApplication при -run= не создаётся —
+	// LaunchEngineLoop.cpp:3228). Blueprint НЕ пересоздаётся — правится только
 	// WidgetTree, поэтому ссылки на класс _C из слотов HUD остаются живыми. Старые виджеты
 	// выселяются в transient-пакет, чтобы новые могли занять ТЕ ЖЕ имена (штатный приём
 	// редактора — WidgetBlueprintEditorUtils.cpp:595 «so that it doesn't conflict with
-	// future widgets sharing the same name»).
-	int32 RebuildOne(const FWbpSpec& Spec)
+	// future widgets sharing the same name»). Для ассетов с ручной стилизацией владельца
+	// bTransferOwnerStyle включает её перенос на новое дерево (TransferOwnerStyle).
+	int32 RebuildOne(const FWbpSpec& Spec, bool bTransferOwnerStyle)
 	{
 		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPathOf(Spec));
 		if (!WBP || !WBP->WidgetTree)
@@ -2048,6 +2404,20 @@ namespace
 
 		TArray<UWidget*> OldWidgets;
 		WBP->WidgetTree->GetAllWidgets(OldWidgets);
+
+		// Срез старых виджетов по именам — ДО выселения (при коллизии имён в transient-
+		// пакете Rename может дать объекту суффикс). Сами объекты живут дальше — из них
+		// TransferOwnerStyle читает значения владельца уже после пересборки.
+		TMap<FName, UWidget*> OldByName;
+		if (bTransferOwnerStyle)
+		{
+			OldByName.Reserve(OldWidgets.Num());
+			for (UWidget* Old : OldWidgets)
+			{
+				OldByName.Add(Old->GetFName(), Old);
+			}
+		}
+
 		for (UWidget* Old : OldWidgets)
 		{
 			Old->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors);
@@ -2064,7 +2434,13 @@ namespace
 			return 1;
 		}
 
-		// Контракт кубиков — ДО сохранения: пропал хоть один — на диск не пишем.
+		if (bTransferOwnerStyle)
+		{
+			TransferOwnerStyle(WBP->WidgetTree, Spec.AssetName, OldByName);
+		}
+
+		// Контракт кубиков — ДО сохранения и ПОСЛЕ переноса стилизации (удаление подписей
+		// не имеет права зацепить кубики кода): пропал хоть один — на диск не пишем.
 		int32 MissingCount = 0;
 		for (const TCHAR* Cube : Spec.ExpectedCubes)
 		{
@@ -2131,22 +2507,35 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 
 int32 UGenerateWbpCommandlet::RebuildWindows()
 {
-	// Пересборка канвас-первой раскладкой — ТОЛЬКО окна магазина и инвентаря (решение
-	// лида 07-24): остальные ассеты содержат ручную стилизацию владельца, их пересборка
-	// запрещена. Процессный предохранитель (проверяет лид перед запуском): git status
-	// обоих .uasset должен быть чист — иначе прогон затёр бы несохранённые правки.
-	static const TCHAR* RebuildAssets[] = { TEXT("WBP_Shop"), TEXT("WBP_Inventory") };
+	// Пересборка канвас-первой раскладкой (ADR-051 п.1). У WBP_Shop/WBP_Inventory ручной
+	// стилизации владельца нет (git-история файлов — только прогоны коммандлета), их
+	// пересборка чистая. В WBP_PlayerStats стилизация ЕСТЬ (коммит dfaffd0) — для него
+	// включён перенос значений владельца на новое дерево (TransferOwnerStyle). Остальные
+	// ассеты пересборке не подлежат. Процессный предохранитель (проверяет лид перед
+	// запуском): git status пересобираемых .uasset должен быть чист — иначе прогон
+	// затёр бы несохранённые правки.
+	struct FRebuildEntry
+	{
+		const TCHAR* AssetName;
+		bool bTransferOwnerStyle;
+	};
+	static const FRebuildEntry RebuildAssets[] =
+	{
+		{ TEXT("WBP_Shop"), false },
+		{ TEXT("WBP_Inventory"), false },
+		{ TEXT("WBP_PlayerStats"), true },
+	};
 
 	int32 FailCount = 0;
-	for (const TCHAR* AssetName : RebuildAssets)
+	for (const FRebuildEntry& Entry : RebuildAssets)
 	{
 		bool bFound = false;
 		for (const FWbpSpec& Spec : GAssets)
 		{
-			if (FCString::Strcmp(Spec.AssetName, AssetName) == 0)
+			if (FCString::Strcmp(Spec.AssetName, Entry.AssetName) == 0)
 			{
 				bFound = true;
-				if (RebuildOne(Spec) != 0)
+				if (RebuildOne(Spec, Entry.bTransferOwnerStyle) != 0)
 				{
 					++FailCount;
 				}
@@ -2155,7 +2544,7 @@ int32 UGenerateWbpCommandlet::RebuildWindows()
 		}
 		if (!bFound)
 		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: %s не найден в таблице ассетов."), AssetName);
+			UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: %s не найден в таблице ассетов."), Entry.AssetName);
 			++FailCount;
 		}
 	}
@@ -2304,9 +2693,10 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			}
 		}
 
-		// Контракт замков: контент кнопок замкнут, кнопки свободны (см. GLockContracts).
-		// До первого прогона -rebuild после этой правки ассеты на диске замков не имеют —
-		// провал здесь тогда означает «перегенерация ещё не выполнена», это ожидаемо.
+		// Контракт замков: начинка кнопок/рядов замкнута, верхнеуровневые элементы
+		// свободны (см. GLockContracts). До первого прогона -rebuild после этой правки
+		// ассеты на диске замков не имеют — провал здесь тогда означает «перегенерация
+		// ещё не выполнена», это ожидаемо.
 		for (const FLockContract& Contract : GLockContracts)
 		{
 			if (FCString::Strcmp(Spec.AssetName, Contract.AssetName) != 0)
@@ -2318,31 +2708,31 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
 				if (!Found || !Found->IsLockedInDesigner())
 				{
-					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — контент кнопки '%s' %s."),
+					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — начинка '%s' %s."),
 						Spec.AssetName, WidgetName,
-						Found ? TEXT("не замкнут (bLockedInDesigner=false) — клик в дизайнере выделит его, а не кнопку")
-						      : TEXT("не найден"));
+						Found ? TEXT("не замкнута (bLockedInDesigner=false) — клик в дизайнере выделит её, а не верхнеуровневый элемент")
+						      : TEXT("не найдена"));
 					bOk = false;
 				}
 			}
-			for (const TCHAR* WidgetName : Contract.SelectableButtons)
+			for (const TCHAR* WidgetName : Contract.SelectableWidgets)
 			{
 				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
 				if (!Found || Found->IsLockedInDesigner())
 				{
-					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — кнопка '%s' %s."),
+					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — виджет '%s' %s."),
 						Spec.AssetName, WidgetName,
-						Found ? TEXT("замкнута — владелец не сможет выделить и тянуть её в дизайнере")
-						      : TEXT("не найдена"));
+						Found ? TEXT("замкнут — владелец не сможет выделить и тянуть его в дизайнере")
+						      : TEXT("не найден"));
 					bOk = false;
 				}
 			}
 			if (bOk)
 			{
 				UE_LOG(LogGenerateWbp, Display,
-					TEXT("VERIFY %s: замки на месте — контент %d кнопочных виджетов замкнут, %d кнопок свободны."),
+					TEXT("VERIFY %s: замки на месте — замкнутой начинки %d, свободных верхнеуровневых виджетов %d."),
 					Spec.AssetName, static_cast<int32>(Contract.LockedContent.size()),
-					static_cast<int32>(Contract.SelectableButtons.size()));
+					static_cast<int32>(Contract.SelectableWidgets.size()));
 			}
 		}
 
