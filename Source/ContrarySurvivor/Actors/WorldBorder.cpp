@@ -33,6 +33,11 @@ AWorldBorder::AWorldBorder()
 	FogNorth = CreateFogPlane(TEXT("FogNorth"));
 	FogSouth = CreateFogPlane(TEXT("FogSouth"));
 
+	FogBandEast = CreateFogPlane(TEXT("FogBandEast"));
+	FogBandWest = CreateFogPlane(TEXT("FogBandWest"));
+	FogBandNorth = CreateFogPlane(TEXT("FogBandNorth"));
+	FogBandSouth = CreateFogPlane(TEXT("FogBandSouth"));
+
 	// Дефолтный меш карточки тумана — движковый плейн 100х100 см (ассет движка, есть всегда;
 	// это НЕ контент проекта, поэтому FObjectFinder здесь допустим — прецедент: звуки в
 	// WolfCharacter/StatsComponent). Оператор может заменить меш в BP (FogPlaneMesh).
@@ -86,8 +91,10 @@ void AWorldBorder::BeginPlay()
 	// Подстраховка: геометрия соответствует параметрам и в рантайме (RebuildBorder идемпотентен).
 	RebuildBorder();
 
-	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f, fog h=%.0f, fog material %s"),
-		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight, FogHeight, FogMaterial ? TEXT("set") : TEXT("NOT set"));
+	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f, fog curtain h=%.0f (mat %s), fog band depth=%.0f z=%.0f (mat %s)"),
+		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight,
+		FogHeight, FogMaterial ? TEXT("set") : TEXT("NOT set"),
+		FogDepth, FogBandHeight, FogBandMaterial ? TEXT("set") : TEXT("NOT set"));
 }
 
 void AWorldBorder::AbsorbActorScaleIntoSize()
@@ -128,6 +135,12 @@ void AWorldBorder::AbsorbActorScaleIntoSize()
 	ZoneSizeY *= SafeAxis(Scale.Y);
 	WallHeight *= SafeAxis(Scale.Z);
 	FogHeight *= SafeAxis(Scale.Z);
+
+	// FogDepth и FogBandHeight скейлом НЕ трогаем — осознанный выбор. Глубина полосы одна
+	// на все четыре стороны: при неравномерном X/Y-скейле поглощение дало бы из одного
+	// параметра две разные глубины — вместо этого «толщина тумана» остаётся такой, какой
+	// её выставил дизайнер. Высота полосы привязана к росту персонажа (пояс), а не к
+	// размеру зоны. Под новый размер зоны полосы всё равно перестроятся в RebuildBorder.
 
 	SceneRoot->SetRelativeScale3D(FVector::OneVector);
 }
@@ -171,13 +184,35 @@ void AWorldBorder::RebuildBorder()
 		}
 	}
 
-	// Полосы тумана: вплотную изнутри к стенам (отступ FogInset), нормалью внутрь зоны —
-	// изнутри игрок видит сплошную «стену тумана» перед невидимой стеной.
+	// Вертикальные завесы: вплотную изнутри к стенам (отступ FogInset), нормалью внутрь зоны —
+	// задник против черноты за краем карты (при наклоне камеры ~55° видны вдали).
 	const float FogZ = FogHeight * 0.5f;
 	SetupFogPlane(FogEast, FVector(HalfX - FogInset, 0.0f, FogZ), 0.0f, ZoneSizeY);
 	SetupFogPlane(FogWest, FVector(-HalfX + FogInset, 0.0f, FogZ), 180.0f, ZoneSizeY);
 	SetupFogPlane(FogNorth, FVector(0.0f, HalfY - FogInset, FogZ), 90.0f, ZoneSizeX);
 	SetupFogPlane(FogSouth, FVector(0.0f, -HalfY + FogInset, FogZ), -90.0f, ZoneSizeX);
+
+	// Горизонтальные полосы — главный туман для top-down камеры (Pitch ~-55, замечание
+	// Рината 07-27: вертикальный градиент «у земли плотнее» сверху не читается). Полоса
+	// каждой стороны ложится от границы зоны ВНУТРЬ на FogDepth — игрок упирается в
+	// невидимую стену, уже стоя в тумане. Глубина ограничена половиной зоны по своей оси,
+	// чтобы на маленькой зоне встречные полосы не вылезали за центр.
+	const float DepthX = FMath::Min(FogDepth, HalfX); // глубина полос восток/запад (поперёк = по X)
+	const float DepthY = FMath::Min(FogDepth, HalfY); // глубина полос север/юг (поперёк = по Y)
+
+	// УГЛЫ: каждая полоса продлена за оба угла зоны на глубину ПЕРПЕНДИКУЛЯРНЫХ полос
+	// (длина стороны + 2×глубина): у угла соседние полосы перекрываются квадратом
+	// глубина×глубина изнутри, а выступы закрывают диагональный взгляд камеры через угол
+	// снаружи — дыр нет. Z-fighting в местах нахлёста исключён разносом высот: полосы
+	// север/юг лежат на 2 см выше полос восток/запад. С top-down камеры (дистанция ~1000 см)
+	// разница не видна, а копланарного мерцания нет — важно и для серого дефолт-материала
+	// без прозрачности, пока FogBandMaterial не назначен.
+	const float BandZEastWest = FogBandHeight;
+	const float BandZNorthSouth = FogBandHeight + 2.0f;
+	SetupFogBand(FogBandEast, FVector(HalfX - DepthX * 0.5f, 0.0f, BandZEastWest), 0.0f, DepthX, ZoneSizeY + 2.0f * DepthY);
+	SetupFogBand(FogBandWest, FVector(-HalfX + DepthX * 0.5f, 0.0f, BandZEastWest), 180.0f, DepthX, ZoneSizeY + 2.0f * DepthY);
+	SetupFogBand(FogBandNorth, FVector(0.0f, HalfY - DepthY * 0.5f, BandZNorthSouth), 90.0f, DepthY, ZoneSizeX + 2.0f * DepthX);
+	SetupFogBand(FogBandSouth, FVector(0.0f, -HalfY + DepthY * 0.5f, BandZNorthSouth), -90.0f, DepthY, ZoneSizeX + 2.0f * DepthX);
 }
 
 void AWorldBorder::SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLocation, float YawDeg, float SpanLength)
@@ -196,4 +231,29 @@ void AWorldBorder::SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLo
 	Fog->SetRelativeRotation(FRotator(90.0f, YawDeg, 0.0f));
 	// Движковый Plane = 100х100 см: масштаб X — высота полосы, Y — длина вдоль стены.
 	Fog->SetRelativeScale3D(FVector(FogHeight / 100.0f, SpanLength / 100.0f, 1.0f));
+}
+
+void AWorldBorder::SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength)
+{
+	if (!Band)
+	{
+		return;
+	}
+
+	Band->SetStaticMesh(FogPlaneMesh);
+	Band->SetMaterial(0, FogBandMaterial); // nullptr = дефолтный материал меша (серый) — расстановку видно
+
+	Band->SetRelativeLocation(RelLocation);
+	// Плейн остаётся ЛЕЖАЧИМ (Pitch 0, нормаль вверх — лицом к top-down камере). Yaw
+	// направляет локальную ось X плейна НАРУЖУ зоны (0=+X, 180=-X, 90=+Y, -90=-Y):
+	// градиент материала M_FogWall2 идёт по U — то есть ПОПЕРЁК полосы: прозрачно
+	// внутрь зоны, плотно к границе.
+	// ОРИЕНТАЦИЯ UV движкового Plane по ассету НЕ ПРОВЕРЕНА (бинарный .uasset). Косвенное
+	// подтверждение, что U идёт вдоль локальной X: на вертикальных завесах (там локальная X
+	// смотрит вверх) градиент в редакторе наблюдался по высоте. Если направление окажется
+	// перевёрнутым (плотно внутрь, прозрачно к краю) — страховка: параметр FlipVertical
+	// материала M_FogWall2, переворачивает градиент без правки кода.
+	Band->SetRelativeRotation(FRotator(0.0f, YawDeg, 0.0f));
+	// Движковый Plane = 100х100 см: масштаб X — глубина полосы (поперёк), Y — длина вдоль стороны.
+	Band->SetRelativeScale3D(FVector(DepthAcross / 100.0f, SpanLength / 100.0f, 1.0f));
 }

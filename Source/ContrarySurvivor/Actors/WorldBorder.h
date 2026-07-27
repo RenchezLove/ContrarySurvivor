@@ -32,12 +32,19 @@ class UStaticMeshComponent;
  *    камера (ECC_Camera, спринг-арм) и хитскан выстрелов (ECC_Visibility, ARangedWeapon —
  *    проверено по PerformLineTrace) проходят сквозь стену. Внутренняя грань стены = граница
  *    зоны, по длине стены выступают на толщину — углы закрыты без щелей.
- *  - 4 ПЛОСКОСТИ «СТЕНЫ ТУМАНА» (UStaticMeshComponent, дефолтный меш — движковый Plane
+ *  - 4 ГОРИЗОНТАЛЬНЫЕ ПОЛОСЫ ТУМАНА (лежащие плейны) по периметру — ГЛАВНЫЙ туман для
+ *    top-down камеры (Pitch ~-55; Ринат 07-27: вертикальный градиент «у земли плотнее»
+ *    сверху не читается). Полоса каждой стороны ложится от границы зоны ВНУТРЬ на FogDepth,
+ *    на высоте FogBandHeight (пояс персонажа — игрок у края «входит в туман» и упирается
+ *    в невидимую стену уже внутри полосы). Градиент материала — поперёк полосы: прозрачно
+ *    внутрь зоны, плотно к краю.
+ *  - 4 ВЕРТИКАЛЬНЫЕ ЗАВЕСЫ ТУМАНА (UStaticMeshComponent, дефолтный меш — движковый Plane
  *    100х100 см из /Engine/BasicShapes) вплотную изнутри к стенам, нормалью внутрь зоны.
- *    Дёшево для мобилки: 4 статик-плейна, без частиц, тени выключены. Материал тумана —
- *    FogMaterial (EditAnywhere; ассет материала оператор сделает позже и назначит в BP,
- *    путь в C++ не хардкодим). Пока материал пуст — видна серая плоскость дефолта меша,
- *    так расстановку видно сразу.
+ *    Оставлены как ЗАДНИК: при наклоне камеры ~55° закрывают черноту за краем карты вдали.
+ *    Дёшево для мобилки: 8 статик-плейнов суммарно, без частиц, тени выключены. Материалы
+ *    (FogMaterial — завесы, FogBandMaterial — полосы) назначает оператор в BP, пути в C++
+ *    не хардкодим. Пока материал пуст — видна серая плоскость дефолта меша, так расстановку
+ *    видно сразу.
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AWorldBorder : public AActor
@@ -54,25 +61,40 @@ protected:
 
 	// === НАСТРОЙКИ ЗОНЫ (наверху Details, тюнинг Рината на размещённом экземпляре) ===
 
+	// ГЛАВНАЯ ручка тумана для вида сверху: ширина горизонтальной полосы тумана в плане, см.
+	// Полоса ложится от границы зоны ВНУТРЬ на эту величину — это «толщина» тумана глазами игрока.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", UIMin = "100.0", DisplayPriority = "1"))
+	float FogDepth = 2500.0f;
+
 	// Полный размер игровой зоны по X, см. Актор — центр зоны.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "1000.0", UIMin = "1000.0", DisplayPriority = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "1000.0", UIMin = "1000.0", DisplayPriority = "2"))
 	float ZoneSizeX = 30000.0f;
 
 	// Полный размер игровой зоны по Y, см.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "1000.0", UIMin = "1000.0", DisplayPriority = "2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "1000.0", UIMin = "1000.0", DisplayPriority = "3"))
 	float ZoneSizeY = 30000.0f;
 
+	// Высота размещения горизонтальной полосы над землёй (уровнем актора), см. Дефолт ~120 —
+	// уровень пояса персонажа: игрок у края зоны «входит в туман», а не идёт под ним.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "0.0", DisplayPriority = "4"))
+	float FogBandHeight = 120.0f;
+
+	// Материал горизонтальной полосы тумана (градиент по U — поперёк полосы). Назначит
+	// оператор в BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "5"))
+	UMaterialInterface* FogBandMaterial = nullptr;
+
 	// Высота невидимых стен, см (с запасом, чтобы не перепрыгнуть/не перелететь).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "3"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "6"))
 	float WallHeight = 2000.0f;
 
-	// Высота видимой полосы тумана, см.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "4"))
+	// Высота вертикальной завесы тумана, см (задник против черноты за краем карты).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "7"))
 	float FogHeight = 2500.0f;
 
-	// Материал стены тумана. Ассет сделает оператор позже и назначит здесь/в BP-обёртке;
-	// пусто = серый дефолт движкового плейна (расстановка видна и без материала).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "5"))
+	// Материал вертикальной завесы тумана. Ассет сделает оператор позже и назначит здесь/в
+	// BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна и без материала).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "8"))
 	UMaterialInterface* FogMaterial = nullptr;
 
 	// Меш-«карточка» полосы тумана. Дефолт — движковый Plane (100х100 см), менять не обязательно.
@@ -110,7 +132,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UBoxComponent* WallSouth;
 
-	// Плоскости стены тумана вдоль соответствующих стен (нормаль внутрь зоны).
+	// Вертикальные завесы тумана вдоль соответствующих стен (нормаль внутрь зоны; задник).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UStaticMeshComponent* FogEast;
 
@@ -123,8 +145,22 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UStaticMeshComponent* FogSouth;
 
+	// Горизонтальные полосы тумана вдоль сторон (лежат в плане; главный туман для вида сверху).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
+	UStaticMeshComponent* FogBandEast;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
+	UStaticMeshComponent* FogBandWest;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
+	UStaticMeshComponent* FogBandNorth;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
+	UStaticMeshComponent* FogBandSouth;
+
 private:
-	// Фабрики констрактора: стена с коллизией «блок только Pawn» / плоскость тумана без коллизии.
+	// Фабрики констрактора: стена с коллизией «блок только Pawn» / плоскость тумана без коллизии
+	// (общая для вертикальных завес и горизонтальных полос: без коллизии/навигации/теней).
 	UBoxComponent* CreateWall(const TCHAR* SubobjectName);
 	UStaticMeshComponent* CreateFogPlane(const TCHAR* SubobjectName);
 
@@ -135,6 +171,10 @@ private:
 	// (Volume-подобное поведение; зачем и почему это безопасно — комментарий в .cpp).
 	void AbsorbActorScaleIntoSize();
 
-	// Ставит одну плоскость тумана: меш/материал + позиция, поворот нормалью внутрь, масштаб.
+	// Ставит одну вертикальную завесу тумана: меш/материал + позиция, поворот нормалью внутрь, масштаб.
 	void SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLocation, float YawDeg, float SpanLength);
+
+	// Ставит одну горизонтальную полосу тумана: лежачий плейн, локальная X — поперёк полосы
+	// (наружу зоны), масштаб X = глубина полосы, Y = длина вдоль стороны.
+	void SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength);
 };
