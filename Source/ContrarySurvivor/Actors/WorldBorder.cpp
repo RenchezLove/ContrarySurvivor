@@ -90,8 +90,53 @@ void AWorldBorder::BeginPlay()
 		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight, FogHeight, FogMaterial ? TEXT("set") : TEXT("NOT set"));
 }
 
+void AWorldBorder::AbsorbActorScaleIntoSize()
+{
+	// Ринат на приёмке 07-27 подгонял зону под карту гизмо Scale — интуитивно, как привык
+	// с Volume. Но размеры зоны живут в ZoneSizeX/Y, и скейл актора поверх них искажал
+	// толщину стен и пропорции тумана, а числа в Details переставали соответствовать
+	// реальности. Поэтому ведём себя как Volume: скейл ПОГЛОЩАЕТСЯ в размеры (X/Y — в
+	// размеры зоны, Z — в высоты), после чего скейл корня сбрасывается в единичный.
+	// Итог: тянешь за Scale — зона растёт, толщины/пропорции не плывут, в Details всегда
+	// честные сантиметры. Уже отскейленный на карте экземпляр поглотится при первом же
+	// перестроении (загрузка карты в редакторе / правка свойства / перенос актора).
+	//
+	// Менять скейл корня ЗДЕСЬ безопасно (проверено по исходникам UE 5.5):
+	// OnConstruction — ПОСЛЕДНИЙ шаг ExecuteConstruction (ActorConstruction.cpp:974),
+	// после него движок трансформ корня не трогает, т.е. сброс сохраняется; а
+	// USceneComponent::SetRelativeScale3D (SceneComponent.cpp:1577) лишь обновляет
+	// трансформ и НЕ запускает RerunConstructionScripts — рекурсии перестроения нет.
+	if (!SceneRoot)
+	{
+		return;
+	}
+
+	const FVector Scale = SceneRoot->GetRelativeScale3D();
+	if (Scale.Equals(FVector::OneVector))
+	{
+		return; // штатный случай: скейл единичный, поглощать нечего (идемпотентность)
+	}
+
+	// Ось со скейлом ~0 (схлопнутый гизмо) в размер не вносим — иначе зона выродится в ноль.
+	const auto SafeAxis = [](FVector::FReal AxisScale) -> float
+	{
+		const float AbsScale = FMath::Abs(static_cast<float>(AxisScale));
+		return AbsScale > UE_KINDA_SMALL_NUMBER ? AbsScale : 1.0f;
+	};
+
+	ZoneSizeX *= SafeAxis(Scale.X);
+	ZoneSizeY *= SafeAxis(Scale.Y);
+	WallHeight *= SafeAxis(Scale.Z);
+	FogHeight *= SafeAxis(Scale.Z);
+
+	SceneRoot->SetRelativeScale3D(FVector::OneVector);
+}
+
 void AWorldBorder::RebuildBorder()
 {
+	// Сначала поглотить возможный скейл актора — геометрия ниже считается в мировых см.
+	AbsorbActorScaleIntoSize();
+
 	const float HalfX = ZoneSizeX * 0.5f;
 	const float HalfY = ZoneSizeY * 0.5f;
 	const float HalfH = WallHeight * 0.5f;
