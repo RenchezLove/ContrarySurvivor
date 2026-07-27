@@ -128,6 +128,61 @@ namespace
 	}
 
 	// ======================================================================
+	// «Замок» на контенте кнопок — фикс выделения в дизайнере (добро лида 07-27)
+	// ======================================================================
+	//
+	// Клик в UMG-дизайнере выделяет САМЫЙ ГЛУБОКИЙ виджет блюпринта под курсором
+	// (SDesignerView::FindWidgetUnderCursor — обход BubblePath с конца,
+	// UMGEditor/Private/Designer/SDesignerView.cpp:1632-1678), поэтому по кнопке
+	// выделялась её подпись/бокс, а они лежат в слоте КНОПКИ — ручки же
+	// перетаскивания/ресайза дизайнер даёт только канвас-слоту
+	// (STransformHandle::CanResize, Designer/STransformHandle.cpp:153-155).
+	//
+	// Спрятать контент от дизайнера через ESlateVisibility::HitTestInvisible НЕЛЬЗЯ:
+	// дизайнер НЕ пользуется игровой hit-test-сеткой Slate, а строит СВОЮ, обходя
+	// дерево БЕЗ учёта Visibility (PopulateWidgetGeometryCache_Loop,
+	// SDesignerView.cpp:2034-2089, дети берутся фильтром EVisibility::All). Фильтр
+	// попадания в сетку — только редакторные флаги IsVisibleInDesigner («глазик») и
+	// IsLockedInDesigner («замок») при включённом Respect Locks (строки 2052-2077;
+	// дефолт настройки true — WidgetDesignerSettings.cpp:16). Будущий код: НЕ пытаться
+	// «чинить» выделение через HitTestInvisible — работает только замок/глазик.
+	//
+	// Поэтому контент кнопок статичной раскладки «замыкаем» (bLockedInDesigner):
+	// замкнутый виджет выпадает из сетки дизайнера, клик проваливается к самой
+	// кнопке — у неё канвас-слот, ручки и перетаскивание работают. Замок НЕ
+	// наследуется (IsLockedInDesigner читает только собственный флаг — Widget.h:474)
+	// — ставим рекурсивно на всё поддерево контента. Флаг редакторный
+	// (WITH_EDITORONLY_DATA, Widget.h:408-410): сериализуется в ассет, на рантайм не
+	// влияет никак. Цена для владельца: чтобы править текст подписи, надо один раз
+	// снять замок значком на её строке в панели «Иерархия» (панель «Детали» у
+	// замкнутого виджета заблокирована — SWidgetDetailsView.cpp:375-393).
+
+	void LockSubtreeInDesigner(UWidget* Widget)
+	{
+		if (!Widget)
+		{
+			return;
+		}
+		Widget->SetLockedInDesigner(true);
+		if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+		{
+			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
+			{
+				LockSubtreeInDesigner(Panel->GetChildAt(Index));
+			}
+		}
+	}
+
+	// Контент в кнопки статичной раскладки класть ТОЛЬКО этим хелпером: SetContent +
+	// замок на всём поддереве. Звать ПОСЛЕ сборки поддерева контента (замок не
+	// наследуется — поздним детям он бы не достался).
+	void SetButtonContent(UButton* Button, UWidget* Content)
+	{
+		Button->SetContent(Content);
+		LockSubtreeInDesigner(Content);
+	}
+
+	// ======================================================================
 	// Канвас-первая раскладка экранов (ADR-051 п.1, добро лида 07-24)
 	// ======================================================================
 	//
@@ -437,7 +492,6 @@ namespace
 
 		UHorizontalBox* SlotBox = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(),
 			FName(*(ButtonName.ToString() + TEXT("Box"))));
-		SlotButton->SetContent(SlotBox);
 
 		// Статичная подпись слота («Голова») — текст Рината, код не трогает.
 		UTextBlock* Caption = MakeText(Tree, Roboto, FName(*(ButtonName.ToString() + TEXT("Caption"))),
@@ -469,6 +523,10 @@ namespace
 			WornSlot->SetVerticalAlignment(VAlign_Center);
 			WornSlot->SetPadding(FMargin(8.0f, 0.0f));
 		}
+
+		// Контент — в самом конце: SetButtonContent замыкает поддерево целиком,
+		// включая только что добавленных детей (клик выделяет саму кнопку).
+		SetButtonContent(SlotButton, SlotBox);
 		return SlotButton;
 	}
 
@@ -607,7 +665,7 @@ namespace
 		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), FLinearColor(0.4f, 0.4f, 0.45f, 1.0f),
 			FLinearColor(0.5f, 0.5f, 0.55f, 1.0f));
-		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть (Tab)"),
+		SetButtonContent(Close, MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть (Tab)"),
 			FLinearColor::White, 15, TEXT("Regular")));
 		if (UCanvasPanelSlot* CloseSlot = PanelCanvas->AddChildToCanvas(Close))
 		{
@@ -897,7 +955,7 @@ namespace
 		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f)); // InvDropColor
-		Close->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
+		SetButtonContent(Close, MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
 			FLinearColor::White, 14, TEXT("Regular")));
 		if (UCanvasPanelSlot* CloseSlot = PanelCanvas->AddChildToCanvas(Close))
 		{
@@ -999,7 +1057,7 @@ namespace
 			UButton* Small = MakeStyledButton(Tree, FName(ButtonName),
 				FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 				FLinearColor(0.25f, 0.27f, 0.33f, 1.0f)); // InvSlotColor + подсветки
-			Small->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
+			SetButtonContent(Small, MakeText(Tree, Roboto, FName(LabelName), Caption,
 				FLinearColor::White, 15, TEXT("Bold")));
 			CanvasAt(SliderCanvas, Small, FVector2D(X, 114.0f), FVector2D(48.0f, 30.0f));
 		};
@@ -1017,7 +1075,7 @@ namespace
 			const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed, float RightX)
 		{
 			UButton* Big = MakeStyledButton(Tree, FName(ButtonName), Normal, Hovered, Pressed);
-			Big->SetContent(MakeText(Tree, Roboto, FName(LabelName), Caption,
+			SetButtonContent(Big, MakeText(Tree, Roboto, FName(LabelName), Caption,
 				FLinearColor::White, 15, TEXT("Regular")));
 			if (UCanvasPanelSlot* BigSlot = SliderCanvas->AddChildToCanvas(Big))
 			{
@@ -1379,6 +1437,32 @@ namespace
 	{
 		return FString::Printf(TEXT("%s.%s"), Spec.PackageName, Spec.AssetName);
 	}
+
+	// Контракт замков (см. SetButtonContent): контент кнопок статичной раскладки
+	// обязан быть замкнут (клик в дизайнере выделяет саму кнопку), сами кнопки —
+	// свободны (иначе их нельзя было бы выделить и тянуть). Проверяется в -verify:
+	// это артефакт вместо ручного мышиного теста на каждый прогон.
+	struct FLockContract
+	{
+		const TCHAR* AssetName;
+		std::initializer_list<const TCHAR*> LockedContent;     // bLockedInDesigner == true
+		std::initializer_list<const TCHAR*> SelectableButtons; // bLockedInDesigner == false
+	};
+
+	const FLockContract GLockContracts[] =
+	{
+		{ TEXT("WBP_Inventory"),
+			{ TEXT("HeadSlotButtonBox"), TEXT("HeadSlotButtonCaption"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"),
+			  TEXT("TorsoSlotButtonBox"), TEXT("TorsoSlotButtonCaption"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"),
+			  TEXT("LegsSlotButtonBox"), TEXT("LegsSlotButtonCaption"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"),
+			  TEXT("CloseLabel") },
+			{ TEXT("HeadSlotButton"), TEXT("TorsoSlotButton"), TEXT("LegsSlotButton"), TEXT("CloseButton") } },
+		{ TEXT("WBP_Shop"),
+			{ TEXT("CloseLabel"), TEXT("QtyMinusLabel"), TEXT("QtyPlusLabel"),
+			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel") },
+			{ TEXT("CloseButton"), TEXT("QtyMinusButton"), TEXT("QtyPlusButton"),
+			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton") } },
+	};
 
 	// ======================================================================
 	// РЕЖИМ ДОПОЛНЕНИЯ (-augment): точечная правка СУЩЕСТВУЮЩИХ ассетов
@@ -2217,6 +2301,48 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			{
 				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — кубик %s не найден."), Spec.AssetName, Cube);
 				bOk = false;
+			}
+		}
+
+		// Контракт замков: контент кнопок замкнут, кнопки свободны (см. GLockContracts).
+		// До первого прогона -rebuild после этой правки ассеты на диске замков не имеют —
+		// провал здесь тогда означает «перегенерация ещё не выполнена», это ожидаемо.
+		for (const FLockContract& Contract : GLockContracts)
+		{
+			if (FCString::Strcmp(Spec.AssetName, Contract.AssetName) != 0)
+			{
+				continue;
+			}
+			for (const TCHAR* WidgetName : Contract.LockedContent)
+			{
+				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
+				if (!Found || !Found->IsLockedInDesigner())
+				{
+					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — контент кнопки '%s' %s."),
+						Spec.AssetName, WidgetName,
+						Found ? TEXT("не замкнут (bLockedInDesigner=false) — клик в дизайнере выделит его, а не кнопку")
+						      : TEXT("не найден"));
+					bOk = false;
+				}
+			}
+			for (const TCHAR* WidgetName : Contract.SelectableButtons)
+			{
+				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
+				if (!Found || Found->IsLockedInDesigner())
+				{
+					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — кнопка '%s' %s."),
+						Spec.AssetName, WidgetName,
+						Found ? TEXT("замкнута — владелец не сможет выделить и тянуть её в дизайнере")
+						      : TEXT("не найдена"));
+					bOk = false;
+				}
+			}
+			if (bOk)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("VERIFY %s: замки на месте — контент %d кнопочных виджетов замкнут, %d кнопок свободны."),
+					Spec.AssetName, static_cast<int32>(Contract.LockedContent.size()),
+					static_cast<int32>(Contract.SelectableButtons.size()));
 			}
 		}
 
