@@ -715,7 +715,16 @@ namespace
 		return true;
 	}
 
-	// Экран смерти: затемнение -> центрированный столбец (заголовок, статистика, штраф, кнопка).
+	// Экран смерти — КАНВАС-ПЕРВЫЙ (ADR-051 п.1, волна «двигать мышкой все окна» 07-28):
+	// затемнение + каждый элемент прежнего столбца (заголовок, ряды статистики, строки
+	// итога, кнопка, подсказка) в СВОЁМ канвас-слоте с ручками. Прежний столб DeathBox
+	// (VerticalBox) убран: его слоты ручек не дают. Якорь всех элементов — точка чуть выше
+	// середины экрана (0.5/0.45, где стоял центр столба); позиции Y повторяют раскладку,
+	// которую столб считал сам (высота строки от кегля + прежние отступы). Ряды статистики
+	// остаются HorizontalBox сознательно: значение растёт в игре и толкает подпись — на
+	// канвасе порознь они наезжали бы друг на друга; начинка рядов замкнута
+	// (bLockedInDesigner), клик в дизайнере выделяет ряд целиком. Экран ничего не прячет
+	// (и Canvas-путь не прятал) — пустот от скрытых элементов тут не бывает.
 	bool BuildDeath(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -732,34 +741,25 @@ namespace
 			DimSlot->SetOffsets(FMargin(0.0f));
 		}
 
-		UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DeathBox"));
-		if (UCanvasPanelSlot* ColSlot = Root->AddChildToCanvas(Column))
+		// Элемент на вертикальной оси центра: авторазмер, горизонтальное центрирование.
+		auto PlaceCentered = [&](UWidget* Widget, float Y)
 		{
-			// Столбец центрирован чуть выше середины — как Canvas (заголовок 0.18, статы 0.40).
-			ColSlot->SetAnchors(FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
-			ColSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-			ColSlot->SetPosition(FVector2D::ZeroVector);
-			ColSlot->SetAutoSize(true);
-		}
-
-		auto AddLine = [&](UTextBlock* Line, float TopPad = 3.0f, float BottomPad = 3.0f)
-		{
-			if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
+			if (UCanvasPanelSlot* Slot = CanvasAuto(Root, Widget,
+				FVector2D(0.0f, Y), FAnchors(0.5f, 0.45f, 0.5f, 0.45f)))
 			{
-				LineSlot->SetHorizontalAlignment(HAlign_Center);
-				LineSlot->SetPadding(FMargin(0.0f, TopPad, 0.0f, BottomPad));
+				Slot->SetAlignment(FVector2D(0.5f, 0.0f));
 			}
 		};
 
 		// Статичные строки (заголовок/штраф/подсказка) — тексты Рината, формулировки ADR-044.
-		AddLine(MakeText(Tree, Roboto, TEXT("TitleText"), TEXT("ВЫ ПОГИБЛИ"),
-			FLinearColor(0.9f, 0.12f, 0.1f, 1.0f), 42, TEXT("Bold")), 0.0f, 22.0f);
+		PlaceCentered(MakeText(Tree, Roboto, TEXT("TitleText"), TEXT("ВЫ ПОГИБЛИ"),
+			FLinearColor(0.9f, 0.12f, 0.1f, 1.0f), 42, TEXT("Bold")), -236.0f);
 
 		// Каждая строка статистики — пара «статичная подпись + значение» в одном ряду:
 		// подпись принадлежит Ринату, код пишет только число (ADR-050).
 		const FLinearColor StatColor(0.95f, 0.95f, 0.95f, 1.0f);
 		auto AddStatLine = [&](const TCHAR* LabelName, const TCHAR* Caption,
-			const TCHAR* ValueName, const TCHAR* ValueSample)
+			const TCHAR* ValueName, const TCHAR* ValueSample, float Y)
 		{
 			UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
 				UHorizontalBox::StaticClass(), FName(*(FString(ValueName) + TEXT("Row"))));
@@ -773,50 +773,46 @@ namespace
 			{
 				ValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
 			}
-
-			if (UVerticalBoxSlot* RowSlot = Column->AddChildToVerticalBox(Row))
-			{
-				RowSlot->SetHorizontalAlignment(HAlign_Center);
-				RowSlot->SetPadding(FMargin(0.0f, 3.0f, 0.0f, 3.0f));
-			}
+			PlaceCentered(Row, Y);
+			LockPanelChildrenInDesigner(Row);
 		};
-		AddStatLine(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"));
-		AddStatLine(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"));
-		AddStatLine(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"));
-		AddStatLine(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"));
-		AddStatLine(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"));
+		AddStatLine(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"), -164.0f);
+		AddStatLine(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"), -132.0f);
+		AddStatLine(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"), -100.0f);
+		AddStatLine(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"), -68.0f);
+		AddStatLine(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"), -36.0f);
 
-		AddLine(MakeText(Tree, Roboto, TEXT("RespawnLineText"),
-			TEXT("Возрождение у костра в деревне."), StatColor, 19, TEXT("Regular")), 16.0f);
+		PlaceCentered(MakeText(Tree, Roboto, TEXT("RespawnLineText"),
+			TEXT("Возрождение у костра в деревне."), StatColor, 19, TEXT("Regular")), 10.0f);
 		UTextBlock* MoneyLoss = MakeText(Tree, Roboto, TEXT("MoneyLossText"),
 			TEXT("−40% монет — часть монет утрачена при гибели."),
 			FLinearColor(0.95f, 0.55f, 0.15f, 1.0f), 19, TEXT("Regular")); // DeathPenaltyColor
 		MoneyLoss->bIsVariable = true;
-		AddLine(MoneyLoss);
-		AddLine(MakeText(Tree, Roboto, TEXT("ConsumablesLineText"),
-			TEXT("Расходники обронены мешком на месте гибели."), StatColor, 19, TEXT("Regular")));
-		AddLine(MakeText(Tree, Roboto, TEXT("SavedLineText"),
+		PlaceCentered(MoneyLoss, 40.0f);
+		PlaceCentered(MakeText(Tree, Roboto, TEXT("ConsumablesLineText"),
+			TEXT("Расходники обронены мешком на месте гибели."), StatColor, 19, TEXT("Regular")), 70.0f);
+		PlaceCentered(MakeText(Tree, Roboto, TEXT("SavedLineText"),
 			TEXT("Снаряжение, оружие и важные предметы сохранены."),
-			FLinearColor(0.45f, 0.85f, 0.45f, 1.0f), 19, TEXT("Regular"))); // DeathSavedColor
+			FLinearColor(0.45f, 0.85f, 0.45f, 1.0f), 19, TEXT("Regular")), 100.0f); // DeathSavedColor
 
-		// Кнопка возрождения 360x56 (DeathButtonMaxWidth/Height, зелёная как Canvas).
+		// Кнопка возрождения 360x56 (DeathButtonMaxWidth/Height, зелёная как Canvas) — свой
+		// канвас-слот с явным габаритом (прежняя обёртка RespawnSize не нужна: размер и
+		// ручки даёт сам слот). Подпись замкнута — клик выделяет кнопку целиком.
 		UButton* Respawn = MakeStyledButton(Tree, TEXT("RespawnButton"),
 			FLinearColor(0.2f, 0.45f, 0.25f, 1.0f), FLinearColor(0.3f, 0.6f, 0.35f, 1.0f),
 			FLinearColor(0.35f, 0.7f, 0.4f, 1.0f));
-		Respawn->SetContent(MakeText(Tree, Roboto, TEXT("RespawnLabel"), TEXT("ВОЗРОДИТЬСЯ"),
+		SetButtonContent(Respawn, MakeText(Tree, Roboto, TEXT("RespawnLabel"), TEXT("ВОЗРОДИТЬСЯ"),
 			FLinearColor::White, 22, TEXT("Bold")));
-		USizeBox* RespawnSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("RespawnSize"));
-		RespawnSize->SetWidthOverride(360.0f);
-		RespawnSize->SetHeightOverride(56.0f);
-		RespawnSize->SetContent(Respawn);
-		if (UVerticalBoxSlot* BtnSlot = Column->AddChildToVerticalBox(RespawnSize))
+		if (UCanvasPanelSlot* BtnSlot = Root->AddChildToCanvas(Respawn))
 		{
-			BtnSlot->SetHorizontalAlignment(HAlign_Center);
-			BtnSlot->SetPadding(FMargin(0.0f, 22.0f, 0.0f, 0.0f));
+			BtnSlot->SetAnchors(FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
+			BtnSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			BtnSlot->SetPosition(FVector2D(0.0f, 145.0f));
+			BtnSlot->SetSize(FVector2D(360.0f, 56.0f));
 		}
 
-		AddLine(MakeText(Tree, Roboto, TEXT("KeyHintText"), TEXT("Enter / Пробел — возродиться"),
-			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular")), 12.0f);
+		PlaceCentered(MakeText(Tree, Roboto, TEXT("KeyHintText"), TEXT("Enter / Пробел — возродиться"),
+			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular")), 215.0f);
 		return true;
 	}
 
@@ -1136,6 +1132,17 @@ namespace
 	// Диалог старосты: WBP_Dialog (вид = Canvas DrawDialog — нижняя панель новеллы)
 	// ======================================================================
 
+	// КАНВАС-ПЕРВЫЙ (ADR-051 п.1, волна «двигать мышкой все окна» 07-28): панель, имя NPC,
+	// реплика и каждая кнопка-ответ — в СВОЁМ канвас-слоте с ручками; прежние коробки
+	// (PanelSize/DialogBox/ButtonsRow/SizeBox-обёртки кнопок) убраны — их слоты ручек не
+	// дают. Цена канваса: (1) панель больше НЕ растёт от длинной реплики (раньше
+	// SizeBox+AutoSize) — высота фиксированная 280, реплика переносит строки внутри
+	// растяжки, не влезет — владелец растянет панель мышкой; (2) скрытая кодом кнопка
+	// оставляет своё место пустым, но наборы кнопок по состояниям квеста не пересекаются
+	// (вместе видны только Принять+Отказаться — они соседи), так что дыр между ВИДИМЫМИ
+	// кнопками не бывает. Подписи кнопок — AcceptText/DeclineText/TurnInText/CloseText:
+	// ТОЧНЫЕ имена привязок DialogScreenWidget.h (в старом ассете их дал PatchWbpDialog
+	// переименованием AcceptLabel и родни — новая раскладка называет их правильно сразу).
 	bool BuildDialog(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1152,79 +1159,75 @@ namespace
 			DimSlot->SetOffsets(FMargin(0.0f));
 		}
 
-		// Панель низ-центр: ширина 900 (DialogPanelMaxWidth), пол высоты 280 (DialogMinPanelHeight),
-		// отступ от низа 40 (DialogBottomMargin); высота растёт от длины реплики (AutoSize + wrap).
-		USizeBox* PanelSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PanelSize"));
-		PanelSize->SetWidthOverride(900.0f);
-		PanelSize->SetMinDesiredHeight(280.0f);
-		if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(PanelSize))
-		{
-			PanelSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
-			PanelSlot->SetAlignment(FVector2D(0.5f, 1.0f));
-			PanelSlot->SetPosition(FVector2D(0.0f, -40.0f));
-			PanelSlot->SetAutoSize(true);
-		}
-
+		// Панель низ-центр 900x280 (DialogPanelMaxWidth / DialogMinPanelHeight), отступ от
+		// низа 40 (DialogBottomMargin) — Border сразу в канвас-слоте, тянется мышкой.
 		UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
 		Panel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
 			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
 		Panel->SetPadding(FMargin(18.0f)); // DialogPadding
-		PanelSize->SetContent(Panel);
+		if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Panel))
+		{
+			PanelSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
+			PanelSlot->SetAlignment(FVector2D(0.5f, 1.0f));
+			PanelSlot->SetPosition(FVector2D(0.0f, -40.0f));
+			PanelSlot->SetSize(FVector2D(900.0f, 280.0f));
+		}
 
-		// Имя C++-переменной НЕ DialogBox: это макрос winuser.h (DialogBox -> DialogBoxA),
-		// утечка windows.h в editor-модуле дала бы загадочную ошибку. Имя виджета — прежнее.
-		UVerticalBox* DialogColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DialogBox"));
-		Panel->SetContent(DialogColumn);
+		UCanvasPanel* PanelCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
+		Panel->SetContent(PanelCanvas);
 
 		// Имя NPC — голубой DialogNameColor (текст ставит код с поля старосты).
 		UTextBlock* NpcName = MakeText(Tree, Roboto, TEXT("NPCNameText"), TEXT("СТАРОСТА"),
 			FLinearColor(0.65f, 0.88f, 1.0f, 1.0f), 22, TEXT("Bold"));
 		NpcName->bIsVariable = true;
-		DialogColumn->AddChildToVerticalBox(NpcName);
+		CanvasAuto(PanelCanvas, NpcName, FVector2D(0.0f, 0.0f));
 
-		// Реплика: перенос строк обязателен (guide) — длинные квестовые описания многострочные.
+		// Реплика — растяжка между именем (высота строки ~26 при 22pt + зазор 10) и рядом
+		// кнопок (40 + зазор 16): при ресайзе панели мышкой тянется следом. Перенос строк
+		// обязателен (guide) — длинные квестовые описания многострочные.
 		UTextBlock* Replica = MakeText(Tree, Roboto, TEXT("ReplicaText"), TEXT("Реплика старосты."),
 			FLinearColor::White, 16, TEXT("Regular"));
 		Replica->SetAutoWrapText(true);
 		Replica->bIsVariable = true;
-		if (UVerticalBoxSlot* ReplicaSlot = DialogColumn->AddChildToVerticalBox(Replica))
-		{
-			ReplicaSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			ReplicaSlot->SetPadding(FMargin(0.0f, 10.0f, 0.0f, 12.0f));
-		}
+		CanvasStretch(PanelCanvas, Replica, FAnchors(0.0f, 0.0f, 1.0f, 1.0f),
+			FMargin(0.0f, 36.0f, 0.0f, 56.0f));
 
-		// Ряд ответов: все четыре кнопки рядом — лишние по состоянию квеста код прячет сам.
-		UHorizontalBox* ButtonsRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ButtonsRow"));
-		DialogColumn->AddChildToVerticalBox(ButtonsRow);
-
-		auto AddAnswer = [&](UButton* Button, float Width, float LeftPad)
+		// Кнопка-ответ в своём канвас-слоте у НИЗА панели (якорь низ-лево — при ресайзе
+		// панели кнопки остаются у нижней кромки). Высота 40 (DialogButtonHeight); ширины
+		// 200/200/240/200 с зазором 8 — ровно внутренняя ширина панели 864. Лишние по
+		// состоянию квеста кнопки код прячет сам (Collapsed). Подпись кладётся замком
+		// (SetButtonContent): клик в дизайнере выделяет кнопку целиком, у неё ручки.
+		auto AddAnswer = [&](UButton* Button, float X, float Width)
 		{
-			USizeBox* Size = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(Button->GetName() + TEXT("Size"))));
-			Size->SetWidthOverride(Width);
-			Size->SetHeightOverride(40.0f); // DialogButtonHeight
-			Size->SetContent(Button);
-			if (UHorizontalBoxSlot* AnswerSlot = ButtonsRow->AddChildToHorizontalBox(Size))
+			if (UCanvasPanelSlot* AnswerSlot = PanelCanvas->AddChildToCanvas(Button))
 			{
-				AnswerSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+				AnswerSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
+				AnswerSlot->SetAlignment(FVector2D(0.0f, 1.0f));
+				AnswerSlot->SetPosition(FVector2D(X, 0.0f));
+				AnswerSlot->SetSize(FVector2D(Width, 40.0f));
 			}
 		};
 
-		// [Принять] — зелёная (InvSlotFilledColor), подпись статичная (текст Рината).
+		// [Принять] — зелёная (InvSlotFilledColor); подпись ставит КОД (реплика героя из
+		// квеста / кнопка текущей реплики интро), образец — только для дизайнера.
 		UButton* Accept = MakeStyledButton(Tree, TEXT("AcceptButton"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		Accept->SetContent(MakeText(Tree, Roboto, TEXT("AcceptLabel"), TEXT("Взяться за дело"),
-			FLinearColor::White, 15, TEXT("Regular")));
-		AddAnswer(Accept, 200.0f, 0.0f); // DialogButtonWidth
+		UTextBlock* AcceptCaption = MakeText(Tree, Roboto, TEXT("AcceptText"), TEXT("Взяться за дело"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		AcceptCaption->bIsVariable = true;
+		SetButtonContent(Accept, AcceptCaption);
+		AddAnswer(Accept, 0.0f, 200.0f); // DialogButtonWidth
 
-		// [Отказаться] — красная (InvDropColor).
+		// [Отказаться] — красная (InvDropColor); подпись ставит код (CloseReplyText квеста).
 		UButton* Decline = MakeStyledButton(Tree, TEXT("DeclineButton"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f));
-		Decline->SetContent(MakeText(Tree, Roboto, TEXT("DeclineLabel"), TEXT("Отказаться"),
-			FLinearColor::White, 15, TEXT("Regular")));
-		AddAnswer(Decline, 200.0f, 14.0f);
+		UTextBlock* DeclineCaption = MakeText(Tree, Roboto, TEXT("DeclineText"), TEXT("Отказаться"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		DeclineCaption->bIsVariable = true;
+		SetButtonContent(Decline, DeclineCaption);
+		AddAnswer(Decline, 208.0f, 200.0f);
 
 		// [Сдать (+N)] — зелёная, ШИРЕ (240 — DialogTurnInButtonWidth); подпись ставит КОД
 		// через кубик TurnInText (в ней сумма награды).
@@ -1234,16 +1237,18 @@ namespace
 		UTextBlock* TurnInCaption = MakeText(Tree, Roboto, TEXT("TurnInText"), TEXT("Сдать (+0)"),
 			FLinearColor::White, 15, TEXT("Regular"));
 		TurnInCaption->bIsVariable = true;
-		TurnIn->SetContent(TurnInCaption);
-		AddAnswer(TurnIn, 240.0f, 14.0f);
+		SetButtonContent(TurnIn, TurnInCaption);
+		AddAnswer(TurnIn, 416.0f, 240.0f);
 
-		// [Закрыть] — серая (InvSlotColor).
+		// [Закрыть] — серая (InvSlotColor); подпись ставит код (CloseReplyText квеста).
 		UButton* CloseBtn = MakeStyledButton(Tree, TEXT("CloseButton"),
 			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f));
-		CloseBtn->SetContent(MakeText(Tree, Roboto, TEXT("CloseLabel"), TEXT("Закрыть"),
-			FLinearColor::White, 15, TEXT("Regular")));
-		AddAnswer(CloseBtn, 200.0f, 14.0f);
+		UTextBlock* CloseCaption = MakeText(Tree, Roboto, TEXT("CloseText"), TEXT("Закрыть"),
+			FLinearColor::White, 15, TEXT("Regular"));
+		CloseCaption->bIsVariable = true;
+		SetButtonContent(CloseBtn, CloseCaption);
+		AddAnswer(CloseBtn, 664.0f, 200.0f);
 		return true;
 	}
 
@@ -1506,8 +1511,9 @@ namespace
 			  TEXT("SliderConfirmButton"), TEXT("SliderCancelButton") } },
 		{ TEXT("/Game/UI/WBP_Dialog"), TEXT("WBP_Dialog"),
 			TEXT("/Script/ContrarySurvivor.DialogScreenWidget"), &BuildDialog,
-			{ TEXT("NPCNameText"), TEXT("ReplicaText"), TEXT("AcceptButton"), TEXT("DeclineButton"),
-			  TEXT("TurnInButton"), TEXT("TurnInText"), TEXT("CloseButton") } },
+			{ TEXT("NPCNameText"), TEXT("ReplicaText"),
+			  TEXT("AcceptButton"), TEXT("AcceptText"), TEXT("DeclineButton"), TEXT("DeclineText"),
+			  TEXT("TurnInButton"), TEXT("TurnInText"), TEXT("CloseButton"), TEXT("CloseText") } },
 		{ TEXT("/Game/UI/WBP_PlayerStats"), TEXT("WBP_PlayerStats"),
 			TEXT("/Script/ContrarySurvivor.PlayerStatsWidget"), &BuildPlayerStats,
 			{ TEXT("HealthBar"), TEXT("HealthText"), TEXT("HungerBar"), TEXT("HungerText"),
@@ -1555,6 +1561,17 @@ namespace
 			  TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"), TEXT("ThirstBarSize"), TEXT("ThirstBar"), TEXT("ThirstText"),
 			  TEXT("AmmoText"), TEXT("MoneyRow"), TEXT("MoneyIcon"), TEXT("MoneyText") },
 			{ TEXT("HealthRow"), TEXT("HungerRow"), TEXT("ThirstRow"), TEXT("AmmoRow"), TEXT("MoneyPlate") } },
+		{ TEXT("WBP_Dialog"),
+			{ TEXT("AcceptText"), TEXT("DeclineText"), TEXT("TurnInText"), TEXT("CloseText") },
+			{ TEXT("PanelPlate"), TEXT("NPCNameText"), TEXT("ReplicaText"),
+			  TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton") } },
+		{ TEXT("WBP_Death"),
+			{ TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
+			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
+			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLabel") },
+			{ TEXT("TitleText"), TEXT("LifetimeTextRow"), TEXT("KillerTextRow"), TEXT("MoneyTextRow"),
+			  TEXT("QuestsTextRow"), TEXT("KillsTextRow"), TEXT("RespawnLineText"), TEXT("MoneyLossText"),
+			  TEXT("ConsumablesLineText"), TEXT("SavedLineText"), TEXT("RespawnButton"), TEXT("KeyHintText") } },
 	};
 
 	// ======================================================================
@@ -2098,10 +2115,11 @@ namespace
 	}
 
 	// ======================================================================
-	// Перенос ручной стилизации владельца при -rebuild (сейчас — WBP_PlayerStats)
+	// Перенос ручной стилизации владельца при -rebuild
 	// ======================================================================
 	//
-	// В WBP_PlayerStats лежит ручная стилизация Рината (коммит dfaffd0), которой нет в
+	// В WBP_PlayerStats (коммит dfaffd0), а с 07-28 и в WBP_Dialog/WBP_Shop/WBP_Inventory
+	// (коммит 5c2b058) лежит ручная стилизация Рината, которой нет в
 	// коде генерации. Пересборка выселяет старое дерево, но старые виджеты остаются
 	// живыми UObject'ами в transient-пакете — их свойства читаются и ПОСЛЕ выселения.
 	// Порядок: до выселения снимается срез «имя -> старый виджет», после пересборки на
@@ -2113,7 +2131,7 @@ namespace
 
 	// Свойства, которые владелец мог править в дизайнере. Имена сверены с заголовками
 	// UE 5.5: Components/TextBlock.h, TextWidgetTypes.h (Justification), ProgressBar.h,
-	// SizeBox.h, Image.h, Border.h.
+	// SizeBox.h, Image.h, Border.h, Button.h.
 	void CollectOwnerStyleProps(const UWidget* Widget, TArray<FName>& OutProps)
 	{
 		if (Widget->IsA<UTextBlock>())
@@ -2143,14 +2161,23 @@ namespace
 				TEXT("ContentColorAndOpacity"),
 				TEXT("HorizontalAlignment"), TEXT("VerticalAlignment") });
 		}
+		else if (Widget->IsA<UButton>())
+		{
+			// Кнопки окон (диалог/магазин/инвентарь) владелец перекрашивает; стиль всех
+			// состояний — одна структура WidgetStyle (Button.h:38-49).
+			OutProps.Append({ TEXT("WidgetStyle"), TEXT("ColorAndOpacity"), TEXT("BackgroundColor") });
+		}
 		// Контейнеры (канвас, ряды-коробки) — переносить нечего.
 	}
 
-	// Декоративные подписи-слова, которыми владеет Ринат: из своего ассета он их УДАЛИЛ
-	// (в таблице имён WBP_PlayerStats.uasset этих имён нет — сверено поиском по бинарнику
-	// 07-27). Если подписи не было в старом дереве, из новой раскладки она убирается
-	// тоже — иначе пересборка вернула бы владельцу удалённые им слова. Кубики кода
-	// (значения, полоски, AmmoRow) сюда класть нельзя — тут только декор.
+	// Декоративные подписи-слова, которыми владеет Ринат: из WBP_PlayerStats он их УДАЛИЛ
+	// (в таблице имён ассета этих имён нет — сверено поиском по бинарнику 07-27). Если
+	// подписи не было в старом дереве, из новой раскладки она убирается тоже — иначе
+	// пересборка вернула бы владельцу удалённые им слова. Проверка идёт ПО ИМЕНИ в каждом
+	// пересобираемом ассете с переносом: у WBP_Shop есть свой MoneyLabel — пока владелец
+	// его не удалял, он в старом дереве есть и остаётся; у WBP_Dialog/WBP_Inventory этих
+	// имён нет вовсе. Кубики кода (значения, полоски, AmmoRow) сюда класть нельзя — только
+	// декор, который владелец вправе выбросить.
 	const TCHAR* GOwnerDeletedLabels[] =
 	{
 		TEXT("HealthBarLabel"), TEXT("HungerBarLabel"), TEXT("ThirstBarLabel"),
@@ -2507,13 +2534,15 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 
 int32 UGenerateWbpCommandlet::RebuildWindows()
 {
-	// Пересборка канвас-первой раскладкой (ADR-051 п.1). У WBP_Shop/WBP_Inventory ручной
-	// стилизации владельца нет (git-история файлов — только прогоны коммандлета), их
-	// пересборка чистая. В WBP_PlayerStats стилизация ЕСТЬ (коммит dfaffd0) — для него
-	// включён перенос значений владельца на новое дерево (TransferOwnerStyle). Остальные
-	// ассеты пересборке не подлежат. Процессный предохранитель (проверяет лид перед
-	// запуском): git status пересобираемых .uasset должен быть чист — иначе прогон
-	// затёр бы несохранённые правки.
+	// Пересборка канвас-первой раскладкой (ADR-051 п.1 + волна «двигать мышкой все окна»
+	// 07-28: диалог и экран смерти). Перенос значений владельца (TransferOwnerStyle)
+	// включён ВСЕМ ассетам с его ручной стилизацией: WBP_PlayerStats — коммит dfaffd0,
+	// WBP_Dialog/WBP_Shop/WBP_Inventory — коммит 5c2b058 (раньше у магазина и инвентаря
+	// перенос был выключен — тогда правок владельца в них не было; после 5c2b058 пересборка
+	// без переноса стёрла бы стилизацию). У WBP_Death правок владельца нет (git-история —
+	// только генерация cc919a8), его пересборка чистая. Остальные ассеты пересборке не
+	// подлежат. Процессный предохранитель (проверяет лид перед запуском): git status
+	// пересобираемых .uasset должен быть чист — иначе прогон затёр бы несохранённые правки.
 	struct FRebuildEntry
 	{
 		const TCHAR* AssetName;
@@ -2521,9 +2550,11 @@ int32 UGenerateWbpCommandlet::RebuildWindows()
 	};
 	static const FRebuildEntry RebuildAssets[] =
 	{
-		{ TEXT("WBP_Shop"), false },
-		{ TEXT("WBP_Inventory"), false },
+		{ TEXT("WBP_Shop"), true },
+		{ TEXT("WBP_Inventory"), true },
 		{ TEXT("WBP_PlayerStats"), true },
+		{ TEXT("WBP_Dialog"), true },
+		{ TEXT("WBP_Death"), false },
 	};
 
 	int32 FailCount = 0;
