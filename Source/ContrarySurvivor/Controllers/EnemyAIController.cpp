@@ -152,6 +152,10 @@ bool AEnemyAIController::PerformAttack(APawn* Player)
 	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(GetPawn()))
 	{
 		SelfHumanoid->StartAimTurnTo(Player);
+		// Анимация замаха у бандита — чисто зрелищная: урон он наносит строкой ниже, через
+		// оружие не бьёт. Метка UAnimNotify_MeleeHit на дорожке этой анимации у него урона НЕ
+		// даст — она срабатывает только на замах, начатый самим оружием (ConsumePendingSwing).
+		SelfHumanoid->PlayMeleeMontage();
 	}
 
 	// Урон игроку через стандартный пайплайн UE.
@@ -194,6 +198,9 @@ bool AEnemyAIController::PerformRangedAttack(APawn* Player)
 	if (AMasterHumanoidCharacter* SelfHumanoid = Cast<AMasterHumanoidCharacter>(Self))
 	{
 		SelfHumanoid->StartAimTurnTo(Player);
+		// Анимация отдачи у бандита — та же, что у игрока (требование Рината: «человеческие
+		// персонажи, в том числе игрок и бандиты»). Урон бандита считается отдельно ниже.
+		SelfHumanoid->PlayFireMontage();
 	}
 
 	// Разброс как вероятность попадания (дешевле честной баллистики; Android-бюджет).

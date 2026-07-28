@@ -12,7 +12,6 @@
 #include "TimerManager.h" // D5: таймер восстановления времени после hitstop
 #include "UObject/ConstructorHelpers.h"
 #include "Sound/SoundBase.h"
-#include "Animation/AnimMontage.h" // Build 1.1: монтаж замаха, урон по метке на его дорожке
 #include "Kismet/GameplayStatics.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // Build 1.1: плавный доворот StartAimTurnTo
@@ -85,25 +84,11 @@ float AMeleeWeapon::GetSurfaceDistanceTo(const AActor* Target) const
 	return CenterDist - CapsuleRadiusOf(Wielder) - CapsuleRadiusOf(Target);
 }
 
-bool AMeleeWeapon::PlaySwingMontage(APawn* Wielder)
+bool AMeleeWeapon::ConsumePendingSwing()
 {
-	if (SwingMontage.IsNull())
-	{
-		return false; // поле очищено — работаем по-старому, урон сразу
-	}
-	ACharacter* WielderChar = Cast<ACharacter>(Wielder);
-	if (!WielderChar)
-	{
-		return false;
-	}
-	UAnimMontage* Montage = SwingMontage.LoadSynchronous();
-	if (!Montage)
-	{
-		return false; // ассета нет (ещё не сделан) — не падаем, бьём сразу
-	}
-	// PlayAnimMontage возвращает длительность; 0 = проиграть не удалось (нет ани-инстанса,
-	// не назначен слот в анимационном блюпринте и т.п.) — тогда бьём сразу, без потери удара.
-	return WielderChar->PlayAnimMontage(Montage) > 0.0f;
+	const bool bWasPending = bSwingAwaitingNotify;
+	bSwingAwaitingNotify = false;
+	return bWasPending;
 }
 
 void AMeleeWeapon::Fire(AActor* /*Target*/)
@@ -172,12 +157,18 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 		}
 	}
 
-	// Момент урона (Build 1.1). Есть анимация замаха — урон нанесёт метка на её дорожке
-	// (UAnimNotify_MeleeHit) на нужном кадре, то есть попадание совпадёт с движением.
-	// Анимации нет — бьём сразу, как работало до Build 1.1, чтобы удар не пропал.
-	if (PlaySwingMontage(Wielder))
+	// Момент урона (Build 1.1). Анимация удара живёт на ПЕРСОНАЖЕ (одна на игрока и бандита).
+	// Пошла — урон нанесёт метка на её дорожке (UAnimNotify_MeleeHit) на нужном кадре, то есть
+	// попадание совпадёт с движением. Не пошла (нет ассета, нет слота в анимационном блюпринте) —
+	// бьём сразу, как работало до Build 1.1, чтобы удар не пропал.
+	bSwingAwaitingNotify = false; // новый замах отменяет ожидание прошлого, если тот не долетел
+	if (AMasterHumanoidCharacter* WielderHumanoid = Cast<AMasterHumanoidCharacter>(Wielder))
 	{
-		return;
+		if (WielderHumanoid->PlayMeleeMontage())
+		{
+			bSwingAwaitingNotify = true;
+			return;
+		}
 	}
 	ApplyMeleeDamage();
 }

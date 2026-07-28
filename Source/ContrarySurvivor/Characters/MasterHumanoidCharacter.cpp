@@ -3,6 +3,7 @@
 #include "MasterHumanoidCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h" // USkeletalMesh (полный тип для GetName в QA-логах)
+#include "Animation/AnimMontage.h" // Build 1.1: боевые монтажи (выстрел/удар)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
@@ -128,6 +129,34 @@ void AMasterHumanoidCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	UpdateAimTurn(DeltaTime);
+}
+
+// Общая часть проигрывания боевой анимации: грузит монтаж по мягкой ссылке и запускает его на
+// ведущем меше. Возвращает true, только если анимация РЕАЛЬНО пошла — вызывающий по этому
+// решает, ждать ли метку урона или бить сразу.
+static bool PlayCombatMontageInternal(ACharacter* Self, const TSoftObjectPtr<UAnimMontage>& MontageRef)
+{
+	if (!Self || MontageRef.IsNull())
+	{
+		return false; // поле очищено — анимации нет, это штатный режим
+	}
+	UAnimMontage* Montage = MontageRef.LoadSynchronous();
+	if (!Montage)
+	{
+		return false; // ассет ещё не сделан или удалён — не падаем
+	}
+	// 0 = проиграть не удалось (нет ани-инстанса, в анимационном блюпринте нет слота монтажа).
+	return Self->PlayAnimMontage(Montage) > 0.0f;
+}
+
+bool AMasterHumanoidCharacter::PlayFireMontage()
+{
+	return PlayCombatMontageInternal(this, FireMontage);
+}
+
+bool AMasterHumanoidCharacter::PlayMeleeMontage()
+{
+	return PlayCombatMontageInternal(this, MeleeMontage);
 }
 
 void AMasterHumanoidCharacter::StartAimTurnTo(AActor* Target)

@@ -221,6 +221,8 @@ void ARangedWeapon::Fire(AActor* Target)
 	if (AMasterHumanoidCharacter* Wielder = Cast<AMasterHumanoidCharacter>(GetInstigator()))
 	{
 		Wielder->StartAimTurnTo(FiringTarget);
+		// Анимация отдачи (Build 1.1). Ассета нет — просто не проиграется, выстрел не страдает.
+		Wielder->PlayFireMontage();
 	}
 
 	FHitResult HitResult;

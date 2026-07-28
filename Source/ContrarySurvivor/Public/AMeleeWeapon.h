@@ -55,6 +55,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Melee")
 	void ApplyMeleeDamage();
 
+	// Ждёт ли ЭТО оружие свою метку урона: замах начат через Fire() и анимация реально пошла.
+	// Защита от двойного урона: ту же анимацию удара крутит и бандит, но его урон считает ИИ
+	// отдельно (AEnemyAIController::PerformAttack), через оружие он не бьёт. Поэтому метка
+	// наносит урон ТОЛЬКО когда взмах начало само оружие. Флаг снимается первой же меткой.
+	bool ConsumePendingSwing();
+
 	// Страховка hitstop (qa): если оружие уничтожают в окно замедления (~HitStopDuration),
 	// таймер восстановления (WeakLambda) уже не сработает и global time dilation залип бы
 	// НАВСЕГДА — восстанавливаем дилатацию здесь.
@@ -126,15 +132,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "0.5", DisplayPriority = "9"))
 	float HitStopDuration = 0.06f;
 
-	// --- Анимация замаха (Build 1.1) ---
-
-	// Монтаж замаха. На его дорожке стоит метка UAnimNotify_MeleeHit — по ней и наносится урон,
-	// поэтому попадание совпадает с движением, а не с нажатием кнопки. Поле пустое или ассета
-	// нет — оружие работает по-старому: урон сразу в момент нажатия, без анимации и без крашей.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayName = "Анимация замаха", DisplayPriority = "10"))
-	TSoftObjectPtr<UAnimMontage> SwingMontage =
-		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Montages/AM_Knife_Swing.AM_Knife_Swing")));
-
 	// --- Звук замаха ножом (Демо) ---
 	// Проигрывается при каждом реальном замахе (после прохождения кулдауна, до проверки
 	// попадания) — звучит и при промахе. Дефолт из /Game/Audio/Demo/knife_melee_swing.
@@ -152,12 +149,11 @@ private:
 	// носитель — очень большое число (заведомо вне дальности).
 	float GetSurfaceDistanceTo(const AActor* Target) const;
 
-	// Запускает монтаж замаха на носителе. true — анимация пошла, значит урон нанесёт метка
-	// на её дорожке; false — анимации нет, урон надо нанести сразу.
-	bool PlaySwingMontage(APawn* Wielder);
-
 	// Время последней атаки (GetWorld()->GetTimeSeconds()).
 	float LastMeleeTime = -1000.0f;
+
+	// Взмах начат и ждёт свою метку урона (см. ConsumePendingSwing).
+	bool bSwingAwaitingNotify = false;
 
 	// Микро-заморозка (D5): SetGlobalTimeDilation(HitStopTimeDilation) + таймер восстановления.
 	// Таймер идёт в ИГРОВОМ времени, поэтому его период = HitStopDuration * dilation

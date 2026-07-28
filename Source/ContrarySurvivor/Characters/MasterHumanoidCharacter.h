@@ -4,10 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "UObject/SoftObjectPtr.h" // мягкие ссылки на боевые монтажи
 #include "AMasterWeapon.h"
 #include "AArmor.h" // AArmor + EArmorSlot (тип параметра UFUNCTION UnequipArmor)
 
 class UInventoryComponent;
+class UAnimMontage;
 
 #include "MasterHumanoidCharacter.generated.h"
 
@@ -70,6 +72,21 @@ protected:
 	// Сколько секунд после выстрела корпус продолжает вести цель (окно продлевается выстрелами).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Aim", meta = (ClampMin = "0.0", DisplayPriority = "57"))
 	float AimTurnHoldTime = 1.0f;
+
+	// --- Боевые анимации (Build 1.1) ---
+	// Мягкие ссылки: ассет грузится при первом проигрывании. Ассета нет или поле очищено —
+	// анимации не будет, бой работает как раньше. Общие для игрока и бандита.
+
+	// Анимация отдачи при выстреле.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация выстрела", DisplayPriority = "58"))
+	TSoftObjectPtr<UAnimMontage> FireMontage =
+		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/AM_FirePistol.AM_FirePistol")));
+
+	// Анимация размашистого удара холодным оружием. У игрока на её дорожке стоит метка
+	// UAnimNotify_MeleeHit — именно по ней наносится урон ножа.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация удара", DisplayPriority = "59"))
+	TSoftObjectPtr<UAnimMontage> MeleeMontage =
+		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/AM_MeleeSlash.AM_MeleeSlash")));
 
 	// --- Меши ---
 	
@@ -146,6 +163,22 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void FireCurrentWeapon(AActor* Target);
+
+	// --- Боевые анимации (Build 1.1, требование Рината: «человеческие персонажи, в том числе
+	// игрок и бандиты»). Ссылки живут на ПЕРСОНАЖЕ, поэтому одинаково работают у игрока и у
+	// бандита — оба наследуют этот класс. Поле пустое или ассета нет — анимации просто не будет,
+	// бой продолжает работать как раньше. ---
+
+	// Проигрывает анимацию выстрела (отдача). true — анимация реально пошла.
+	// Зовётся из ARangedWeapon::Fire (игрок) и AEnemyAIController::PerformRangedAttack (бандит).
+	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
+	bool PlayFireMontage();
+
+	// Проигрывает анимацию удара холодным оружием. true — анимация реально пошла.
+	// У игрока по метке на её дорожке наносится урон (UAnimNotify_MeleeHit); у бандита урон
+	// считает его ИИ отдельно, поэтому там анимация чисто зрелищная.
+	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
+	bool PlayMeleeMontage();
 
 	// Запустить/продлить плавный доворот корпуса на цель (вариант A прицеливания). Зовётся из
 	// точек РЕАЛЬНОГО выстрела/удара (после кулдаунов/патронов): ARangedWeapon::Fire (игрок),

@@ -41,5 +41,13 @@ void UAnimNotify_MeleeHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenc
 		return;
 	}
 
+	// Урон наносим ТОЛЬКО если этот замах начало само оружие (AMeleeWeapon::Fire). Ту же
+	// анимацию удара крутит и бандит, но его урон считает ИИ отдельно — без этой проверки
+	// бандит бил бы дважды.
+	if (!Melee->ConsumePendingSwing())
+	{
+		return;
+	}
+
 	Melee->ApplyMeleeDamage();
 }
