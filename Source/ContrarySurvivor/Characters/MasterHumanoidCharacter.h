@@ -80,13 +80,13 @@ protected:
 	// Анимация отдачи при выстреле.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация выстрела", DisplayPriority = "58"))
 	TSoftObjectPtr<UAnimMontage> FireMontage =
-		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/AM_FirePistol.AM_FirePistol")));
+		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Montages/AM_FirePistol.AM_FirePistol")));
 
 	// Анимация размашистого удара холодным оружием. У игрока на её дорожке стоит метка
 	// UAnimNotify_MeleeHit — именно по ней наносится урон ножа.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация удара", DisplayPriority = "59"))
 	TSoftObjectPtr<UAnimMontage> MeleeMontage =
-		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/AM_MeleeSlash.AM_MeleeSlash")));
+		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Montages/AM_MeleeSlash.AM_MeleeSlash")));
 
 	// --- Меши ---
 	
