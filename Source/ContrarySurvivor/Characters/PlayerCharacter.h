@@ -25,6 +25,7 @@ class UAudioComponent;
 class UNavigationInvokerComponent;
 class UDailyRewardComponent;
 class UOnboardingComponent;
+class UMeleeSectorIndicatorComponent;
 struct FShopEntry;
 
 /**
@@ -289,6 +290,12 @@ protected:
     // контроллер (подбор/староста/инвентарь/смерть), стартовую — сам компонент.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Retention", meta = (AllowPrivateAccess = "true", DisplayPriority = "5"))
     UOnboardingComponent* Onboarding;
+
+    // Подсветка сектора ближнего боя на земле (Build 1.1, п.5 Рината). Декаль привязана к
+    // капсуле, зажигается сама, когда есть цель и в руках нож; угол и дальность берёт из
+    // самого ножа. Настройки (материал, непрозрачность, выключатель) — на компоненте.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true", DisplayPriority = "6"))
+    UMeleeSectorIndicatorComponent* MeleeSectorIndicator;
 
     // Navigation Invoker (Фаза 5): навмеш генерится ТОЛЬКО вокруг игрока и следует за ним
     // (см. DefaultEngine.ini bGenerateNavigationOnlyAroundNavigationInvokers=true). Это даёт

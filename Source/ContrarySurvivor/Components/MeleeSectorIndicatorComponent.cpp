@@ -9,14 +9,6 @@
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
-namespace
-{
-	// Имена скалярных параметров материала — контракт с unreal-operator (см. класс-коммент).
-	const FName ParamSectorHalfAngleRad(TEXT("SectorHalfAngleRad"));
-	const FName ParamInnerRadiusFrac(TEXT("InnerRadiusFrac"));
-	const FName ParamOpacity(TEXT("Opacity"));
-}
-
 UMeleeSectorIndicatorComponent::UMeleeSectorIndicatorComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -48,6 +40,13 @@ void UMeleeSectorIndicatorComponent::BeginPlay()
 void UMeleeSectorIndicatorComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// Имена скалярных параметров материала — контракт с unreal-operator (см. класс-коммент).
+	// Локальные static: FName-таблица движка к первому тику уже поднята (глобальные FName
+	// строятся до неё и это известная ловушка).
+	static const FName ParamSectorHalfAngleRad(TEXT("SectorHalfAngleRad"));
+	static const FName ParamInnerRadiusFrac(TEXT("InnerRadiusFrac"));
+	static const FName ParamOpacity(TEXT("Opacity"));
 
 	if (!bShowMeleeSector)
 	{
@@ -120,7 +119,7 @@ void UMeleeSectorIndicatorComponent::TickComponent(float DeltaTime, ELevelTick T
 		|| !FMath::IsNearlyEqual(static_cast<float>(DecalSize.X), ProjectionDepth))
 	{
 		DecalSize = FVector(ProjectionDepth, OuterRadius, OuterRadius);
-		MarkRenderTransformDirty(); // прокси декали читает DecalSize через транcформ (FScene::UpdateDecalTransform)
+		MarkRenderTransformDirty(); // прокси декали читает DecalSize через трансформ (FScene::UpdateDecalTransform)
 	}
 
 	if (!FMath::IsNearlyEqual(AppliedYawOffsetDeg, SectorYawOffsetDeg))

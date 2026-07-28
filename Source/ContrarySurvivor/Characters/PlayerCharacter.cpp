@@ -14,6 +14,7 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
+#include "ContrarySurvivor/Components/MeleeSectorIndicatorComponent.h" // Build 1.1: подсветка сектора ножа
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"   // Этап F3: события аналитики
@@ -116,6 +117,12 @@ APlayerCharacter::APlayerCharacter()
     // C++-сабобъекты (как Stats/Quests): работают и без правок BP игрока.
     DailyReward = CreateDefaultSubobject<UDailyRewardComponent>(TEXT("DailyRewardComponent"));
     Onboarding = CreateDefaultSubobject<UOnboardingComponent>(TEXT("OnboardingComponent"));
+
+    // Подсветка сектора ближнего боя (Build 1.1, п.5). Крепится к капсуле — тогда декаль
+    // едет и разворачивается вместе с игроком, а её локальная ось «вперёд» совпадает с тем
+    // самым GetActorForwardVector(), по которому AMeleeWeapon::Fire отбирает цели в секторе.
+    MeleeSectorIndicator = CreateDefaultSubobject<UMeleeSectorIndicatorComponent>(TEXT("MeleeSectorIndicator"));
+    MeleeSectorIndicator->SetupAttachment(GetCapsuleComponent());
 
     // Navigation Invoker (Фаза 5): навмеш генерится локально вокруг игрока и следует за ним.
     // Вместе с bGenerateNavigationOnlyAroundNavigationInvokers=true (DefaultEngine.ini) это
