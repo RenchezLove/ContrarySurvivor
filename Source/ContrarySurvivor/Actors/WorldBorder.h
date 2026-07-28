@@ -31,7 +31,9 @@ class UStaticMeshComponent;
  *    и враги не выйдут за край и не провалятся в пустоту. Все остальные каналы игнорируются:
  *    камера (ECC_Camera, спринг-арм) и хитскан выстрелов (ECC_Visibility, ARangedWeapon —
  *    проверено по PerformLineTrace) проходят сквозь стену. Внутренняя грань стены = граница
- *    зоны, по длине стены выступают на толщину — углы закрыты без щелей.
+ *    зоны минус WallOffset («Отступ стены от края», Ринат 07-28: стену можно вдвинуть внутрь
+ *    зоны независимо от тумана; 0 = по краю). По длине стены выступают на толщину — углы
+ *    закрыты без щелей при любом отступе.
  *  - 4 ГОРИЗОНТАЛЬНЫЕ ПОЛОСЫ ТУМАНА (лежащие плейны) по периметру — ГЛАВНЫЙ туман для
  *    top-down камеры (Pitch ~-55; Ринат 07-27: вертикальный градиент «у земли плотнее»
  *    сверху не читается). Полоса каждой стороны ложится от границы зоны ВНУТРЬ на FogDepth,
@@ -74,27 +76,34 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "1000.0", UIMin = "1000.0", DisplayPriority = "3"))
 	float ZoneSizeY = 30000.0f;
 
+	// Отступ невидимой стены ВНУТРЬ от края зоны, см (задача Рината 07-28: «настроить
+	// невидимую стену — её дальность от края карты»). 0 = стена по краю зоны, как раньше.
+	// Двигает ТОЛЬКО стены: туман (полосы и завесы) остаётся по краю — игрок при отступе
+	// упирается в стену, уже войдя в туман. Стена и туман настраиваются независимо.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayName = "Отступ стены от края", ClampMin = "0.0", UIMin = "0.0", DisplayPriority = "4"))
+	float WallOffset = 0.0f;
+
 	// Высота размещения горизонтальной полосы над землёй (уровнем актора), см. Дефолт ~120 —
 	// уровень пояса персонажа: игрок у края зоны «входит в туман», а не идёт под ним.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "0.0", DisplayPriority = "4"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "0.0", DisplayPriority = "5"))
 	float FogBandHeight = 120.0f;
 
 	// Материал горизонтальной полосы тумана (градиент по U — поперёк полосы). Назначит
 	// оператор в BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "5"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "6"))
 	UMaterialInterface* FogBandMaterial = nullptr;
 
 	// Высота невидимых стен, см (с запасом, чтобы не перепрыгнуть/не перелететь).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "6"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "7"))
 	float WallHeight = 2000.0f;
 
 	// Высота вертикальной завесы тумана, см (задник против черноты за краем карты).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "7"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "8"))
 	float FogHeight = 2500.0f;
 
 	// Материал вертикальной завесы тумана. Ассет сделает оператор позже и назначит здесь/в
 	// BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна и без материала).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "9"))
 	UMaterialInterface* FogMaterial = nullptr;
 
 	// Меш-«карточка» полосы тумана. Дефолт — движковый Plane (100х100 см), менять не обязательно.

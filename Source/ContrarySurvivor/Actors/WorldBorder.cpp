@@ -56,8 +56,9 @@ UBoxComponent* AWorldBorder::CreateWall(const TCHAR* SubobjectName)
 	// Канальная схема стены: блокируем ТОЛЬКО Pawn (игрок и враги упираются), всё остальное —
 	// игнор: камера (ECC_Camera) не цепляется, хитскан выстрелов (ECC_Visibility) пролетает,
 	// floor-трассы по каналам тоже не задеваются. ВНИМАНИЕ: запросы ПО ТИПУ ОБЪЕКТА
-	// (WorldStatic) стену видят — но вертикальные floor-трассы бьют внутри зоны, а стена
-	// стоит за её границей, так что не мешает.
+	// (WorldStatic) стену видят — но вертикальная floor-трасса идёт в точке самого пешехода,
+	// а внутрь объёма стены пешеход не попадает (Pawn заблокирован), так что floor-поиску
+	// стена не мешает и когда сдвинута внутрь зоны (WallOffset > 0).
 	Wall->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Wall->SetCollisionObjectType(ECC_WorldStatic);
 	Wall->SetCollisionResponseToAllChannels(ECR_Ignore);
@@ -91,8 +92,8 @@ void AWorldBorder::BeginPlay()
 	// Подстраховка: геометрия соответствует параметрам и в рантайме (RebuildBorder идемпотентен).
 	RebuildBorder();
 
-	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f, fog curtain h=%.0f (mat %s), fog band depth=%.0f z=%.0f (mat %s)"),
-		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight,
+	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f offset=%.0f, fog curtain h=%.0f (mat %s), fog band depth=%.0f z=%.0f (mat %s)"),
+		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight, WallOffset,
 		FogHeight, FogMaterial ? TEXT("set") : TEXT("NOT set"),
 		FogDepth, FogBandHeight, FogBandMaterial ? TEXT("set") : TEXT("NOT set"));
 }
@@ -136,11 +137,12 @@ void AWorldBorder::AbsorbActorScaleIntoSize()
 	WallHeight *= SafeAxis(Scale.Z);
 	FogHeight *= SafeAxis(Scale.Z);
 
-	// FogDepth и FogBandHeight скейлом НЕ трогаем — осознанный выбор. Глубина полосы одна
-	// на все четыре стороны: при неравномерном X/Y-скейле поглощение дало бы из одного
-	// параметра две разные глубины — вместо этого «толщина тумана» остаётся такой, какой
-	// её выставил дизайнер. Высота полосы привязана к росту персонажа (пояс), а не к
-	// размеру зоны. Под новый размер зоны полосы всё равно перестроятся в RebuildBorder.
+	// FogDepth, FogBandHeight и WallOffset скейлом НЕ трогаем — осознанный выбор. Глубина
+	// полосы и отступ стены одни на все четыре стороны: при неравномерном X/Y-скейле
+	// поглощение дало бы из одного параметра два разных значения — вместо этого «толщина
+	// тумана» и отступ стены остаются такими, какими их выставил дизайнер. Высота полосы
+	// привязана к росту персонажа (пояс), а не к размеру зоны. Под новый размер зоны
+	// стены и полосы всё равно перестроятся в RebuildBorder.
 
 	SceneRoot->SetRelativeScale3D(FVector::OneVector);
 }
@@ -161,8 +163,15 @@ void AWorldBorder::RebuildBorder()
 		ZoneFrame->SetBoxExtent(FVector(HalfX, HalfY, HalfH), /*bUpdateOverlaps=*/false);
 	}
 
-	// Стены: центр вынесен наружу на полтолщины — внутренняя грань стены точно на границе
-	// зоны; по длине стены выступают на толщину, чтобы углы сомкнулись без щелей.
+	// Стены: сдвинуты ВНУТРЬ зоны на WallOffset («Отступ стены от края»; 0 = по краю, прежнее
+	// поведение). Внутренняя грань стены — на линии «граница зоны минус отступ», центр вынесен
+	// наружу от этой линии на полтолщины; по длине стены выступают на толщину за углы стенового
+	// прямоугольника, чтобы углы сомкнулись без щелей (перпендикулярные стены перекрываются
+	// квадратом толщина×толщина при любом отступе). Отступ ограничен половиной зоны по своей
+	// оси — встречные стены в худшем случае смыкаются в центре, но не перехлёстываются.
+	// Туман (полосы и завесы) ниже считается от HalfX/HalfY БЕЗ отступа — остаётся по краю.
+	const float WallHalfX = HalfX - FMath::Min(WallOffset, HalfX);
+	const float WallHalfY = HalfY - FMath::Min(WallOffset, HalfY);
 	struct FWallDef
 	{
 		UBoxComponent* Wall;
@@ -170,10 +179,10 @@ void AWorldBorder::RebuildBorder()
 		FVector Extent;
 	};
 	const FWallDef Walls[] = {
-		{ WallEast,  FVector(HalfX + HalfT, 0.0f, HalfH),  FVector(HalfT, HalfY + WallThickness, HalfH) },
-		{ WallWest,  FVector(-HalfX - HalfT, 0.0f, HalfH), FVector(HalfT, HalfY + WallThickness, HalfH) },
-		{ WallNorth, FVector(0.0f, HalfY + HalfT, HalfH),  FVector(HalfX + WallThickness, HalfT, HalfH) },
-		{ WallSouth, FVector(0.0f, -HalfY - HalfT, HalfH), FVector(HalfX + WallThickness, HalfT, HalfH) },
+		{ WallEast,  FVector(WallHalfX + HalfT, 0.0f, HalfH),  FVector(HalfT, WallHalfY + WallThickness, HalfH) },
+		{ WallWest,  FVector(-WallHalfX - HalfT, 0.0f, HalfH), FVector(HalfT, WallHalfY + WallThickness, HalfH) },
+		{ WallNorth, FVector(0.0f, WallHalfY + HalfT, HalfH),  FVector(WallHalfX + WallThickness, HalfT, HalfH) },
+		{ WallSouth, FVector(0.0f, -WallHalfY - HalfT, HalfH), FVector(WallHalfX + WallThickness, HalfT, HalfH) },
 	};
 	for (const FWallDef& Def : Walls)
 	{
@@ -184,8 +193,9 @@ void AWorldBorder::RebuildBorder()
 		}
 	}
 
-	// Вертикальные завесы: вплотную изнутри к стенам (отступ FogInset), нормалью внутрь зоны —
-	// задник против черноты за краем карты (при наклоне камеры ~55° видны вдали).
+	// Вертикальные завесы: вплотную изнутри к границе ЗОНЫ (отступ FogInset; от WallOffset
+	// не зависят — туман всегда по краю), нормалью внутрь зоны — задник против черноты
+	// за краем карты (при наклоне камеры ~55° видны вдали).
 	const float FogZ = FogHeight * 0.5f;
 	SetupFogPlane(FogEast, FVector(HalfX - FogInset, 0.0f, FogZ), 0.0f, ZoneSizeY);
 	SetupFogPlane(FogWest, FVector(-HalfX + FogInset, 0.0f, FogZ), 180.0f, ZoneSizeY);
