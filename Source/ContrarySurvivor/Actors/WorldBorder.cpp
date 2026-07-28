@@ -5,6 +5,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -37,6 +38,17 @@ AWorldBorder::AWorldBorder()
 	FogBandWest = CreateFogPlane(TEXT("FogBandWest"));
 	FogBandNorth = CreateFogPlane(TEXT("FogBandNorth"));
 	FogBandSouth = CreateFogPlane(TEXT("FogBandSouth"));
+
+	// Полосы слоёв 2..MaxFogBandLayers (суффикс имени _L2/_L3 — номер слоя для человека
+	// в дереве компонентов). Создаются все разом: сабобъекты живут только в конструкторе,
+	// а FogLayerCount Ринат крутит в Details; лишние прячет RebuildBorder.
+	for (int32 Layer = 1; Layer < MaxFogBandLayers; ++Layer)
+	{
+		for (const TCHAR* Side : { TEXT("East"), TEXT("West"), TEXT("North"), TEXT("South") })
+		{
+			ExtraFogBands.Add(CreateFogPlane(*FString::Printf(TEXT("FogBand%s_L%d"), Side, Layer + 1)));
+		}
+	}
 
 	// Дефолтный меш карточки тумана — движковый плейн 100х100 см (ассет движка, есть всегда;
 	// это НЕ контент проекта, поэтому FObjectFinder здесь допустим — прецедент: звуки в
@@ -92,10 +104,10 @@ void AWorldBorder::BeginPlay()
 	// Подстраховка: геометрия соответствует параметрам и в рантайме (RebuildBorder идемпотентен).
 	RebuildBorder();
 
-	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f offset=%.0f, fog curtain h=%.0f (mat %s), fog band depth=%.0f z=%.0f (mat %s)"),
+	UE_LOG(LogTemp, Log, TEXT("WorldBorder '%s': zone %.0fx%.0f cm, wall h=%.0f offset=%.0f, fog curtain h=%.0f (mat %s), fog band depth=%.0f z=%.0f layers=%d spacing=%.0f (mat %s)"),
 		*GetName(), ZoneSizeX, ZoneSizeY, WallHeight, WallOffset,
 		FogHeight, FogMaterial ? TEXT("set") : TEXT("NOT set"),
-		FogDepth, FogBandHeight, FogBandMaterial ? TEXT("set") : TEXT("NOT set"));
+		FogDepth, FogBandHeight, FogLayerCount, FogLayerSpacing, FogBandMaterial ? TEXT("set") : TEXT("NOT set"));
 }
 
 void AWorldBorder::AbsorbActorScaleIntoSize()
@@ -210,19 +222,43 @@ void AWorldBorder::RebuildBorder()
 	const float DepthX = FMath::Min(FogDepth, HalfX); // глубина полос восток/запад (поперёк = по X)
 	const float DepthY = FMath::Min(FogDepth, HalfY); // глубина полос север/юг (поперёк = по Y)
 
-	// УГЛЫ: каждая полоса продлена за оба угла зоны на глубину ПЕРПЕНДИКУЛЯРНЫХ полос
-	// (длина стороны + 2×глубина): у угла соседние полосы перекрываются квадратом
-	// глубина×глубина изнутри, а выступы закрывают диагональный взгляд камеры через угол
-	// снаружи — дыр нет. Z-fighting в местах нахлёста исключён разносом высот: полосы
-	// север/юг лежат на 2 см выше полос восток/запад. С top-down камеры (дистанция ~1000 см)
-	// разница не видна, а копланарного мерцания нет — важно и для серого дефолт-материала
-	// без прозрачности, пока FogBandMaterial не назначен.
-	const float BandZEastWest = FogBandHeight;
-	const float BandZNorthSouth = FogBandHeight + 2.0f;
-	SetupFogBand(FogBandEast, FVector(HalfX - DepthX * 0.5f, 0.0f, BandZEastWest), 0.0f, DepthX, ZoneSizeY + 2.0f * DepthY);
-	SetupFogBand(FogBandWest, FVector(-HalfX + DepthX * 0.5f, 0.0f, BandZEastWest), 180.0f, DepthX, ZoneSizeY + 2.0f * DepthY);
-	SetupFogBand(FogBandNorth, FVector(0.0f, HalfY - DepthY * 0.5f, BandZNorthSouth), 90.0f, DepthY, ZoneSizeX + 2.0f * DepthX);
-	SetupFogBand(FogBandSouth, FVector(0.0f, -HalfY + DepthY * 0.5f, BandZNorthSouth), -90.0f, DepthY, ZoneSizeX + 2.0f * DepthX);
+	// УГЛЫ БЕЗ ПЕРЕХЛЁСТА (лид 07-28 по кадру fogcap-b: перехлёст полупрозрачных полос одной
+	// высоты давал в углу шов двойной яркости): полосы север/юг идут на ВСЮ длину стороны и
+	// закрывают углы; полосы восток/запад укорочены и стоят ВСТЫК к внутренним краям
+	// северной/южной. Полосы одного слоя нигде не перекрываются площадью — общая у соседних
+	// только линия стыка, копланарного мерцания на линии нет; прежний страховочный разнос
+	// высот ±2 см из-за этого не нужен и убран. Прежние выступы полос за зону тоже убраны —
+	// диагональный взгляд через угол снаружи закрывают вертикальные завесы (задник).
+	//
+	// ПСЕВДООБЪЁМ: FogLayerCount комплектов полос (кламп 1..MaxFogBandLayers — meta заголовка
+	// стережёт только Details, а поле BlueprintReadWrite); слой L лежит на высоте
+	// FogBandHeight + L*FogLayerSpacing, фаза шума слоя — в SetupFogBand. Лишние комплекты
+	// (созданы в конструкторе все) прячутся.
+	const int32 LayerCount = FMath::Clamp(FogLayerCount, 1, MaxFogBandLayers);
+	// Длина полос восток/запад — между внутренними краями северной/южной. При FogDepth от
+	// полузоны по Y север и юг смыкаются в сплошное поле — восток/запад вырождаются (скрыты).
+	const float SpanY = FMath::Max(ZoneSizeY - 2.0f * DepthY, 0.0f);
+
+	for (int32 Layer = 0; Layer < MaxFogBandLayers; ++Layer)
+	{
+		const bool bActive = Layer < LayerCount;
+		const float LayerZ = FogBandHeight + Layer * FogLayerSpacing;
+		SetupFogBand(GetFogBand(Layer, 0), FVector(HalfX - DepthX * 0.5f, 0.0f, LayerZ), 0.0f, DepthX, SpanY, Layer, bActive && SpanY > 0.0f);
+		SetupFogBand(GetFogBand(Layer, 1), FVector(-HalfX + DepthX * 0.5f, 0.0f, LayerZ), 180.0f, DepthX, SpanY, Layer, bActive && SpanY > 0.0f);
+		SetupFogBand(GetFogBand(Layer, 2), FVector(0.0f, HalfY - DepthY * 0.5f, LayerZ), 90.0f, DepthY, ZoneSizeX, Layer, bActive);
+		SetupFogBand(GetFogBand(Layer, 3), FVector(0.0f, -HalfY + DepthY * 0.5f, LayerZ), -90.0f, DepthY, ZoneSizeX, Layer, bActive);
+	}
+}
+
+UStaticMeshComponent* AWorldBorder::GetFogBand(int32 LayerIndex, int32 SideIndex) const
+{
+	if (LayerIndex == 0)
+	{
+		UStaticMeshComponent* const FirstLayer[4] = { FogBandEast, FogBandWest, FogBandNorth, FogBandSouth };
+		return FirstLayer[SideIndex];
+	}
+	const int32 Index = (LayerIndex - 1) * 4 + SideIndex;
+	return ExtraFogBands.IsValidIndex(Index) ? ExtraFogBands[Index] : nullptr;
 }
 
 void AWorldBorder::SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLocation, float YawDeg, float SpanLength)
@@ -243,15 +279,43 @@ void AWorldBorder::SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLo
 	Fog->SetRelativeScale3D(FVector(FogHeight / 100.0f, SpanLength / 100.0f, 1.0f));
 }
 
-void AWorldBorder::SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength)
+void AWorldBorder::SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength, int32 LayerIndex, bool bVisible)
 {
 	if (!Band)
 	{
 		return;
 	}
 
+	// Лишние слои и вырожденные полосы прячем; в ветке показа SetVisibility(true) обязателен —
+	// полоса могла быть скрыта прошлым перестроением (Ринат уменьшал и вернул число слоёв).
+	Band->SetVisibility(bVisible);
+	if (!bVisible)
+	{
+		return;
+	}
+
 	Band->SetStaticMesh(FogPlaneMesh);
-	Band->SetMaterial(0, FogBandMaterial); // nullptr = дефолтный материал меша (серый) — расстановку видно
+	if (FogBandMaterial)
+	{
+		// Каждому слою — свой динамический инстанс материала со скаляром LayerOffset =
+		// номер слоя * 0.37 (имя параметра — контракт с материалом полосы оператора):
+		// фаза шума у слоёв разная, туман читается объёмом, а не одной плитой. Существующий
+		// инстанс от того же родителя переиспользуем: OnConstruction дёргается на каждую
+		// правку свойства в Details — не плодить по инстансу на правку.
+		UMaterialInstanceDynamic* BandMid = Cast<UMaterialInstanceDynamic>(Band->GetMaterial(0));
+		if (!BandMid || BandMid->Parent != FogBandMaterial)
+		{
+			BandMid = Band->CreateDynamicMaterialInstance(0, FogBandMaterial);
+		}
+		if (BandMid)
+		{
+			BandMid->SetScalarParameterValue(TEXT("LayerOffset"), LayerIndex * 0.37f);
+		}
+	}
+	else
+	{
+		Band->SetMaterial(0, nullptr); // дефолтный материал меша (серый) — расстановку видно
+	}
 
 	Band->SetRelativeLocation(RelLocation);
 	// Плейн остаётся ЛЕЖАЧИМ (Pitch 0, нормаль вверх — лицом к top-down камере). Yaw

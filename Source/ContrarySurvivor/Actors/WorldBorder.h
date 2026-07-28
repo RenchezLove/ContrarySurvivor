@@ -34,12 +34,18 @@ class UStaticMeshComponent;
  *    зоны минус WallOffset («Отступ стены от края», Ринат 07-28: стену можно вдвинуть внутрь
  *    зоны независимо от тумана; 0 = по краю). По длине стены выступают на толщину — углы
  *    закрыты без щелей при любом отступе.
- *  - 4 ГОРИЗОНТАЛЬНЫЕ ПОЛОСЫ ТУМАНА (лежащие плейны) по периметру — ГЛАВНЫЙ туман для
+ *  - ГОРИЗОНТАЛЬНЫЕ ПОЛОСЫ ТУМАНА (лежащие плейны) по периметру — ГЛАВНЫЙ туман для
  *    top-down камеры (Pitch ~-55; Ринат 07-27: вертикальный градиент «у земли плотнее»
  *    сверху не читается). Полоса каждой стороны ложится от границы зоны ВНУТРЬ на FogDepth,
- *    на высоте FogBandHeight (пояс персонажа — игрок у края «входит в туман» и упирается
- *    в невидимую стену уже внутри полосы). Градиент материала — поперёк полосы: прозрачно
- *    внутрь зоны, плотно к краю.
+ *    базовая высота FogBandHeight (пояс персонажа — игрок у края «входит в туман» и
+ *    упирается в невидимую стену уже внутри полосы). УГЛЫ БЕЗ ПЕРЕХЛЁСТА (лид 07-28, кадр
+ *    fogcap-b: перехлёст давал в углу шов двойной яркости): полосы север/юг идут на всю
+ *    длину стороны и закрывают углы, полосы восток/запад укорочены и стоят встык к их
+ *    внутренним краям. ПСЕВДООБЪЁМ: FogLayerCount (1..3) комплектов полос, слой L лежит
+ *    на высоте FogBandHeight + L*FogLayerSpacing и получает свой динамический инстанс
+ *    FogBandMaterial со скалярным параметром LayerOffset = L*0.37 — фаза шума слоя (имя
+ *    параметра — контракт с материалом оператора). Градиент материала — поперёк полосы:
+ *    прозрачно внутрь зоны, плотно к краю.
  *  - 4 ВЕРТИКАЛЬНЫЕ ЗАВЕСЫ ТУМАНА (UStaticMeshComponent, дефолтный меш — движковый Plane
  *    100х100 см из /Engine/BasicShapes) вплотную изнутри к стенам, нормалью внутрь зоны.
  *    Оставлены как ЗАДНИК: при наклоне камеры ~55° закрывают черноту за краем карты вдали.
@@ -88,22 +94,33 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "0.0", DisplayPriority = "5"))
 	float FogBandHeight = 120.0f;
 
+	// Число слоёв полос тумана (1..3). Каждый слой — свой комплект из четырёх полос на своей
+	// высоте и со своей фазой шума материала (LayerOffset) — туман читается объёмом, а не
+	// одной молочной плитой (замечание лида по кадрам 07-28).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayName = "Число слоёв тумана", ClampMin = "1", ClampMax = "3", UIMin = "1", UIMax = "3", DisplayPriority = "6"))
+	int32 FogLayerCount = 2;
+
+	// Шаг слоёв тумана по высоте, см: слой L лежит на высоте «высота полосы + L × шаг».
+	// Минимум 10 — при нулевом шаге слои легли бы в одну плоскость и замерцали (z-fighting).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayName = "Шаг слоёв тумана по высоте", ClampMin = "10.0", UIMin = "10.0", DisplayPriority = "7"))
+	float FogLayerSpacing = 150.0f;
+
 	// Материал горизонтальной полосы тумана (градиент по U — поперёк полосы). Назначит
 	// оператор в BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "6"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "8"))
 	UMaterialInterface* FogBandMaterial = nullptr;
 
 	// Высота невидимых стен, см (с запасом, чтобы не перепрыгнуть/не перелететь).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "7"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "9"))
 	float WallHeight = 2000.0f;
 
 	// Высота вертикальной завесы тумана, см (задник против черноты за краем карты).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "10"))
 	float FogHeight = 2500.0f;
 
 	// Материал вертикальной завесы тумана. Ассет сделает оператор позже и назначит здесь/в
 	// BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна и без материала).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "9"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "11"))
 	UMaterialInterface* FogMaterial = nullptr;
 
 	// Меш-«карточка» полосы тумана. Дефолт — движковый Plane (100х100 см), менять не обязательно.
@@ -154,7 +171,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UStaticMeshComponent* FogSouth;
 
-	// Горизонтальные полосы тумана вдоль сторон (лежат в плане; главный туман для вида сверху).
+	// Горизонтальные полосы тумана вдоль сторон (лежат в плане; главный туман для вида
+	// сверху). Эти четыре именованных компонента — ПЕРВЫЙ слой; имена не менять: на них
+	// ссылается BP_WorldBorder (проверено поиском по бинарнику ассета 07-28).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UStaticMeshComponent* FogBandEast;
 
@@ -167,7 +186,18 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
 	UStaticMeshComponent* FogBandSouth;
 
+	// Полосы слоёв 2..MaxFogBandLayers (слой 1 — четыре именованных компонента выше).
+	// Порядок: [слой-1] × [восток, запад, север, юг]. Создаются ВСЕ в конструкторе
+	// (CreateDefaultSubobject работает только там, а число слоёв — ручка Details);
+	// лишние для текущего FogLayerCount прячутся в RebuildBorder.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WorldBorder")
+	TArray<UStaticMeshComponent*> ExtraFogBands;
+
 private:
+	// Максимум слоёв полос тумана: компоненты всех слоёв создаются в конструкторе разом.
+	// Менять ТОЛЬКО вместе с ClampMax/UIMax у FogLayerCount (числа обязаны совпадать).
+	static constexpr int32 MaxFogBandLayers = 3;
+
 	// Фабрики констрактора: стена с коллизией «блок только Pawn» / плоскость тумана без коллизии
 	// (общая для вертикальных завес и горизонтальных полос: без коллизии/навигации/теней).
 	UBoxComponent* CreateWall(const TCHAR* SubobjectName);
@@ -180,10 +210,16 @@ private:
 	// (Volume-подобное поведение; зачем и почему это безопасно — комментарий в .cpp).
 	void AbsorbActorScaleIntoSize();
 
+	// Полоса слоя LayerIndex (0..MaxFogBandLayers-1) по стороне SideIndex (0=восток, 1=запад,
+	// 2=север, 3=юг): слой 0 — именованные компоненты, дальше — ExtraFogBands.
+	UStaticMeshComponent* GetFogBand(int32 LayerIndex, int32 SideIndex) const;
+
 	// Ставит одну вертикальную завесу тумана: меш/материал + позиция, поворот нормалью внутрь, масштаб.
 	void SetupFogPlane(UStaticMeshComponent* Fog, const FVector& RelLocation, float YawDeg, float SpanLength);
 
 	// Ставит одну горизонтальную полосу тумана: лежачий плейн, локальная X — поперёк полосы
-	// (наружу зоны), масштаб X = глубина полосы, Y = длина вдоль стороны.
-	void SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength);
+	// (наружу зоны), масштаб X = глубина полосы, Y = длина вдоль стороны. LayerIndex задаёт
+	// фазу шума LayerOffset динамического инстанса материала; bVisible=false прячет полосу
+	// (лишний слой или вырожденная длина).
+	void SetupFogBand(UStaticMeshComponent* Band, const FVector& RelLocation, float YawDeg, float DepthAcross, float SpanLength, int32 LayerIndex, bool bVisible);
 };
