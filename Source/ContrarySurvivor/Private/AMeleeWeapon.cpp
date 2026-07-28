@@ -14,6 +14,7 @@
 #include "Sound/SoundBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // Build 1.1: плавный доворот StartAimTurnTo
 
 AMeleeWeapon::AMeleeWeapon()
 {
@@ -122,9 +123,13 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 
 	// --- ЭТАП D (ADR-037): передний взмах/сектор вместо радиального удара ---
 
-	// Доворот к залоченной цели (решение game-lead): если лок в радиусе удара — носитель-игрок
-	// поворачивается к нему лицом ПЕРЕД проверкой сектора. Сектор остаётся передним (ADR-037),
-	// но удар по локу не промахивается из-за ориентации бега (orient-to-movement).
+	// Доворот к залоченной цели, если лок в радиусе удара.
+	// Build 1.1 (решение game-lead по формулировке Рината «в ЭТОМ ЖЕ секторе наносится урон»):
+	// по умолчанию доворот ПЛАВНЫЙ — тот же StartAimTurnTo, что у стрельбы. Он лишь запускает
+	// разворот корпуса, который отрабатывает Tick персонажа за следующие кадры, поэтому ЭТОТ
+	// взмах считается по текущему направлению взгляда — ровно по тому сектору, который игрок
+	// видит подсвеченным на земле. Мгновенный рывок (прежнее поведение) остался под флагом
+	// bMeleeSnapToTarget: он не промахивается, но бьёт мимо нарисованного сектора.
 	if (bTurnToLockedTarget)
 	{
 		if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetInstigatorController()))
@@ -132,11 +137,21 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 			AActor* Locked = PC->GetCurrentTarget();
 			if (IsValid(Locked) && Locked != Wielder && SurfaceDistTo(Locked) <= MeleeRange)
 			{
-				FVector ToLocked = Locked->GetActorLocation() - Origin;
-				ToLocked.Z = 0.0f;
-				if (!ToLocked.IsNearlyZero())
+				if (bMeleeSnapToTarget)
 				{
-					Wielder->SetActorRotation(FRotator(0.0f, ToLocked.Rotation().Yaw, 0.0f));
+					FVector ToLocked = Locked->GetActorLocation() - Origin;
+					ToLocked.Z = 0.0f;
+					if (!ToLocked.IsNearlyZero())
+					{
+						Wielder->SetActorRotation(FRotator(0.0f, ToLocked.Rotation().Yaw, 0.0f));
+					}
+				}
+				else if (AMasterHumanoidCharacter* WielderHumanoid = Cast<AMasterHumanoidCharacter>(Wielder))
+				{
+					// Единый механизм прицеливания корпусом с ARangedWeapon::Fire: скорость и
+					// длительность ведения цели настраиваются на персонаже (AimTurnInterpSpeed,
+					// AimTurnHoldTime), выключается там же (bAimTurnToTarget).
+					WielderHumanoid->StartAimTurnTo(Locked);
 				}
 			}
 		}

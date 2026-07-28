@@ -21,10 +21,12 @@ class USoundBase;
  * поверхность-к-поверхности капсул (как в фиксе боя бандита, Фаза 2).
  *
  * ЭТАП D (ADR-037): удар = ПЕРЕДНИЙ ВЗМАХ/СЕКТОР — задевает до MaxTargetsPerSwing целей
- * ВПЕРЕДИ носителя (полуугол MeleeSectorHalfAngleDeg), НЕ круговой 360° урон. Перед взмахом
- * носитель-ИГРОК доворачивается к залоченной цели в радиусе (bTurnToLockedTarget, решение
- * game-lead) — сектор остаётся передним, но лок не промахивается из-за ориентации бега.
- * Плюс микро-заморозка (hitstop) при реальном попадании игрока (D5).
+ * ВПЕРЕДИ носителя (полуугол MeleeSectorHalfAngleDeg), НЕ круговой 360° урон. При взмахе
+ * носитель-ИГРОК доворачивается к залоченной цели в радиусе (bTurnToLockedTarget). С Build 1.1
+ * доворот ПЛАВНЫЙ (тот же StartAimTurnTo, что при стрельбе): текущий взмах считается по
+ * направлению взгляда НА МОМЕНТ УДАРА, поэтому бьёт ровно туда, где нарисован подсвеченный
+ * сектор (UMeleeSectorIndicatorComponent). Прежний мгновенный рывок остался под флагом
+ * bMeleeSnapToTarget. Плюс микро-заморозка (hitstop) при реальном попадании игрока (D5).
  *
  * ЧЕРНОВЫЕ ЧИСЛА (draft, на ревью game-lead/Рината): урон 35, кулдаун 1.0с,
  * дальность короткая (MeleeRange 90 поверхность-к-поверхности).
@@ -82,23 +84,35 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "1", DisplayPriority = "4"))
 	int32 MaxTargetsPerSwing = 2;
 
-	// Доворачивать носителя-ИГРОКА лицом к залоченной цели перед взмахом, если она в радиусе
+	// Доворачивать носителя-ИГРОКА к залоченной цели при взмахе, если она в радиусе
 	// (решение game-lead: стандарт top-down; сектор остаётся передним — ADR-037 не нарушен).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayPriority = "5"))
 	bool bTurnToLockedTarget = true;
 
+	// КАК доворачивать (Build 1.1, решение game-lead по дословной формулировке Рината:
+	// «в ЭТОМ ЖЕ секторе должен наноситься урон»).
+	// Выключено (по умолчанию) — доворот ПЛАВНЫЙ, тем же механизмом, что при стрельбе
+	// (AMasterHumanoidCharacter::StartAimTurnTo): корпус едет к цели за несколько кадров, а
+	// ТЕКУЩИЙ взмах считается по тому направлению, куда игрок смотрит СЕЙЧАС — то есть ровно
+	// по подсвеченному на земле сектору. Нож может промахнуться, если игрок смотрит мимо.
+	// Включено — прежний мгновенный рывок лицом к цели прямо перед проверкой сектора: нож
+	// почти не мажет, но бьёт туда, куда игрок ещё не успел посмотреть, и подсветка расходится
+	// с фактическим ударом.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayName = "Мгновенный доворот при ударе", DisplayPriority = "6"))
+	bool bMeleeSnapToTarget = false;
+
 	// --- Микро-заморозка при попадании (hitstop, D5) ---
 
 	// Включатель hitstop (только для попаданий ИГРОКА, не ИИ).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (DisplayPriority = "6"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (DisplayPriority = "7"))
 	bool bEnableHitStop = true;
 
 	// Замедление времени на время hitstop (global time dilation). 0.05 = почти стоп-кадр.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "1.0", DisplayPriority = "7"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "1.0", DisplayPriority = "8"))
 	float HitStopTimeDilation = 0.05f;
 
 	// Длительность hitstop в секундах РЕАЛЬНОГО времени.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "0.5", DisplayPriority = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "0.5", DisplayPriority = "9"))
 	float HitStopDuration = 0.06f;
 
 	// --- Звук замаха ножом (Демо) ---

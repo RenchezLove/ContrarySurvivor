@@ -55,7 +55,8 @@ protected:
 	// При реальном выстреле/ударе носитель ПЛАВНО доворачивается (yaw) на цель и AimTurnHoldTime
 	// секунд «ведёт» её; окно продлевается каждым выстрелом (StartAimTurnTo). Работает у игрока
 	// и бандита (хуки: ARangedWeapon::Fire, AEnemyAIController::PerformRangedAttack/PerformAttack).
-	// Снап-доворот ножа игрока (AMeleeWeapon::bTurnToLockedTarget) — отдельный механизм, не тронут.
+	// С Build 1.1 сюда же переведён нож игрока (AMeleeWeapon::Fire) — чтобы удар приходился ровно
+	// по подсвеченному сектору; прежний мгновенный рывок остался под AMeleeWeapon::bMeleeSnapToTarget.
 	// На окно доворота bOrientRotationToMovement выключается и потом восстанавливается —
 	// иначе ориентация бега (BP игрока держит её включённой) борется с прицелом каждый кадр.
 
@@ -148,7 +149,8 @@ public:
 
 	// Запустить/продлить плавный доворот корпуса на цель (вариант A прицеливания). Зовётся из
 	// точек РЕАЛЬНОГО выстрела/удара (после кулдаунов/патронов): ARangedWeapon::Fire (игрок),
-	// AEnemyAIController::PerformRangedAttack/PerformAttack (бандит). No-op при bAimTurnToTarget=false.
+	// AMeleeWeapon::Fire (нож игрока, с Build 1.1), AEnemyAIController::PerformRangedAttack/
+	// PerformAttack (бандит). No-op при bAimTurnToTarget=false.
 	void StartAimTurnTo(AActor* Target);
 
 	// virtual: APlayerCharacter переопределяет, чтобы перед штатной перезарядкой пополнить
