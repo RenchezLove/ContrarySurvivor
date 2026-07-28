@@ -51,8 +51,9 @@ class UStaticMeshComponent;
  *    Оставлены как ЗАДНИК: при наклоне камеры ~55° закрывают черноту за краем карты вдали.
  *    Дёшево для мобилки: 8 статик-плейнов суммарно, без частиц, тени выключены. Материалы
  *    (FogMaterial — завесы, FogBandMaterial — полосы) назначает оператор в BP, пути в C++
- *    не хардкодим. Пока материал пуст — видна серая плоскость дефолта меша, так расстановку
- *    видно сразу.
+ *    не хардкодим; живая цепочка — мастер M_FogSoft и его инстансы MI_FogBandSoft и
+ *    MI_FogCurtainSoft. Пока материал пуст — видна серая плоскость дефолта меша, так
+ *    расстановку видно сразу.
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AWorldBorder : public AActor
@@ -105,8 +106,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayName = "Шаг слоёв тумана по высоте", ClampMin = "10.0", UIMin = "10.0", DisplayPriority = "7"))
 	float FogLayerSpacing = 150.0f;
 
-	// Материал горизонтальной полосы тумана (градиент по U — поперёк полосы). Назначит
-	// оператор в BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна).
+	// Материал горизонтальной полосы тумана (градиент по U — поперёк полосы). Назначает
+	// оператор в BP-обёртке, сейчас там стоит MI_FogBandSoft (инстанс мастера M_FogSoft);
+	// пусто = серый дефолт движкового плейна (расстановка видна).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "8"))
 	UMaterialInterface* FogBandMaterial = nullptr;
 
@@ -118,8 +120,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (ClampMin = "100.0", DisplayPriority = "10"))
 	float FogHeight = 2500.0f;
 
-	// Материал вертикальной завесы тумана. Ассет сделает оператор позже и назначит здесь/в
-	// BP-обёртке; пусто = серый дефолт движкового плейна (расстановка видна и без материала).
+	// Материал вертикальной завесы тумана. Назначает оператор здесь/в BP-обёртке, сейчас
+	// там стоит MI_FogCurtainSoft (инстанс того же мастера M_FogSoft); пусто = серый дефолт
+	// движкового плейна (расстановка видна и без материала).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldBorder", meta = (DisplayPriority = "11"))
 	UMaterialInterface* FogMaterial = nullptr;
 
