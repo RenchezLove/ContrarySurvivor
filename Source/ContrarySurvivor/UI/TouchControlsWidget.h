@@ -135,20 +135,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "5"))
 	FVector2D FpsMargin = FVector2D(120.0f, 40.0f);
 
-	// --- Подсветка кнопки БЕГ при активном беге (Build 1, Блок D): синий цвет + пульсация.
-	// Цвет и скорость/сила пульсации настраиваются здесь (директива Рината). ---
+	// --- Подсветка кнопки БЕГ при активном беге (Build 1, Блок D; уточнено в Build 1.1):
+	// кнопка горит синим и плавно пульсирует, пока включён режим бега. Все четыре настройки —
+	// обычный цвет, активный цвет, период и глубина пульсации — правятся здесь (директива Рината). ---
+
+	// По умолчанию цвет кнопки в покое берётся с самой кнопки, как её нарисовал Ринат в
+	// дизайнере: после выключения бега вернётся ровно её вид. Включить — задать цвет покоя
+	// вручную полем ниже.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (DisplayPriority = "1"))
+	bool bUseCustomSprintIdleColor = false;
+
+	// Обычный цвет кнопки БЕГ (когда бег выключен). Действует при bUseCustomSprintIdleColor = true.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (EditCondition = "bUseCustomSprintIdleColor", DisplayPriority = "2"))
+	FLinearColor SprintIdleColorCustom = FLinearColor::White;
 
 	// Цвет кнопки БЕГ, когда бег включён (синий).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (DisplayPriority = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (DisplayPriority = "3"))
 	FLinearColor SprintActiveColor = FLinearColor(0.2f, 0.5f, 1.0f, 1.0f);
 
-	// Скорость пульсации (циклов/сек ~ рад/сек синуса).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", DisplayPriority = "2"))
-	float SprintPulseSpeed = 4.0f;
+	// Период пульсации: сколько секунд занимает один полный цикл «пригасла — разгорелась».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.05", DisplayPriority = "4"))
+	float SprintPulsePeriod = 1.5f;
 
-	// Сила пульсации: доля, на которую цвет подсвечивается на пике [0..1].
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "3"))
-	float SprintPulseStrength = 0.4f;
+	// Глубина пульсации: насколько кнопка пригасает в нижней точке цикла. 0 — не пульсирует
+	// совсем (ровный синий), 1 — в нижней точке гаснет полностью. Цвет остаётся тем же,
+	// меняется только яркость, поэтому синий не уходит в белый.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
+	float SprintPulseDepth = 0.4f;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -307,6 +320,9 @@ private:
 	// Подсветка+пульсация кнопки БЕГ при включённом беге (Блок D). Зовётся каждый кадр вне модалок.
 	void UpdateSprintVisual(float DeltaTime);
 
+	// Обычный цвет кнопки БЕГ: заданный Ринатом полем или снятый с кнопки в дизайнере.
+	FLinearColor GetSprintIdleColor() const;
+
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
 	void UpdateWeaponIcon(bool bForceHide);
@@ -347,8 +363,9 @@ private:
 	// true = дерево пришло из WBP (Ринат), false = построено кодом. Ставится в NativeOnInitialized.
 	bool bDesignerTree = false;
 
-	// Цвет кнопки БЕГ в покое: белый у кодового дерева, у WBP — снятый с кнопки Рината
-	// (переключатель подсвечивается SprintActiveTint и возвращается к этому цвету).
+	// Цвет кнопки БЕГ в покое, снятый при создании виджета: белый у кодового дерева, у WBP —
+	// тот, что выставил Ринат в дизайнере. Используется, пока bUseCustomSprintIdleColor выключен
+	// (см. GetSprintIdleColor): кнопка возвращается к нему, когда бег выключается.
 	FLinearColor SprintIdleColor = FLinearColor::White;
 
 	bool bStickActive = false;

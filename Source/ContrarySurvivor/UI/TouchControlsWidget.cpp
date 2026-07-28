@@ -422,7 +422,7 @@ void UTouchControlsWidget::ResetHeldButtons()
 	SprintPulseTime = 0.0f;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(SprintIdleColor);
+		SprintButton->SetBackgroundColor(GetSprintIdleColor());
 		if (!bDesignerTree)
 		{
 			SprintButton->SetRenderOpacity(Config.IdleOpacity);
@@ -491,10 +491,13 @@ void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
 	}
 	if (bSprinting)
 	{
-		// Синий + пульсация: цвет подсвечивается на пике синуса (RGB множатся, альфа сохраняется).
+		// Синий + пульсация. Яркость ходит по синусу между (1 - глубина) и 1 от выбранного
+		// цвета: сам цвет не превышается, поэтому синий не выбеливается на пике. Альфа своя.
 		SprintPulseTime += DeltaTime;
-		const float Pulse = 0.5f + 0.5f * FMath::Sin(SprintPulseTime * SprintPulseSpeed); // 0..1
-		FLinearColor C = SprintActiveColor * (1.0f + SprintPulseStrength * Pulse);
+		const float Period = FMath::Max(0.05f, SprintPulsePeriod);
+		const float Pulse = 0.5f + 0.5f * FMath::Sin(2.0f * UE_PI * SprintPulseTime / Period); // 0..1
+		const float Brightness = 1.0f - SprintPulseDepth * (1.0f - Pulse);
+		FLinearColor C = SprintActiveColor * Brightness;
 		C.A = SprintActiveColor.A;
 		SprintButton->SetBackgroundColor(C);
 		if (!bDesignerTree)
@@ -506,7 +509,7 @@ void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
 	else if (bSprintVisualActive)
 	{
 		// Бег выключен — один раз возвращаем кнопку к покою.
-		SprintButton->SetBackgroundColor(SprintIdleColor);
+		SprintButton->SetBackgroundColor(GetSprintIdleColor());
 		if (!bDesignerTree)
 		{
 			SprintButton->SetRenderOpacity(Config.IdleOpacity);
@@ -514,6 +517,13 @@ void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
 		SprintPulseTime = 0.0f;
 		bSprintVisualActive = false;
 	}
+}
+
+FLinearColor UTouchControlsWidget::GetSprintIdleColor() const
+{
+	// Ринат задал цвет покоя полем — берём поле; иначе тот, что снят с кнопки при создании
+	// виджета (в WBP-режиме это цвет из дизайнера, в кодовом — белый).
+	return bUseCustomSprintIdleColor ? SprintIdleColorCustom : SprintIdleColor;
 }
 
 UEnhancedInputLocalPlayerSubsystem* UTouchControlsWidget::GetInputSubsystem() const
@@ -624,7 +634,7 @@ void UTouchControlsWidget::HandleSprintPressed()
 	if (SprintButton)
 	{
 		// Немедленная реакция; пульсацию поверх ведёт UpdateSprintVisual каждый кадр (Блок D).
-		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveColor : SprintIdleColor);
+		SprintButton->SetBackgroundColor(bSprintOn ? SprintActiveColor : GetSprintIdleColor());
 		if (!bDesignerTree)
 		{
 			SprintButton->SetRenderOpacity(bSprintOn ? Config.ActiveOpacity : Config.IdleOpacity);
@@ -641,7 +651,7 @@ void UTouchControlsWidget::HandleSprintReleased()
 	bSprintOn = false;
 	if (SprintButton)
 	{
-		SprintButton->SetBackgroundColor(SprintIdleColor);
+		SprintButton->SetBackgroundColor(GetSprintIdleColor());
 		if (!bDesignerTree)
 		{
 			SprintButton->SetRenderOpacity(Config.IdleOpacity);
