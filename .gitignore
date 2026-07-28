@@ -26,3 +26,6 @@
 Plugins/**/Intermediate/
 Plugins/**/Binaries/
 .DS_Store
+# Артефакт Git Bash на Windows: перенаправление в /dev/null иногда создаёт
+# буквальную папку dev/null с копиями хуков LFS. Мусор, в репо не нужен.
+/dev/
