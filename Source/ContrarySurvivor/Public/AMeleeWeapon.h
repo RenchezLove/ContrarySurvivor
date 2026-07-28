@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 #include "AMasterWeapon.h"
 #include "Engine/TimerHandle.h"
+#include "UObject/SoftObjectPtr.h" // мягкая ссылка на монтаж замаха
 #include "AMeleeWeapon.generated.h"
 
 class USoundBase;
+class UAnimMontage;
 
 /**
  * Ближнее оружие (нож) — GDD §7.2: «атака по цели в коротком радиусе (sweep/overlap),
@@ -39,10 +41,19 @@ class CONTRARYSURVIVOR_API AMeleeWeapon : public AMasterWeapon
 public:
 	AMeleeWeapon();
 
-	// Атака ножом (ADR-037): до MaxTargetsPerSwing ближайших целей в ПЕРЕДНЕМ секторе
-	// (полуугол MeleeSectorHalfAngleDeg) на дистанции MeleeRange. Target игнорируется —
-	// приоритет лока реализован доворотом носителя (bTurnToLockedTarget). Кулдаун замаха.
+	// Замах ножом: кулдаун, звук, доворот к цели и запуск анимации замаха. Сам УРОН наносится
+	// не здесь, а по кадру взмаха — уведомлением UAnimNotify_MeleeHit на дорожке монтажа
+	// (Build 1.1). Анимации нет — урон наносится сразу, как раньше. Target игнорируется:
+	// цели выбирает сектор.
 	virtual void Fire(AActor* Target) override;
+
+	// Урон по ПЕРЕДНЕМУ СЕКТОРУ (ADR-037): до MaxTargetsPerSwing ближайших целей в секторе
+	// с полууглом MeleeSectorHalfAngleDeg на дистанции MeleeRange, плюс микро-заморозка при
+	// попадании игрока. Зовётся уведомлением UAnimNotify_MeleeHit с кадра взмаха, а при
+	// отсутствии анимации — прямо из Fire(). Публичный и BlueprintCallable, потому что точку
+	// вызова задаёт метка на дорожке анимации, а не код оружия.
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Melee")
+	void ApplyMeleeDamage();
 
 	// Страховка hitstop (qa): если оружие уничтожают в окно замедления (~HitStopDuration),
 	// таймер восстановления (WeakLambda) уже не сработает и global time dilation залип бы
@@ -115,6 +126,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|HitStop", meta = (ClampMin = "0.01", ClampMax = "0.5", DisplayPriority = "9"))
 	float HitStopDuration = 0.06f;
 
+	// --- Анимация замаха (Build 1.1) ---
+
+	// Монтаж замаха. На его дорожке стоит метка UAnimNotify_MeleeHit — по ней и наносится урон,
+	// поэтому попадание совпадает с движением, а не с нажатием кнопки. Поле пустое или ассета
+	// нет — оружие работает по-старому: урон сразу в момент нажатия, без анимации и без крашей.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayName = "Анимация замаха", DisplayPriority = "10"))
+	TSoftObjectPtr<UAnimMontage> SwingMontage =
+		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Montages/AM_Knife_Swing.AM_Knife_Swing")));
+
 	// --- Звук замаха ножом (Демо) ---
 	// Проигрывается при каждом реальном замахе (после прохождения кулдауна, до проверки
 	// попадания) — звучит и при промахе. Дефолт из /Game/Audio/Demo/knife_melee_swing.
@@ -126,6 +146,16 @@ protected:
 	float SwingSoundVolume = 0.5f;
 
 private:
+	// Дистанция ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ от носителя до цели (центр-к-центру минус радиусы
+	// капсул обоих). Одна формула на всё оружие: по ней же считает радиус подсветки сектора
+	// UMeleeSectorIndicatorComponent — «что видишь, то и бьёшь». Цель невалидна или это сам
+	// носитель — очень большое число (заведомо вне дальности).
+	float GetSurfaceDistanceTo(const AActor* Target) const;
+
+	// Запускает монтаж замаха на носителе. true — анимация пошла, значит урон нанесёт метка
+	// на её дорожке; false — анимации нет, урон надо нанести сразу.
+	bool PlaySwingMontage(APawn* Wielder);
+
 	// Время последней атаки (GetWorld()->GetTimeSeconds()).
 	float LastMeleeTime = -1000.0f;
 

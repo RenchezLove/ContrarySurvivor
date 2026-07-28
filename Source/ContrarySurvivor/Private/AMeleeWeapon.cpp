@@ -12,6 +12,7 @@
 #include "TimerManager.h" // D5: таймер восстановления времени после hitstop
 #include "UObject/ConstructorHelpers.h"
 #include "Sound/SoundBase.h"
+#include "Animation/AnimMontage.h" // Build 1.1: монтаж замаха, урон по метке на его дорожке
 #include "Kismet/GameplayStatics.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // Build 1.1: плавный доворот StartAimTurnTo
@@ -59,6 +60,52 @@ AMeleeWeapon::AMeleeWeapon()
 	ItemDescription = FString("A short blade for close combat.");
 }
 
+// Радиус капсулы актёра (0, если это не персонаж) — общая часть расчёта дистанции
+// поверхность-к-поверхности.
+static float CapsuleRadiusOf(const AActor* Actor)
+{
+	if (const ACharacter* Char = Cast<ACharacter>(Actor))
+	{
+		if (const UCapsuleComponent* Capsule = Char->GetCapsuleComponent())
+		{
+			return Capsule->GetScaledCapsuleRadius();
+		}
+	}
+	return 0.0f;
+}
+
+float AMeleeWeapon::GetSurfaceDistanceTo(const AActor* Target) const
+{
+	const APawn* Wielder = GetInstigator();
+	if (!Wielder || !IsValid(Target) || Target == Wielder)
+	{
+		return TNumericLimits<float>::Max();
+	}
+	const float CenterDist = FVector::Dist(Wielder->GetActorLocation(), Target->GetActorLocation());
+	return CenterDist - CapsuleRadiusOf(Wielder) - CapsuleRadiusOf(Target);
+}
+
+bool AMeleeWeapon::PlaySwingMontage(APawn* Wielder)
+{
+	if (SwingMontage.IsNull())
+	{
+		return false; // поле очищено — работаем по-старому, урон сразу
+	}
+	ACharacter* WielderChar = Cast<ACharacter>(Wielder);
+	if (!WielderChar)
+	{
+		return false;
+	}
+	UAnimMontage* Montage = SwingMontage.LoadSynchronous();
+	if (!Montage)
+	{
+		return false; // ассета нет (ещё не сделан) — не падаем, бьём сразу
+	}
+	// PlayAnimMontage возвращает длительность; 0 = проиграть не удалось (нет ани-инстанса,
+	// не назначен слот в анимационном блюпринте и т.п.) — тогда бьём сразу, без потери удара.
+	return WielderChar->PlayAnimMontage(Montage) > 0.0f;
+}
+
 void AMeleeWeapon::Fire(AActor* /*Target*/)
 {
 	UWorld* World = GetWorld();
@@ -89,39 +136,7 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 		UGameplayStatics::PlaySoundAtLocation(this, SwingSound, Wielder->GetActorLocation(), SwingSoundVolume);
 	}
 
-	// Радиус капсулы носителя — для перевода MeleeRange (surface) в дистанцию центров.
-	float WielderRadius = 0.0f;
-	if (const ACharacter* WielderChar = Cast<ACharacter>(Wielder))
-	{
-		if (const UCapsuleComponent* Capsule = WielderChar->GetCapsuleComponent())
-		{
-			WielderRadius = Capsule->GetScaledCapsuleRadius();
-		}
-	}
-
 	const FVector Origin = Wielder->GetActorLocation();
-
-	// Дистанция поверхность-к-поверхности до актёра (центр-к-центру минус радиусы капсул),
-	// как в фиксе боя бандита (Фаза 2). Возвращает BIG_NUMBER, если цель невалидна.
-	auto SurfaceDistTo = [&](AActor* Target) -> float
-	{
-		if (!IsValid(Target) || Target == Wielder)
-		{
-			return TNumericLimits<float>::Max();
-		}
-		float TargetRadius = 0.0f;
-		if (const ACharacter* TargetChar = Cast<ACharacter>(Target))
-		{
-			if (const UCapsuleComponent* Capsule = TargetChar->GetCapsuleComponent())
-			{
-				TargetRadius = Capsule->GetScaledCapsuleRadius();
-			}
-		}
-		const float CenterDist = FVector::Dist(Origin, Target->GetActorLocation());
-		return CenterDist - WielderRadius - TargetRadius;
-	};
-
-	// --- ЭТАП D (ADR-037): передний взмах/сектор вместо радиального удара ---
 
 	// Доворот к залоченной цели, если лок в радиусе удара.
 	// Build 1.1 (решение game-lead по формулировке Рината «в ЭТОМ ЖЕ секторе наносится урон»):
@@ -135,7 +150,7 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 		if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetInstigatorController()))
 		{
 			AActor* Locked = PC->GetCurrentTarget();
-			if (IsValid(Locked) && Locked != Wielder && SurfaceDistTo(Locked) <= MeleeRange)
+			if (IsValid(Locked) && Locked != Wielder && GetSurfaceDistanceTo(Locked) <= MeleeRange)
 			{
 				if (bMeleeSnapToTarget)
 				{
@@ -156,6 +171,34 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 			}
 		}
 	}
+
+	// Момент урона (Build 1.1). Есть анимация замаха — урон нанесёт метка на её дорожке
+	// (UAnimNotify_MeleeHit) на нужном кадре, то есть попадание совпадёт с движением.
+	// Анимации нет — бьём сразу, как работало до Build 1.1, чтобы удар не пропал.
+	if (PlaySwingMontage(Wielder))
+	{
+		return;
+	}
+	ApplyMeleeDamage();
+}
+
+void AMeleeWeapon::ApplyMeleeDamage()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	APawn* Wielder = GetInstigator();
+	if (!Wielder)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AMeleeWeapon::ApplyMeleeDamage — no instigator"));
+		return;
+	}
+
+	const FVector Origin = Wielder->GetActorLocation();
+	const float WielderRadius = CapsuleRadiusOf(Wielder);
 
 	// Кандидаты: пешки в сфере вокруг носителя (грубая выборка), затем фильтр
 	// «в дистанции MeleeRange И в переднем секторе», сортировка по близости,
@@ -196,7 +239,7 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 			continue;
 		}
 
-		const float SurfaceDist = SurfaceDistTo(HitActor);
+		const float SurfaceDist = GetSurfaceDistanceTo(HitActor);
 		if (SurfaceDist > MeleeRange)
 		{
 			continue;
