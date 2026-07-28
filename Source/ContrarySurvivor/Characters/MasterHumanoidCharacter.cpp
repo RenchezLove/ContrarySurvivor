@@ -4,6 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h" // USkeletalMesh (полный тип для GetName в QA-логах)
 #include "Animation/AnimMontage.h" // Build 1.1: боевые монтажи (выстрел/удар)
+#include "ARangedWeapon.h"         // Build 1.1: признак прицеливания (HasTarget)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
@@ -157,6 +158,22 @@ bool AMasterHumanoidCharacter::PlayFireMontage()
 bool AMasterHumanoidCharacter::PlayMeleeMontage()
 {
 	return PlayCombatMontageInternal(this, MeleeMontage);
+}
+
+bool AMasterHumanoidCharacter::IsAimingAtTarget() const
+{
+	const ARangedWeapon* Ranged = Cast<ARangedWeapon>(CurrentWeapon);
+	if (!Ranged)
+	{
+		return false; // нож или пустые руки — позе прицеливания взяться неоткуда
+	}
+	if (Ranged->HasTarget())
+	{
+		return true; // игрок: цель оружию проставил контроллер
+	}
+	// Бандит: цель оружию никто не ставит (ИИ бьёт напрямую), зато на каждом реальном выстреле
+	// открывается окно доворота корпуса — пока оно живо, считаем, что бандит целится.
+	return bAimTurnActive;
 }
 
 void AMasterHumanoidCharacter::StartAimTurnTo(AActor* Target)

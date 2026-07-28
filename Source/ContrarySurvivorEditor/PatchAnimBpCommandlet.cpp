@@ -3,9 +3,15 @@
 #include "PatchAnimBpCommandlet.h"
 
 #include "Animation/AnimBlueprint.h"
+#include "Animation/AnimData/BoneMaskFilter.h" // FBranchFilter — фильтр по кости C_Spine01
+#include "Animation/AnimSequenceBase.h"  // поза прицеливания как ассет анимации
 #include "Animation/Skeleton.h"          // FAnimSlotGroup::DefaultSlotName — стандартное имя слота
+#include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_SequenceEvaluator.h"
 #include "AnimGraphNode_Slot.h"
+#include "ContrarySurvivor/Animation/HumanoidAnimInstance.h" // переменная силы наложения позы
+#include "K2Node_VariableGet.h"
 #include "AnimationGraphSchema.h"        // UAnimationGraphSchema::IsLocalSpacePosePin
 #include "EdGraph/EdGraph.h"             // FGraphNodeCreator
 #include "EdGraph/EdGraphPin.h"
@@ -137,6 +143,10 @@ int32 UPatchAnimBpCommandlet::Main(const FString& Params)
 	if (Switches.Contains(TEXT("dump")))
 	{
 		return DumpAnimGraph();
+	}
+	if (Switches.Contains(TEXT("aim")))
+	{
+		return InsertAimPoseLayer();
 	}
 	return InsertMontageSlot();
 }
@@ -334,6 +344,239 @@ int32 UPatchAnimBpCommandlet::VerifyMontageSlot()
 	}
 
 	UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА ПРОЙДЕНА: слот монтажа на месте, связи целы."));
+	return 0;
+}
+
+int32 UPatchAnimBpCommandlet::InsertAimPoseLayer()
+{
+	// Поза прицеливания сделана моделлером только на 12 костях верха тела: корень и ноги в ней
+	// неподвижны. Поэтому играть её полным телом нельзя — накладываем ПОСЛОЙНО от кости
+	// C_Spine01 вверх, а ноги остаются от ходьбы.
+	static const TCHAR* AimPoseObjectPath =
+		TEXT("/Game/Characters/Shared/Humanoid/Anim_AimPistol_Humanoid.Anim_AimPistol_Humanoid");
+	static const FName SpineBoneName(TEXT("C_Spine01"));
+	static const FName AimWeightPropertyName(TEXT("AimBlendWeight"));
+
+	UAnimBlueprint* AnimBP = LoadHumanoidAnimBp();
+	if (!AnimBP)
+	{
+		return 1;
+	}
+	UEdGraph* AnimGraph = FindAnimGraph(AnimBP);
+	if (!AnimGraph)
+	{
+		return 1;
+	}
+
+	// Слот монтажа должен уже стоять: поза встаёт ПЕРЕД ним, чтобы анимации выстрела и удара
+	// (они играют через слот) перекрывали позу целиком, а не боролись с ней за верх тела.
+	TArray<UAnimGraphNode_Slot*> SlotNodes;
+	AnimGraph->GetNodesOfClass<UAnimGraphNode_Slot>(SlotNodes);
+	if (SlotNodes.Num() != 1 || !SlotNodes[0])
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Узлов слота монтажа в графе: %d (нужен ровно один). Сначала прогони основной ")
+			TEXT("проход без ключей — он ставит слот. Ассет не трогаю."),
+			SlotNodes.Num());
+		return 1;
+	}
+	UAnimGraphNode_Slot* SlotNode = SlotNodes[0];
+
+	UEdGraphPin* SlotInputPin = FindPosePin(SlotNode, EGPD_Input);
+	if (!SlotInputPin || SlotInputPin->LinkedTo.Num() != 1 || !SlotInputPin->LinkedTo[0])
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Во вход слота монтажа воткнуто связей: %d (ожидалась ровно одна — поза ходьбы). ")
+			TEXT("Ассет не трогаю."),
+			SlotInputPin ? SlotInputPin->LinkedTo.Num() : -1);
+		return 1;
+	}
+	UEdGraphPin* LocomotionPin = SlotInputPin->LinkedTo[0];
+	UEdGraphNode* LocomotionNode = LocomotionPin->GetOwningNode();
+
+	// Идемпотентность: слой позы уже стоит перед слотом — второй не плодим.
+	if (Cast<UAnimGraphNode_LayeredBoneBlend>(LocomotionNode))
+	{
+		UE_LOG(LogPatchAnimBp, Display,
+			TEXT("Слой позы прицеливания уже стоит перед слотом монтажа — делать нечего, ассет не трогаю."));
+		return 0;
+	}
+
+	UAnimSequenceBase* AimPose = LoadObject<UAnimSequenceBase>(nullptr, AimPoseObjectPath);
+	if (!AimPose)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Поза прицеливания '%s' не найдена — ассет не трогаю. Импортирует её оператор."),
+			AimPoseObjectPath);
+		return 1;
+	}
+
+	// Силу наложения граф читает из переменной класса-родителя. Значит родителя надо сменить
+	// ДО создания узла чтения переменной, иначе переменной ещё не существует и узел повиснет.
+	if (AnimBP->ParentClass != UHumanoidAnimInstance::StaticClass())
+	{
+		UE_LOG(LogPatchAnimBp, Display, TEXT("Меняю родителя блюпринта на UHumanoidAnimInstance (был %s)."),
+			AnimBP->ParentClass ? *AnimBP->ParentClass->GetName() : TEXT("(пусто)"));
+		AnimBP->ParentClass = UHumanoidAnimInstance::StaticClass();
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(AnimBP);
+		FKismetEditorUtilities::CompileBlueprint(AnimBP); // пересобрать класс, чтобы переменная стала видна
+		if (AnimBP->Status == BS_Error)
+		{
+			UE_LOG(LogPatchAnimBp, Error,
+				TEXT("После смены родителя блюпринт не компилируется — НЕ сохраняю, ассет на диске цел."));
+			return 1;
+		}
+	}
+
+	// Узел позы: SequenceEvaluator выдаёт ОДИН кадр анимации (поза, а не проигрывание).
+	UAnimGraphNode_SequenceEvaluator* PoseNode = nullptr;
+	{
+		FGraphNodeCreator<UAnimGraphNode_SequenceEvaluator> NodeCreator(*AnimGraph);
+		PoseNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
+		NodeCreator.Finalize();
+	}
+	PoseNode->SetAnimationAsset(AimPose);
+
+	// Узел послойного смешивания: база — ходьба, слой — поза прицеливания, фильтр по кости.
+	UAnimGraphNode_LayeredBoneBlend* BlendNode = nullptr;
+	{
+		FGraphNodeCreator<UAnimGraphNode_LayeredBoneBlend> NodeCreator(*AnimGraph);
+		BlendNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
+		// Режим ставим ДО добавления слоя: AddPose кладёт запись либо в фильтры костей, либо в
+		// маски смешивания — смотря какой режим стоит в этот момент.
+		BlendNode->Node.BlendMode = ELayeredBoneBlendMode::BranchFilter;
+		NodeCreator.Finalize();
+	}
+	// Добавляет слой целиком: позу, вес и запись фильтра, плюс перестраивает пины узла.
+	BlendNode->AddPinToBlendByFilter();
+	if (BlendNode->Node.LayerSetup.Num() != 1 || BlendNode->Node.BlendPoses.Num() != 1)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Узел послойного смешивания получил слоёв: фильтров %d, поз %d (ожидалось по одному). ")
+			TEXT("НЕ сохраняю, ассет на диске цел."),
+			BlendNode->Node.LayerSetup.Num(), BlendNode->Node.BlendPoses.Num());
+		return 1;
+	}
+	{
+		FBranchFilter Filter;
+		Filter.BoneName = SpineBoneName;
+		Filter.BlendDepth = 0; // 0 = кость и всё ниже по иерархии берутся из накладываемой позы
+		BlendNode->Node.LayerSetup[0].BranchFilters.Empty();
+		BlendNode->Node.LayerSetup[0].BranchFilters.Add(Filter);
+	}
+
+	// Узел чтения переменной силы наложения (обычная переменная — её видно, открыв граф).
+	UK2Node_VariableGet* WeightNode = nullptr;
+	{
+		FGraphNodeCreator<UK2Node_VariableGet> NodeCreator(*AnimGraph);
+		WeightNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
+		WeightNode->VariableReference.SetExternalMember(AimWeightPropertyName, UHumanoidAnimInstance::StaticClass());
+		NodeCreator.Finalize();
+	}
+
+	// --- Поиск пинов. Позы ищем по типу, базу от слоя отличаем по имени свойства «BasePose»
+	// (у немассивных свойств имя пина совпадает с именем поля). Вес — единственный
+	// вещественный вход узла. ---
+	UEdGraphPin* BlendBasePin = nullptr;
+	UEdGraphPin* BlendLayerPin = nullptr;
+	UEdGraphPin* BlendWeightPin = nullptr;
+	for (UEdGraphPin* Pin : BlendNode->Pins)
+	{
+		if (!Pin || Pin->Direction != EGPD_Input)
+		{
+			continue;
+		}
+		if (UAnimationGraphSchema::IsLocalSpacePosePin(Pin->PinType))
+		{
+			if (Pin->PinName == TEXT("BasePose"))
+			{
+				BlendBasePin = Pin;
+			}
+			else
+			{
+				BlendLayerPin = Pin;
+			}
+		}
+		else if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Real
+			|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Float
+			|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Double)
+		{
+			BlendWeightPin = Pin;
+		}
+	}
+	UEdGraphPin* BlendOutPin = FindPosePin(BlendNode, EGPD_Output);
+	UEdGraphPin* PoseOutPin = FindPosePin(PoseNode, EGPD_Output);
+	UEdGraphPin* WeightOutPin = WeightNode->FindPin(AimWeightPropertyName, EGPD_Output);
+
+	if (!BlendBasePin || !BlendLayerPin || !BlendWeightPin || !BlendOutPin || !PoseOutPin || !WeightOutPin)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Не нашёл нужные пины (база %d, слой %d, вес %d, выход смешивания %d, выход позы %d, ")
+			TEXT("выход переменной %d) — НЕ сохраняю, ассет на диске цел."),
+			BlendBasePin ? 1 : 0, BlendLayerPin ? 1 : 0, BlendWeightPin ? 1 : 0,
+			BlendOutPin ? 1 : 0, PoseOutPin ? 1 : 0, WeightOutPin ? 1 : 0);
+		return 1;
+	}
+
+	// Раскладка: поза и вес слева-сверху от смешивания, само смешивание — между ходьбой и слотом.
+	const int32 BlendX = (LocomotionNode->NodePosX + SlotNode->NodePosX) / 2;
+	BlendNode->NodePosX = BlendX;
+	BlendNode->NodePosY = SlotNode->NodePosY;
+	PoseNode->NodePosX = BlendX - 320;
+	PoseNode->NodePosY = SlotNode->NodePosY - 220;
+	WeightNode->NodePosX = BlendX - 320;
+	WeightNode->NodePosY = SlotNode->NodePosY - 60;
+
+	const UEdGraphSchema* Schema = AnimGraph->GetSchema();
+	if (!Schema)
+	{
+		UE_LOG(LogPatchAnimBp, Error, TEXT("У графа анимации нет схемы — связи создать нечем."));
+		return 1;
+	}
+
+	// Сначала рвём «ходьба → слот», потом собираем цепочку через смешивание.
+	SlotInputPin->BreakLinkTo(LocomotionPin);
+
+	struct FLink { UEdGraphPin* A; UEdGraphPin* B; const TCHAR* What; };
+	const FLink Links[] = {
+		{ LocomotionPin, BlendBasePin,  TEXT("ходьба -> база смешивания") },
+		{ PoseOutPin,    BlendLayerPin, TEXT("поза прицеливания -> слой смешивания") },
+		{ WeightOutPin,  BlendWeightPin,TEXT("сила наложения -> вес слоя") },
+		{ BlendOutPin,   SlotInputPin,  TEXT("смешивание -> слот монтажа") },
+	};
+	for (const FLink& Link : Links)
+	{
+		if (!Schema->TryCreateConnection(Link.A, Link.B))
+		{
+			UE_LOG(LogPatchAnimBp, Error, TEXT("Не удалось соединить: %s — НЕ сохраняю, ассет на диске цел."),
+				Link.What);
+			return 1;
+		}
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(AnimBP);
+	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	if (AnimBP->Status == BS_Error)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Блюпринт скомпилировался с ошибками — НЕ сохраняю, ассет на диске остаётся целым."));
+		return 1;
+	}
+
+	const FString Filename = FPackageName::LongPackageNameToFilename(
+		GAnimBpPackage, FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	if (!UPackage::SavePackage(AnimBP->GetOutermost(), AnimBP, *Filename, SaveArgs))
+	{
+		UE_LOG(LogPatchAnimBp, Error, TEXT("SavePackage не сохранил %s."), *Filename);
+		return 1;
+	}
+
+	UE_LOG(LogPatchAnimBp, Display,
+		TEXT("ГОТОВО: поза прицеливания накладывается от кости '%s' поверх ходьбы, сила наложения — ")
+		TEXT("из переменной '%s'. Цепочка: %s -> послойное смешивание -> слот монтажа -> Output Pose. Сохранено (%s)."),
+		*SpineBoneName.ToString(), *AimWeightPropertyName.ToString(), *DescribeNode(LocomotionNode), *Filename);
 	return 0;
 }
 

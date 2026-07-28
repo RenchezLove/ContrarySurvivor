@@ -180,6 +180,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
 	bool PlayMeleeMontage();
 
+	// Целится ли персонаж прямо сейчас: в руках ДАЛЬНОБОЙНОЕ оружие и есть цель.
+	// По этому признаку анимация накладывает позу прицеливания (UHumanoidAnimInstance).
+	// Два источника цели, потому что игрок и бандит стреляют разными путями: у игрока цель
+	// проставлена самому оружию контроллером (ARangedWeapon::HasTarget), у бандита оружию
+	// цель не ставят вовсе — там признаком служит окно доворота корпуса, которое открывается
+	// на каждом реальном выстреле (StartAimTurnTo) и держится AimTurnHoldTime секунд.
+	UFUNCTION(BlueprintPure, Category = "Combat|Animation")
+	bool IsAimingAtTarget() const;
+
 	// Запустить/продлить плавный доворот корпуса на цель (вариант A прицеливания). Зовётся из
 	// точек РЕАЛЬНОГО выстрела/удара (после кулдаунов/патронов): ARangedWeapon::Fire (игрок),
 	// AMeleeWeapon::Fire (нож игрока, с Build 1.1), AEnemyAIController::PerformRangedAttack/
