@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UObject/SoftObjectPtr.h" // мягкая ссылка на материал подсветки
 #include "Components/DecalComponent.h"
 #include "MeleeSectorIndicatorComponent.generated.h"
 
