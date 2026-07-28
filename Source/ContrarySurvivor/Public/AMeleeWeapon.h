@@ -47,6 +47,17 @@ public:
 	// НАВСЕГДА — восстанавливаем дилатацию здесь.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	// --- Геометрия удара наружу (Build 1.1) ---
+	// Читает UMeleeSectorIndicatorComponent, чтобы подсветка сектора на земле рисовалась
+	// ровно по тем числам, по которым считается урон в Fire(): «что видишь, то и бьёшь».
+	// Своих чисел угла/дальности у подсветки нет — только эти два.
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Melee")
+	FORCEINLINE float GetMeleeSectorHalfAngleDeg() const { return MeleeSectorHalfAngleDeg; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Melee")
+	FORCEINLINE float GetMeleeRange() const { return MeleeRange; }
+
 protected:
 	// Дальность атаки ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ капсул (см). Эффективная проверка
 	// центр-к-центру = MeleeRange + (радиус капсулы носителя + радиус капсулы цели).
@@ -61,9 +72,11 @@ protected:
 	// --- Передний сектор (D3, ADR-037) ---
 
 	// Полуугол переднего сектора удара (градусы от направления взгляда носителя).
-	// 60° = конус 120° впереди. «Если нож слаб против 2-3 — расширить сектор, НЕ делать круг».
+	// 50° = конус 100° впереди — требование Рината (Build 1.1, п.5: «подсвечивать сектор
+	// в 100 градусов перед игроком», в этом же секторе наносится урон).
+	// «Если нож слаб против 2-3 — расширить сектор, НЕ делать круг».
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "5.0", ClampMax = "180.0", DisplayPriority = "3"))
-	float MeleeSectorHalfAngleDeg = 60.0f;
+	float MeleeSectorHalfAngleDeg = 50.0f;
 
 	// Максимум целей за один взмах (ADR-037: «1-2 цели впереди, несколько за удар — ок»).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "1", DisplayPriority = "4"))
