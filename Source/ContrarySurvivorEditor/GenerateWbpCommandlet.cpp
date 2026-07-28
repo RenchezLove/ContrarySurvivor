@@ -2126,8 +2126,10 @@ namespace
 	// одноимённые новые виджеты того же класса переносится БЕЛЫЙ СПИСОК свойств стиля
 	// через рефлексию. Именно белый список, а не «все свойства»: слепое копирование
 	// утащило бы Slot, bIsVariable и Visibility и сломало бы контракты новой раскладки
-	// (зонтики хит-теста, Collapsed у AmmoRow). Каждое перенесённое значение и каждое
-	// расхождение пишется в лог.
+	// (зонтики хит-теста, Collapsed у AmmoRow). Отдельно (шаг 3б) переезжает геометрия
+	// КАНВАС-СЛОТА (расстановка ручками — позиция/размер/якоря): она живёт не на виджете,
+	// и белый список её не покрывает. Каждое перенесённое значение и каждое расхождение
+	// пишется в лог.
 
 	// Свойства, которые владелец мог править в дизайнере. Имена сверены с заголовками
 	// UE 5.5: Components/TextBlock.h, TextWidgetTypes.h (Justification), ProgressBar.h,
@@ -2378,6 +2380,45 @@ namespace
 					AssetName, *NewWidget->GetName(), *PropName.ToString(),
 					*ClipForLog(NewText), *ClipForLog(OldText));
 			}
+
+			// 3б. РАССТАНОВКА владельца: то, что он тянул ручками (позиция/размер/якоря/
+			// выравнивание), живёт НЕ на виджете, а на его КАНВАС-СЛОТЕ (FAnchorData
+			// LayoutData — CanvasPanelSlot.h:74-75), и белый список свойств виджета этого
+			// не видит. Урок 07-28: пересборка вернула кнопки панели количества магазина
+			// в дефолты генератора, потеряв утверждённую расстановку (срез -dumpslots:
+			// SliderTotalText/SliderCancelButton/SliderConfirmButton). Оба виджета в
+			// канвас-слотах — геометрия слота переезжает целиком.
+			const UCanvasPanelSlot* OldCanvasSlot = Cast<UCanvasPanelSlot>(OldWidget->Slot);
+			UCanvasPanelSlot* NewCanvasSlot = Cast<UCanvasPanelSlot>(NewWidget->Slot);
+			if (OldCanvasSlot && NewCanvasSlot)
+			{
+				const FAnchorData OldLayout = OldCanvasSlot->GetLayout();
+				const bool bSame = OldLayout == NewCanvasSlot->GetLayout()
+					&& OldCanvasSlot->GetAutoSize() == NewCanvasSlot->GetAutoSize()
+					&& OldCanvasSlot->GetZOrder() == NewCanvasSlot->GetZOrder();
+				if (!bSame)
+				{
+					UE_LOG(LogGenerateWbp, Display,
+						TEXT("REBUILD %s: канвас-слот '%s': офсеты (%.1f,%.1f,%.1f,%.1f) -> (%.1f,%.1f,%.1f,%.1f) (расстановка владельца)."),
+						AssetName, *NewWidget->GetName(),
+						NewCanvasSlot->GetLayout().Offsets.Left, NewCanvasSlot->GetLayout().Offsets.Top,
+						NewCanvasSlot->GetLayout().Offsets.Right, NewCanvasSlot->GetLayout().Offsets.Bottom,
+						OldLayout.Offsets.Left, OldLayout.Offsets.Top,
+						OldLayout.Offsets.Right, OldLayout.Offsets.Bottom);
+					NewCanvasSlot->SetLayout(OldLayout);
+					NewCanvasSlot->SetAutoSize(OldCanvasSlot->GetAutoSize());
+					NewCanvasSlot->SetZOrder(OldCanvasSlot->GetZOrder());
+					++MovedCount;
+				}
+			}
+			else if (OldCanvasSlot && !NewCanvasSlot)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("REBUILD %s: '%s' был у владельца в канвас-слоте, в новой раскладке — нет: расстановка НЕ перенесена, сверить вид глазами."),
+					AssetName, *NewWidget->GetName());
+			}
+			// Старый в коробке, новый на канвасе — штатный переезд бокс->канвас (позицию
+			// даёт новая раскладка), отдельной строки в лог не нужно.
 		}
 
 		// 4. Старое, чему в новой раскладке пары не нашлось. StatsBox выброшен намеренно
@@ -2395,10 +2436,25 @@ namespace
 				AssetName, *Old.Key.ToString(), *Old.Value->GetClass()->GetName());
 		}
 
-		// 5. Столбец статов складывается заново по фактическим (перенесённым) высотам.
+		// 5. Столбец статов складывается заново по фактическим (перенесённым) высотам —
+		// ТОЛЬКО при переезде со старой контейнерной схемы (ряды жили в столбе StatsBox,
+		// канвас-позиций у них не было). Если старое дерево уже канвас-первое, ряды
+		// получили расстановку владельца в шаге 3б — перекладка перетёрла бы её.
 		if (FCString::Strcmp(AssetName, TEXT("WBP_PlayerStats")) == 0)
 		{
-			ReflowPlayerStatsColumn(Tree, AssetName);
+			UWidget* const* OldHealthRow = OldWidgets.Find(FName(TEXT("HealthRow")));
+			const bool bOldWasCanvasFirst =
+				OldHealthRow && Cast<UCanvasPanelSlot>((*OldHealthRow)->Slot) != nullptr;
+			if (bOldWasCanvasFirst)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("REBUILD %s: ряды взяли расстановку со старого канваса владельца — перекладка столбца пропущена."),
+					AssetName);
+			}
+			else
+			{
+				ReflowPlayerStatsColumn(Tree, AssetName);
+			}
 		}
 
 		UE_LOG(LogGenerateWbp, Display,
@@ -2529,7 +2585,80 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return RebuildWindows();
 	}
+	if (Switches.Contains(TEXT("dumpslots")))
+	{
+		return DumpSlotsAll();
+	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
+}
+
+// Печать поддерева с геометрией слота каждого виджета. Формат строк стабильный и
+// одинаковый между прогонами — лог двух прогонов сравнивается диффом (артефакт
+// «расстановка владельца сохранилась» вместо осмотра мышкой).
+static void DumpSlotSubtree(const TCHAR* AssetName, UWidget* Widget, int32 Depth)
+{
+	if (!Widget)
+	{
+		return;
+	}
+
+	FString SlotDesc = TEXT("(корень)");
+	if (const UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
+	{
+		const FAnchorData Layout = CanvasSlot->GetLayout();
+		SlotDesc = FString::Printf(
+			TEXT("канвас якоря=(%.3f,%.3f,%.3f,%.3f) офсеты=(%.1f,%.1f,%.1f,%.1f) вырав=(%.2f,%.2f) авто=%d z=%d"),
+			Layout.Anchors.Minimum.X, Layout.Anchors.Minimum.Y,
+			Layout.Anchors.Maximum.X, Layout.Anchors.Maximum.Y,
+			Layout.Offsets.Left, Layout.Offsets.Top, Layout.Offsets.Right, Layout.Offsets.Bottom,
+			Layout.Alignment.X, Layout.Alignment.Y,
+			CanvasSlot->GetAutoSize() ? 1 : 0, CanvasSlot->GetZOrder());
+	}
+	else if (const UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(Widget->Slot))
+	{
+		const FMargin Pad = HSlot->GetPadding();
+		SlotDesc = FString::Printf(TEXT("hbox отступы=(%.1f,%.1f,%.1f,%.1f)"),
+			Pad.Left, Pad.Top, Pad.Right, Pad.Bottom);
+	}
+	else if (const UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Widget->Slot))
+	{
+		const FMargin Pad = VSlot->GetPadding();
+		SlotDesc = FString::Printf(TEXT("vbox отступы=(%.1f,%.1f,%.1f,%.1f)"),
+			Pad.Left, Pad.Top, Pad.Right, Pad.Bottom);
+	}
+	else if (Widget->Slot)
+	{
+		SlotDesc = Widget->Slot->GetClass()->GetName();
+	}
+
+	UE_LOG(LogGenerateWbp, Display, TEXT("SLOTS %s: %s%s : %s : %s"),
+		AssetName, *FString::ChrN(Depth * 2, TEXT(' ')), *Widget->GetName(),
+		*Widget->GetClass()->GetName(), *SlotDesc);
+
+	if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+	{
+		for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
+		{
+			DumpSlotSubtree(AssetName, Panel->GetChildAt(Index), Depth + 1);
+		}
+	}
+}
+
+int32 UGenerateWbpCommandlet::DumpSlotsAll()
+{
+	int32 FailCount = 0;
+	for (const FWbpSpec& Spec : GAssets)
+	{
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPathOf(Spec));
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("SLOTS FAIL: %s не загрузился."), *ObjectPathOf(Spec));
+			++FailCount;
+			continue;
+		}
+		DumpSlotSubtree(Spec.AssetName, WBP->WidgetTree->RootWidget, 1);
+	}
+	return FailCount == 0 ? 0 : 1;
 }
 
 int32 UGenerateWbpCommandlet::RebuildWindows()
