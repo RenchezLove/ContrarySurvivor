@@ -4,7 +4,7 @@
 
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimData/BoneMaskFilter.h" // FBranchFilter — фильтр по кости C_Spine01
-#include "Animation/AnimSequenceBase.h"  // поза прицеливания как ассет анимации
+#include "Animation/AnimSequence.h"      // поза прицеливания как ассет анимации
 #include "Animation/Skeleton.h"          // FAnimSlotGroup::DefaultSlotName — стандартное имя слота
 #include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_Root.h"
@@ -19,7 +19,9 @@
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphSchema_K2.h"            // UEdGraphSchema_K2::GN_AnimGraph — имя графа анимации
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/CompilerResultsLog.h" // отчёт сборщика блюпринта — для проверки -verify
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Logging/TokenizedMessage.h"   // EMessageSeverity — отделить ошибки от предупреждений
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -344,13 +346,61 @@ int32 UPatchAnimBpCommandlet::VerifyMontageSlot()
 	{
 		const bool bHasFilter = BlendNode->Node.LayerSetup.Num() > 0
 			&& BlendNode->Node.LayerSetup[0].BranchFilters.Num() > 0;
-		UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: слой послойного смешивания, фильтр по кости '%s'."),
-			bHasFilter ? *BlendNode->Node.LayerSetup[0].BranchFilters[0].BoneName.ToString() : TEXT("(нет фильтра!)"));
+		UE_LOG(LogPatchAnimBp, Display,
+			TEXT("ПРОВЕРКА: слой послойного смешивания, фильтр по кости '%s', слоёв в узле %d."),
+			bHasFilter ? *BlendNode->Node.LayerSetup[0].BranchFilters[0].BoneName.ToString() : TEXT("(нет фильтра!)"),
+			BlendNode->Node.BlendPoses.Num());
 		if (!bHasFilter)
 		{
 			UE_LOG(LogPatchAnimBp, Error,
 				TEXT("ПРОВЕРКА: у слоя нет фильтра по кости — наложение пойдёт на всё тело, ноги поедут."));
 			++Problems;
+		}
+		// Лишние слои — это НЕ безобидно: второй слой без фильтра берёт всё тело из пустой позы.
+		if (BlendNode->Node.BlendPoses.Num() != 1 || BlendNode->Node.LayerSetup.Num() != 1)
+		{
+			UE_LOG(LogPatchAnimBp, Error,
+				TEXT("ПРОВЕРКА: у узла смешивания поз %d и фильтров %d, а нужно по одному."),
+				BlendNode->Node.BlendPoses.Num(), BlendNode->Node.LayerSetup.Num());
+			++Problems;
+		}
+		// Пустой вход смешивания — это дыра в цепочке: с той стороны придёт поза покоя.
+		for (const UEdGraphPin* Pin : BlendNode->Pins)
+		{
+			if (Pin && Pin->Direction == EGPD_Input
+				&& UAnimationGraphSchema::IsLocalSpacePosePin(Pin->PinType)
+				&& Pin->LinkedTo.Num() != 1)
+			{
+				UE_LOG(LogPatchAnimBp, Error,
+					TEXT("ПРОВЕРКА: во вход '%s' узла смешивания воткнуто связей %d (нужна ровно одна)."),
+					*Pin->PinName.ToString(), Pin->LinkedTo.Num());
+				++Problems;
+			}
+		}
+
+		// Сила наложения. Слой позы прицеливания обязан брать её из переменной, слой монтажа —
+		// стоять на единице. Ноль в неподключённом слое означал бы, что наложения нет вообще:
+		// граф выглядит собранным, а в игре ничего не меняется. Значение читаем из СОХРАНЁННОГО
+		// ассета, поэтому это проверка результата, а не намерения.
+		const UEdGraphPin* WeightPin = BlendNode->FindPin(TEXT("BlendWeights_0"), EGPD_Input);
+		const bool bWeightDriven = WeightPin && WeightPin->LinkedTo.Num() == 1 && WeightPin->LinkedTo[0];
+		const float StoredWeight = BlendNode->Node.BlendWeights.Num() > 0 ? BlendNode->Node.BlendWeights[0] : -1.0f;
+		if (bWeightDriven)
+		{
+			UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: силу наложения этому слою даёт %s."),
+				*DescribeNode(WeightPin->LinkedTo[0]->GetOwningNode()));
+		}
+		else
+		{
+			UE_LOG(LogPatchAnimBp, Display,
+				TEXT("ПРОВЕРКА: сила наложения у этого слоя постоянная: в узле %.3f, в пине «%s»."),
+				StoredWeight, WeightPin ? *WeightPin->DefaultValue : TEXT("(пина нет)"));
+			if (!WeightPin || FCString::Atof(*WeightPin->DefaultValue) <= 0.0f || StoredWeight <= 0.0f)
+			{
+				UE_LOG(LogPatchAnimBp, Error,
+					TEXT("ПРОВЕРКА: сила наложения нулевая и ниоткуда не приходит — слой не работал бы."));
+				++Problems;
+			}
 		}
 	}
 	UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: слоёв послойного смешивания в графе %d (0 — режим -aim ещё не запускали)."),
@@ -379,13 +429,40 @@ int32 UPatchAnimBpCommandlet::VerifyMontageSlot()
 			*DescribeNode(SlotInputPin->LinkedTo[0]->GetOwningNode()));
 	}
 
+	// Последний и самый весомый шаг: собрать блюпринт заново, с чистой загрузки с диска. Связи
+	// могут выглядеть целыми, а блюпринт при этом не собираться (не та поза, потерянная
+	// переменная, пустой вход узла) — тогда в игре анимации просто не будет. Компилируем ТОЛЬКО
+	// в памяти и НИЧЕГО не сохраняем: файл на диске эта проверка не трогает.
+	UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: родитель блюпринта — %s."),
+		AnimBP->ParentClass ? *AnimBP->ParentClass->GetName() : TEXT("(пусто)"));
+
+	FCompilerResultsLog CompileResults;
+	CompileResults.bSilentMode = true;
+	FKismetEditorUtilities::CompileBlueprint(AnimBP, EBlueprintCompileOptions::SkipGarbageCollection, &CompileResults);
+	UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: пересборка блюпринта — ошибок %d, предупреждений %d."),
+		CompileResults.NumErrors, CompileResults.NumWarnings);
+	for (const TSharedRef<FTokenizedMessage>& Message : CompileResults.Messages)
+	{
+		if (Message->GetSeverity() == EMessageSeverity::Error || Message->GetSeverity() == EMessageSeverity::Warning)
+		{
+			UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА: сборщик сказал — %s"), *Message->ToText().ToString());
+		}
+	}
+	if (CompileResults.NumErrors > 0 || AnimBP->Status == BS_Error)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("ПРОВЕРКА: блюпринт не собирается — в игре анимации не будет."));
+		++Problems;
+	}
+
 	if (Problems > 0)
 	{
 		UE_LOG(LogPatchAnimBp, Error, TEXT("ПРОВЕРКА НЕ ПРОЙДЕНА: замечаний %d."), Problems);
 		return 1;
 	}
 
-	UE_LOG(LogPatchAnimBp, Display, TEXT("ПРОВЕРКА ПРОЙДЕНА: слот монтажа на месте, связи целы."));
+	UE_LOG(LogPatchAnimBp, Display,
+		TEXT("ПРОВЕРКА ПРОЙДЕНА: слот монтажа на месте, связи целы, блюпринт собирается."));
 	return 0;
 }
 
@@ -474,12 +551,45 @@ int32 UPatchAnimBpCommandlet::InsertAimPoseLayer()
 		}
 	}
 
-	UAnimSequenceBase* AimPose = LoadObject<UAnimSequenceBase>(nullptr, AimPoseObjectPath);
+	// Тип именно UAnimSequence, а не общий UAnimSequenceBase: внутри SetAnimationAsset стоит
+	// Cast<UAnimSequence> (AnimGraphNode_SequenceEvaluator.cpp:124-130), и на монтаже или
+	// композиции присвоение прошло бы МОЛЧА мимо — узел остался бы пустым.
+	UAnimSequence* AimPose = LoadObject<UAnimSequence>(nullptr, AimPoseObjectPath);
 	if (!AimPose)
 	{
 		UE_LOG(LogPatchAnimBp, Error,
-			TEXT("Поза прицеливания '%s' не найдена — ассет не трогаю. Импортирует её оператор."),
+			TEXT("Поза прицеливания '%s' не найдена (или это не обычная анимация) — ассет не трогаю. ")
+			TEXT("Импортирует её оператор."),
 			AimPoseObjectPath);
+		return 1;
+	}
+
+	// Кость фильтра и скелет проверяем ЗАРАНЕЕ. Если кости в скелете нет, послойное наложение
+	// молча посчитается с нулевыми весами (FAnimationRuntime::CreateMaskWeights, AnimationRuntime.cpp:2273-2276
+	// просто пропускает ненайденную кость) — граф соберётся, а работать не будет. Это самый
+	// неприятный вид поломки, поэтому ловим его до правки.
+	USkeleton* TargetSkeleton = AnimBP->TargetSkeleton;
+	if (!TargetSkeleton)
+	{
+		UE_LOG(LogPatchAnimBp, Error, TEXT("У анимационного блюпринта не задан скелет — ассет не трогаю."));
+		return 1;
+	}
+	if (TargetSkeleton->GetReferenceSkeleton().FindBoneIndex(SpineBoneName) == INDEX_NONE)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("В скелете '%s' нет кости '%s' — наложение считалось бы с нулевым весом и поза ")
+			TEXT("никогда бы не появилась. Ассет не трогаю."),
+			*TargetSkeleton->GetName(), *SpineBoneName.ToString());
+		return 1;
+	}
+	if (AimPose->GetSkeleton() != TargetSkeleton
+		&& !TargetSkeleton->IsCompatibleForEditor(AimPose->GetSkeleton()))
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Поза прицеливания сделана на скелете '%s', а блюпринт работает со скелетом '%s', ")
+			TEXT("и они несовместимы — ассет не трогаю."),
+			AimPose->GetSkeleton() ? *AimPose->GetSkeleton()->GetName() : TEXT("(нет)"),
+			*TargetSkeleton->GetName());
 		return 1;
 	}
 
@@ -528,50 +638,83 @@ int32 UPatchAnimBpCommandlet::InsertAimPoseLayer()
 		PoseNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
 		NodeCreator.Finalize();
 	}
+	// Тот же путь, которым редактор кладёт анимацию в узел при перетаскивании ассета мышкой
+	// (AnimationGraphSchema.cpp:634). Присвоение молчаливое — поэтому сразу перечитываем обратно.
 	PoseNode->SetAnimationAsset(AimPose);
+	if (PoseNode->Node.GetSequence() != AimPose)
+	{
+		UE_LOG(LogPatchAnimBp, Error,
+			TEXT("Поза прицеливания не легла в узел (узел остался пустым) — НЕ сохраняю, ассет на диске цел."));
+		return 1;
+	}
 
 	// Оба слоя устроены одинаково: база — ходьба, слой — что-то на верх тела от C_Spine01.
-	auto MakeBoneLayerNode = [&]() -> UAnimGraphNode_LayeredBoneBlend*
+	//
+	// ⛔ ОДИН СЛОЙ У УЗЛА УЖЕ ЕСТЬ, добавлять его руками НЕЛЬЗЯ. Конструктор редакторного узла
+	// сам зовёт Node.AddPose() (AnimGraphNode_LayeredBoneBlend.cpp:19-23), а AddPose при режиме
+	// BranchFilter кладёт по одной записи сразу в BlendWeights, BlendPoses и LayerSetup
+	// (AnimNode_LayeredBoneBlend.h:131-144; режим BranchFilter ставит конструктор структуры,
+	// там же строки 110-120). Вызов AddPinToBlendByFilter() делает ЕЩЁ ОДИН AddPose
+	// (AnimGraphNode_LayeredBoneBlend.cpp:107-115) — именно на этом прошлый прогон получил два
+	// слоя вместо одного. Пины слоя («BlendPoses_0», «BlendWeights_0») создаёт Finalize через
+	// AllocateDefaultPins по фактической длине массивов (EdGraph.h:296-306, K2Node.cpp:1834-1841),
+	// то есть к этому моменту они уже на месте, перестраивать узел не нужно.
+	auto MakeBoneLayerNode = [&](const TCHAR* WhatFor) -> UAnimGraphNode_LayeredBoneBlend*
 	{
 		UAnimGraphNode_LayeredBoneBlend* BlendNode = nullptr;
 		{
 			FGraphNodeCreator<UAnimGraphNode_LayeredBoneBlend> NodeCreator(*AnimGraph);
 			BlendNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
-			// Режим ставим ДО добавления слоя: AddPose кладёт запись либо в фильтры костей,
-			// либо в маски смешивания — смотря какой режим стоит в этот момент.
-			BlendNode->Node.BlendMode = ELayeredBoneBlendMode::BranchFilter;
 			NodeCreator.Finalize();
 		}
-		// Добавляет слой целиком: позу, вес и запись фильтра, плюс перестраивает пины узла.
-		BlendNode->AddPinToBlendByFilter();
-		if (BlendNode->Node.LayerSetup.Num() != 1 || BlendNode->Node.BlendPoses.Num() != 1)
+		// Предохранитель, а не действие: если движок когда-нибудь перестанет добавлять слой в
+		// конструкторе, мы это увидим сообщением, а не молчаливо кривым графом.
+		if (BlendNode->Node.BlendMode != ELayeredBoneBlendMode::BranchFilter
+			|| BlendNode->Node.LayerSetup.Num() != 1
+			|| BlendNode->Node.BlendPoses.Num() != 1
+			|| BlendNode->Node.BlendWeights.Num() != 1)
 		{
+			UE_LOG(LogPatchAnimBp, Error,
+				TEXT("Узел послойного смешивания (%s) сразу после создания выглядит не так, как ожидалось: ")
+				TEXT("режим по веткам костей %s, фильтров %d, поз %d, весов %d (ожидалось «да» и по одному)."),
+				WhatFor,
+				BlendNode->Node.BlendMode == ELayeredBoneBlendMode::BranchFilter ? TEXT("да") : TEXT("нет"),
+				BlendNode->Node.LayerSetup.Num(), BlendNode->Node.BlendPoses.Num(),
+				BlendNode->Node.BlendWeights.Num());
 			return nullptr;
 		}
 		FBranchFilter Filter;
 		Filter.BoneName = SpineBoneName;
 		Filter.BlendDepth = 0; // 0 = кость и вся ветка ниже неё берутся из накладываемой позы
+		                       // (AnimationRuntime.cpp:2278 — при нулевой глубине вес сразу единичный)
 		BlendNode->Node.LayerSetup[0].BranchFilters.Empty();
 		BlendNode->Node.LayerSetup[0].BranchFilters.Add(Filter);
 		return BlendNode;
 	};
-	UAnimGraphNode_LayeredBoneBlend* AimLayer = MakeBoneLayerNode();
-	UAnimGraphNode_LayeredBoneBlend* MontageLayer = MakeBoneLayerNode();
+	UAnimGraphNode_LayeredBoneBlend* AimLayer = MakeBoneLayerNode(TEXT("поза прицеливания"));
+	UAnimGraphNode_LayeredBoneBlend* MontageLayer = MakeBoneLayerNode(TEXT("монтажи"));
 	if (!AimLayer || !MontageLayer)
 	{
-		UE_LOG(LogPatchAnimBp, Error,
-			TEXT("Узел послойного смешивания не получил ровно один слой — НЕ сохраняю, ассет на диске цел."));
+		UE_LOG(LogPatchAnimBp, Error, TEXT("НЕ сохраняю, ассет на диске цел."));
 		return 1;
 	}
 	// Слой монтажа всегда в полную силу: когда монтаж не играет, слот отдаёт свою входящую позу
 	// без изменений, и наложение получается тождественным.
 	MontageLayer->Node.BlendWeights[0] = 1.0f;
 
+	// Переменную берём КАК СВОЮ (SetSelfMember), а не как чужого класса. Разница не косметическая:
+	// при внешней ссылке VariableReference.IsSelfContext() == false, и узел чтения создаёт ВИДИМЫЙ
+	// вход «Target», который остался бы висеть пустым (K2Node_Variable.cpp:151, 200-206). При
+	// своей ссылке тот же вход создаётся скрытым и разрешается в сам экземпляр анимации — ровно
+	// так, как если перетащить переменную в граф мышкой. Родитель блюпринта к этому моменту уже
+	// UHumanoidAnimInstance, значит переменная блюпринту своя.
 	UK2Node_VariableGet* WeightNode = nullptr;
 	{
 		FGraphNodeCreator<UK2Node_VariableGet> NodeCreator(*AnimGraph);
 		WeightNode = NodeCreator.CreateNode(/*bSelectNewNode=*/false);
-		WeightNode->VariableReference.SetExternalMember(AimWeightPropertyName, UHumanoidAnimInstance::StaticClass());
+		// Ссылку ставим ДО Finalize: пины узла чтения создаются по имени переменной, при пустом
+		// имени узел остался бы вообще без пинов (K2Node_VariableGet.cpp:168-181).
+		WeightNode->VariableReference.SetSelfMember(AimWeightPropertyName);
 		NodeCreator.Finalize();
 	}
 
@@ -630,19 +773,25 @@ int32 UPatchAnimBpCommandlet::InsertAimPoseLayer()
 	UEdGraphPin* WeightOutPin = WeightNode->FindPin(AimWeightPropertyName, EGPD_Output);
 
 	if (!AimPins.Base || !AimPins.Layer || !AimPins.Weight || !AimPins.Out
-		|| !MontagePins.Base || !MontagePins.Layer || !MontagePins.Out
+		|| !MontagePins.Base || !MontagePins.Layer || !MontagePins.Weight || !MontagePins.Out
 		|| !CacheInPin || !UseAimOutPin || !UseMontageOutPin || !PoseOutPin || !SlotOutPin || !WeightOutPin)
 	{
 		UE_LOG(LogPatchAnimBp, Error,
 			TEXT("Не нашёл нужные пины (слой позы: база %d слой %d вес %d выход %d; слой монтажа: ")
-			TEXT("база %d слой %d выход %d; кэш вход %d, кэш выходы %d/%d, поза %d, слот %d, переменная %d) ")
+			TEXT("база %d слой %d вес %d выход %d; кэш вход %d, кэш выходы %d/%d, поза %d, слот %d, переменная %d) ")
 			TEXT("— НЕ сохраняю, ассет на диске цел."),
 			AimPins.Base ? 1 : 0, AimPins.Layer ? 1 : 0, AimPins.Weight ? 1 : 0, AimPins.Out ? 1 : 0,
-			MontagePins.Base ? 1 : 0, MontagePins.Layer ? 1 : 0, MontagePins.Out ? 1 : 0,
+			MontagePins.Base ? 1 : 0, MontagePins.Layer ? 1 : 0, MontagePins.Weight ? 1 : 0, MontagePins.Out ? 1 : 0,
 			CacheInPin ? 1 : 0, UseAimOutPin ? 1 : 0, UseMontageOutPin ? 1 : 0,
 			PoseOutPin ? 1 : 0, SlotOutPin ? 1 : 0, WeightOutPin ? 1 : 0);
 		return 1;
 	}
+
+	// Вес слоя монтажа никуда не подключается, значит в собранный класс поедет ЗНАЧЕНИЕ ПИНА, а не
+	// то, что лежит в структуре узла (значение пина берётся из структуры один раз, при создании
+	// пина — AnimBlueprintNodeOptionalPinManager.cpp:75-81). Пишем единицу и туда, и туда, чтобы
+	// два источника не разъехались.
+	MontagePins.Weight->DefaultValue = TEXT("1.000000");
 
 	// --- Раскладка: слева направо, чтобы граф читался, когда его откроют мышкой ---
 	const int32 BaseX = LocomotionNode->NodePosX;
