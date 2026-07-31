@@ -38,15 +38,18 @@ struct FElderIntroLine
 	GENERATED_BODY()
 
 	// Реплика старосты (крупный текст в окне диалога).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro", meta = (MultiLine = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro",
+		meta = (MultiLine = "true", DisplayName = "Реплика старосты", DisplayPriority = "1"))
 	FText NPCText;
 
 	// Единственная кнопка-ответ игрока под этой репликой (квадратные скобки рисует WBP_Dialog).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro",
+		meta = (DisplayName = "Ответ игрока (кнопка)", DisplayPriority = "2"))
 	FText ButtonLabel;
 
 	// Что происходит при нажатии кнопки этой реплики (выдать аптечку / начать квест / просто дальше).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Intro",
+		meta = (DisplayName = "Действие кнопки", DisplayPriority = "3"))
 	EElderIntroAction Action = EElderIntroAction::None;
 };
 
@@ -196,19 +199,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest SecondQuest;
 
-	// Сценка-намёк после сдачи кв.2 (Build 1, решение Рината 07-24: формальный квест 3 «Шкуры
-	// для торговца» ЗАМЕНЁН намёком в диалоге — без трекера, метки на карте и награды). Сюжетный
-	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится») сохранён в первой
-	// реплике. Реплики по очереди, по образцу IntroLines; показывается один раз (признак
-	// bElderNotebookHintShown в сейве). Поле Action у реплик здесь НЕ действует (эффектов нет).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint", meta = (DisplayPriority = "1", TitleProperty = "ButtonLabel"))
+	// Сценка после сдачи кв.2 (Build 1.2, формулировка Рината 07-31): реплика 1 — сюжетный
+	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится», СОХРАНЁН); дальше
+	// староста сообщает СПОСОБ ЗАРАБОТКА, а не новый квест: пока он копается в ноутбуке, игрок
+	// может охотиться на волков (их снова видели к югу) и сдавать шкуры торговцу, у которого
+	// новый завоз — уже есть новая броня, скоро будет оружие. Реплики по очереди, по образцу
+	// IntroLines; показывается один раз (признак bElderNotebookHintShown в сейве). Поле Action
+	// у реплик здесь НЕ действует (эффектов нет).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint",
+		meta = (DisplayPriority = "1", TitleProperty = "ButtonLabel", DisplayName = "Сценка после сдачи ноутбука"))
 	TArray<FElderIntroLine> NotebookHintLines;
 
 	// Короткая реплика при повторных разговорах, когда намёк уже показан. Пусто — фолбэк на
 	// DialogueTurnedInText («Спасибо тебе ещё раз…»).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint", meta = (DisplayPriority = "2", MultiLine = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint",
+		meta = (DisplayPriority = "2", MultiLine = "true", DisplayName = "Реплика при повторных разговорах"))
 	FText NotebookHintRepeatText = NSLOCTEXT("Dialog", "ElderNotebookHintRepeat",
-		"Копаюсь в ноутбуке, дай срок. А волки к югу никуда не делись.");
+		"Копаюсь в ноутбуке, дай срок. А волки к югу никуда не делись — и торговец за шкуры платит исправно.");
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
