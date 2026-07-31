@@ -29,6 +29,7 @@ AMasterHumanoidCharacter::AMasterHumanoidCharacter()
     // Привязка оружия к КОСТИ правой кисти модульного гуманоида (а не к несуществующему
     // сокету). Офсет грипа подбирается по скрину; дефолт — нулевой (на кости).
     WeaponAttachBoneName = FName("R_Hand");
+    WeaponGripSocketName = FName("WeaponGripSocket"); // Build 1.2: авторский сокет в приоритете (см. EquipWeapon)
     WeaponGripLocation = FVector::ZeroVector;
     WeaponGripRotation = FRotator::ZeroRotator;
 
@@ -283,9 +284,36 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     // как запас (иная раскладка скелета), и только затем root-фолбэк.
     USkeletalMeshComponent* BoneCarrier = nullptr;
     bool bCarrierIsLeader = false;
+    bool bUseGripSocket = false;
+
+    // ПРИОРИТЕТ 0 (Build 1.2) — настоящий АВТОРСКИЙ СОКЕТ WeaponGripSocketName: если он
+    // есть на скелете/меше любого из наших мешей, крепим к нему и цифровые офсеты НЕ
+    // применяем — положение целиком задаёт сокет (Ринат двигает его мышкой в редакторе
+    // скелета). USkeletalMesh::FindSocket (SkeletalMesh.cpp:4660, UE 5.5) возвращает
+    // объект ТОЛЬКО для авторских сокетов меша/скелета, для костей — nullptr: этим
+    // отличаем сокет от кости (DoesSocketExist истинен для обоих). В упакованной игре
+    // сокеты скелета тоже в SocketMap (SkeletalMesh.cpp:4816,4827) — Android не теряет.
+    {
+        USkeletalMeshComponent* SocketCandidates[] = { GetMesh(), TorsoMesh, LegsMesh };
+        for (USkeletalMeshComponent* MeshComp : SocketCandidates)
+        {
+            const USkeletalMesh* MeshAsset = MeshComp ? MeshComp->GetSkeletalMeshAsset() : nullptr;
+            if (MeshAsset && MeshAsset->FindSocket(WeaponGripSocketName) != nullptr)
+            {
+                BoneCarrier = MeshComp;
+                bCarrierIsLeader = (MeshComp == GetMesh());
+                bUseGripSocket = true;
+                break;
+            }
+        }
+    }
 
     USkeletalMeshComponent* Leader = GetMesh();
-    if (Leader && Leader->DoesSocketExist(WeaponAttachBoneName))
+    if (bUseGripSocket)
+    {
+        // Носитель уже выбран по сокету — ветки выбора по кости не нужны.
+    }
+    else if (Leader && Leader->DoesSocketExist(WeaponAttachBoneName))
     {
         BoneCarrier = Leader;
         bCarrierIsLeader = true;
@@ -310,20 +338,27 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
 
     if (BoneCarrier)
     {
-        // Снап к кости БЕЗ наследования масштаба кости/меша: с IncludingScale оружие
+        // Снап БЕЗ наследования масштаба кости/меша: с IncludingScale оружие
         // наследовало крупный масштаб кости и раздувалось до scale~100 (гигантский
         // пистолет в воздухе). NotIncludingScale сохраняет собственный масштаб оружия (1).
-        // Затем относительный офсет грипа (подбор по скрину).
+        const FName AttachName = bUseGripSocket ? WeaponGripSocketName : WeaponAttachBoneName;
         CurrentWeapon->AttachToComponent(BoneCarrier,
             FAttachmentTransformRules::SnapToTargetNotIncludingScale,
-            WeaponAttachBoneName);
-        CurrentWeapon->SetActorRelativeLocation(WeaponGripLocation);
-        CurrentWeapon->SetActorRelativeRotation(WeaponGripRotation);
+            AttachName);
+        if (!bUseGripSocket)
+        {
+            // Прежний путь (кость): относительный офсет грипа (подбор по скрину).
+            // При сокете офсеты НЕ применяются — положение целиком задаёт сокет.
+            CurrentWeapon->SetActorRelativeLocation(WeaponGripLocation);
+            CurrentWeapon->SetActorRelativeRotation(WeaponGripRotation);
+        }
 
         const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();
         UE_LOG(LogTemp, Log,
-            TEXT("EquipWeapon: attached %s to bone '%s' on %s mesh '%s' (component '%s')"),
-            *CurrentWeapon->GetName(), *WeaponAttachBoneName.ToString(),
+            TEXT("EquipWeapon: attached %s to %s '%s' on %s mesh '%s' (component '%s')"),
+            *CurrentWeapon->GetName(),
+            bUseGripSocket ? TEXT("SOCKET") : TEXT("bone"),
+            *AttachName.ToString(),
             bCarrierIsLeader ? TEXT("LEADER") : TEXT("follower"),
             CarrierAsset ? *CarrierAsset->GetName() : TEXT("none"),
             *BoneCarrier->GetName());

@@ -131,6 +131,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	FRotator WeaponGripRotation;
 
+	// Настоящий АВТОРСКИЙ СОКЕТ хвата (Build 1.2, наглядная настройка Рината: сокет
+	// двигается мышкой в редакторе скелета, с превью-мешем пистолета). Если сокет с этим
+	// именем существует на скелете/меше одного из наших мешей — оружие крепится к НЕМУ,
+	// а цифровые офсеты WeaponGripLocation/Rotation НЕ применяются (положение целиком
+	// задаёт сокет). Сокета нет — прежний путь: кость WeaponAttachBoneName + офсеты.
+	// Отличие сокета от кости — USkeletalMesh::FindSocket (для костей возвращает null).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment", meta = (DisplayName = "Сокет хвата оружия (приоритет над костью)", DisplayPriority = "52"))
+	FName WeaponGripSocketName;
+
 	// --- Экипированная броня по слотам (GDD §7.2: броня влияет на урон) ---
 	// Хранятся ссылки на экипированные предметы брони; суммарная защита снижает
 	// входящий урон в TakeDamage. Полноценная экип-UI — Фаза 4.
