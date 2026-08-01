@@ -4,6 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h" // USkeletalMesh (полный тип для GetName в QA-логах)
 #include "Animation/AnimMontage.h" // Build 1.1: боевые монтажи (выстрел/удар)
+#include "Animation/AnimSequence.h" // Build 1.2: анимация смерти (полное тело, Single Node)
 #include "ARangedWeapon.h"         // Build 1.1: признак прицеливания (HasTarget)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
@@ -620,4 +621,32 @@ void AMasterHumanoidCharacter::SetWalkSpeedMultiplier(float NewMultiplier)
         Move->MaxWalkSpeed =
             (IsSprinting ? BaseWalkSpeed * SprintMultiplier : BaseWalkSpeed) * WalkSpeedMultiplier;
     }
+}
+
+bool AMasterHumanoidCharacter::PlayDeathAnimationIfSet()
+{
+    USkeletalMeshComponent* MeshComp = GetMesh();
+    if (!MeshComp)
+    {
+        return false;
+    }
+
+    // Мягкая ссылка: при зелёной сборке несуществующий ассет молча мёртв (урок 07-28) —
+    // поэтому громкий лог с фактическим путём, чтобы поломку было видно в PIE-логе.
+    UAnimSequence* DeathSeq = DeathAnimation.LoadSynchronous();
+    if (!DeathSeq)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("PlayDeathAnimationIfSet: анимация смерти не задана или ассет не найден ('%s') — откат на прежнее поведение."),
+            *DeathAnimation.ToString());
+        return false;
+    }
+
+    // Полное тело в обход AnimBP: Single Node, без цикла — поза застывает на последнем
+    // кадре (лежит на спине). Follower-меши (Torso/Legs) идут за лидером через
+    // SetLeaderPoseComponent, отдельно их дёргать не нужно.
+    MeshComp->PlayAnimation(DeathSeq, /*bLooping=*/false);
+    UE_LOG(LogTemp, Log, TEXT("%s: анимация смерти '%s' запущена (полное тело, Single Node)."),
+        *GetName(), *DeathSeq->GetName());
+    return true;
 }

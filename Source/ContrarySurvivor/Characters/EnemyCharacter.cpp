@@ -206,15 +206,20 @@ void AEnemyCharacter::HandleDeath()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	// 4) Рэгдолл на основном меше (Head — корневой скелет из мастер-базы).
-	//    Если у меша нет физ.ассета — ветка молча не даст эффекта, краша не будет.
-	if (USkeletalMeshComponent* SkelMesh = GetMesh())
+	// 4) Анимация смерти «ложится на спину» (Build 1.2, поле в мастер-базе — одна на всех
+	//    гуманоидов). Ассета нет — откат на прежний рэгдолл (который у текущего меша без
+	//    физ.ассета молча не работал — Ринат на приёмке 08-01: «Сейчас бандит не падает.
+	//    Видимо физики нет» — потому и появилась анимация).
+	if (!PlayDeathAnimationIfSet())
 	{
-		SkelMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		SkelMesh->SetCollisionObjectType(ECC_PhysicsBody);
-		SkelMesh->SetAllBodiesSimulatePhysics(true);
-		SkelMesh->SetSimulatePhysics(true);
-		SkelMesh->WakeAllRigidBodies();
+		if (USkeletalMeshComponent* SkelMesh = GetMesh())
+		{
+			SkelMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			SkelMesh->SetCollisionObjectType(ECC_PhysicsBody);
+			SkelMesh->SetAllBodiesSimulatePhysics(true);
+			SkelMesh->SetSimulatePhysics(true);
+			SkelMesh->WakeAllRigidBodies();
+		}
 	}
 
 	// 5) Лут: деньги + шанс предмета на земле в позиции трупа (GDD §7.8).

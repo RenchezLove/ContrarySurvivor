@@ -10,6 +10,7 @@
 
 class UInventoryComponent;
 class UAnimMontage;
+class UAnimSequence;
 
 #include "MasterHumanoidCharacter.generated.h"
 
@@ -87,6 +88,22 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация удара", DisplayPriority = "59"))
 	TSoftObjectPtr<UAnimMontage> MeleeMontage =
 		TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Montages/AM_MeleeSlash.AM_MeleeSlash")));
+
+	// Анимация смерти «ложится на спину» — ОДНА на всех гуманоидов (Build 1.2, решение
+	// Рината: «анимация смерти у всех гуманоидов должна быть одна. Наверное разумно её
+	// применить к MasterHumanoidCharecter»). Проигрывается ПОЛНЫМ ТЕЛОМ в обход AnimBP
+	// (PlayAnimation / Single Node): смерть — терминальное состояние, послойная схема графа
+	// «верх отдельно от ног» (ADR-053) тут не нужна — дорожки смерти лежат на всех костях,
+	// и для падения это желаемое. Поле пусто/ассета нет — прежнее поведение наследников
+	// (рэгдолл у бандита, заморозка позы).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation", meta = (DisplayName = "Анимация смерти", DisplayPriority = "60"))
+	TSoftObjectPtr<UAnimSequence> DeathAnimation =
+		TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Shared/Humanoid/Anim_Death_Humanoid.Anim_Death_Humanoid")));
+
+	// Проигрывает анимацию смерти полным телом, если поле задано и ассет загрузился.
+	// true — анимация запущена (вызывающий НЕ включает рэгдолл/заморозку позы),
+	// false — поля нет/ассет отсутствует (вызывающий откатывается на прежнее поведение).
+	bool PlayDeathAnimationIfSet();
 
 	// --- Меши ---
 	

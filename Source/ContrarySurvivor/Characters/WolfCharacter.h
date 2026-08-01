@@ -67,6 +67,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	UAnimSequence* BiteAnim;
 
+	// Анимация смерти «ложится на бок» (Build 1.2, Ринат: «волки - на бок»). Проигрывается
+	// один раз без цикла, поза застывает на последнем кадре. Не задана/ассета нет — прежнее
+	// поведение (заморозка позы на текущем кадре).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (DisplayName = "Анимация смерти"))
+	UAnimSequence* DeathAnim;
+
 	// Порог скорости (см/с) для переключения Idle<->Run. DRAFT.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	float RunSpeedThreshold = 10.0f;

@@ -79,6 +79,10 @@ AWolfCharacter::AWolfCharacter()
 	if (RunAsset.Succeeded()) { RunAnim = RunAsset.Object; }
 	static ConstructorHelpers::FObjectFinder<UAnimSequence> BiteAsset(TEXT("/Game/Characters/Wolf/Anim_Wolf_Bite.Anim_Wolf_Bite"));
 	if (BiteAsset.Succeeded()) { BiteAnim = BiteAsset.Object; }
+	// Build 1.2: смерть «на бок». До импорта ассета Finder мягко промахивается (поле null,
+	// прежнее поведение) — путь согласован с импортом моделлера этой же ночи.
+	static ConstructorHelpers::FObjectFinder<UAnimSequence> DeathAsset(TEXT("/Game/Characters/Wolf/Anim_Wolf_Death.Anim_Wolf_Death"));
+	if (DeathAsset.Succeeded()) { DeathAnim = DeathAsset.Object; }
 
 	// Звуки атаки волка (Демо): набор рыков, при укусе выбирается случайный.
 	static ConstructorHelpers::FObjectFinder<USoundBase> Growl1(TEXT("/Game/Audio/Demo/wolf_growl_monster1.wolf_growl_monster1"));
@@ -245,11 +249,21 @@ void AWolfCharacter::HandleDeath()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	// Замораживаем позу на последнем кадре (Single Node), рэгдолл не используем
-	// (физ-ассет может отсутствовать). Тело снимается с задержкой.
+	// Анимация смерти «ложится на бок» (Build 1.2); ассета нет — прежнее поведение:
+	// заморозка позы на текущем кадре (Single Node). Рэгдолл не используем.
 	if (USkeletalMeshComponent* MeshComp = GetMesh())
 	{
-		MeshComp->bPauseAnims = true;
+		if (DeathAnim)
+		{
+			// Без цикла: поза застывает на последнем кадре (лежит на боку).
+			MeshComp->PlayAnimation(DeathAnim, /*bLooping=*/false);
+			UE_LOG(LogTemp, Log, TEXT("%s: анимация смерти волка '%s' запущена."),
+				*GetName(), *DeathAnim->GetName());
+		}
+		else
+		{
+			MeshComp->bPauseAnims = true;
+		}
 	}
 
 	// Лут волка (деньги + шанс предмета) в позиции трупа (GDD §7.8).
