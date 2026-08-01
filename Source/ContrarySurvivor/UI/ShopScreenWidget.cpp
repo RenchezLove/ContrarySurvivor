@@ -298,6 +298,10 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 		TransactionQty = 1;
 	}
 
+	// Снимок лимита/кулдауна точки рекламы на момент открытия сделки (см. заголовок).
+	bAdLimitOk = Player && Player->GetShopAdUsesToday() < SellAdDailyLimit;
+	bAdCooldownOk = Player && Player->IsShopAdCooldownPassed(SellAdCooldownSeconds);
+
 	if (SliderPanel)
 	{
 		SliderPanel->SetVisibility(ESlateVisibility::Visible);
@@ -441,11 +445,11 @@ void UShopScreenWidget::UpdateSellAdButton()
 	{
 		DenyReason = TEXT("no_ad");
 	}
-	else if (Player->GetShopAdUsesToday() >= SellAdDailyLimit)
+	else if (!bAdLimitOk)
 	{
 		DenyReason = TEXT("limit");
 	}
-	else if (!Player->IsShopAdCooldownPassed(SellAdCooldownSeconds))
+	else if (!bAdCooldownOk)
 	{
 		DenyReason = TEXT("cooldown");
 	}

@@ -2,8 +2,11 @@
 
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h"
 #include "ContrarySurvivor/Retention/DailyRewardLogic.h"
+#include "ContrarySurvivor/Ads/AdService.h"      // Build 1.2: «Забрать вдвое больше» (ТЗ №3)
+#include "ContrarySurvivor/Ads/AdGatingLogic.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // F3: событие ежедневного входа
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/ContrarySurvivor.h"   // LogQA
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
@@ -130,6 +133,11 @@ void UDailyRewardComponent::EvaluateDailyReward()
 		return;
 	}
 
+	// Build 1.2 (ТЗ №3 раздел 2): «первый день» = самый первый вход профиля после
+	// установки (входов ещё не было вовсе) — в этот день кнопку удвоения не показываем.
+	// Снимок ДО записи новой даты в сейв.
+	const bool bFirstEverDay = (Save->LastDailyRewardDate.GetTicks() == 0 && Save->DailyStreakDays <= 0);
+
 	// Начисляем в живые статы и зеркалим в сейв: загрузка сейва при смерти перетирает деньги
 	// значением из слота — без зеркала награда терялась бы при первой же смерти.
 	Player->GetStats()->AddMoney(Result.Reward);
@@ -144,10 +152,14 @@ void UDailyRewardComponent::EvaluateDailyReward()
 	UE_LOG(LogTemp, Log, TEXT("DailyReward: day %d of streak -> +%.0f coins (persisted)"),
 		Result.NewStreak, Result.Reward);
 
-	// F3 (ADR-038): событие «ежедневный вход» (value = день серии). Без ключей — no-op.
-	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this);
+	if (Analytics)
 	{
+		// F3 (ADR-038): «ежедневный вход» (value = день серии). Без ключей — no-op.
 		Analytics->RecordDailyLogin(Result.NewStreak);
+		// Build 1.2 (ТЗ №3 п.6): daily_reward_claimed для ВСЕХ получений — по нему издатель
+		// считает возврат на 2/3/7 день.
+		Analytics->RecordDailyRewardClaimed(Result.NewStreak);
 	}
 
 	// Окно «Ежедневная награда». Курсор в игре и так виден; режим GameAndUI — чтобы кнопка
@@ -155,6 +167,51 @@ void UDailyRewardComponent::EvaluateDailyReward()
 	ActiveWindow->ApplyStyle(WindowStyle); // стиль с компонента (EditAnywhere) поверх дефолтов
 	ActiveWindow->SetupContent(Result.NewStreak, Result.Reward);
 	ActiveWindow->OnClosed.AddUObject(this, &UDailyRewardComponent::HandleWindowClosed);
+
+	// --- Build 1.2: условия показа золотой кнопки (ТЗ №3 п.4): не первый день профиля,
+	// 15 минут суммарного игрового времени, ролик готов. Награда дня «ещё не забрана» —
+	// база начислена только что, удвоение доступно, пока баннер открыт. Не выполнено —
+	// кнопки просто нет (обычная «Забрать» — всегда).
+	GrantedReward = Result.Reward;
+	GrantedStreak = Result.NewStreak;
+	bDoubleAdInProgress = false;
+	bDoubleClaimed = false;
+
+	IAdService* Ads = AdService::Get(this);
+	FString DenyReason;
+	if (bFirstEverDay)
+	{
+		DenyReason = TEXT("first_day");
+	}
+	else if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds()))
+	{
+		DenyReason = TEXT("under_15min");
+	}
+	else if (!Ads || !Ads->IsRewardedReady())
+	{
+		DenyReason = TEXT("no_ad");
+	}
+	const bool bShowDouble = DenyReason.IsEmpty();
+	ActiveWindow->SetupDoubleOffer(Result.Reward, bShowDouble);
+	ActiveWindow->OnDoubleRequested.AddUObject(this, &UDailyRewardComponent::HandleDoubleRequested);
+	if (Analytics)
+	{
+		if (bShowDouble)
+		{
+			// value = день серии; размер базовой награды — в лог QA (GA несёт одно число).
+			Analytics->RecordAdStage(TEXT("daily"), TEXT("button_shown"),
+				static_cast<float>(Result.NewStreak), /*bWithValue=*/true);
+		}
+		else
+		{
+			Analytics->RecordAdNotShown(TEXT("daily"), DenyReason);
+		}
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: DAILY x2 button %s%s%s (day %d, base %.0f)"),
+		bShowDouble ? TEXT("SHOWN") : TEXT("hidden"),
+		bShowDouble ? TEXT("") : TEXT(" reason="), *DenyReason,
+		Result.NewStreak, Result.Reward);
+
 	ActiveWindow->AddToViewport(/*ZOrder=*/50);
 
 	FInputModeGameAndUI Mode;
@@ -175,5 +232,92 @@ void UDailyRewardComponent::HandleWindowClosed()
 	{
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = true; // курсор нужен и в игре (клик-таргетинг)
+	}
+}
+
+void UDailyRewardComponent::HandleDoubleRequested()
+{
+	if (bDoubleAdInProgress || bDoubleClaimed || !ActiveWindow)
+	{
+		return;
+	}
+
+	IAdService* Ads = AdService::Get(this);
+	if (!Ads || !Ads->IsRewardedReady())
+	{
+		// Ролик разгрузился между показом кнопки и кликом — честно прячем кнопку.
+		ActiveWindow->SetupDoubleOffer(GrantedReward, /*bVisible=*/false);
+		return;
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: daily x2 button clicked (base %.0f)"), GrantedReward);
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordAdStage(TEXT("daily"), TEXT("button_clicked"));
+		Analytics->RecordAdStage(TEXT("daily"), TEXT("started"));
+	}
+
+	bDoubleAdInProgress = true;
+	Ads->ShowRewarded(AdPlacements::DailyDouble,
+		FSimpleDelegate::CreateUObject(this, &UDailyRewardComponent::HandleDoubleAdSuccess),
+		FSimpleDelegate::CreateUObject(this, &UDailyRewardComponent::HandleDoubleAdFail));
+}
+
+void UDailyRewardComponent::HandleDoubleAdSuccess()
+{
+	bDoubleAdInProgress = false;
+	if (bDoubleClaimed)
+	{
+		return;
+	}
+
+	APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
+	if (!Player || !Player->GetStats())
+	{
+		return;
+	}
+
+	// Начисление ДО закрытия баннера, с проверкой по факту (ТЗ №3 п.5: ежедневка — самая
+	// обидная точка для потери награды). Доначисляем вторую дневную сумму (итог = двойная)
+	// и зеркалим в сейв тем же путём, что базовую (иначе смерть перетёрла бы деньги слотом).
+	bDoubleClaimed = true;
+	Player->GetStats()->AddMoney(GrantedReward);
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		if (Save->bHasData)
+		{
+			Save->Money += GrantedReward;
+			Player->WriteSaveObject(Save);
+		}
+	}
+
+	const float Total = GrantedReward * 2.0f;
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		// value = начисленный итог; базовая сумма — в лог QA (GA несёт одно число).
+		Analytics->RecordAdStage(TEXT("daily"), TEXT("completed"), Total, /*bWithValue=*/true);
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: daily x2 completed - base %.0f, total %.0f (day %d)"),
+		GrantedReward, Total, GrantedStreak);
+
+	if (ActiveWindow)
+	{
+		ActiveWindow->ShowDoubledResult(Total);
+	}
+}
+
+void UDailyRewardComponent::HandleDoubleAdFail()
+{
+	bDoubleAdInProgress = false;
+
+	// Закрыт досрочно: баннер в исходном состоянии, обычная награда доступна, повторная
+	// попытка разрешена (ТЗ №3 п.5) — только спокойная строка про полный просмотр.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordAdStage(TEXT("daily"), TEXT("dismissed"));
+	}
+	if (ActiveWindow)
+	{
+		ActiveWindow->ShowAdNotFinished();
 	}
 }

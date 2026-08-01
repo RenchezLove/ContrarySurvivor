@@ -10,6 +10,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AMasterInventoryItem.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/PanelWidget.h"
 #include "Components/TextBlock.h"
@@ -146,10 +147,10 @@ void UDeathScreenWidget::RefreshLossPreview()
 				CountSlot->SetHorizontalAlignment(HAlign_Center);
 			}
 
-			if (UPanelSlot* CellSlot = LossGrid->AddChild(Cell))
+			// Зазор между позициями (в ассете сетка — HorizontalBox; иная панель — без отступов).
+			if (UHorizontalBoxSlot* CellSlot = Cast<UHorizontalBoxSlot>(LossGrid->AddChild(Cell)))
 			{
-				// Зазор между позициями — у панельных слотов с отступами (Horizontal/WrapBox).
-				(void)CellSlot;
+				CellSlot->SetPadding(FMargin(6.0f, 0.0f));
 			}
 		}
 

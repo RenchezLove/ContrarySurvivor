@@ -55,8 +55,36 @@ public:
 
 	// --- Build 1.2: rewarded-реклама (ТЗ издателя №1-№3, раздел «Аналитика») ---
 	// GA design-события несут ОДНО число (value), словарей параметров у них нет, поэтому
-	// имена ТЗ вида ad_backpack_button_shown ложатся в иерархию "ad:backpack:button_shown",
-	// а главный параметр события едет числом value; причина непоказа — сегментом id.
+	// имена ТЗ вида ad_backpack_button_shown ложатся в иерархию "ad:backpack:button_shown"
+	// (двоеточие — родной пятиуровневый формат id событий GameAnalytics), а главный
+	// параметр события едет числом value; причина непоказа — сегментом id.
+	//
+	// СООТВЕТСТВИЕ ИМЁН для сверки метрик издателем (имя ТЗ -> событие GA [value]):
+	//   ad_backpack_button_shown   -> ad:backpack:button_shown   [предметов под угрозой]
+	//   ad_backpack_button_clicked -> ad:backpack:button_clicked
+	//   ad_backpack_started        -> ad:backpack:started
+	//   ad_backpack_completed      -> ad:backpack:completed
+	//   ad_backpack_dismissed      -> ad:backpack:dismissed
+	//   ad_backpack_failed         -> ad:backpack:failed
+	//   ad_backpack_not_shown      -> ad:backpack:not_shown:{under_15min|no_items|no_ad|limit}
+	//   ad_shop_button_shown       -> ad:shop:button_shown       [сумма сделки]
+	//   ad_shop_button_clicked     -> ad:shop:button_clicked
+	//   ad_shop_started            -> ad:shop:started
+	//   ad_shop_completed          -> ad:shop:completed          [начисленная сумма]
+	//   ad_shop_dismissed          -> ad:shop:dismissed
+	//   ad_shop_failed             -> ad:shop:failed
+	//   ad_shop_not_shown          -> ad:shop:not_shown:{under_15min|below_min_total|no_ad|limit|cooldown}
+	//   ad_daily_button_shown      -> ad:daily:button_shown      [день серии]
+	//   ad_daily_button_clicked    -> ad:daily:button_clicked
+	//   ad_daily_started           -> ad:daily:started
+	//   ad_daily_completed         -> ad:daily:completed         [начисленный итог]
+	//   ad_daily_dismissed         -> ad:daily:dismissed
+	//   ad_daily_failed            -> ad:daily:failed
+	//   ad_daily_not_shown         -> ad:daily:not_shown:{first_day|under_15min|no_ad}
+	//   shop_sell_completed        -> shop:sell_completed        [сумма продажи]
+	//   daily_reward_claimed       -> retention:daily_reward_claimed [день серии]
+	// Параметры ТЗ сверх одного числа (номер смерти за сессию, базовая сумма при
+	// удвоении и т.п.) в GA не влезают — они пишутся в QA-лог рядом с отправкой.
 
 	// Этап точки рекламы: Point = backpack/shop/daily, Stage = button_shown/button_clicked/
 	// started/completed/dismissed/failed. bWithValue — прицепить число (например, сумму).

@@ -72,6 +72,37 @@ struct FDailyRewardStyle
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward")
 	FLinearColor TakeButtonTextColor = FLinearColor(0.05f, 0.05f, 0.05f, 1.0f);
+
+	// --- Build 1.2: золотая кнопка «Забрать вдвое больше» (ТЗ издателя №3) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FText DoubleButtonText = NSLOCTEXT("DailyRewardWidget", "DoubleButtonText", "Забрать вдвое больше");
+
+	// Вторая строка мелко — КОНКРЕТНЫЕ числа, не «×2» (ТЗ №3 раздел 3):
+	// {Double} — удвоенная сумма, {Base} — обычная.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FText DoubleSubFormat = NSLOCTEXT("DailyRewardWidget", "DoubleSubFormat",
+		"{Double} монет вместо {Base} за просмотр ролика");
+
+	// Строка суммы после удвоения: {Amount} — итог (ТЗ №3 п.5: подтверждение с итогом).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FText DoubledRewardFormat = NSLOCTEXT("DailyRewardWidget", "DoubledRewardFormat",
+		"+{Amount} монет — удвоено!");
+
+	// Строка после досрочного закрытия ролика (у заглушки не случается).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FText AdNotFinishedText = NSLOCTEXT("DailyRewardWidget", "AdNotFinishedText",
+		"Награда даётся за полный просмотр");
+
+	// Тёплое золото — единый цвет rewarded-кнопок (ТЗ раздел 0 п.9).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FLinearColor DoubleButtonColor = FLinearColor(0.85f, 0.62f, 0.14f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads")
+	FLinearColor DoubleButtonTextColor = FLinearColor(0.1f, 0.08f, 0.03f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward|Ads", meta = (ClampMin = "8"))
+	int32 DoubleButtonFontSize = 17;
 };
 
 /**
@@ -96,12 +127,31 @@ public:
 	// Окно закрыто кнопкой «Забрать» — владелец (UDailyRewardComponent) возвращает режим ввода.
 	FSimpleMulticastDelegate OnClosed;
 
+	// --- Build 1.2: удвоение за просмотр (ТЗ №3). Условия показа решает владелец
+	// (UDailyRewardComponent) — виджет только показывает/прячет и рисует числа. ---
+
+	// Игрок нажал «Забрать вдвое больше» — владелец крутит ролик и начисляет.
+	FSimpleMulticastDelegate OnDoubleRequested;
+
+	// Показ/скрытие золотой кнопки. BaseReward — обычная награда дня (для чисел подстроки).
+	void SetupDoubleOffer(float BaseReward, bool bVisible);
+
+	// После досмотра: строка суммы = итог с удвоением, золотая кнопка прячется
+	// (обычная «Забрать» остаётся — ей баннер и закрывают).
+	void ShowDoubledResult(float TotalAmount);
+
+	// Досрочное закрытие ролика: спокойная строка, кнопка остаётся (повтор разрешён, ТЗ №3 п.5).
+	void ShowAdNotFinished();
+
 protected:
 	// Строит дерево виджета в C++ (панель по центру: заголовок, день серии, сумма, кнопка).
 	virtual void NativeOnInitialized() override;
 
 	UFUNCTION()
 	void HandleTakeClicked();
+
+	UFUNCTION()
+	void HandleDoubleClicked();
 
 private:
 	UPROPERTY()
@@ -122,6 +172,16 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> TakeLabelBlock;
+
+	// --- Build 1.2: кубики золотой кнопки удвоения (ТЗ №3) ---
+	UPROPERTY()
+	TObjectPtr<UButton> DoubleButton;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> DoubleLabelBlock;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> DoubleSubBlock;
 
 	UPROPERTY()
 	FDailyRewardStyle CurrentStyle;

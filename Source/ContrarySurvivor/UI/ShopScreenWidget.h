@@ -299,4 +299,10 @@ private:
 	// дёргает UpdateSellAdButton на каждое движение — не спамим аналитику).
 	bool bAdShownLogged = false;
 	bool bAdNotShownLogged = false;
+
+	// Лимит 4/сутки и кулдаун 3 минуты — снимок на момент открытия сделки (читаются из
+	// слота сейва; на каждое движение ползунка диск не дёргаем — меняются они только
+	// нашим же просмотром, а он закрывает сделку).
+	bool bAdLimitOk = false;
+	bool bAdCooldownOk = false;
 };

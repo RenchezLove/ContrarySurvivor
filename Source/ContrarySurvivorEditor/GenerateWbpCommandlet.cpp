@@ -3214,10 +3214,11 @@ int32 UGenerateWbpCommandlet::GenerateAdIcon()
 			const FVector2D P(X + 0.5f, Y + 0.5f);
 
 			// SDF скруглённого прямоугольника; кольцо контура = |sdf| < половины толщины.
-			const FVector2D FromCenter(FMath::Abs(P.X - Cx), FMath::Abs(P.Y - Cy));
-			const float QX = FromCenter.X - (HalfExtent - CornerRadius);
-			const float QY = FromCenter.Y - (HalfExtent - CornerRadius);
-			const float OutsideDist = FVector2D(FMath::Max(QX, 0.0f), FMath::Max(QY, 0.0f)).Size();
+			// FVector2D в UE5 — double: промежутки считаем во float явно (без сужений).
+			const float QX = static_cast<float>(FMath::Abs(P.X - Cx)) - (HalfExtent - CornerRadius);
+			const float QY = static_cast<float>(FMath::Abs(P.Y - Cy)) - (HalfExtent - CornerRadius);
+			const float OutsideDist = FMath::Sqrt(
+				FMath::Square(FMath::Max(QX, 0.0f)) + FMath::Square(FMath::Max(QY, 0.0f)));
 			const float InsideDist = FMath::Min(FMath::Max(QX, QY), 0.0f);
 			const float RectSdf = OutsideDist + InsideDist - CornerRadius;
 			const float RingAlpha = FMath::Clamp(OutlineWidth * 0.5f - FMath::Abs(RectSdf) + 0.5f, 0.0f, 1.0f);
