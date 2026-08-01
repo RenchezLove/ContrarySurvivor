@@ -24,6 +24,7 @@
 #include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): обыск трупов
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
@@ -351,6 +352,13 @@ void AContrarySurvivorPlayerController::OnTogglePauseMenu()
 	// На экране смерти меню не открываем — там свой модальный флоу («Возродиться»).
 	if (bDeathScreen)
 	{
+		return;
+	}
+	// Build 1.2.1 (ТЗ А1): Esc при открытом окне обыска трупа ЗАКРЫВАЕТ его (требование
+	// «закрытие Esc/крестик»), а не открывает меню паузы поверх.
+	if (bCorpseLootOpen)
+	{
+		CloseCorpseLoot();
 		return;
 	}
 	if (bPauseMenuOpen)
@@ -1373,10 +1381,11 @@ void AContrarySurvivorPlayerController::CloseDialog()
 
 void AContrarySurvivorPlayerController::CloseAllUI()
 {
-	// Магазин/диалог/меню паузы: их Close* сами синхронизируют состояние и возвращают режим
-	// ввода в Game (early-return, если окно не открыто).
+	// Магазин/диалог/обыск трупа/меню паузы: их Close* сами синхронизируют состояние и
+	// возвращают режим ввода в Game (early-return, если окно не открыто).
 	CloseShop();
 	CloseDialog();
+	CloseCorpseLoot();
 	ClosePauseMenu();
 
 	// Инвентарь: сбрасываем флаг, синхронизируем HUD и режим ввода (как ветка «закрыто» в OnToggleInventory).
@@ -1418,6 +1427,13 @@ void AContrarySurvivorPlayerController::OnInteract()
 		return;
 	}
 
+	// Открытое окно обыска трупа закрываем тем же E (Build 1.2.1, как магазин).
+	if (bCorpseLootOpen)
+	{
+		CloseCorpseLoot();
+		return;
+	}
+
 	// Контекстный interact (решение Рината/game-lead): действуем по БЛИЖАЙШЕМУ интерактиву,
 	// выбранному в Tick (UpdateNearbyInteractable). Пикап -> подобрать, торговец -> магазин,
 	// староста -> диалог.
@@ -1450,6 +1466,19 @@ void AContrarySurvivorPlayerController::OnInteract()
 			if (AElderNPC* Elder = Cast<AElderNPC>(CurrentInteractActor))
 			{
 				OpenDialog(Elder);
+			}
+			break;
+		}
+		case EInteractKind::Corpse:
+		{
+			// Build 1.2.1 (ТЗ А1): труп врага с лутом — открываем окно обыска.
+			if (CurrentInteractActor)
+			{
+				if (UCorpseLootComponent* Corpse =
+					CurrentInteractActor->FindComponentByClass<UCorpseLootComponent>())
+				{
+					OpenCorpseLoot(Corpse);
+				}
 			}
 			break;
 		}
@@ -1501,6 +1530,51 @@ void AContrarySurvivorPlayerController::CloseShop()
 	SetInputMode(FInputModeGameOnly());
 	bShowMouseCursor = true;
 	UE_LOG(LogTemp, Log, TEXT("Shop CLOSED"));
+}
+
+void AContrarySurvivorPlayerController::OpenCorpseLoot(UCorpseLootComponent* Corpse)
+{
+	// Build 1.2.1 (ТЗ А1): окно обыска трупа — модалка по образцу OpenShop.
+	if (!Corpse || bCorpseLootOpen)
+	{
+		return;
+	}
+
+	bCorpseLootOpen = true;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetCorpseLootOpen(true, Corpse);
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot window OPEN ('%s')"),
+		*GetNameSafe(Corpse->GetOwner()));
+}
+
+void AContrarySurvivorPlayerController::CloseCorpseLoot()
+{
+	if (!bCorpseLootOpen)
+	{
+		return;
+	}
+	bCorpseLootOpen = false;
+	bUIClickConsumed = false;
+
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->SetCorpseLootOpen(false, nullptr);
+	}
+
+	SetInputMode(FInputModeGameOnly());
+	bShowMouseCursor = true;
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot window CLOSED"));
 }
 
 void AContrarySurvivorPlayerController::OnToggleInventory()
@@ -1922,7 +1996,7 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	CurrentInteractKind = EInteractKind::None;
 
 	// Пока открыт модальный экран (вкл. экран смерти) — подсказку не предлагаем.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen)
 	{
 		return;
 	}
@@ -1977,6 +2051,27 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
+	// Трупы врагов с лутом (Build 1.2.1, ТЗ А1): реестр обыскиваемых вместо перебора
+	// всех акторов мира. Полностью обысканный труп (HasLoot()=false) подсказку не даёт,
+	// хотя лежит до таймера. Дистанция — та же InteractRange, конкуренция честная.
+	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : UCorpseLootComponent::GetSearchableCorpses())
+	{
+		UCorpseLootComponent* Corpse = Ptr.Get();
+		AActor* CorpseOwner = Corpse ? Corpse->GetOwner() : nullptr;
+		if (!Corpse || !IsValid(CorpseOwner) || Corpse->GetWorld() != World || !Corpse->HasLoot())
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(Loc, CorpseOwner->GetActorLocation());
+		if (DistSq <= RangeSq && DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			CurrentInteractActor = CorpseOwner;
+			CurrentInteractKind = EInteractKind::Corpse;
+		}
+	}
+
 	// Этап F (онбординг): первый доступный подбор — подсказка «Нажми E...». Зовётся каждый
 	// тик, но TryShowHint проверяет флаг в памяти и после первого показа — no-op.
 	if (CurrentInteractKind == EInteractKind::Pickup)
@@ -2003,6 +2098,7 @@ FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
 		case EInteractKind::Pickup: return bTouch ? InteractPromptPickupTouch : InteractPromptPickup;
 		case EInteractKind::Trader: return bTouch ? InteractPromptTraderTouch : InteractPromptTrader;
 		case EInteractKind::Elder:  return bTouch ? InteractPromptElderTouch : InteractPromptElder;
+		case EInteractKind::Corpse: return bTouch ? InteractPromptCorpseTouch : InteractPromptCorpse;
 		default:                    return FText::GetEmpty();
 	}
 }
@@ -2049,10 +2145,10 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин/диалог/экран смерти/меню паузы ИЛИ идёт авто-подход интро —
-	// движение игрока подавлено. Гейт общий для WASD и тач-стика (инжекция стика идёт тем же
-	// MoveAction). Во время интро персонажа ведёт авто-подход (UpdateIntro), не игрок.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen || bIntroInputLocked)
+	// Пока открыт инвентарь/магазин/диалог/обыск трупа/экран смерти/меню паузы ИЛИ идёт
+	// авто-подход интро — движение игрока подавлено. Гейт общий для WASD и тач-стика
+	// (инжекция стика идёт тем же MoveAction). Во время интро персонажа ведёт авто-подход.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bIntroInputLocked)
 	{
 		return;
 	}
@@ -2180,6 +2276,13 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 				}
 			}
 		}
+		return;
+	}
+
+	// Окно обыска трупа (Build 1.2.1): клики обрабатывают Slate-кнопки самого окна
+	// (UMG-виджет), стрельбу глушим целиком — как у прочих модалок.
+	if (bCorpseLootOpen)
+	{
 		return;
 	}
 

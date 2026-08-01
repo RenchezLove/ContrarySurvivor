@@ -35,13 +35,15 @@ enum class EIntroPhase : uint8
 };
 
 // Тип ближайшего контекстного интерактива (клавиша E, Фаза 4 — решение Рината/game-lead):
-// E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог.
+// E выбирает БЛИЖАЙШИЙ интерактив. Пикап -> подобрать, торговец -> магазин, староста -> диалог,
+// труп врага с лутом -> окно обыска (Build 1.2.1, ТЗ А1).
 enum class EInteractKind : uint8
 {
 	None,
 	Pickup,
 	Trader,
-	Elder
+	Elder,
+	Corpse
 };
 
 UCLASS()
@@ -76,6 +78,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
+	// --- Обыск трупа (Build 1.2.1, ТЗ А1) — вызывается OnInteract (E у трупа) и HUD ---
+
+	// Открыть окно обыска трупа (контейнер лута — на трупе врага).
+	UFUNCTION(BlueprintCallable, Category = "CorpseLoot")
+	void OpenCorpseLoot(class UCorpseLootComponent* Corpse);
+
+	// Закрыть окно обыска (крестик / Esc / повторное E / труп исчез по таймеру).
+	UFUNCTION(BlueprintCallable, Category = "CorpseLoot")
+	void CloseCorpseLoot();
+
 	// Закрыть ВСЕ открытые модальные окна (инвентарь/магазин/диалог) и вернуть режим ввода
 	// в Game. Вызывается при смерти игрока (APlayerCharacter::HandleDeath), чтобы UI не
 	// «зависал» открытым после респауна.
@@ -107,10 +119,10 @@ public:
 
 	// --- Этап F: онбординг/окно ежедневки ---
 
-	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/экран смерти/меню паузы).
-	// Нужно UDailyRewardComponent: возвращать GameOnly после окна награды можно только
-	// если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || bPauseMenuOpen; }
+	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
+	// смерти/меню паузы). Нужно UDailyRewardComponent: возвращать GameOnly после окна
+	// награды можно только если игрок не успел открыть другую модалку.
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen; }
 
 	// Подавлен ли сейчас ввод движения интро-последовательностью (чёрный экран строк /
 	// авто-подход к деревне). Нужно индикатору хромоты (Build 1): разовая расшифровка
@@ -315,6 +327,13 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "6"))
 	FText InteractPromptElderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderTouch", "Поговорить");
+
+	// Build 1.2.1 (ТЗ А1): подсказка у трупа врага с лутом — «Обыскать [E]».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "7"))
+	FText InteractPromptCorpse = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpse", "E — обыскать");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "8"))
+	FText InteractPromptCorpseTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseTouch", "Обыскать");
 
 	// --- Интро (Build 1, ТЗ издателя раздел 2). Тексты дословно из ТЗ; тюнинг длительностей —
 	// Ринату. Тексты видит игрок → FText/NSLOCTEXT (ADR-050). ---
@@ -649,6 +668,10 @@ private:
 
 	// Открыт ли экран диалога (модальный, как магазин): клик уходит в диалог, движение подавлено.
 	bool bDialogOpen = false;
+
+	// Открыто ли окно обыска трупа (Build 1.2.1, ТЗ А1; модальное, как магазин): клики
+	// обрабатывают Slate-кнопки окна, движение подавлено. Источник — OpenCorpseLoot/CloseCorpseLoot.
+	bool bCorpseLootOpen = false;
 
 	// Открыт ли экран смерти (#26): геймплей-ввод (движение/огонь/интеракт) подавлен,
 	// клик уходит в кнопку «Возродиться». Источник — ShowDeathScreen/HideDeathScreen.

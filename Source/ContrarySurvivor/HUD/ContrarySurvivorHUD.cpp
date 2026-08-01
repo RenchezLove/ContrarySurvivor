@@ -19,6 +19,8 @@
 #include "ContrarySurvivor/UI/PlayerStatsWidget.h"     // ADR-048: постоянная панель статов
 #include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // ADR-048: постоянный трекер квеста
 #include "ContrarySurvivor/UI/InteractPromptWidget.h"  // ADR-048: постоянная подсказка E
+#include "ContrarySurvivor/UI/CorpseLootWidget.h"      // Build 1.2.1 (А1): окно обыска трупа
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): контейнер лута трупа
 #include "AArmor.h"               // EArmorSlot, AArmor
 #include "AMasterInventoryItem.h" // EItemCategory, ItemName
 #include "AMasterWeapon.h"        // GetCurrentWeapon display
@@ -728,6 +730,63 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 bool AContrarySurvivorHUD::IsUmgShopActive() const
 {
 	return ShopWidgetInstance && ShopWidgetInstance->IsInViewport();
+}
+
+void AContrarySurvivorHUD::SetCorpseLootOpen(bool bOpen, UCorpseLootComponent* Corpse)
+{
+	// Build 1.2.1 (ТЗ А1): окно обыска трупа. Canvas-пути нет: пустой слот класса —
+	// создаём прямо из C++-класса (кодовое дерево-фолбэк UCorpseLootWidget).
+	if (bOpen && Corpse)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		if (!PC || !PlayerChar)
+		{
+			return;
+		}
+		if (!CorpseLootWidgetInstance)
+		{
+			CorpseLootWidgetInstance = CorpseLootWidgetClass
+				? CreateWidget<UCorpseLootWidget>(PC, CorpseLootWidgetClass)
+				: CreateWidget<UCorpseLootWidget>(PC, UCorpseLootWidget::StaticClass());
+			if (CorpseLootWidgetInstance)
+			{
+				// Закрытие (крестик / труп исчез): мир и режим ввода возвращает контроллер
+				// (CloseCorpseLoot — тот же путь, что Esc). Слабая лямбда: HUD переживает
+				// контроллер при травел-переходах.
+				CorpseLootWidgetInstance->OnCloseRequested.AddWeakLambda(this, [this]()
+				{
+					if (AContrarySurvivorPlayerController* CSPC =
+						Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController()))
+					{
+						CSPC->CloseCorpseLoot();
+					}
+					else
+					{
+						SetCorpseLootOpen(false, nullptr); // фолбэк без нашего контроллера
+					}
+				});
+			}
+		}
+		if (CorpseLootWidgetInstance)
+		{
+			CorpseLootWidgetInstance->InitCorpseLoot(Corpse, PlayerChar);
+			if (!CorpseLootWidgetInstance->IsInViewport())
+			{
+				// Z=30: модальные окна (магазин/диалог) — тот же слой.
+				CorpseLootWidgetInstance->AddToViewport(/*ZOrder=*/30);
+			}
+		}
+	}
+	else if (!bOpen && CorpseLootWidgetInstance && CorpseLootWidgetInstance->IsInViewport())
+	{
+		CorpseLootWidgetInstance->RemoveFromParent(); // экземпляр переиспользуется
+	}
+}
+
+bool AContrarySurvivorHUD::IsCorpseLootOpen() const
+{
+	return CorpseLootWidgetInstance && CorpseLootWidgetInstance->IsInViewport();
 }
 
 void AContrarySurvivorHUD::ScrollShopList(int32 DeltaRows)

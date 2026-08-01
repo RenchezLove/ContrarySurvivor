@@ -175,6 +175,16 @@ public:
 	// Выполнить транзакцию на выбранное qty и закрыть слайдер (Enter/кнопка Confirm).
 	void ConfirmShopSlider(APlayerCharacter* Player);
 
+	// --- Окно обыска трупа (Build 1.2.1, ТЗ А1) — ТОЛЬКО UMG (UCorpseLootWidget) ---
+
+	// Открыть/закрыть окно обыска трупа (вызывается контроллером по E у трупа). В отличие
+	// от старых экранов Canvas-пути НЕТ: слот CorpseLootWidgetClass пуст — виджет создаётся
+	// прямо из C++-класса (кодовое дерево-фолбэк UCorpseLootWidget), окно работает без ассета.
+	void SetCorpseLootOpen(bool bOpen, class UCorpseLootComponent* Corpse);
+
+	// Окно обыска на экране? (виджет существует и в вьюпорте)
+	bool IsCorpseLootOpen() const;
+
 	// --- Экран диалога со старостой (Фаза 5, квесты — GDD §7.7) — immediate-mode, без UMG ---
 
 	// Открыть/закрыть диалог с конкретным старостой (вызывается контроллером по клавише E).
@@ -580,6 +590,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "7"))
 	TSubclassOf<UInteractPromptWidget> InteractPromptWidgetClass;
+
+	// Окно обыска трупа (WBP_CorpseLoot, Build 1.2.1 ТЗ А1). ОСОБЕННОСТЬ: Canvas-пути у
+	// этого окна нет — пустой слот означает создание виджета прямо из C++-класса
+	// UCorpseLootWidget (кодовое дерево-фолбэк), обыск работает и без ассета.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "8"))
+	TSubclassOf<class UCorpseLootWidget> CorpseLootWidgetClass;
 
 	// ======================================================================
 	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
@@ -1093,6 +1109,14 @@ private:
 
 	// Магазин живёт в UMG-пути? (слот назначен и экземпляр показан)
 	bool IsUmgShopActive() const;
+
+	// --- Окно обыска трупа (Build 1.2.1, ТЗ А1) ---
+
+	// UMG-экземпляр окна обыска: создаётся при первом открытии (из CorpseLootWidgetClass,
+	// а при пустом слоте — прямо из UCorpseLootWidget::StaticClass(), кодовое дерево);
+	// переиспользуется между трупами.
+	UPROPERTY()
+	TObjectPtr<class UCorpseLootWidget> CorpseLootWidgetInstance;
 
 	// Вендор, чей каталог отрисовываем (источник цен/товаров). Интерфейс — развязка от
 	// конкретного класса торговца (A2). TScriptInterface держит и UObject, и интерфейс-указатель.
