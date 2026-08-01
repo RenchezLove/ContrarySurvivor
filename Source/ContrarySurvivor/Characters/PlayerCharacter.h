@@ -13,6 +13,7 @@
 //#include "PlayerController.h"
 #include "AMasterWeapon.h"
 #include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // FLimpIndicatorStyle + FLimpFirstHintState (индикатор хромоты, Build 1)
+#include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
 #include "PlayerCharacter.generated.h"
 
 class UStatsComponent;
@@ -346,10 +347,38 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float RespawnSurvivalFraction = 1.0f;
 
-    // Доля денег, изымаемая при ЛЮБОЙ смерти (ADR-027, баланс Рината = 40%). 0.40 -> теряется 40%
-    // монет. Тюнинг из BP. Применяется в ApplyMoneyDeathPenalty (после загрузки сейва, затем пере-сейв).
+    // --- Потери при смерти (Build 1.2, переопределение Рината поверх ТЗ издателя №1):
+    // без рекламы теряется DeathConsumableLossFraction расходников и DeathMoneyLossFraction
+    // денег; со «Спасти рюкзак» (просмотр ролика) — DeathRescuedLossFraction и того и
+    // другого. Из потерянного DeathDropShareFraction падает мешком на месте гибели,
+    // остальное исчезает. Пока экран смерти открыт — НИЧЕГО не списано; применение — в
+    // Respawn(bBackpackRescued). Арифметика — DeathLoss::Compute (headless-тесты). ---
+
+    // Доля денег, изымаемая при смерти БЕЗ просмотра рекламы (Ринат, Build 1.2: 50%;
+    // прежний баланс ADR-027 был 40%). База — деньги на момент смерти (снимок HandleDeath).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float DeathMoneyLossFraction = 0.40f;
+    float DeathMoneyLossFraction = 0.50f;
+
+    // Доля неэкипированных расходников, теряемая при смерти БЕЗ рекламы (Ринат: 70%).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DeathConsumableLossFraction = 0.70f;
+
+    // Доля потерь (и расходников, и денег) при смерти С просмотром «Спасти рюкзак» (Ринат: 10%).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DeathRescuedLossFraction = 0.10f;
+
+    // Какая доля ПОТЕРЯННОГО падает мешком на месте гибели (Ринат: половина). Остальное исчезает.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DeathDropShareFraction = 0.50f;
+
+    // Лимит показов «Спасти рюкзак» в календарные сутки (ТЗ №1 п.3: не более 3).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "0"))
+    int32 BackpackAdDailyLimit = 3;
+
+    // Как часто сбрасывать накопленное игровое время в сейв (сек). Гейт «15 минут без
+    // рекламы» считается по сейву + несброшенному остатку, так что точность не страдает.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "5.0"))
+    float PlaytimeFlushInterval = 60.0f;
 
     // --- Сейв/респаун (GDD §7.8) ---
 
@@ -521,10 +550,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Death")
     void RegisterEnemyKill(const FString& EnemyType = TEXT("Unknown"));
 
-    // Возрождение по кнопке экрана смерти / клавише: респаун у костра (сейв) + потеря доли
-    // рюкзака + возврат управления + скрытие экрана смерти. Вынесено из старого HandleDeath.
+    // Возрождение по кнопке экрана смерти / клавише: применяет план потерь (без рекламы —
+    // 70% расходников и 50% денег; bBackpackRescued=true после досмотра «Спасти рюкзак» —
+    // по 10%), роняет долю потерянного мешком на месте гибели, затем респаун у костра +
+    // возврат управления + скрытие экрана смерти. Клавиши Enter/Пробел зовут без аргумента.
     UFUNCTION(BlueprintCallable, Category = "Death")
-    void Respawn();
+    void Respawn(bool bBackpackRescued = false);
 
     // D5: добавить «травму» тряски камеры [0..1] (копится, затухает CameraShakeDecay).
     // Зовут: TakeDamage игрока (DamageShakeTrauma) и выстрел игрока (ARangedWeapon, лёгкая).
@@ -543,9 +574,58 @@ public:
     void SwitchWeapon();
 
     // Доля денег, теряемая при смерти (для текста попапа смерти на HUD — чтобы не расходился
-    // с фактическим штрафом при смене параметра). 0.40 = 40%.
+    // с фактическим штрафом при смене параметра). 0.50 = 50%.
     UFUNCTION(BlueprintPure, Category = "Death")
     float GetDeathMoneyLossFraction() const { return DeathMoneyLossFraction; }
+
+    // --- Build 1.2: данные для экрана смерти (блок «Будет потеряно» + «Спасти рюкзак») ---
+
+    // Доли потерь для текстов экрана смерти (живые из настроек, не литералы).
+    UFUNCTION(BlueprintPure, Category = "Death")
+    float GetDeathConsumableLossFraction() const { return DeathConsumableLossFraction; }
+
+    UFUNCTION(BlueprintPure, Category = "Death")
+    float GetDeathRescuedLossFraction() const { return DeathRescuedLossFraction; }
+
+    // Деньги на момент смерти (снимок HandleDeath) — база плана потерь и превью.
+    UFUNCTION(BlueprintPure, Category = "Death")
+    float GetMoneyAtDeath() const { return MoneyAtDeath; }
+
+    // Номер смерти за сессию (параметр аналитики ad_backpack_button_shown, ТЗ №1 п.5).
+    UFUNCTION(BlueprintPure, Category = "Death")
+    int32 GetDeathCountThisSession() const { return DeathCountThisSession; }
+
+    // Кандидаты на потерю: НЕэкипированные расходники рюкзака, в порядке инвентаря
+    // (тот же порядок использует применение плана — превью не разойдётся с фактом).
+    TArray<AMasterInventoryItem*> GetDeathLossCandidates() const;
+
+    // План потерь для показа и применения. bBackpackRescued=true — вариант «после ролика».
+    DeathLoss::FPlan ComputeDeathLossPlan(bool bBackpackRescued) const;
+
+    UFUNCTION(BlueprintPure, Category = "Ads")
+    int32 GetBackpackAdDailyLimit() const { return BackpackAdDailyLimit; }
+
+    // --- Build 1.2: суммарное игровое время + счётчики rewarded-рекламы (хранятся в сейве) ---
+
+    // Суммарное игровое время профиля с установки, сек (сейв + несброшенный остаток сессии).
+    // По нему работает глобальный запрет рекламы первые 15 минут (AdGating).
+    UFUNCTION(BlueprintPure, Category = "Ads")
+    float GetTotalPlayTimeSeconds() const { return SavedPlayTimeBase + UnflushedPlayTime; }
+
+    // Использований «Спасти рюкзак» за сегодняшние календарные сутки (лимит 3/сутки).
+    int32 GetBackpackAdUsesToday() const;
+
+    // Засчитать использование «Спасти рюкзак» (пишет счётчик в сейв). Звать ПОСЛЕ досмотра.
+    void RegisterBackpackAdUse();
+
+    // Использований «Продать дороже» за сегодня (лимит настраивается в магазине, ТЗ: 4).
+    int32 GetShopAdUsesToday() const;
+
+    // Прошло ли CooldownSeconds с прошлого «Продать дороже» (ТЗ №2: 3 минуты).
+    bool IsShopAdCooldownPassed(float CooldownSeconds) const;
+
+    // Засчитать использование «Продать дороже» (счётчик + момент — в сейв).
+    void RegisterShopAdUse();
 
     // --- Сейв/респаун API (GDD §7.8) ---
 
@@ -685,12 +765,19 @@ protected:
     void ShowLimpFirstHint();
     void EndLimpFirstHint();
 
-    // A4/ADR-027: роняет ВСЕ неэкипированные расходники (Consumable) ОДНИМ возвращаемым «мешком»
-    // (мульти-предмет APickup) на месте гибели. Квест-предметы/ресурсы/экипировка не трогаются.
-    void DropConsumablesAsBag(const FVector& DeathLoc);
+    // Build 1.2 (заменяет DropConsumablesAsBag из ADR-027): снимает из рюкзака Plan.LostItems
+    // расходников (в порядке инвентаря); первые Plan.DroppedItems + Plan.DroppedMoney падают
+    // возвращаемым «мешком» (APickup) на месте гибели, остальное уничтожается.
+    // Квест-предметы/ресурсы/экипировка не трогаются.
+    void DropDeathLoss(const FVector& DeathLoc, const DeathLoss::FPlan& Plan);
 
-    // A4/ADR-027: −40% денег игрока ПОСЛЕ загрузки сейва + пере-сохранение (анти-reload-эксплойт).
-    void ApplyMoneyDeathPenalty();
+    // Build 1.2 (заменяет ApplyMoneyDeathPenalty): выставляет деньги в
+    // (MoneyAtDeath - Plan.LostMoney) ПОСЛЕ загрузки сейва (иначе LoadGame перетёр бы
+    // баланс) + пере-сохранение (анти-reload-эксплойт, как раньше).
+    void ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan);
+
+    // Сброс накопленного игрового времени сессии в сейв (таймер PlaytimeFlushInterval).
+    void FlushPlayTime();
 
     // Применяет загруженный сейв к игроку (статы + телепорт в точку респауна).
     void ApplySaveData(const UContrarySaveGame* Save);
@@ -717,6 +804,19 @@ private:
 
     // A4/ADR-027: место гибели (для «мешка» расходников) — снимок в HandleDeath ДО телепорта респауна.
     FVector DeathDropLocation = FVector::ZeroVector;
+
+    // Build 1.2: деньги на момент смерти (снимок HandleDeath) — база плана потерь: превью
+    // на экране смерти и фактическое списание считаются от ОДНОГО числа.
+    float MoneyAtDeath = 0.0f;
+
+    // Номер смерти за сессию (аналитика ТЗ №1). Инкремент в HandleDeath.
+    int32 DeathCountThisSession = 0;
+
+    // --- Build 1.2: накопитель игрового времени (гейт «15 минут без рекламы») ---
+    // База из сейва (читается в BeginPlay, обновляется при сбросе) + несброшенный остаток.
+    float SavedPlayTimeBase = 0.0f;
+    float UnflushedPlayTime = 0.0f;
+    FTimerHandle PlaytimeFlushTimer;
 
     // Инстансы оружия (оба заспавнены в BeginPlay). CurrentWeapon базы указывает на активный.
     UPROPERTY()

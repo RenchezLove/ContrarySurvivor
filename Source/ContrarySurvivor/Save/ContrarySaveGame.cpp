@@ -19,4 +19,14 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->bElderFirstGiftGiven = From->bElderFirstGiftGiven;
 	To->bElderHookShown     = From->bElderHookShown;
 	To->bElderNotebookHintShown = From->bElderNotebookHintShown;
+	To->bEndOfStoryShown    = From->bEndOfStoryShown;
+
+	// Build 1.2: накопитель игрового времени и счётчики rewarded-рекламы — без переноса
+	// каждый автосейв костра обнулял бы 15-минутный гейт и суточные лимиты.
+	To->TotalPlayTimeSeconds   = From->TotalPlayTimeSeconds;
+	To->BackpackAdCounterDate  = From->BackpackAdCounterDate;
+	To->BackpackAdUsesOnDate   = From->BackpackAdUsesOnDate;
+	To->ShopAdCounterDate      = From->ShopAdCounterDate;
+	To->ShopAdUsesOnDate       = From->ShopAdUsesOnDate;
+	To->LastShopAdTime         = From->LastShopAdTime;
 }

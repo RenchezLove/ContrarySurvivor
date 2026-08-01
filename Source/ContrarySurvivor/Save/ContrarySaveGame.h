@@ -113,6 +113,41 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bElderNotebookHintShown = false;
 
+	// Build 1.2: сообщение о конце сюжета (плашка через ~30 с после сценки старосты про
+	// шкуры) показывается ОДИН раз за сохранение. Читает/пишет ContrarySurvivorHUD.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bEndOfStoryShown = false;
+
+	// --- Build 1.2: rewarded-реклама (ТЗ издателя №1-№3). Поля пишет APlayerCharacter
+	// (накопитель времени) и точки рекламы (счётчики); SaveGame() переносит их через
+	// CopyRetentionData, как и остальное удержание. ---
+
+	// Суммарное игровое время профиля с установки (сек). Накопитель для глобального
+	// запрета рекламы первые 15 минут (ТЗ раздел 0 п.2). Копится в Tick игрока и
+	// сбрасывается в слот раз в PlaytimeFlushInterval.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	float TotalPlayTimeSeconds = 0.0f;
+
+	// Точка 1 «Спасти рюкзак»: календарная дата счётчика (локальное время устройства)
+	// и число использований ЗА ЭТУ дату (лимит 3/сутки, ТЗ №1 п.3). Дата сменилась —
+	// счётчик логически 0 (AdGating::UsesToday). Ticks == 0 — использований не было.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	FDateTime BackpackAdCounterDate;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	int32 BackpackAdUsesOnDate = 0;
+
+	// Точка 2 «Продать дороже»: суточный счётчик (лимит 4/сутки) + момент прошлого
+	// просмотра (кулдаун 3 минуты, ТЗ №2 п.4).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	FDateTime ShopAdCounterDate;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	int32 ShopAdUsesOnDate = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	FDateTime LastShopAdTime;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

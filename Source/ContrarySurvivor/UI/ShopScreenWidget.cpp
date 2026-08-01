@@ -5,6 +5,9 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Actors/ShopTypes.h"
+#include "ContrarySurvivor/Ads/AdService.h"       // Build 1.2: «Продать дороже» (ТЗ №2)
+#include "ContrarySurvivor/Ads/AdGatingLogic.h"
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AArmor.h"               // «+N% защиты» у позиций брони (как Canvas DrawShop, ADR-043)
 #include "AMasterInventoryItem.h"
@@ -49,6 +52,10 @@ void UShopScreenWidget::NativeOnInitialized()
 	if (SliderCancelButton)
 	{
 		SliderCancelButton->OnClicked.AddDynamic(this, &UShopScreenWidget::HandleCancelClicked);
+	}
+	if (SellAdButton)
+	{
+		SellAdButton->OnClicked.AddDynamic(this, &UShopScreenWidget::HandleSellAdClicked);
 	}
 
 	// Панель количества спрятана до первой транзакции.
@@ -266,25 +273,30 @@ void UShopScreenWidget::ArmBuyTransaction(int32 CatalogIndex)
 
 void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 {
-	// Панель количества имеет смысл только для стака патронов; прочее продаётся сразу
-	// (та же логика, что Canvas ArmSellSlider).
+	// Build 1.2 (ТЗ №2 раздел 3): окно итога с двумя кнопками нужно ЛЮБОЙ продаже —
+	// теперь и нестакающийся предмет открывает панель подтверждения (количество жёстко 1),
+	// а не продаётся мгновенно кликом строки: в панели живут обычная кнопка продажи и
+	// золотая «Продать дороже». Отказ (обычная продажа) ничем не блокируется.
 	AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
-	if (!Ammo)
-	{
-		Player->Shop_SellItem(Item, Trader->GetSellValue(Item));
-		RefreshAll();
-		return;
-	}
 
 	bTransactionActive = true;
 	bTransactionIsBuy = false;
 	TransactionCatalogIndex = INDEX_NONE;
 	TransactionItem = Item;
-	TransactionUnitPrice = Trader->GetAmmoSellPerRound();
 	TransactionUnitAmmo = 0;
 	TransactionTitle = Item->GetItemDisplayText();
-	TransactionQtyMax = FMath::Max(1, Ammo->StackCount);
-	TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
+	if (Ammo)
+	{
+		TransactionUnitPrice = Trader->GetAmmoSellPerRound();
+		TransactionQtyMax = FMath::Max(1, Ammo->StackCount);
+		TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
+	}
+	else
+	{
+		TransactionUnitPrice = Trader->GetSellValue(Item);
+		TransactionQtyMax = 1;
+		TransactionQty = 1;
+	}
 
 	if (SliderPanel)
 	{
@@ -316,6 +328,8 @@ void UShopScreenWidget::CloseTransaction()
 	TransactionUnitPrice = 0.0f;
 	TransactionUnitAmmo = 0;
 	TransactionTitle = FText::GetEmpty();
+	bAdShownLogged = false;
+	bAdNotShownLogged = false;
 
 	if (SliderPanel)
 	{
@@ -388,6 +402,85 @@ void UShopScreenWidget::UpdateTransactionTexts()
 		SliderTotalText->SetText(FText::Format(
 			bTransactionIsBuy ? TotalFormat : RevenueFormat, Args));
 	}
+
+	// Build 1.2: золотая кнопка «Продать дороже» — числа живые от текущей суммы сделки
+	// (ТЗ №2 раздел 3), условия показа пересчитываются с каждым движением ползунка.
+	UpdateSellAdButton();
+}
+
+void UShopScreenWidget::UpdateSellAdButton()
+{
+	if (!SellAdButton)
+	{
+		return; // кубика в WBP_Shop нет — точка рекламы недоступна, магазин работает как раньше
+	}
+
+	// Кнопка живёт ТОЛЬКО в продаже (ТЗ №2 п.7: при покупке рекламу не предлагать).
+	if (!bTransactionActive || bTransactionIsBuy || !Player)
+	{
+		SellAdButton->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	const int32 Qty = FMath::Clamp(TransactionQty, 1, FMath::Max(1, TransactionQtyMax));
+	const float BaseTotal = TransactionUnitPrice * static_cast<float>(Qty);
+	const float Mult = FMath::Max(1.0f, SellAdBonusMultiplier);
+	IAdService* Ads = AdService::Get(this);
+
+	// Условия показа (ТЗ №2 п.4): все обязаны выполниться, иначе кнопка прячется целиком.
+	FString DenyReason;
+	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds()))
+	{
+		DenyReason = TEXT("under_15min");
+	}
+	else if (BaseTotal < SellAdMinTotal)
+	{
+		DenyReason = TEXT("below_min_total");
+	}
+	else if (!Ads || !Ads->IsRewardedReady())
+	{
+		DenyReason = TEXT("no_ad");
+	}
+	else if (Player->GetShopAdUsesToday() >= SellAdDailyLimit)
+	{
+		DenyReason = TEXT("limit");
+	}
+	else if (!Player->IsShopAdCooldownPassed(SellAdCooldownSeconds))
+	{
+		DenyReason = TEXT("cooldown");
+	}
+
+	const bool bShow = DenyReason.IsEmpty();
+	SellAdButton->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	if (bShow)
+	{
+		if (SellAdText)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Bonus"), FText::AsNumber(FMath::RoundToInt32(BaseTotal * Mult)));
+			Args.Add(TEXT("Base"), FText::AsNumber(FMath::RoundToInt32(BaseTotal)));
+			SellAdText->SetText(FText::Format(SellAdPriceFormat, Args));
+		}
+		if (SellAdSubText)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Percent"), FText::AsNumber(FMath::RoundToInt32((Mult - 1.0f) * 100.0f)));
+			SellAdSubText->SetText(FText::Format(SellAdSubFormat, Args));
+		}
+	}
+
+	// Аналитика — один раз на транзакцию (ползунок дёргает пересчёт на каждое движение).
+	UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this);
+	if (Analytics && bShow && !bAdShownLogged)
+	{
+		bAdShownLogged = true;
+		Analytics->RecordAdStage(TEXT("shop"), TEXT("button_shown"), BaseTotal, /*bWithValue=*/true);
+	}
+	else if (Analytics && !bShow && !bAdNotShownLogged && !bAdShownLogged)
+	{
+		bAdNotShownLogged = true;
+		Analytics->RecordAdNotShown(TEXT("shop"), DenyReason);
+	}
 }
 
 void UShopScreenWidget::HandleSliderValueChanged(float NewValue)
@@ -411,6 +504,10 @@ void UShopScreenWidget::HandleQtyPlusClicked()
 
 void UShopScreenWidget::HandleConfirmClicked()
 {
+	if (bAdInProgress)
+	{
+		return; // идёт «ролик» — панель заморожена до его исхода
+	}
 	if (!bTransactionActive || !Player || !Trader)
 	{
 		CloseTransaction();
@@ -439,5 +536,87 @@ void UShopScreenWidget::HandleConfirmClicked()
 
 void UShopScreenWidget::HandleCancelClicked()
 {
+	if (bAdInProgress)
+	{
+		return;
+	}
 	CloseTransaction();
+}
+
+void UShopScreenWidget::HandleSellAdClicked()
+{
+	if (bAdInProgress || !bTransactionActive || bTransactionIsBuy || !Player || !IsValid(TransactionItem))
+	{
+		return;
+	}
+
+	IAdService* Ads = AdService::Get(this);
+	if (!Ads || !Ads->IsRewardedReady())
+	{
+		// Ролик разгрузился между показом кнопки и кликом — честно прячем кнопку.
+		if (SellAdButton)
+		{
+			SellAdButton->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: shop sell-ad button clicked (total %.0f x%.2f)"),
+		TransactionUnitPrice * TransactionQty, SellAdBonusMultiplier);
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordAdStage(TEXT("shop"), TEXT("button_clicked"));
+		Analytics->RecordAdStage(TEXT("shop"), TEXT("started"));
+	}
+
+	bAdInProgress = true;
+	Ads->ShowRewarded(AdPlacements::ShopSellBonus,
+		FSimpleDelegate::CreateUObject(this, &UShopScreenWidget::HandleShopAdSuccess),
+		FSimpleDelegate::CreateUObject(this, &UShopScreenWidget::HandleShopAdFail));
+}
+
+void UShopScreenWidget::HandleShopAdSuccess()
+{
+	bAdInProgress = false;
+	if (!bTransactionActive || !Player || !IsValid(TransactionItem))
+	{
+		CloseTransaction();
+		return;
+	}
+
+	// Досмотрел: та же партия уходит по цене с надбавкой (ТЗ №2 п.5). Продажа — тем же
+	// существующим методом игрока, только цена единицы умножена.
+	const int32 Qty = FMath::Clamp(TransactionQty, 1, FMath::Max(1, TransactionQtyMax));
+	const float Mult = FMath::Max(1.0f, SellAdBonusMultiplier);
+	const float BaseTotal = TransactionUnitPrice * static_cast<float>(Qty);
+	const float BoostedTotal = BaseTotal * Mult;
+	Player->Shop_SellItemQty(TransactionItem, TransactionUnitPrice * Mult, Qty);
+	Player->RegisterShopAdUse();
+
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		// value = начисленная сумма; базовая — в лог QA (GA несёт одно число).
+		Analytics->RecordAdStage(TEXT("shop"), TEXT("completed"), BoostedTotal, /*bWithValue=*/true);
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: shop sell-ad completed - base %.0f, credited %.0f"),
+		BaseTotal, BoostedTotal);
+
+	CloseTransaction();
+	RefreshAll();
+}
+
+void UShopScreenWidget::HandleShopAdFail()
+{
+	bAdInProgress = false;
+
+	// Закрыл досрочно: сделка НЕ отменяется и НЕ проводится — игрок возвращается в окно
+	// продажи в исходном состоянии и сам решает, продавать ли по обычной цене (ТЗ №2 п.5).
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordAdStage(TEXT("shop"), TEXT("dismissed"));
+	}
+	if (SellAdSubText)
+	{
+		SellAdSubText->SetText(AdNotFinishedText);
+	}
 }

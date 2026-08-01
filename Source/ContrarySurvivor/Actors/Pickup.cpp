@@ -138,10 +138,12 @@ void APickup::InitLoot(float Money, AMasterInventoryItem* InCarriedItem)
 	CarriedItem = InCarriedItem;
 }
 
-void APickup::InitLootBag(const TArray<AMasterInventoryItem*>& Items)
+void APickup::InitLootBag(const TArray<AMasterInventoryItem*>& Items, float Money)
 {
 	// A4/ADR-027: «мешок» из нескольких предметов (предметы уже сняты из рюкзака и скрыты).
+	// Build 1.2: + доля потерянных при смерти денег (подбор — штатный путь MoneyAmount).
 	CarriedItems = Items;
+	MoneyAmount = FMath::Max(0.0f, Money);
 }
 
 bool APickup::HasLoot() const

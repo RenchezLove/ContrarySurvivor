@@ -39,6 +39,7 @@
 #include "ContrarySurvivor/Characters/WolfCharacter.h"  // #26: читаемое имя «от кого погиб»
 #include "ContrarySurvivor/Characters/EnemyCharacter.h" // #26: читаемое имя «от кого погиб»
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
+#include "ContrarySurvivor/Ads/AdGatingLogic.h"  // Build 1.2: суточные счётчики/кулдаун рекламы
 #include "ContrarySurvivor/Debug/QADebug.h"      // QA god-mode (неуязвимость)
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
@@ -222,6 +223,18 @@ void APlayerCharacter::BeginPlay()
     // #26: засекаем старт текущей жизни (для статистики «сколько прожил» на экране смерти).
     LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
     LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+
+    // Build 1.2: база суммарного игрового времени — из сейва; остаток сессии копится в Tick
+    // и сбрасывается в слот по таймеру (гейт «15 минут без рекламы», ТЗ раздел 0 п.2).
+    if (const UContrarySaveGame* PlaySave = LoadOrCreateSaveObject())
+    {
+        SavedPlayTimeBase = FMath::Max(0.0f, PlaySave->TotalPlayTimeSeconds);
+    }
+    if (UWorld* PlayWorld = GetWorld())
+    {
+        PlayWorld->GetTimerManager().SetTimer(PlaytimeFlushTimer, this,
+            &APlayerCharacter::FlushPlayTime, FMath::Max(5.0f, PlaytimeFlushInterval), /*bLoop=*/true);
+    }
 
     // Инициализируем HP игрока через UStatsComponent (источник истины).
     if (Stats)
@@ -532,6 +545,9 @@ void APlayerCharacter::Tick(float DeltaTime)
     // Экранный индикатор хромоты (Build 1): лениво создаём/держим в viewport и ловим момент
     // разовой развёрнутой подсказки. СТРОГО до раннего выхода по SpringArm ниже.
     UpdateLimpIndicator();
+
+    // Build 1.2: накопитель суммарного игрового времени (гейт рекламы). Тоже до раннего выхода.
+    UnflushedPlayTime += DeltaTime;
 
     // --- Процедурные эффекты камеры (#28): дыхание + look-ahead ---
     // Оба ЕДВА ЗАМЕТНЫ (запрос «чуть-чуть»). Подмешиваем в SpringArm->TargetOffset (world space),
@@ -1350,6 +1366,11 @@ void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSe
         }
         UE_LOG(LogQA, Display, TEXT("QA: SELL %d ammo for %.0f, balance %.0f (backpack left %d)"),
             SellCount, Gain, Stats->GetMoney(), GetReserveAmmoInInventory());
+        // Build 1.2 (ТЗ №2 п.6): shop_sell_completed для ВСЕХ продаж (value = сумма).
+        if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+        {
+            Analytics->RecordShopSellCompleted(Gain);
+        }
         return;
     }
 
@@ -1381,6 +1402,12 @@ void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice
         *SoldName, SellPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: SELL '%s' for %.0f, balance %.0f"),
         *SoldName, SellPrice, Stats->GetMoney());
+
+    // Build 1.2 (ТЗ №2 п.6): shop_sell_completed для ВСЕХ продаж (value = сумма).
+    if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+    {
+        Analytics->RecordShopSellCompleted(SellPrice);
+    }
 
     Item->Destroy();
 }
@@ -1618,39 +1645,70 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
         /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 }
 
-void APlayerCharacter::DropConsumablesAsBag(const FVector& DeathLoc)
+TArray<AMasterInventoryItem*> APlayerCharacter::GetDeathLossCandidates() const
 {
-    // A4/ADR-027: ВСЕ неэкипированные расходники (Consumable) выпадают ОДНИМ возвращаемым «мешком»
-    // (мульти-предмет APickup) на месте гибели — их можно забрать. Квест-предметы, ресурсы, надетая
-    // броня и оружие в руках (CurrentWeapon) НЕ трогаются (старое удаление 25% полностью заменено).
-    if (!Inventory)
-    {
-        return;
-    }
+    // Порядок инвентаря — общий для превью экрана смерти и применения плана (DropDeathLoss):
+    // теряются ПЕРВЫЕ Plan.LostItems, из них первые Plan.DroppedItems падают мешком.
+    return Inventory
+        ? Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable)
+        : TArray<AMasterInventoryItem*>();
+}
 
-    TArray<AMasterInventoryItem*> Consumables = Inventory->GetUnequippedItemsOfCategory(EItemCategory::Consumable);
-    if (Consumables.Num() == 0)
-    {
-        UE_LOG(LogTemp, Log, TEXT("Death penalty: no unequipped consumables to drop."));
-        return;
-    }
+DeathLoss::FPlan APlayerCharacter::ComputeDeathLossPlan(bool bBackpackRescued) const
+{
+    const float ItemFrac = bBackpackRescued ? DeathRescuedLossFraction : DeathConsumableLossFraction;
+    const float MoneyFrac = bBackpackRescued ? DeathRescuedLossFraction : DeathMoneyLossFraction;
+    return DeathLoss::Compute(GetDeathLossCandidates().Num(), MoneyAtDeath,
+        ItemFrac, MoneyFrac, DeathDropShareFraction);
+}
 
+void APlayerCharacter::DropDeathLoss(const FVector& DeathLoc, const DeathLoss::FPlan& Plan)
+{
+    // Build 1.2 (переопределение Рината поверх ADR-027): теряется ДОЛЯ расходников, из
+    // потерянных половина падает возвращаемым «мешком» (APickup) на месте гибели вместе с
+    // долей потерянных денег, остальное исчезает. Квест-предметы, ресурсы, надетая броня
+    // и оружие в руках НЕ трогаются.
     UWorld* World = GetWorld();
     if (!World)
     {
         return;
     }
 
-    // Снимаем расходники из рюкзака и прячем (данные мешка, как при обычном Inv_DropItem).
-    for (AMasterInventoryItem* Item : Consumables)
+    TArray<AMasterInventoryItem*> Candidates = GetDeathLossCandidates();
+    const int32 LostCount = FMath::Min(Plan.LostItems, Candidates.Num());
+
+    TArray<AMasterInventoryItem*> BagItems;
+    int32 DestroyedCount = 0;
+    for (int32 Index = 0; Index < LostCount; ++Index)
     {
+        AMasterInventoryItem* Item = Candidates[Index];
         if (!IsValid(Item))
         {
             continue;
         }
-        Inventory->RemoveItem(Item);
-        Item->SetActorHiddenInGame(true);
-        Item->SetActorEnableCollision(false);
+        if (Inventory)
+        {
+            Inventory->RemoveItem(Item);
+        }
+        if (BagItems.Num() < Plan.DroppedItems)
+        {
+            // В мешок (данные, как при обычном Inv_DropItem: скрыт, без коллизии).
+            Item->SetActorHiddenInGame(true);
+            Item->SetActorEnableCollision(false);
+            BagItems.Add(Item);
+        }
+        else
+        {
+            Item->Destroy(); // потерян безвозвратно
+            ++DestroyedCount;
+        }
+    }
+
+    const float BagMoney = FMath::Max(0.0f, Plan.DroppedMoney);
+    if (BagItems.Num() == 0 && BagMoney <= 0.0f)
+    {
+        UE_LOG(LogTemp, Log, TEXT("Death loss: nothing to drop as bag (lost %d destroyed)."), DestroyedCount);
+        return;
     }
 
     FActorSpawnParameters Sp;
@@ -1658,42 +1716,109 @@ void APlayerCharacter::DropConsumablesAsBag(const FVector& DeathLoc)
     APickup* Bag = World->SpawnActor<APickup>(APickup::StaticClass(), DeathLoc, FRotator::ZeroRotator, Sp);
     if (Bag)
     {
-        Bag->InitLootBag(Consumables);
-        UE_LOG(LogTemp, Log, TEXT("Death penalty: dropped %d consumables as recoverable bag at %s."),
-            Consumables.Num(), *DeathLoc.ToCompactString());
-        UE_LOG(LogQA, Display, TEXT("QA: DEATH-DROP %d consumables (bag) at %s"),
-            Consumables.Num(), *DeathLoc.ToCompactString());
+        Bag->InitLootBag(BagItems, BagMoney);
+        UE_LOG(LogQA, Display, TEXT("QA: DEATH-DROP bag at %s - %d of %d lost consumables + %.0f money (destroyed %d)"),
+            *DeathLoc.ToCompactString(), BagItems.Num(), LostCount, BagMoney, DestroyedCount);
     }
     else
     {
         // Мешок не заспавнился — не оставляем висящие предметы в мире.
-        for (AMasterInventoryItem* Item : Consumables)
+        for (AMasterInventoryItem* Item : BagItems)
         {
             if (IsValid(Item)) { Item->Destroy(); }
         }
-        UE_LOG(LogTemp, Warning, TEXT("Death penalty: failed to spawn loot bag; consumables destroyed."));
+        UE_LOG(LogTemp, Warning, TEXT("Death loss: failed to spawn loot bag; dropped items destroyed."));
     }
 }
 
-void APlayerCharacter::ApplyMoneyDeathPenalty()
+void APlayerCharacter::ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan)
 {
-    // A4/ADR-027: −40% денег ПОСЛЕ загрузки сейва (иначе LoadGame перезапишет баланс), затем
-    // пере-сохранение — чтобы штраф пережил quit/reload (анти-эксплойт «reload вернёт деньги»).
+    // Build 1.2: деньги после смерти = (деньги НА МОМЕНТ СМЕРТИ − потеря по плану) — ровно
+    // то число, что игрок видел в превью экрана смерти. Применяется ПОСЛЕ загрузки сейва
+    // (LoadGame перетирает баланс значением слота), затем пере-сохранение — анти-эксплойт
+    // «quit/reload вернёт деньги» (как прежний ApplyMoneyDeathPenalty).
     if (!Stats)
     {
         return;
     }
-    const float LossFraction = FMath::Clamp(DeathMoneyLossFraction, 0.0f, 1.0f);
-    const float Before = Stats->GetMoney();
-    const float Penalty = Before * LossFraction;
-    if (Penalty > 0.0f)
+    const float Target = FMath::Max(0.0f, MoneyAtDeath - Plan.LostMoney);
+    const float Current = Stats->GetMoney();
+    if (Current > Target)
     {
-        Stats->SpendMoney(Penalty); // clamp >=0 + бродкаст HUD (OnMoneyChanged)
+        Stats->SpendMoney(Current - Target); // clamp >=0 + бродкаст HUD (OnMoneyChanged)
     }
-    SaveGame(); // пере-сохраняем сниженный баланс (+ текущую точку костра)
-    const float LossPct = LossFraction * 100.0f;
-    UE_LOG(LogTemp, Log, TEXT("Death penalty: money -%.0f%% (%.0f -> %.0f), re-saved."), LossPct, Before, Stats->GetMoney());
-    UE_LOG(LogQA, Display, TEXT("QA: DEATH-MONEY -%.0f%% (%.0f -> %.0f)"), LossPct, Before, Stats->GetMoney());
+    else if (Current < Target)
+    {
+        Stats->AddMoney(Target - Current);
+    }
+    SaveGame(); // пере-сохраняем итоговый баланс (+ текущую точку костра)
+    UE_LOG(LogQA, Display, TEXT("QA: DEATH-MONEY at death %.0f, lost %.0f (dropped in bag %.0f), now %.0f"),
+        MoneyAtDeath, Plan.LostMoney, Plan.DroppedMoney, Stats->GetMoney());
+}
+
+void APlayerCharacter::FlushPlayTime()
+{
+    if (UnflushedPlayTime <= 0.0f)
+    {
+        return;
+    }
+    if (UContrarySaveGame* Save = LoadOrCreateSaveObject())
+    {
+        Save->TotalPlayTimeSeconds = FMath::Max(0.0f, Save->TotalPlayTimeSeconds) + UnflushedPlayTime;
+        if (WriteSaveObject(Save))
+        {
+            SavedPlayTimeBase = Save->TotalPlayTimeSeconds;
+            UnflushedPlayTime = 0.0f;
+        }
+    }
+}
+
+int32 APlayerCharacter::GetBackpackAdUsesToday() const
+{
+    const UContrarySaveGame* Save = LoadOrCreateSaveObject();
+    return Save ? AdGating::UsesToday(FDateTime::Now(),
+        Save->BackpackAdCounterDate, Save->BackpackAdUsesOnDate) : 0;
+}
+
+void APlayerCharacter::RegisterBackpackAdUse()
+{
+    if (UContrarySaveGame* Save = LoadOrCreateSaveObject())
+    {
+        const FDateTime Now = FDateTime::Now();
+        Save->BackpackAdUsesOnDate = AdGating::UsesToday(Now,
+            Save->BackpackAdCounterDate, Save->BackpackAdUsesOnDate) + 1;
+        Save->BackpackAdCounterDate = Now.GetDate();
+        WriteSaveObject(Save);
+        UE_LOG(LogQA, Display, TEXT("QA: AD backpack use registered (%d today)"), Save->BackpackAdUsesOnDate);
+    }
+}
+
+int32 APlayerCharacter::GetShopAdUsesToday() const
+{
+    const UContrarySaveGame* Save = LoadOrCreateSaveObject();
+    return Save ? AdGating::UsesToday(FDateTime::Now(),
+        Save->ShopAdCounterDate, Save->ShopAdUsesOnDate) : 0;
+}
+
+bool APlayerCharacter::IsShopAdCooldownPassed(float CooldownSeconds) const
+{
+    const UContrarySaveGame* Save = LoadOrCreateSaveObject();
+    return !Save || AdGating::IsCooldownPassed(FDateTime::Now(),
+        Save->LastShopAdTime, CooldownSeconds);
+}
+
+void APlayerCharacter::RegisterShopAdUse()
+{
+    if (UContrarySaveGame* Save = LoadOrCreateSaveObject())
+    {
+        const FDateTime Now = FDateTime::Now();
+        Save->ShopAdUsesOnDate = AdGating::UsesToday(Now,
+            Save->ShopAdCounterDate, Save->ShopAdUsesOnDate) + 1;
+        Save->ShopAdCounterDate = Now.GetDate();
+        Save->LastShopAdTime = Now;
+        WriteSaveObject(Save);
+        UE_LOG(LogQA, Display, TEXT("QA: AD shop use registered (%d today)"), Save->ShopAdUsesOnDate);
+    }
 }
 
 void APlayerCharacter::HandleDeath()
@@ -1707,6 +1832,11 @@ void APlayerCharacter::HandleDeath()
     // A4/ADR-027 (правка Рината): штраф БЕЗУСЛОВНЫЙ при ЛЮБОЙ смерти — гейт «вне деревни» убран.
     // Фиксируем место гибели для «мешка» расходников (используется в Respawn до телепорта).
     DeathDropLocation = GetActorLocation();
+
+    // Build 1.2: снимок денег на момент смерти — база плана потерь (превью «Будет потеряно»
+    // на экране смерти и фактическое списание в Respawn считаются от этого числа).
+    MoneyAtDeath = Stats ? Stats->GetMoney() : 0.0f;
+    ++DeathCountThisSession;
 
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
         LastLifeDuration, *LastDamagerName.ToString(), EnemyKillCount);
@@ -1750,13 +1880,19 @@ void APlayerCharacter::RegisterEnemyKill(const FString& EnemyType)
     }
 }
 
-void APlayerCharacter::Respawn()
+void APlayerCharacter::Respawn(bool bBackpackRescued)
 {
-    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: respawn (from death screen)"));
+    UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: respawn (from death screen, rescued=%s)"),
+        bBackpackRescued ? TEXT("yes") : TEXT("no"));
 
-    // 1) Штраф (ADR-027, правка Рината: БЕЗУСЛОВНО при любой смерти), часть 1: расходники выпадают
-    //    мешком НА МЕСТЕ ГИБЕЛИ — ДО телепорта респауна (снимок DeathDropLocation из HandleDeath).
-    DropConsumablesAsBag(DeathDropLocation);
+    // Build 1.2: план потерь — от состояния на момент смерти. Без рекламы: 70% расходников
+    // и 50% денег; после досмотра «Спасти рюкзак»: по 10%. Из потерянного половина падает
+    // мешком, остальное исчезает. Пока экран смерти был открыт — ничего списано не было.
+    const DeathLoss::FPlan Plan = ComputeDeathLossPlan(bBackpackRescued);
+
+    // 1) Часть 1: снятие расходников + «мешок» НА МЕСТЕ ГИБЕЛИ — ДО телепорта респауна
+    //    (снимок DeathDropLocation из HandleDeath).
+    DropDeathLoss(DeathDropLocation, Plan);
 
     // 2) Респаун: восстановление из последнего сейва (костёр). Если сейва нет —
     //    фолбэк на стартовый трансформ + полные статы.
@@ -1775,9 +1911,9 @@ void APlayerCharacter::Respawn()
         UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
     }
 
-    // 2b) Штраф (ADR-027), часть 2: −40% денег ПОСЛЕ загрузки (LoadGame перезаписал баланс из
-    //     сейва) + пере-сохранение, чтобы штраф пережил quit/reload (анти-эксплойт). Безусловно.
-    ApplyMoneyDeathPenalty();
+    // 2b) Часть 2: деньги = (на момент смерти − потеря по плану) ПОСЛЕ загрузки (LoadGame
+    //     перезаписал баланс из сейва) + пере-сохранение (анти-эксплойт quit/reload).
+    ApplyDeathMoneyLoss(Plan);
 
     // 3) Death-респаун = полные HP/Голод/Жажда (решение game-lead). Деньги — из сейва (шаг 2).
     //    Автосейв костра пишет ЖИВЫЕ значения голода/жажды (жажда деградирует быстрее),

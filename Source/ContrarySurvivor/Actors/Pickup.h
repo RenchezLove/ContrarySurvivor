@@ -38,7 +38,9 @@ public:
 	// A4/ADR-027: «мешок» из НЕСКОЛЬКИХ предметов (дроп расходников при смерти). Предметы уже
 	// сняты из рюкзака и скрыты/без коллизии. Collect отдаёт ВСЕ в рюкзак; EndPlay (если не
 	// подобран) их уничтожает. Совместимо с одиночным CarriedItem (обрабатываются оба).
-	void InitLootBag(const TArray<AMasterInventoryItem*>& Items);
+	// Build 1.2: Money — деньги в мешке (доля потерянных при смерти монет, переопределение
+	// Рината); подбираются штатным путём Collect, как MoneyAmount любого пикапа.
+	void InitLootBag(const TArray<AMasterInventoryItem*>& Items, float Money = 0.0f);
 
 	// Подбор по КЛАВИШЕ E (контекстный interact, Фаза 4 — решение Рината/game-lead): надёжно
 	// начисляет деньги (UStatsComponent) и кладёт предмет в рюкзак (UInventoryComponent), затем

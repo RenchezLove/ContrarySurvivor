@@ -90,6 +90,30 @@ void UAnalyticsSubsystem::RecordDailyLogin(int32 StreakDay)
 	SendDesignEvent(TEXT("retention:daily_login"), static_cast<float>(StreakDay), /*bWithValue=*/true);
 }
 
+void UAnalyticsSubsystem::RecordAdStage(const FString& Point, const FString& Stage,
+	float Value, bool bWithValue)
+{
+	SendDesignEvent(FString::Printf(TEXT("ad:%s:%s"),
+		*SanitizeEventPart(Point), *SanitizeEventPart(Stage)), Value, bWithValue);
+}
+
+void UAnalyticsSubsystem::RecordAdNotShown(const FString& Point, const FString& Reason)
+{
+	SendDesignEvent(FString::Printf(TEXT("ad:%s:not_shown:%s"),
+		*SanitizeEventPart(Point), *SanitizeEventPart(Reason)));
+}
+
+void UAnalyticsSubsystem::RecordShopSellCompleted(float Amount)
+{
+	SendDesignEvent(TEXT("shop:sell_completed"), Amount, /*bWithValue=*/true);
+}
+
+void UAnalyticsSubsystem::RecordDailyRewardClaimed(int32 StreakDay)
+{
+	SendDesignEvent(TEXT("retention:daily_reward_claimed"),
+		static_cast<float>(StreakDay), /*bWithValue=*/true);
+}
+
 void UAnalyticsSubsystem::SendDesignEvent(const FString& EventId, float Value, bool bWithValue)
 {
 	if (!bEnabled)

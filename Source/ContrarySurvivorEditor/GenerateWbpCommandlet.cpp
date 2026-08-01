@@ -785,34 +785,141 @@ namespace
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("RespawnLineText"),
 			TEXT("Возрождение у костра в деревне."), StatColor, 19, TEXT("Regular")), 10.0f);
 		UTextBlock* MoneyLoss = MakeText(Tree, Roboto, TEXT("MoneyLossText"),
-			TEXT("−40% монет — часть монет утрачена при гибели."),
+			TEXT("−50% монет — если возродиться без просмотра ролика."),
 			FLinearColor(0.95f, 0.55f, 0.15f, 1.0f), 19, TEXT("Regular")); // DeathPenaltyColor
 		MoneyLoss->bIsVariable = true;
 		PlaceCentered(MoneyLoss, 40.0f);
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("ConsumablesLineText"),
-			TEXT("Расходники обронены мешком на месте гибели."), StatColor, 19, TEXT("Regular")), 70.0f);
+			TEXT("Половина потерянного останется мешком на месте гибели."), StatColor, 19, TEXT("Regular")), 70.0f);
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("SavedLineText"),
 			TEXT("Снаряжение, оружие и важные предметы сохранены."),
 			FLinearColor(0.45f, 0.85f, 0.45f, 1.0f), 19, TEXT("Regular")), 100.0f); // DeathSavedColor
 
-		// Кнопка возрождения 360x56 (DeathButtonMaxWidth/Height, зелёная как Canvas) — свой
-		// канвас-слот с явным габаритом (прежняя обёртка RespawnSize не нужна: размер и
-		// ручки даёт сам слот). Подпись замкнута — клик выделяет кнопку целиком.
+		// --- Блок «Будет потеряно» (Build 1.2, ТЗ №1 раздел 2): заголовок, сетка позиций
+		// (наполняет код: до 8 иконок с количеством), хвост «и ещё N», строка денег.
+		// Один столб в одном канвас-слоте: блок живёт/прячется как целое (LossPanel),
+		// начинка замкнута — клик в дизайнере выделяет блок целиком.
+		const FLinearColor LossColor(0.95f, 0.55f, 0.15f, 1.0f);
+		UVerticalBox* LossPanel = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("LossPanel"));
+		LossPanel->bIsVariable = true;
+
+		UTextBlock* LossHeader = MakeText(Tree, Roboto, TEXT("LossHeaderText"),
+			TEXT("БУДЕТ ПОТЕРЯНО"), LossColor, 18, TEXT("Bold"));
+		if (UVerticalBoxSlot* HeaderSlot = LossPanel->AddChildToVerticalBox(LossHeader))
+		{
+			HeaderSlot->SetHorizontalAlignment(HAlign_Center);
+			HeaderSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+		}
+
+		UHorizontalBox* LossGrid = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("LossGrid"));
+		LossGrid->bIsVariable = true;
+		if (UVerticalBoxSlot* GridSlot = LossPanel->AddChildToVerticalBox(LossGrid))
+		{
+			GridSlot->SetHorizontalAlignment(HAlign_Center);
+			GridSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
+		}
+
+		UTextBlock* LossMore = MakeText(Tree, Roboto, TEXT("LossMoreText"),
+			TEXT("и ещё 3 предметов"), FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular"));
+		LossMore->bIsVariable = true;
+		LossMore->SetVisibility(ESlateVisibility::Collapsed); // видимость ведёт код
+		if (UVerticalBoxSlot* MoreSlot = LossPanel->AddChildToVerticalBox(LossMore))
+		{
+			MoreSlot->SetHorizontalAlignment(HAlign_Center);
+			MoreSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
+		}
+
+		UTextBlock* LossMoney = MakeText(Tree, Roboto, TEXT("LossMoneyText"),
+			TEXT("−0 монет"), LossColor, 16, TEXT("Bold"));
+		LossMoney->bIsVariable = true;
+		if (UVerticalBoxSlot* LossMoneySlot = LossPanel->AddChildToVerticalBox(LossMoney))
+		{
+			LossMoneySlot->SetHorizontalAlignment(HAlign_Center);
+		}
+
+		PlaceCentered(LossPanel, 132.0f);
+		LockPanelChildrenInDesigner(LossPanel);
+
+		// --- Золотая кнопка «Спасти рюкзак» (Build 1.2, ТЗ №1): единый золотой цвет
+		// rewarded-кнопок (раздел 0 п.9), иконка видео + заголовок + живая подстрока с
+		// конкретной выгодой (подстроку пишет код). Начинка замкнута.
+		UButton* SaveBackpack = MakeStyledButton(Tree, TEXT("SaveBackpackButton"),
+			FLinearColor(0.85f, 0.62f, 0.14f, 1.0f), FLinearColor(0.95f, 0.72f, 0.2f, 1.0f),
+			FLinearColor(1.0f, 0.8f, 0.3f, 1.0f)); // тёплое золото
+		UHorizontalBox* SaveRow = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("SaveBackpackRow"));
+
+		// Иконка видео (треугольник в скруглённом квадрате, единая для всех rewarded-кнопок).
+		// Текстура белая с альфой — на золотой кнопке тонируется тёмным для контраста.
+		UImage* SaveIcon = MakeIcon(Tree, TEXT("WBP_Death"), TEXT("SaveBackpackIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_AdVideo.T_Icon_AdVideo"), 30.0f);
+		SaveIcon->SetColorAndOpacity(FLinearColor(0.1f, 0.08f, 0.03f, 1.0f));
+		if (UHorizontalBoxSlot* IconSlot = SaveRow->AddChildToHorizontalBox(SaveIcon))
+		{
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(0.0f, 0.0f, 10.0f, 0.0f));
+		}
+
+		UVerticalBox* SaveLabelBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SaveBackpackLabelBox"));
+		const FLinearColor GoldTextColor(0.1f, 0.08f, 0.03f, 1.0f);
+		if (UVerticalBoxSlot* CaptionSlot = SaveLabelBox->AddChildToVerticalBox(
+			MakeText(Tree, Roboto, TEXT("SaveBackpackLabel"), TEXT("СПАСТИ РЮКЗАК"),
+				GoldTextColor, 20, TEXT("Bold"))))
+		{
+			CaptionSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		UTextBlock* SaveSub = MakeText(Tree, Roboto, TEXT("SaveBackpackSubText"),
+			TEXT("Сохранить 6 предм. и 90 монет — за просмотр ролика"),
+			GoldTextColor, 12, TEXT("Regular"));
+		SaveSub->bIsVariable = true;
+		if (UVerticalBoxSlot* SubSlot = SaveLabelBox->AddChildToVerticalBox(SaveSub))
+		{
+			SubSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		if (UHorizontalBoxSlot* LabelBoxSlot = SaveRow->AddChildToHorizontalBox(SaveLabelBox))
+		{
+			LabelBoxSlot->SetVerticalAlignment(VAlign_Center);
+		}
+		SetButtonContent(SaveBackpack, SaveRow);
+		if (UCanvasPanelSlot* SaveSlot = Root->AddChildToCanvas(SaveBackpack))
+		{
+			SaveSlot->SetAnchors(FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
+			SaveSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			SaveSlot->SetPosition(FVector2D(0.0f, 252.0f));
+			SaveSlot->SetSize(FVector2D(380.0f, 64.0f));
+		}
+
+		// Кнопка возрождения 380x64 — НЕЙТРАЛЬНАЯ СЕРАЯ того же размера прямо под золотой
+		// (ТЗ №1 раздел 2 п.4: отказ не спрятан; прежняя зелёная уступила серой). Заголовок
+		// статичный, подстрока живая (числа потерь пишет код). Начинка замкнута.
 		UButton* Respawn = MakeStyledButton(Tree, TEXT("RespawnButton"),
-			FLinearColor(0.2f, 0.45f, 0.25f, 1.0f), FLinearColor(0.3f, 0.6f, 0.35f, 1.0f),
-			FLinearColor(0.35f, 0.7f, 0.4f, 1.0f));
-		SetButtonContent(Respawn, MakeText(Tree, Roboto, TEXT("RespawnLabel"), TEXT("ВОЗРОДИТЬСЯ"),
-			FLinearColor::White, 22, TEXT("Bold")));
+			FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), FLinearColor(0.4f, 0.4f, 0.45f, 1.0f),
+			FLinearColor(0.5f, 0.5f, 0.55f, 1.0f));
+		UVerticalBox* RespawnBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("RespawnLabelBox"));
+		if (UVerticalBoxSlot* RespawnCaptionSlot = RespawnBox->AddChildToVerticalBox(
+			MakeText(Tree, Roboto, TEXT("RespawnLabel"), TEXT("ВОЗРОДИТЬСЯ"),
+				FLinearColor::White, 20, TEXT("Bold"))))
+		{
+			RespawnCaptionSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		UTextBlock* RespawnSub = MakeText(Tree, Roboto, TEXT("RespawnSubText"),
+			TEXT("Потеряешь 7 предм. и 100 монет"),
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 12, TEXT("Regular"));
+		RespawnSub->bIsVariable = true;
+		if (UVerticalBoxSlot* RespawnSubSlot = RespawnBox->AddChildToVerticalBox(RespawnSub))
+		{
+			RespawnSubSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		SetButtonContent(Respawn, RespawnBox);
 		if (UCanvasPanelSlot* BtnSlot = Root->AddChildToCanvas(Respawn))
 		{
 			BtnSlot->SetAnchors(FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
 			BtnSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-			BtnSlot->SetPosition(FVector2D(0.0f, 145.0f));
-			BtnSlot->SetSize(FVector2D(360.0f, 56.0f));
+			BtnSlot->SetPosition(FVector2D(0.0f, 324.0f));
+			BtnSlot->SetSize(FVector2D(380.0f, 64.0f));
 		}
 
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("KeyHintText"), TEXT("Enter / Пробел — возродиться"),
-			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular")), 215.0f);
+			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular")), 398.0f);
 		return true;
 	}
 
@@ -1491,7 +1598,9 @@ namespace
 		{ TEXT("/Game/UI/WBP_Death"), TEXT("WBP_Death"),
 			TEXT("/Script/ContrarySurvivor.DeathScreenWidget"), &BuildDeath,
 			{ TEXT("LifetimeText"), TEXT("KillerText"), TEXT("MoneyText"), TEXT("QuestsText"),
-			  TEXT("KillsText"), TEXT("MoneyLossText"), TEXT("RespawnButton") } },
+			  TEXT("KillsText"), TEXT("MoneyLossText"), TEXT("RespawnButton"), TEXT("RespawnSubText"),
+			  TEXT("LossPanel"), TEXT("LossGrid"), TEXT("LossMoreText"), TEXT("LossMoneyText"),
+			  TEXT("SaveBackpackButton"), TEXT("SaveBackpackSubText") } },
 		{ TEXT("/Game/UI/WBP_QuestTracker"), TEXT("WBP_QuestTracker"),
 			TEXT("/Script/ContrarySurvivor.QuestTrackerWidget"), &BuildQuestTracker,
 			{ TEXT("TrackerText") } },
@@ -1568,10 +1677,13 @@ namespace
 		{ TEXT("WBP_Death"),
 			{ TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
 			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
-			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLabel") },
+			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLabel"), TEXT("RespawnSubText"),
+			  TEXT("LossHeaderText"), TEXT("LossGrid"), TEXT("LossMoreText"), TEXT("LossMoneyText"),
+			  TEXT("SaveBackpackIcon"), TEXT("SaveBackpackLabel"), TEXT("SaveBackpackSubText") },
 			{ TEXT("TitleText"), TEXT("LifetimeTextRow"), TEXT("KillerTextRow"), TEXT("MoneyTextRow"),
 			  TEXT("QuestsTextRow"), TEXT("KillsTextRow"), TEXT("RespawnLineText"), TEXT("MoneyLossText"),
-			  TEXT("ConsumablesLineText"), TEXT("SavedLineText"), TEXT("RespawnButton"), TEXT("KeyHintText") } },
+			  TEXT("ConsumablesLineText"), TEXT("SavedLineText"), TEXT("LossPanel"),
+			  TEXT("SaveBackpackButton"), TEXT("RespawnButton"), TEXT("KeyHintText") } },
 	};
 
 	// ======================================================================
@@ -1946,6 +2058,86 @@ namespace
 			TEXT("SliderQtyAmmoText"), FText::FromString(TEXT("всего 30 патронов"))));
 
 		AugInsertAfter(Tree, Name, TEXT("SliderQtyText"), Row, bChanged);
+	}
+
+	// WBP_Shop, Build 1.2 (ТЗ №2): золотая кнопка «Продать дороже» в панели сделки —
+	// иконка видео + живая надпись «Продать за 225 вместо 150» + подстрока про ролик
+	// (тексты пишет код UShopScreenWidget). Низ-лево панели, напротив Отмена/Подтвердить.
+	// В ассете сразу Collapsed: видимость решают условия ТЗ в коде. Точечная правка —
+	// стилизация Рината в остальном ассете не трогается (природа -augment).
+	void AugmentShopSellAdButton(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Shop");
+		if (Tree->FindWidget(TEXT("SellAdButton")))
+		{
+			return; // уже добавлена прошлым прогоном
+		}
+		UWidget* Found = AugFind(Tree, Name, TEXT("SliderCanvas"));
+		UCanvasPanel* SliderCanvas = Cast<UCanvasPanel>(Found);
+		if (!SliderCanvas)
+		{
+			if (Found)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: 'SliderCanvas' не канвас (%s) — кнопка рекламы пропущена."),
+					Name, *Found->GetClass()->GetName());
+			}
+			return;
+		}
+
+		UObject* Roboto = LoadRobotoFont();
+		UButton* SellAd = MakeStyledButton(Tree, TEXT("SellAdButton"),
+			FLinearColor(0.85f, 0.62f, 0.14f, 1.0f), FLinearColor(0.95f, 0.72f, 0.2f, 1.0f),
+			FLinearColor(1.0f, 0.8f, 0.3f, 1.0f)); // тёплое золото — единый цвет rewarded-кнопок
+		SellAd->SetVisibility(ESlateVisibility::Collapsed);
+		SellAd->bIsVariable = true;
+
+		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("SellAdRow"));
+		UImage* Icon = MakeIcon(Tree, Name, TEXT("SellAdIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_AdVideo.T_Icon_AdVideo"), 24.0f);
+		Icon->SetColorAndOpacity(FLinearColor(0.1f, 0.08f, 0.03f, 1.0f));
+		if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(Icon))
+		{
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
+		}
+
+		UVerticalBox* LabelBox = Tree->ConstructWidget<UVerticalBox>(
+			UVerticalBox::StaticClass(), TEXT("SellAdLabelBox"));
+		const FLinearColor GoldTextColor(0.1f, 0.08f, 0.03f, 1.0f);
+		UTextBlock* Price = MakeText(Tree, Roboto, TEXT("SellAdText"),
+			NSLOCTEXT("Shop", "SellAdSample", "Продать за 225 вместо 150"),
+			GoldTextColor, 15, TEXT("Bold"));
+		Price->bIsVariable = true;
+		if (UVerticalBoxSlot* PriceSlot = LabelBox->AddChildToVerticalBox(Price))
+		{
+			PriceSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		UTextBlock* Sub = MakeText(Tree, Roboto, TEXT("SellAdSubText"),
+			NSLOCTEXT("Shop", "SellAdSubSample", "на 50% больше за просмотр ролика"),
+			GoldTextColor, 11, TEXT("Regular"));
+		Sub->bIsVariable = true;
+		if (UVerticalBoxSlot* SubSlot = LabelBox->AddChildToVerticalBox(Sub))
+		{
+			SubSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		if (UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(LabelBox))
+		{
+			LabelSlot->SetVerticalAlignment(VAlign_Center);
+		}
+		SetButtonContent(SellAd, Row);
+
+		if (UCanvasPanelSlot* AdSlot = SliderCanvas->AddChildToCanvas(SellAd))
+		{
+			// Низ-лево панели сделки (Отмена/Подтвердить живут в правом-нижнем углу).
+			AdSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
+			AdSlot->SetAlignment(FVector2D(0.0f, 1.0f));
+			AdSlot->SetPosition(FVector2D(0.0f, -24.0f));
+			AdSlot->SetSize(FVector2D(280.0f, 50.0f));
+		}
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: добавлена золотая кнопка SellAdButton."), Name);
 	}
 
 	// WBP_ShopRow, пункт 7: строка «Не хватает монет» рядом с ценой. В ассете спрятана —
@@ -2585,11 +2777,18 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	}
 	if (Switches.Contains(TEXT("rebuild")))
 	{
-		return RebuildWindows();
+		// -asset=WBP_Death — пересобрать только один ассет из списка (Build 1.2).
+		FString AssetFilter;
+		FParse::Value(*Params, TEXT("asset="), AssetFilter);
+		return RebuildWindows(AssetFilter);
 	}
 	if (Switches.Contains(TEXT("dumpslots")))
 	{
 		return DumpSlotsAll();
+	}
+	if (Switches.Contains(TEXT("adicon")))
+	{
+		return GenerateAdIcon();
 	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
 }
@@ -2663,7 +2862,7 @@ int32 UGenerateWbpCommandlet::DumpSlotsAll()
 	return FailCount == 0 ? 0 : 1;
 }
 
-int32 UGenerateWbpCommandlet::RebuildWindows()
+int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 {
 	// Пересборка канвас-первой раскладкой (ADR-051 п.1 + волна «двигать мышкой все окна»
 	// 07-28: диалог и экран смерти). Перенос значений владельца (TransferOwnerStyle)
@@ -2689,8 +2888,15 @@ int32 UGenerateWbpCommandlet::RebuildWindows()
 	};
 
 	int32 FailCount = 0;
+	int32 ProcessedCount = 0;
 	for (const FRebuildEntry& Entry : RebuildAssets)
 	{
+		// Точечная пересборка (-asset=ИМЯ): остальные окна не трогаются вовсе.
+		if (!AssetFilter.IsEmpty() && !AssetFilter.Equals(Entry.AssetName, ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+		++ProcessedCount;
 		bool bFound = false;
 		for (const FWbpSpec& Spec : GAssets)
 		{
@@ -2711,8 +2917,14 @@ int32 UGenerateWbpCommandlet::RebuildWindows()
 		}
 	}
 
+	if (!AssetFilter.IsEmpty() && ProcessedCount == 0)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("REBUILD: фильтр -asset=%s не совпал ни с одним ассетом списка."),
+			*AssetFilter);
+		return 1;
+	}
 	UE_LOG(LogGenerateWbp, Display, TEXT("REBUILD ИТОГ: ошибок %d из %d ассетов."),
-		FailCount, static_cast<int32>(UE_ARRAY_COUNT(RebuildAssets)));
+		FailCount, ProcessedCount);
 	return FailCount > 0 ? 1 : 0;
 }
 
@@ -2736,6 +2948,7 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventory },
 		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStats },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopAmmoRow },
+		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopSellAdButton },
 		{ TEXT("/Game/UI/WBP_ShopRow"),       TEXT("WBP_ShopRow"),       &AugmentShopRow },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTracker },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
@@ -2964,4 +3177,97 @@ void UGenerateWbpCommandlet::DumpWidgetTree(UWidget* Widget, int32 Depth)
 			DumpWidgetTree(Panel->GetChildAt(Index), Depth + 1);
 		}
 	}
+}
+
+int32 UGenerateWbpCommandlet::GenerateAdIcon()
+{
+	// Build 1.2: единая иконка видео rewarded-кнопок (ТЗ раздел 0 п.8 — «треугольник
+	// воспроизведения в скруглённом квадрате», выбран из двух допустимых вариантов).
+	// Пиксели считаются процедурно (SDF-контур + залитый треугольник со сглаживанием),
+	// белым с альфой — тонирует кнопка. Повторный прогон перезаписывает на месте.
+	const FString PackageName = TEXT("/Game/UI/Icons/T_Icon_AdVideo");
+	const FString AssetName = TEXT("T_Icon_AdVideo");
+
+	constexpr int32 Size = 64;
+	TArray<uint8> Pixels;
+	Pixels.SetNumZeroed(Size * Size * 4); // BGRA8
+
+	const float Cx = 32.0f, Cy = 32.0f;
+	const float HalfExtent = 26.0f;   // скруглённый квадрат 52x52 по центру
+	const float CornerRadius = 12.0f;
+	const float OutlineWidth = 5.0f;
+
+	// Треугольник остриём вправо, обход по часовой (в экранных координатах, ось Y вниз).
+	const FVector2D TriA(26.0f, 21.0f), TriB(46.0f, 32.0f), TriC(26.0f, 43.0f);
+	auto EdgeDist = [](const FVector2D& P, const FVector2D& E0, const FVector2D& E1)
+	{
+		// Знаковое расстояние до ребра: положительно ВНУТРИ треугольника.
+		const FVector2D Edge = E1 - E0;
+		const FVector2D Normal = FVector2D(-Edge.Y, Edge.X).GetSafeNormal();
+		return static_cast<float>(FVector2D::DotProduct(P - E0, Normal));
+	};
+
+	for (int32 Y = 0; Y < Size; ++Y)
+	{
+		for (int32 X = 0; X < Size; ++X)
+		{
+			const FVector2D P(X + 0.5f, Y + 0.5f);
+
+			// SDF скруглённого прямоугольника; кольцо контура = |sdf| < половины толщины.
+			const FVector2D FromCenter(FMath::Abs(P.X - Cx), FMath::Abs(P.Y - Cy));
+			const float QX = FromCenter.X - (HalfExtent - CornerRadius);
+			const float QY = FromCenter.Y - (HalfExtent - CornerRadius);
+			const float OutsideDist = FVector2D(FMath::Max(QX, 0.0f), FMath::Max(QY, 0.0f)).Size();
+			const float InsideDist = FMath::Min(FMath::Max(QX, QY), 0.0f);
+			const float RectSdf = OutsideDist + InsideDist - CornerRadius;
+			const float RingAlpha = FMath::Clamp(OutlineWidth * 0.5f - FMath::Abs(RectSdf) + 0.5f, 0.0f, 1.0f);
+
+			const float TriDist = FMath::Min3(
+				EdgeDist(P, TriA, TriB), EdgeDist(P, TriB, TriC), EdgeDist(P, TriC, TriA));
+			const float TriAlpha = FMath::Clamp(TriDist + 0.5f, 0.0f, 1.0f);
+
+			uint8* Px = &Pixels[(Y * Size + X) * 4];
+			Px[0] = 255; Px[1] = 255; Px[2] = 255; // BGR — белый
+			Px[3] = static_cast<uint8>(FMath::RoundToInt(255.0f * FMath::Max(RingAlpha, TriAlpha)));
+		}
+	}
+
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("ADICON: пакет %s не создался."), *PackageName);
+		return 1;
+	}
+
+	UTexture2D* Texture = FindObject<UTexture2D>(Package, *AssetName);
+	const bool bExisted = Texture != nullptr;
+	if (!Texture)
+	{
+		Texture = NewObject<UTexture2D>(Package, FName(*AssetName), RF_Public | RF_Standalone);
+	}
+	Texture->Source.Init(Size, Size, /*NumSlices=*/1, /*NumMips=*/1, TSF_BGRA8, Pixels.GetData());
+	Texture->SRGB = true;
+	Texture->CompressionSettings = TC_EditorIcon; // UserInterface2D: без блочного сжатия, честная альфа
+	Texture->MipGenSettings = TMGS_NoMipmaps;
+	Texture->LODGroup = TEXTUREGROUP_UI;
+	Texture->NeverStream = true;
+	Texture->PostEditChange();
+	if (!bExisted)
+	{
+		FAssetRegistryModule::AssetCreated(Texture);
+	}
+	Package->MarkPackageDirty();
+
+	const FString Filename = FPackageName::LongPackageNameToFilename(
+		PackageName, FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	if (!UPackage::SavePackage(Package, Texture, *Filename, SaveArgs))
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("ADICON: SavePackage не сохранил %s."), *Filename);
+		return 1;
+	}
+	UE_LOG(LogGenerateWbp, Display, TEXT("ADICON OK: %s (%dx%d, контур + треугольник) сохранена в %s."),
+		*PackageName, Size, Size, *Filename);
+	return 0;
 }
