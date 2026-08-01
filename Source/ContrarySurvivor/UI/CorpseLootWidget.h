@@ -10,6 +10,7 @@ class UTextBlock;
 class UButton;
 class UImage;
 class UScrollBox;
+class UTexture2D;
 class UCorpseLootComponent;
 class AMasterInventoryItem;
 class APlayerCharacter;
