@@ -27,6 +27,7 @@ class UNavigationInvokerComponent;
 class UDailyRewardComponent;
 class UOnboardingComponent;
 class UMeleeSectorIndicatorComponent;
+class APickup;
 struct FShopEntry;
 
 /**
@@ -395,6 +396,13 @@ protected:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
     float DropDownOffset = 80.0f;
+
+    // Build 1.2 п.6: класс пикапа, которым игрок роняет предмет из рюкзака и мешок смерти
+    // (оба места спавна — одно поле). Дефолт — BP_Pickup (/Game/System): Ринат настраивает
+    // его в редакторе (меш мешка, масштаб, триггер), и мешок игрока подхватывает те же
+    // настройки, что дроп бандитов. Пусто/ассета нет — базовый APickup (мягкий фолбэк).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (DisplayName = "Класс пикапа (мешок)", DisplayPriority = "1"))
+    TSubclassOf<APickup> PickupSpawnClass;
 
     // УСТАРЕЛО (Фаза 1): инлайн-поля голода/жажды. Источник истины теперь Stats.
     // Оставлены, чтобы не ломать возможные ссылки BP; не используются логикой.

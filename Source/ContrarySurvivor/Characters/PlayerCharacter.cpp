@@ -163,6 +163,14 @@ APlayerCharacter::APlayerCharacter()
     static ConstructorHelpers::FObjectFinder<USoundBase> Ambience(TEXT("/Game/Audio/Demo/forest_ambience_loop.forest_ambience_loop"));
     if (Ambience.Succeeded()) { AmbienceSound = Ambience.Object; }
 
+    // Build 1.2 п.6: класс пикапа для дропа предмета и мешка смерти — BP_Pickup, если он
+    // уже есть на диске (создаётся оператором отдельным шагом); нет — мягкий фолбэк на
+    // базовый APickup, чтобы дроп работал и до появления ассета.
+    static ConstructorHelpers::FClassFinder<APickup> PickupBP(TEXT("/Game/System/BP_Pickup"));
+    PickupSpawnClass = PickupBP.Succeeded()
+        ? TSubclassOf<APickup>(PickupBP.Class)
+        : TSubclassOf<APickup>(APickup::StaticClass());
+
     SetUpMovement();
 }
 
@@ -1034,7 +1042,10 @@ void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
     FActorSpawnParameters Sp;
     Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    APickup* Dropped = World->SpawnActor<APickup>(APickup::StaticClass(), DropLoc, FRotator::ZeroRotator, Sp);
+    // Build 1.2 п.6: класс пикапа настраиваемый (BP_Pickup с настройками Рината); пустое
+    // поле в BP-оверрайде — фолбэк на базовый класс, дроп не ломается.
+    UClass* DropClass = PickupSpawnClass ? *PickupSpawnClass : APickup::StaticClass();
+    APickup* Dropped = World->SpawnActor<APickup>(DropClass, DropLoc, FRotator::ZeroRotator, Sp);
     if (Dropped)
     {
         Dropped->InitLoot(0.0f, Item);
@@ -1713,7 +1724,10 @@ void APlayerCharacter::DropDeathLoss(const FVector& DeathLoc, const DeathLoss::F
 
     FActorSpawnParameters Sp;
     Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    APickup* Bag = World->SpawnActor<APickup>(APickup::StaticClass(), DeathLoc, FRotator::ZeroRotator, Sp);
+    // Build 1.2 п.6: мешок смерти — тем же настраиваемым классом пикапа, что и дроп
+    // предмета (BP_Pickup Рината); пустое поле — фолбэк на базовый класс.
+    UClass* BagClass = PickupSpawnClass ? *PickupSpawnClass : APickup::StaticClass();
+    APickup* Bag = World->SpawnActor<APickup>(BagClass, DeathLoc, FRotator::ZeroRotator, Sp);
     if (Bag)
     {
         Bag->InitLootBag(BagItems, BagMoney);
