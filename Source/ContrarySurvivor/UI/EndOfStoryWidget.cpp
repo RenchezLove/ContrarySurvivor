@@ -157,9 +157,23 @@ void UEndOfStoryWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 
 	// Модальные экраны важнее плашки; закрылись — плашка возвращается (SelfHiding: прячется
 	// корень дерева, сам виджет продолжает тикать).
-	const AContrarySurvivorPlayerController* PC =
+	AContrarySurvivorPlayerController* PC =
 		Cast<AContrarySurvivorPlayerController>(GetOwningPlayer());
-	SetContentVisible(!PC || !PC->IsAnyModalUIOpen());
+	const bool bShouldShow = !PC || !PC->IsAnyModalUIOpen();
+	const bool bWasVisible = IsContentVisible();
+	SetContentVisible(bShouldShow);
+
+	// Плашка вернулась из-под модалки: контроллер при закрытии модального экрана ставит
+	// GameOnly, а в нём кнопки Slate кликов не получают — без восстановления Game+UI плашку
+	// было бы не закрыть. Повторяем режим показа (тот же, что ставит HUD при первом показе).
+	if (PC && bShouldShow && !bWasVisible)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(Mode);
+		PC->bShowMouseCursor = true;
+	}
 }
 
 void UEndOfStoryWidget::HandleWriteClicked()
