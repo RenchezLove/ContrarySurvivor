@@ -30,7 +30,10 @@
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
+#include "ContrarySurvivor/Save/ContrarySaveGame.h" // флаги сценки/сообщения конца сюжета (Build 1.2)
+#include "ContrarySurvivor/UI/EndOfStoryWidget.h"   // плашка конца сюжета (Build 1.2)
 #include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
+#include "TimerManager.h"     // таймер задержки сообщения конца сюжета
 
 void AContrarySurvivorHUD::BeginPlay()
 {
@@ -164,6 +167,10 @@ void AContrarySurvivorHUD::DrawHUD()
 			// контроллер их выставил во время интро; после — пусто, ничего не рисуется).
 			DrawIntroObjective();
 			DrawIntroDirectionMarker();
+
+			// Build 1.2: страховка сообщения конца сюжета — разовая проверка флагов сейва
+			// (внутри защита от повторного чтения слота).
+			MaybeScheduleEndOfStoryFromSave(PlayerChar);
 
 			// ADR-048: при назначенном PlayerStatsWidgetClass статы рисует UMG-панель.
 			if (!PlayerStatsWidgetInstance)
@@ -1657,9 +1664,126 @@ void AContrarySurvivorHUD::DrawIntroDirectionMarker()
 	{
 		return;
 	}
+	// Build 1.2: цель-NPC (староста на шаге «Найти старосту») уже получает свой ИМЕННОЙ маркер
+	// в DrawInteractiveNPCMarkers — безымянный ромб поверх был бы дублем.
+	if (bNPCMarkersOnlyWhenNeeded && Target->Implements<UInteractableNPCInterface>())
+	{
+		return;
+	}
 	// Реюз системы маркеров NPC: маркер над целью + краевая стрелка, если цель за кадром.
 	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, QuestTargetMarkerZOffset),
 		FString(), NPCMarkerColor);
+}
+
+// ===========================================================================
+// Сообщение о конце сюжета (Build 1.2, задача Рината 07-31)
+// ===========================================================================
+
+void AContrarySurvivorHUD::NotifyStoryEpilogueFinished()
+{
+	// Сценку доиграли только что — «показано ли уже» берём из сейва (страховка от повторов
+	// при пересоздании HUD в той же сессии).
+	bool bShownInSave = false;
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		if (APlayerCharacter* Player = Cast<APlayerCharacter>(PC->GetPawn()))
+		{
+			if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+			{
+				bShownInSave = Save->bEndOfStoryShown;
+			}
+		}
+	}
+	ScheduleEndOfStoryMessage(/*bEpilogueSeen=*/true, bShownInSave);
+}
+
+void AContrarySurvivorHUD::MaybeScheduleEndOfStoryFromSave(APlayerCharacter* Player)
+{
+	if (bEndOfStorySaveChecked || !Player || !bEndOfStoryMessageEnabled)
+	{
+		return;
+	}
+	bEndOfStorySaveChecked = true; // одно чтение слота за жизнь HUD (зовёмся из DrawHUD)
+
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		ScheduleEndOfStoryMessage(Save->bElderNotebookHintShown, Save->bEndOfStoryShown);
+	}
+}
+
+void AContrarySurvivorHUD::ScheduleEndOfStoryMessage(bool bEpilogueSeen, bool bShownInSave)
+{
+	if (!bEndOfStoryMessageEnabled)
+	{
+		return;
+	}
+	if (!EndOfStoryGate.ShouldSchedule(bEpilogueSeen, bShownInSave))
+	{
+		return;
+	}
+	GetWorldTimerManager().SetTimer(EndOfStoryTimer, this,
+		&AContrarySurvivorHUD::ShowEndOfStoryMessage,
+		FMath::Max(0.01f, EndOfStoryDelaySeconds), /*bLoop=*/false);
+	UE_LOG(LogQA, Display, TEXT("QA: end-of-story message scheduled in %.0f s"), EndOfStoryDelaySeconds);
+}
+
+void AContrarySurvivorHUD::ShowEndOfStoryMessage()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC)
+	{
+		return;
+	}
+
+	// Флаг «показано» — в сейв ПРИ показе: смерть/перезапуск сообщение не повторят
+	// (задача: один раз за сохранение).
+	if (APlayerCharacter* Player = Cast<APlayerCharacter>(PC->GetPawn()))
+	{
+		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			if (Save->bEndOfStoryShown)
+			{
+				return; // другой путь успел показать раньше
+			}
+			Save->bEndOfStoryShown = true;
+			Player->WriteSaveObject(Save);
+		}
+	}
+
+	if (!EndOfStoryWidgetInstance)
+	{
+		// Виджет строится кодом, .uasset не нужен (паттерн ULimpIndicatorWidget).
+		EndOfStoryWidgetInstance = CreateWidget<UEndOfStoryWidget>(PC, UEndOfStoryWidget::StaticClass());
+	}
+	if (!EndOfStoryWidgetInstance)
+	{
+		return;
+	}
+	EndOfStoryWidgetInstance->ApplyStyle(EndOfStoryStyle);
+	EndOfStoryWidgetInstance->InitContent(EndOfStoryMessageText, EndOfStoryWriteButtonText,
+		EndOfStoryPlayButtonText, EndOfStoryChannelPendingText, EndOfStoryChannelUrl);
+	if (!EndOfStoryWidgetInstance->IsInViewport())
+	{
+		// Над модальными окнами (30), под экраном смерти (35) и интро (50); при открытой
+		// модалке плашка сама прячет содержимое (SelfHiding) и возвращается после.
+		EndOfStoryWidgetInstance->AddToViewport(/*ZOrder=*/34);
+	}
+
+	// Кнопки должны кликаться: режим ввода Game+UI (как у диалога), мир НЕ на паузе (решение
+	// Рината). Открыта модалка — у неё уже свой режим, не трогаем.
+	if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+	{
+		if (!CSPC->IsAnyModalUIOpen())
+		{
+			FInputModeGameAndUI Mode;
+			Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+			Mode.SetHideCursorDuringCapture(false);
+			CSPC->SetInputMode(Mode);
+			CSPC->bShowMouseCursor = true;
+		}
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: end-of-story message shown"));
 }
 
 void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
@@ -2181,6 +2305,17 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		return;
 	}
 
+	// Build 1.2 («маркеры по необходимости», задача Рината 07-31): в новом режиме маркер
+	// рисуется ТОЛЬКО над NPC, к которому сейчас ведёт навигация первых шагов, — это цель
+	// стрелки интро (староста на шаге «Найти старосту», синхронно с сообщением вверху экрана).
+	// Навигация кончилась (игрок заговорил со старостой — OpenDialog очистил цель) — постоянных
+	// зелёных маркеров больше нет; дальше работают только квестовые метки (DrawQuestTargetMarker).
+	const AActor* RequiredNPC = bNPCMarkersOnlyWhenNeeded ? IntroDirectionTarget.Get() : nullptr;
+	if (bNPCMarkersOnlyWhenNeeded && !RequiredNPC)
+	{
+		return;
+	}
+
 	// DRAFT/perf: для MVP (1 торговец) перебор всех актёров приемлем. Позже — реестр/тег.
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
@@ -2188,6 +2323,10 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		if (!IsValid(Actor) || !Actor->Implements<UInteractableNPCInterface>())
 		{
 			continue;
+		}
+		if (bNPCMarkersOnlyWhenNeeded && Actor != RequiredNPC)
+		{
+			continue; // не цель текущего шага навигации — маркер не нужен
 		}
 
 		const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Actor);

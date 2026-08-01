@@ -6,6 +6,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h" // признак «крючок показан» (bElderHookShown)
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // Build 1.2: запуск сообщения конца сюжета
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 
@@ -539,6 +540,17 @@ void UDialogScreenWidget::AdvanceNotebookHint()
 	{
 		// Реплики кончились — закрываем диалог.
 		UE_LOG(LogQA, Display, TEXT("QA: dialog notebook hint finished (UMG)"));
+
+		// Build 1.2 (задача Рината 07-31): сценка про шкуры доиграна до конца — HUD планирует
+		// сообщение о конце сюжета (компактная плашка через ~30 с, один раз за сохранение).
+		if (APlayerController* PC = GetOwningPlayer())
+		{
+			if (AContrarySurvivorHUD* CSHUD = PC->GetHUD<AContrarySurvivorHUD>())
+			{
+				CSHUD->NotifyStoryEpilogueFinished();
+			}
+		}
+
 		OnCloseRequested.Broadcast();
 		return;
 	}

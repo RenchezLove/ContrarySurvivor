@@ -1,0 +1,161 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ContrarySurvivor/UI/SelfHidingWidget.h"
+#include "EndOfStoryWidget.generated.h"
+
+class UTextBlock;
+class UButton;
+class UBorder;
+class USizeBox;
+
+/**
+ * Стиль плашки сообщения о конце сюжета. Живёт EditAnywhere-полем на AContrarySurvivorHUD
+ * (виджет строится из C++-класса и в Details не виден — настройка на владельце, паттерн
+ * FLimpIndicatorStyle). Плашка КОМПАКТНАЯ (решение Рината: не закрывать экран): фикс-ширина,
+ * высота растёт за текстом, позиция — вверху по центру, ниже строки задачи интро.
+ */
+USTRUCT(BlueprintType)
+struct FEndOfStoryStyle
+{
+	GENERATED_BODY()
+
+	// Цвет плашки-подложки (тёмная полупрозрачная, как тосты онбординга).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Цвет подложки"))
+	FLinearColor PlateColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.8f);
+
+	// Цвет основного текста сообщения.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Цвет текста"))
+	FLinearColor TextColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
+
+	// Цвет строки-статуса «Канал скоро появится».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Цвет строки-статуса"))
+	FLinearColor StatusColor = FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
+
+	// Цвет фона кнопок (поверх стандартного скина кнопки UMG).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Цвет кнопок"))
+	FLinearColor ButtonColor = FLinearColor(0.25f, 0.28f, 0.33f, 1.0f);
+
+	// Цвет подписи на кнопках.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Цвет подписи кнопок"))
+	FLinearColor ButtonTextColor = FLinearColor(0.95f, 0.96f, 1.0f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (ClampMin = "8", DisplayName = "Кегль текста"))
+	int32 FontSize = 15;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (ClampMin = "8", DisplayName = "Кегль кнопок"))
+	int32 ButtonFontSize = 14;
+
+	// Внутренние отступы плашки: X — по горизонтали, Y — по вертикали.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Отступы плашки"))
+	FVector2D PlatePadding = FVector2D(16.0f, 12.0f);
+
+	// Якорь на экране в долях (0.5/0 = верх-центр) и смещение от якоря в пикселях.
+	// Дефолт — вверху по центру, ниже строки задачи интро/трекера квеста.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Якорь на экране (доли)"))
+	FVector2D ScreenAnchor = FVector2D(0.5f, 0.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (DisplayName = "Смещение от якоря (px)"))
+	FVector2D ScreenOffset = FVector2D(0.0f, 110.0f);
+
+	// Ширина плашки (px). Высота НЕ задаётся: растёт за текстом (авто-перенос).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EndOfStory", meta = (ClampMin = "200", DisplayName = "Ширина плашки (px)"))
+	float BoxWidth = 620.0f;
+};
+
+/**
+ * Гейт «запланировать показ один раз» — чистая логика без UObject, вынесена под headless-тест
+ * (паттерн FLimpFirstHintState/DailyRewardLogic: сам показ виджета тестируется только в PIE,
+ * а решение «пора ли планировать» — тестируемо без мира). Живёт членом AContrarySurvivorHUD.
+ */
+struct FEndOfStoryGate
+{
+	// Показ уже запланирован в этой сессии (двойной таймер не заводим).
+	bool bScheduled = false;
+
+	// true РОВНО один раз: сценка о шкурах уже проиграна профилю (флаг сейва
+	// bElderNotebookHintShown), а сообщение конца сюжета ещё не показывалось
+	// (флаг сейва bEndOfStoryShown).
+	bool ShouldSchedule(bool bEpilogueSeen, bool bAlreadyShownInSave)
+	{
+		if (bScheduled || !bEpilogueSeen || bAlreadyShownInSave)
+		{
+			return false;
+		}
+		bScheduled = true;
+		return true;
+	}
+};
+
+/**
+ * Сообщение о конце сюжета текущей версии (Build 1.2, задача Рината 07-31): компактная плашка
+ * через ~30 с после того, как староста закончил сценку про шкуры волков. Игра НЕ на паузе,
+ * показ ОДИН раз за сохранение (флаг в сейве ставит AContrarySurvivorHUD при показе).
+ * Кнопки: [Написать мне] — открывает ссылку на канал, а пока ссылки нет, показывает строку
+ * «Канал скоро появится»; [Играть дальше] — закрывает плашку.
+ *
+ * Дерево целиком строится в C++ (WidgetTree), .uasset не нужен — создаётся напрямую
+ * CreateWidget<UEndOfStoryWidget>(PC, UEndOfStoryWidget::StaticClass()) (образец —
+ * ULimpIndicatorWidget). Тексты и стиль — EditAnywhere-поля AContrarySurvivorHUD.
+ */
+UCLASS()
+class CONTRARYSURVIVOR_API UEndOfStoryWidget : public USelfHidingWidget
+{
+	GENERATED_BODY()
+
+public:
+	// Тексты и ссылка — готовые переводимые FText (ADR-050), владеет ими HUD.
+	// InChannelUrl пуст — кнопка [Написать мне] показывает InChannelPendingText.
+	void InitContent(const FText& InMessage, const FText& InWriteButtonLabel,
+		const FText& InPlayButtonLabel, const FText& InChannelPendingText,
+		const FString& InChannelUrl);
+
+	// Применяет стиль к уже построенному дереву (зовёт HUD сразу после создания).
+	void ApplyStyle(const FEndOfStoryStyle& Style);
+
+protected:
+	virtual void NativeOnInitialized() override;
+
+	// Пока открыт модальный экран (инвентарь/магазин/диалог/смерть/пауза) — плашка прячется
+	// (SelfHiding-паттерн), после закрытия возвращается: сообщение одно на профиль, терять нельзя.
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	UFUNCTION() void HandleWriteClicked();
+	UFUNCTION() void HandlePlayClicked();
+
+private:
+	// Закрыть плашку и вернуть игровой режим ввода (если игрок не успел открыть модалку).
+	void CloseAndRestoreInput();
+
+	// Фиксирует ширину плашки; высота растёт за текстом (авто-перенос).
+	UPROPERTY()
+	TObjectPtr<USizeBox> WidthBox;
+
+	UPROPERTY()
+	TObjectPtr<UBorder> Plate;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> MessageText;
+
+	// Строка «Канал скоро появится» — скрыта, показывается по [Написать мне] при пустой ссылке.
+	UPROPERTY()
+	TObjectPtr<UTextBlock> StatusText;
+
+	UPROPERTY()
+	TObjectPtr<UButton> WriteButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> PlayButton;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WriteButtonText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> PlayButtonText;
+
+	// Текст-статус и ссылка (латчатся в InitContent).
+	FText ChannelPendingText;
+	FString ChannelUrl;
+};

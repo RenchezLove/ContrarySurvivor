@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
 #include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (источник каталога/цен магазина, A2)
+#include "ContrarySurvivor/UI/EndOfStoryWidget.h" // FEndOfStoryStyle/FEndOfStoryGate (сообщение конца сюжета)
 #include "ContrarySurvivorHUD.generated.h"
 
 class UStatsComponent;
@@ -209,6 +210,13 @@ public:
 	// Актор-цель стрелки-направления интро (центр деревни / староста). Реюз маркеров NPC.
 	void SetIntroDirectionTarget(AActor* Target) { IntroDirectionTarget = Target; }
 
+	// --- Сообщение о конце сюжета (Build 1.2, задача Рината 07-31) ---
+
+	// Сценка старосты про шкуры волков доиграна до конца (зовёт UDialogScreenWidget из
+	// AdvanceNotebookHint): через EndOfStoryDelaySeconds показать компактную плашку
+	// «здесь заканчивается сюжет…». Один раз за сохранение (флаг bEndOfStoryShown в сейве).
+	void NotifyStoryEpilogueFinished();
+
 protected:
 	// Радиус (в Unreal units), в пределах которого над врагом показывается хелсбар.
 	// GDD ч.8: «при приближении ближе ~5 м». 5 м ≈ 500 ед, но для top-down-обзора берём с запасом.
@@ -270,6 +278,16 @@ protected:
 	// Отличается от маркера ВРАГА (жёлтый ретикл): иной цвет (зелёный) и форма (ромб),
 	// + стрелка по краю экрана, если NPC за кадром.
 
+	// Build 1.2 (задача Рината 07-31 «маркеры по необходимости»): true (дефолт) — зелёные
+	// маркеры NPC НЕ висят постоянно, а рисуются только над NPC, к которому сейчас ведёт
+	// навигация первых шагов (цель стрелки интро: после входа в деревню это староста — вместе
+	// с сообщением «Найти старосту и поговорить»; снимается, когда игрок заговорил). Дальше
+	// ориентиры дают только квестовые метки (жёлтые, включая «Сдать:» над старостой).
+	// false — прежнее поведение: маркеры над всеми NPC всегда.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker",
+		meta = (DisplayPriority = "0", DisplayName = "Маркеры NPC только по необходимости"))
+	bool bNPCMarkersOnlyWhenNeeded = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	FLinearColor NPCMarkerColor = FLinearColor(0.15f, 0.95f, 0.45f, 1.0f); // зелёный (дружественный)
 
@@ -326,6 +344,53 @@ protected:
 	// Подъём якоря метки над актором-целью (см) — выше визуализаторов базы.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|QuestMarker", meta = (DisplayPriority = "8"))
 	float QuestTargetMarkerZOffset = 300.0f;
+
+	// ======================================================================
+	// Сообщение о конце сюжета (Build 1.2, задача Рината 07-31). Компактная плашка через
+	// EndOfStoryDelaySeconds после конца сценки старосты про шкуры; игра НЕ на паузе; показ
+	// один раз за сохранение. Триггер — NotifyStoryEpilogueFinished (панель диалога); страховка
+	// на случай выхода из игры в окне задержки — разовая проверка сейва в DrawHUD.
+	// ======================================================================
+
+	// Мастер-выключатель сообщения (снять галку — плашка не показывается вовсе).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "1", DisplayName = "Показывать сообщение конца сюжета"))
+	bool bEndOfStoryMessageEnabled = true;
+
+	// Задержка от конца диалога со старостой до показа плашки, сек (задача: ~30).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (ClampMin = "0.0", DisplayPriority = "2", DisplayName = "Задержка показа, сек"))
+	float EndOfStoryDelaySeconds = 30.0f;
+
+	// Текст сообщения — ДОСЛОВНО формулировка Рината 07-31 (правится здесь без пересборки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "3", MultiLine = "true", DisplayName = "Текст сообщения"))
+	FText EndOfStoryMessageText = NSLOCTEXT("EndOfStory", "Message",
+		"Спасибо, что дошли до этого места. Здесь заканчивается сюжет текущей версии — история продолжится в следующем обновлении. Пока мир остаётся открытым: охота, торговля, снаряжение. Игру делает один человек, и то, что вы напишете, реально влияет на то, каким будет продолжение.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "4", DisplayName = "Кнопка «Написать мне»"))
+	FText EndOfStoryWriteButtonText = NSLOCTEXT("EndOfStory", "WriteButton", "Написать мне");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "5", DisplayName = "Кнопка «Играть дальше»"))
+	FText EndOfStoryPlayButtonText = NSLOCTEXT("EndOfStory", "PlayButton", "Играть дальше");
+
+	// Что показывает [Написать мне], пока ссылка на канал пуста.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "6", DisplayName = "Текст при пустой ссылке"))
+	FText EndOfStoryChannelPendingText = NSLOCTEXT("EndOfStory", "ChannelPending", "Канал скоро появится");
+
+	// Ссылка на канал (телеграм). ПУСТО, пока Ринат не дал адрес; появится — [Написать мне]
+	// откроет её в браузере.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "7", DisplayName = "Ссылка на канал"))
+	FString EndOfStoryChannelUrl;
+
+	// Стиль плашки (цвета/шрифты/позиция/ширина).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "8", DisplayName = "Стиль плашки"))
+	FEndOfStoryStyle EndOfStoryStyle;
 
 	// --- HUD игрока (GDD §7.7) ---
 
@@ -824,8 +889,37 @@ private:
 	// Рисует задачу интро вверху по центру (плашка + текст) — тем же стилем, что трекер квеста.
 	void DrawIntroObjective();
 
-	// Рисует стрелку/маркер на цель-деревню (реюз DrawNPCMarker: маркер + краевая стрелка за кадром).
+	// Рисует стрелку/маркер на цель-деревню (реюз DrawNPCMarker: маркер + краевая стрелка за
+	// кадром). Build 1.2: если цель — интерактивный NPC (староста на шаге «найти старосту»),
+	// безымянный ромб НЕ рисуется — над NPC уже висит его именной маркер (DrawInteractiveNPCMarkers).
 	void DrawIntroDirectionMarker();
+
+	// --- Сообщение о конце сюжета (Build 1.2) ---
+
+	// Разовая проверка сейва при первом DrawHUD с готовым игроком: сценка про шкуры уже
+	// проиграна профилю, а сообщение ещё не показано (игрок вышел из игры в окне задержки
+	// либо доиграл сюжет до обновления с плашкой) — планируем показ по обычному таймеру.
+	void MaybeScheduleEndOfStoryFromSave(APlayerCharacter* Player);
+
+	// Запланировать показ через EndOfStoryDelaySeconds. От двойного запуска (триггер диалога +
+	// проверка сейва) защищает EndOfStoryGate.
+	void ScheduleEndOfStoryMessage(bool bEpilogueSeen, bool bShownInSave);
+
+	// Показать плашку: флаг «показано» в сейв, виджет на экран, режим ввода Game+UI
+	// (кнопки кликабельны; мир НЕ на паузе — решение Рината).
+	void ShowEndOfStoryMessage();
+
+	// Виджет плашки (создаётся при показе; повторно не показывается — флаг в сейве).
+	UPROPERTY()
+	TObjectPtr<UEndOfStoryWidget> EndOfStoryWidgetInstance;
+
+	// Гейт «запланировать один раз за сессию» (чистая логика, headless-тест в Tests/).
+	FEndOfStoryGate EndOfStoryGate;
+
+	FTimerHandle EndOfStoryTimer;
+
+	// Сейв уже проверялся в DrawHUD (одно чтение слота за жизнь HUD — DrawHUD зовётся каждый кадр).
+	bool bEndOfStorySaveChecked = false;
 
 	// Рисует одну полоску здоровья над целью ЛЮБОГО типа (бандит/волк/любой враг
 	// с UStatsComponent). Тип-агностично: принимает актёра и его компонент статов.
