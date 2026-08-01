@@ -85,6 +85,8 @@ void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 
 	// Дешёвая сигнатура состава: изменилась — пересборка paper-doll и рюкзака.
 	// Ловит и внешние изменения (подбор, QA-клавиши выдачи предметов F2/F3).
+	// Build 1.2.1 (стаки): считаем ШТУКИ (Max(1, стак)) — съеденная из стака тушёнка
+	// меняет сигнатуру и обновляет «x5» -> «x4», хотя число строк не изменилось.
 	int32 BackpackCount = 0;
 	if (UInventoryComponent* Inv = Player->GetInventory())
 	{
@@ -92,7 +94,7 @@ void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 		{
 			if (IsValid(Item) && !Inv->IsItemEquipped(Item))
 			{
-				++BackpackCount;
+				BackpackCount += FMath::Max(1, Item->GetStackCount());
 			}
 		}
 	}
@@ -154,7 +156,8 @@ void UInventoryScreenWidget::RefreshAll()
 				{
 					continue; // экипированное показано в paper-doll
 				}
-				++BackpackCount;
+				// Сигнатура в ШТУКАХ (как в NativeTick) — «x5» -> «x4» тоже пересборка.
+				BackpackCount += FMath::Max(1, Item->GetStackCount());
 
 				FText UseCaption;
 				switch (Item->GetItemCategory())
@@ -165,11 +168,21 @@ void UInventoryScreenWidget::RefreshAll()
 				}
 
 				// Название только через GetItemDisplayText: служебное имя актора наружу
-				// не уходит (ADR-050, порция 0).
+				// не уходит (ADR-050, порция 0). Build 1.2.1 (стаки): у стака >1 штуки к
+				// названию добавляется количество (формат StackNameFormat: «Тушёнка x5»).
+				FText RowName = Item->GetItemDisplayText();
+				if (Item->GetStackCount() > 1)
+				{
+					FFormatNamedArguments Args;
+					Args.Add(TEXT("ItemName"), RowName);
+					Args.Add(TEXT("Count"), FText::AsNumber(Item->GetStackCount()));
+					RowName = FText::Format(StackNameFormat, Args);
+				}
+
 				if (UInventoryRowWidget* Row = CreateWidget<UInventoryRowWidget>(PC, RowWidgetClass))
 				{
 					Row->Item = Item;
-					Row->SetupRow(Item->GetItemDisplayText(), UseCaption);
+					Row->SetupRow(RowName, UseCaption);
 					Row->OnUseClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowUse);
 					Row->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowDrop);
 					BackpackList->AddChild(Row);

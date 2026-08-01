@@ -79,6 +79,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "8"))
 	FText UseHintArmor = NSLOCTEXT("Inventory", "UseHintArmor", "Надеть");
 
+	// Название строки-СТАКА (Build 1.2.1, ТЗ Г): {ItemName} — название, {Count} — штук в
+	// стаке. Применяется только при количестве больше 1 (одиночный предмет — как раньше).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
+	FText StackNameFormat = NSLOCTEXT("Inventory", "StackNameFormat", "{ItemName} x{Count}");
+
 protected:
 	virtual void NativeOnInitialized() override;
 

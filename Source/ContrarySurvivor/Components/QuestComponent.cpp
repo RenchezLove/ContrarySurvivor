@@ -197,13 +197,15 @@ void UQuestComponent::SyncInventoryQuests(UInventoryComponent* Inventory)
 			continue;
 		}
 
-		// Считаем предметы рюкзака с нужным именем (регистр учитывается; имена задаём детерминированно).
+		// Считаем предметы рюкзака с нужным именем (регистр учитывается; имена задаём
+		// детерминированно). Build 1.2.1 (ТЗ Г): стак считается ПО ШТУКАМ — «Шкура волка» x3
+		// в одном акторе засчитывает 3 (Max(1,...): нестакаемый актор = 1, как раньше).
 		int32 Count = 0;
 		for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
 		{
 			if (Item && Item->ItemName.Equals(Q.RequiredItemName, ESearchCase::CaseSensitive))
 			{
-				++Count;
+				Count += FMath::Max(1, Item->GetStackCount());
 			}
 		}
 
@@ -245,24 +247,42 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 			return false;
 		}
 
-		// Собираем нужное число предметов с совпадающим именем.
-		TArray<AMasterInventoryItem*> ToRemove;
+		// Собираем предметы с совпадающим именем НА НУЖНОЕ ЧИСЛО ШТУК. Build 1.2.1 (ТЗ Г):
+		// предмет может быть стаком — с актора берём до GetStackCount() штук; если стак
+		// больше остатка требования, изымаем ЧАСТИЧНО (уменьшаем счётчик, актор живёт).
+		TArray<AMasterInventoryItem*> ToRemove;   // акторы, уходящие целиком
+		AMasterInventoryItem* PartialFrom = nullptr; // стак, из которого берём часть
+		int32 PartialTake = 0;
+		int32 Collected = 0;
 		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
 		{
-			if (Item && Item->ItemName.Equals(Q->RequiredItemName, ESearchCase::CaseSensitive))
+			if (Collected >= Q->RequiredItemCount)
+			{
+				break;
+			}
+			if (!Item || !Item->ItemName.Equals(Q->RequiredItemName, ESearchCase::CaseSensitive))
+			{
+				continue;
+			}
+			const int32 Available = FMath::Max(1, Item->GetStackCount());
+			const int32 Need = Q->RequiredItemCount - Collected;
+			if (Available <= Need)
 			{
 				ToRemove.Add(Item);
-				if (ToRemove.Num() >= Q->RequiredItemCount)
-				{
-					break;
-				}
+				Collected += Available;
+			}
+			else
+			{
+				PartialFrom = Item;
+				PartialTake = Need;
+				Collected += Need;
 			}
 		}
 
-		if (ToRemove.Num() < Q->RequiredItemCount)
+		if (Collected < Q->RequiredItemCount)
 		{
 			UE_LOG(LogQA, Display, TEXT("QA: turn-in FAILED (%s) - need %d '%s', have %d"),
-				*Q->QuestId.ToString(), Q->RequiredItemCount, *Q->RequiredItemName, ToRemove.Num());
+				*Q->QuestId.ToString(), Q->RequiredItemCount, *Q->RequiredItemName, Collected);
 			return false;
 		}
 
@@ -273,6 +293,10 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 			{
 				Item->Destroy();
 			}
+		}
+		if (PartialFrom && PartialTake > 0)
+		{
+			PartialFrom->StackCount = FMath::Max(0, PartialFrom->StackCount - PartialTake);
 		}
 		UE_LOG(LogQA, Display, TEXT("QA: turn-in took %d x '%s' from backpack (%s)"),
 			Q->RequiredItemCount, *Q->RequiredItemName, *Q->QuestId.ToString());

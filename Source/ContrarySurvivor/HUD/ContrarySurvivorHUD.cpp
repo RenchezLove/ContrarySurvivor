@@ -624,7 +624,13 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 				default:                        ActionHint = TEXT("");             break;
 			}
 
-			const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			// Build 1.2.1 (стаки): у стака >1 к названию добавляется количество («Тушёнка x5»),
+			// как в UMG-пути (InventoryScreenWidget::StackNameFormat).
+			FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+			if (Item->GetStackCount() > 1)
+			{
+				Name = FString::Printf(TEXT("%s x%d"), *Name, Item->GetStackCount());
+			}
 			const FString Label = ActionHint.IsEmpty()
 				? Name
 				: FString::Printf(TEXT("%s  [%s]"), *Name, *ActionHint);
@@ -880,11 +886,17 @@ void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInvent
 		return;
 	}
 
-	// Слайдер количества имеет смысл только для стака патронов. Прочие предметы продаём сразу.
-	AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
-	if (!Ammo)
+	// Слайдер количества имеет смысл только для СТАКА (Build 1.2.1, ТЗ Г: раньше — только
+	// патроны, теперь любой стакаемый предмет: шкуры/тушёнка/аптечка). Нестакаемое продаём
+	// сразу. Цена единицы: у патронов — спец-тариф за штуку, у прочих — GetSellValue
+	// (тариф категории и есть цена ОДНОЙ штуки).
+	if (!Item->IsStackable() || Item->GetStackCount() <= 1)
 	{
-		Player->Shop_SellItem(Item, ShopTrader->GetSellValue(Item));
+		// Стак из одной штуки тоже уходит мгновенно (прежний UX Canvas-пути: панель
+		// количества ради «1 из 1» не открываем; UMG-путь ведёт себя иначе — там окно
+		// подтверждения нужно любой продаже из-за золотой кнопки).
+		Player->Shop_SellItemQty(Item, Cast<AAmmoItem>(Item)
+			? ShopTrader->GetAmmoSellPerRound() : ShopTrader->GetSellValue(Item), 1);
 		return;
 	}
 
@@ -892,10 +904,11 @@ void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInvent
 	bSliderIsBuy = false;
 	SliderEntryIndex = -1;
 	SliderItem = Item;
-	SliderUnitPrice = ShopTrader->GetAmmoSellPerRound();
+	SliderUnitPrice = Cast<AAmmoItem>(Item)
+		? ShopTrader->GetAmmoSellPerRound() : ShopTrader->GetSellValue(Item);
 	SliderUnitAmmo = 0;
-	SliderTitle = Item->ItemName.IsEmpty() ? TEXT("Патроны 9мм") : Item->ItemName;
-	SliderQtyMax = FMath::Max(1, Ammo->StackCount);
+	SliderTitle = Item->ItemName.IsEmpty() ? Item->GetItemDisplayText().ToString() : Item->ItemName;
+	SliderQtyMax = FMath::Max(1, Item->GetStackCount());
 	SliderQty = SliderQtyMax; // по умолчанию продать всё (как в STALKER — потом крутишь вниз)
 }
 
@@ -1200,7 +1213,12 @@ void AContrarySurvivorHUD::DrawShop(APlayerCharacter* Player)
 
 		const float MainW = RightW - BtnW - 6.0f;
 		const float SellVal = ShopTrader->GetSellValue(Item);
-		const FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+		// Build 1.2.1 (стаки): у стака >1 показываем количество («Шкура волка x3»).
+		FString Name = Item->ItemName.IsEmpty() ? Item->GetName() : Item->ItemName;
+		if (Item->GetStackCount() > 1)
+		{
+			Name = FString::Printf(TEXT("%s x%d"), *Name, Item->GetStackCount());
+		}
 		const FString Label = FString::Printf(TEXT("%s  (+%.0f)"), *Name, SellVal);
 		DrawInvBox(RightX, SellY, MainW, RowH, InvSlotColor, Mouse, Label, Font);
 
@@ -1671,8 +1689,9 @@ void AContrarySurvivorHUD::DrawIntroDirectionMarker()
 		return;
 	}
 	// Реюз системы маркеров NPC: маркер над целью + краевая стрелка, если цель за кадром.
+	// Д3: тот же зелёный тип NPC — и картинка его же (пуста — прежний ромб).
 	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, QuestTargetMarkerZOffset),
-		FString(), NPCMarkerColor);
+		FString(), NPCMarkerColor, /*bEdgeArrowOnly=*/false, ResolveIcon(NPCMarkerTexture));
 }
 
 // ===========================================================================
@@ -2264,6 +2283,16 @@ void AContrarySurvivorHUD::DrawTargetMarker(AActor* TargetActor)
 	const float T = TargetMarkerThickness;
 	const FLinearColor C = TargetMarkerColor;
 
+	// Build 1.2.1 (ТЗ Д3): своя картинка задана — рисуем ЕЙ (квадрат 2H x 2H по центру
+	// цели, без подкраски) вместо скобок и треугольника; пуста/не загрузилась — прежние
+	// фигуры ниже. ResolveIcon кэширует и успех, и неудачу (без загрузок каждый кадр).
+	if (UTexture2D* MarkerTex = ResolveIcon(TargetMarkerTexture))
+	{
+		DrawTexture(MarkerTex, CX - H, CY - H, 2.0f * H, 2.0f * H,
+			0.0f, 0.0f, 1.0f, 1.0f);
+		return;
+	}
+
 	// Четыре угловые скобки рамки (вид «захвата цели»).
 	// Верх-левый
 	DrawLine(CX - H, CY - H, CX - H + L, CY - H, C, T);
@@ -2334,7 +2363,9 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		// Старый путь рисования печатает строкой; сам текст уже переводимый (ADR-050).
 		const FString Label = NPC ? NPC->GetNPCMarkerLabel().ToString() : FString();
 
-		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, NPCMarkerColor);
+		// Д3: своя картинка типа NPC (пуста — прежний ромб). Кэш загрузки — ResolveIcon.
+		DrawNPCMarker(Actor->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, NPCMarkerColor,
+			/*bEdgeArrowOnly=*/false, ResolveIcon(NPCMarkerTexture));
 	}
 }
 
@@ -2491,11 +2522,13 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		}
 	}
 
-	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor);
+	// Д3: своя картинка типа Quest (пуста — прежний золотой ромб).
+	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor,
+		/*bEdgeArrowOnly=*/false, ResolveIcon(QuestTargetMarkerTexture));
 }
 
 void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FString& Label,
-	const FLinearColor& Color, bool bEdgeArrowOnly)
+	const FLinearColor& Color, bool bEdgeArrowOnly, UTexture2D* IconTexture)
 {
 	if (!Canvas)
 	{
@@ -2527,7 +2560,7 @@ void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FStri
 	{
 		if (!bEdgeArrowOnly)
 		{
-			DrawNPCIcon(P, Label, Color);
+			DrawNPCIcon(P, Label, Color, IconTexture);
 		}
 		return;
 	}
@@ -2549,7 +2582,8 @@ void AContrarySurvivorHUD::DrawNPCMarker(const FVector& WorldAnchor, const FStri
 	DrawNPCEdgeArrow(Edge, Dir.GetSafeNormal(), Color);
 }
 
-void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color)
+void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color,
+	UTexture2D* IconTexture)
 {
 	const float CX = ScreenPos.X;
 	const float CY = ScreenPos.Y;
@@ -2557,11 +2591,21 @@ void AContrarySurvivorHUD::DrawNPCIcon(const FVector2D& ScreenPos, const FString
 	const float T = NPCMarkerThickness;
 	const FLinearColor C = Color;
 
-	// Ромб (повёрнутый квадрат) — форма, отличная от углового ретикла врага.
-	DrawLine(CX, CY - H, CX + H, CY, C, T); // верх -> право
-	DrawLine(CX + H, CY, CX, CY + H, C, T); // право -> низ
-	DrawLine(CX, CY + H, CX - H, CY, C, T); // низ -> лево
-	DrawLine(CX - H, CY, CX, CY - H, C, T); // лево -> верх
+	// Build 1.2.1 (ТЗ Д3): картинка задана — рисуем ЕЙ (квадрат 2H x 2H, без подкраски)
+	// вместо ромба; подпись под маркером ниже — как раньше.
+	if (IconTexture)
+	{
+		DrawTexture(IconTexture, CX - H, CY - H, 2.0f * H, 2.0f * H,
+			0.0f, 0.0f, 1.0f, 1.0f);
+	}
+	else
+	{
+		// Ромб (повёрнутый квадрат) — форма, отличная от углового ретикла врага.
+		DrawLine(CX, CY - H, CX + H, CY, C, T); // верх -> право
+		DrawLine(CX + H, CY, CX, CY + H, C, T); // право -> низ
+		DrawLine(CX, CY + H, CX - H, CY, C, T); // низ -> лево
+		DrawLine(CX - H, CY, CX, CY - H, C, T); // лево -> верх
+	}
 
 	// Подпись под ромбом по центру.
 	if (!Label.IsEmpty())

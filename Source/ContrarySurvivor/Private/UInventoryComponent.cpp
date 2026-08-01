@@ -26,6 +26,39 @@ bool UInventoryComponent::AddItem(AMasterInventoryItem* Item)
 {
     if (Item)
     {
+        // Build 1.2.1 (ТЗ Г): СЛИЯНИЕ СТАКОВ — единая точка на все пути пополнения рюкзака
+        // (подбор пикапа, покупка, обыск трупа, отладочная выдача). Стакаемый входящий
+        // предмет доливается в существующие стаки того же класса/ключа, пока есть место;
+        // влившийся ЦЕЛИКОМ актор уничтожается (Destroy отложенный — указатель у вызывающего
+        // до конца кадра валиден), остаток входит отдельной записью. Экипированное не
+        // трогаем (стакаемое не экипируется, guard на всякий случай).
+        if (Item->IsStackable() && Item->GetStackCount() > 0)
+        {
+            for (AMasterInventoryItem* Existing : InventoryItems)
+            {
+                if (!IsValid(Existing) || !Existing->CanStackWith(Item) || IsItemEquipped(Existing))
+                {
+                    continue;
+                }
+                const int32 Transfer = FMath::Min(Existing->GetStackSpace(), Item->StackCount);
+                if (Transfer <= 0)
+                {
+                    continue;
+                }
+                Existing->StackCount += Transfer;
+                Item->StackCount -= Transfer;
+                FQADebug::QA(this, FString::Printf(
+                    TEXT("QA: ADDITEM merge %d x '%s' -> stack %d/%d"),
+                    Transfer, *Item->ItemName, Existing->StackCount, Existing->MaxStackCount),
+                    /*bScreen=*/true);
+                if (Item->StackCount <= 0)
+                {
+                    Item->Destroy();
+                    return true; // всё влилось в существующие стаки — новой записи нет
+                }
+            }
+        }
+
         const int32 CountBefore = InventoryItems.Num();
         InventoryItems.Add(Item);
         const int32 CountAfter = InventoryItems.Num();

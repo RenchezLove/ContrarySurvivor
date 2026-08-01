@@ -7,6 +7,12 @@ AConsumableItem::AConsumableItem()
 {
 	// Категория расходника (база ставит Resource) — для логики UI/потери при смерти.
 	ItemCategory = EItemCategory::Consumable;
+
+	// Build 1.2.1 (ТЗ Г): расходники СТАКАЮТСЯ по механизму патронов, лимит как у патронов
+	// (999). Один класс на воду/консервы/аптечку — различает стаки служебный ключ ItemName
+	// (CanStackWith). Слияние — UInventoryComponent::AddItem.
+	StackCount = 1;
+	MaxStackCount = 999;
 }
 
 bool AConsumableItem::ApplyConsumeEffect(UStatsComponent* Stats)
@@ -16,21 +22,36 @@ bool AConsumableItem::ApplyConsumeEffect(UStatsComponent* Stats)
 		return false;
 	}
 
+	bool bApplied = false;
 	switch (ConsumableType)
 	{
 		case EConsumableType::Food:
 			Stats->ConsumeFood();   // +FoodRestoreAmount к голоду (Фаза 2)
-			return true;
+			bApplied = true;
+			break;
 		case EConsumableType::Water:
 			Stats->DrinkWater();    // +WaterRestoreAmount к жажде (Фаза 2)
-			return true;
+			bApplied = true;
+			break;
 		case EConsumableType::Medkit:
 			// Бинт/аптечка восстанавливает HP. Heal не лечит мёртвых (вернёт 0) — допустимо.
 			Stats->Heal(HealRestoreAmount);
-			return true;
+			bApplied = true;
+			break;
 		default:
-			return false;
+			break;
 	}
+
+	// Build 1.2.1 (ТЗ Г): из СТАКА съедается одна штука. Возвращаемое значение читается
+	// вызывающим (APlayerCharacter::Inv_UseBackpackItem) как «предмет израсходован ЦЕЛИКОМ —
+	// убрать из рюкзака и уничтожить»: пока в стаке осталось >0 штук, отвечаем false и лишь
+	// уменьшаем счётчик; последняя штука — прежнее поведение (true -> актор уничтожается).
+	if (bApplied && StackCount > 1)
+	{
+		--StackCount;
+		return false;
+	}
+	return bApplied;
 }
 
 FString AConsumableItem::GetDefaultDisplayName(EConsumableType Type)

@@ -247,6 +247,14 @@ protected:
 
 	// --- Маркер ТЕКУЩЕЙ залоченной цели (ФИКС1: игрок должен видеть, кого бьёт) ---
 
+	// Build 1.2.1 (ТЗ Д3): СВОЯ КАРТИНКА маркера цели. Задана — вместо угловых скобок и
+	// треугольника рисуется эта текстура (квадрат со стороной 2*TargetMarkerHalfSize по
+	// центру цели, без подкраски цветом); ПУСТА (дефолт) — прежние фигуры, поведение не
+	// меняется. Настройка на размещённом BP_ContrarySurvivorHUD.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker",
+		meta = (DisplayPriority = "0", DisplayName = "Своя текстура (пусто = фигуры)"))
+	TSoftObjectPtr<UTexture2D> TargetMarkerTexture;
+
 	// На сколько единиц над Actor location поднимаем якорь маркера (центр силуэта цели).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|TargetMarker", meta = (DisplayPriority = "1"))
 	float TargetMarkerWorldZOffset = 50.0f;
@@ -287,6 +295,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker",
 		meta = (DisplayPriority = "0", DisplayName = "Маркеры NPC только по необходимости"))
 	bool bNPCMarkersOnlyWhenNeeded = true;
+
+	// Build 1.2.1 (ТЗ Д3): СВОЯ КАРТИНКА маркера NPC. Задана — вместо зелёного ромба в
+	// кадре рисуется эта текстура (квадрат со стороной 2*NPCMarkerHalfSize; подпись под
+	// ней как раньше); ПУСТА (дефолт) — прежний ромб. Краевая стрелка за кадром всегда
+	// линиями. Той же картинкой пользуется стрелка-навигация интро (тот же зелёный тип).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker",
+		meta = (DisplayPriority = "0", DisplayName = "Своя текстура (пусто = фигуры)"))
+	TSoftObjectPtr<UTexture2D> NPCMarkerTexture;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|NPCMarker", meta = (DisplayPriority = "1"))
 	FLinearColor NPCMarkerColor = FLinearColor(0.15f, 0.95f, 0.45f, 1.0f); // зелёный (дружественный)
@@ -336,6 +352,14 @@ protected:
 	FLinearColor EnemyShooterArrowColor = FLinearColor(1.0f, 0.15f, 0.1f, 1.0f);
 
 	// --- Метка цели активного квеста (Этап D, реюз маркеров NPC) ---
+
+	// Build 1.2.1 (ТЗ Д3): СВОЯ КАРТИНКА квест-метки. Задана — вместо золотого ромба в
+	// кадре рисуется эта текстура (квадрат со стороной 2*NPCMarkerHalfSize — размер общий
+	// с маркером NPC, как и сам ромб; подпись цели под ней как раньше); ПУСТА (дефолт) —
+	// прежний ромб. Краевая стрелка за кадром всегда линиями.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|QuestMarker",
+		meta = (DisplayPriority = "6", DisplayName = "Своя текстура (пусто = фигуры)"))
+	TSoftObjectPtr<UTexture2D> QuestTargetMarkerTexture;
 
 	// Цвет метки цели квеста (золотой — в тон трекеру квеста).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|QuestMarker", meta = (DisplayPriority = "7"))
@@ -970,11 +994,15 @@ private:
 	// Color — цвет маркера (Этап D: NPC зелёный, враг-стрелок красный, цель квеста золотая).
 	// bEdgeArrowOnly — рисовать ТОЛЬКО краевую стрелку за кадром (в кадре ничего): режим
 	// стрелка-за-кадром (у видимого врага и так есть хелсбар).
+	// IconTexture (Build 1.2.1, ТЗ Д3): задана — в кадре вместо ромба рисуется картинка
+	// (размер от NPCMarkerHalfSize); краевая стрелка за кадром остаётся линиями.
 	void DrawNPCMarker(const FVector& WorldAnchor, const FString& Label, const FLinearColor& Color,
-		bool bEdgeArrowOnly = false);
+		bool bEdgeArrowOnly = false, UTexture2D* IconTexture = nullptr);
 
-	// Ромб-иконка + подпись по экранной точке (цель в кадре).
-	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color);
+	// Ромб-иконка + подпись по экранной точке (цель в кадре). IconTexture задана —
+	// картинка вместо ромба (Д3), подпись под ней как раньше.
+	void DrawNPCIcon(const FVector2D& ScreenPos, const FString& Label, const FLinearColor& Color,
+		UTexture2D* IconTexture = nullptr);
 
 	// Краевая стрелка, указывающая в сторону цели за пределами экрана.
 	void DrawNPCEdgeArrow(const FVector2D& EdgePos, const FVector2D& Dir, const FLinearColor& Color);

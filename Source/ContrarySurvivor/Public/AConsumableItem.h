@@ -40,7 +40,10 @@ public:
 	float HealRestoreAmount = 25.0f;
 
 	// Применяет эффект расходника к статам потребителя. Food -> ConsumeFood (+Hunger),
-	// Water -> DrinkWater (+Thirst). Возвращает true, если эффект применён.
+	// Water -> DrinkWater (+Thirst), Medkit -> Heal.
+	// ВОЗВРАТ (Build 1.2.1, стаки): true — предмет израсходован ЦЕЛИКОМ, вызывающий убирает
+	// актор из рюкзака и уничтожает (прежнее поведение); false — либо эффект не применён,
+	// либо съедена ОДНА штука из стака (счётчик уменьшен, актор живёт дальше).
 	UFUNCTION(BlueprintCallable, Category = "Consumable")
 	bool ApplyConsumeEffect(UStatsComponent* Stats);
 
