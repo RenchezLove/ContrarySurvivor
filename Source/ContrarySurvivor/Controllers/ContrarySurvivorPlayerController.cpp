@@ -1873,11 +1873,33 @@ void AContrarySurvivorPlayerController::EndIntro()
 		PlayerChar->SetIntroGradeAlpha(1.0f);
 	}
 
-	// Задача меняется на «найти старосту»; стрелку на деревню оставляем — она ведёт к старосте,
-	// снимется при открытии диалога (OpenDialog).
+	// Задача меняется на «найти старосту», и маркер СИНХРОННО переезжает с деревни на старосту
+	// (Build 1.2, задача Рината 07-31 «маркеры по необходимости»: дошёл до деревни — маркер
+	// деревни гаснет, загорается маркер старосты). Старосты на карте нет — оставляем прежнюю
+	// цель-деревню. Снимаются задача и маркер при открытии диалога (OpenDialog).
 	if (AContrarySurvivorHUD* H = GetHUD<AContrarySurvivorHUD>())
 	{
 		H->SetIntroObjective(IntroObjectiveFindElder);
+
+		AActor* NearestElder = nullptr;
+		if (UWorld* World = GetWorld())
+		{
+			float BestSq = TNumericLimits<float>::Max();
+			const FVector From = GetPawn() ? GetPawn()->GetActorLocation() : IntroVillageLocation;
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
+			{
+				const float DSq = FVector::DistSquared(From, It->GetActorLocation());
+				if (DSq < BestSq)
+				{
+					BestSq = DSq;
+					NearestElder = *It;
+				}
+			}
+		}
+		if (NearestElder)
+		{
+			H->SetIntroDirectionTarget(NearestElder);
+		}
 	}
 
 	UE_LOG(LogQA, Display, TEXT("QA: intro ended (entered village), objective -> find elder"));
