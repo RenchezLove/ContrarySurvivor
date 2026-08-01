@@ -36,6 +36,18 @@
 #include "ContrarySurvivor/UI/EndOfStoryWidget.h"   // плашка конца сюжета (Build 1.2)
 #include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
 #include "TimerManager.h"     // таймер задержки сообщения конца сюжета
+#include "UObject/ConstructorHelpers.h" // Д2: мягкий FClassFinder WBP_EndOfStory
+
+AContrarySurvivorHUD::AContrarySurvivorHUD()
+{
+	// Build 1.2.1 (Д2): плашка конца сюжета — WBP_EndOfStory, если ассет уже на диске
+	// (генерируется cpp-2 отдельным шагом); нет — мягкий фолбэк на кодовый класс, плашка
+	// работает как раньше. Образец — PickupBP в конструкторе APlayerCharacter.
+	static ConstructorHelpers::FClassFinder<UEndOfStoryWidget> EndOfStoryBP(TEXT("/Game/UI/WBP_EndOfStory"));
+	EndOfStoryWidgetClass = EndOfStoryBP.Succeeded()
+		? TSubclassOf<UEndOfStoryWidget>(EndOfStoryBP.Class)
+		: TSubclassOf<UEndOfStoryWidget>(UEndOfStoryWidget::StaticClass());
+}
 
 void AContrarySurvivorHUD::BeginPlay()
 {
@@ -1830,8 +1842,10 @@ void AContrarySurvivorHUD::ShowEndOfStoryMessage()
 
 	if (!EndOfStoryWidgetInstance)
 	{
-		// Виджет строится кодом, .uasset не нужен (паттерн ULimpIndicatorWidget).
-		EndOfStoryWidgetInstance = CreateWidget<UEndOfStoryWidget>(PC, UEndOfStoryWidget::StaticClass());
+		// Д2 (Build 1.2.1): класс из слота EndOfStoryWidgetClass — WBP_EndOfStory, когда
+		// ассет сгенерирован (дефолт ставит конструктор); пустой слот в BP — кодовый класс.
+		EndOfStoryWidgetInstance = CreateWidget<UEndOfStoryWidget>(PC,
+			EndOfStoryWidgetClass ? *EndOfStoryWidgetClass : UEndOfStoryWidget::StaticClass());
 	}
 	if (!EndOfStoryWidgetInstance)
 	{

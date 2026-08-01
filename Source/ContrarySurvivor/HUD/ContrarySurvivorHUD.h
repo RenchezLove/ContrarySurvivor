@@ -115,6 +115,10 @@ class CONTRARYSURVIVOR_API AContrarySurvivorHUD : public AHUD
 	GENERATED_BODY()
 
 public:
+	// Build 1.2.1 (Д2): мягкий дефолт класса плашки конца сюжета (FClassFinder на
+	// WBP_EndOfStory; ассета нет — кодовый класс, прежнее поведение).
+	AContrarySurvivorHUD();
+
 	virtual void DrawHUD() override;
 
 	// ADR-048: постоянные UMG-панели (статы игрока / трекер квеста / подсказка E)
@@ -425,6 +429,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
 		meta = (DisplayPriority = "8", DisplayName = "Стиль плашки"))
 	FEndOfStoryStyle EndOfStoryStyle;
+
+	// Build 1.2.1 (Д2, спека cpp-2): класс виджета плашки. Дефолт ставит конструктор:
+	// WBP_EndOfStory (канвас-схема, редактируемая Ринатом), если ассет уже сгенерирован —
+	// мягкий FClassFinder по образцу PickupBP (PlayerCharacter.cpp); ассета нет — кодовый
+	// класс UEndOfStoryWidget, прежнее поведение без ассета сохраняется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
+		meta = (DisplayPriority = "9", DisplayName = "Класс виджета плашки"))
+	TSubclassOf<UEndOfStoryWidget> EndOfStoryWidgetClass;
 
 	// --- HUD игрока (GDD §7.7) ---
 
