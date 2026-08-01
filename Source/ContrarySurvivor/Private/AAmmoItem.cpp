@@ -8,6 +8,11 @@ AAmmoItem::AAmmoItem()
 	ItemName = TEXT("Патроны 9мм");
 	ItemDisplayText = NSLOCTEXT("Items", "Ammo9mm", "Патроны 9мм");
 	ItemCategory = EItemCategory::Resource;
+
+	// Стак (поля в базе с Build 1.2.1): пачка создаётся ПУСТОЙ (счётчик наполняет
+	// покупка/размещённый пикап — прежнее поведение AAmmoItem), лимит 999 (DRAFT).
+	StackCount = 0;
+	MaxStackCount = 999;
 }
 
 void AAmmoItem::Use()

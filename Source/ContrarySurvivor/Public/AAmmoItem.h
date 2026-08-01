@@ -26,19 +26,9 @@ class CONTRARYSURVIVOR_API AAmmoItem : public AMasterInventoryItem
 public:
 	AAmmoItem();
 
-	// Сколько патронов в этой пачке (стак). Меняется покупкой (+), перезарядкой/продажей (−).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ammo")
-	int32 StackCount = 0;
-
-	// Максимум патронов в одной пачке (стак-лимит). DRAFT, тюнингуется.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ammo")
-	int32 MaxStackCount = 999;
-
-	UFUNCTION(BlueprintPure, Category = "Ammo")
-	FORCEINLINE int32 GetStackCount() const { return StackCount; }
-
-	UFUNCTION(BlueprintPure, Category = "Ammo")
-	FORCEINLINE int32 GetStackSpace() const { return FMath::Max(0, MaxStackCount - StackCount); }
+	// СЧЁТЧИК СТАКА (StackCount/MaxStackCount) ПОДНЯТ В БАЗУ AMasterInventoryItem
+	// (Build 1.2.1, ТЗ Г: шкура/тушёнка/аптечка стакаются «по механизму патронов»).
+	// Дефолты пачки патронов (пустая пачка, лимит 999) выставляет конструктор.
 
 	// Патроны не используются из инвентаря напрямую — заряжаются перезарядкой. Use() — no-op.
 	virtual void Use() override;

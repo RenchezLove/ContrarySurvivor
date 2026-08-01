@@ -54,4 +54,16 @@ FText AMasterInventoryItem::GetItemDisplayText() const
 	return LOCTEXT("UnnamedItem", "Предмет");
 }
 
+bool AMasterInventoryItem::CanStackWith(const AMasterInventoryItem* Other) const
+{
+	// Оба стакаемы + один класс + один служебный ключ. Сравнение ключа — посимвольное,
+	// как в логике квестов (QuestComponent.cpp): имена задаются детерминированно.
+	return Other
+		&& Other != this
+		&& IsStackable()
+		&& Other->IsStackable()
+		&& GetClass() == Other->GetClass()
+		&& ItemName.Equals(Other->ItemName, ESearchCase::CaseSensitive);
+}
+
 #undef LOCTEXT_NAMESPACE

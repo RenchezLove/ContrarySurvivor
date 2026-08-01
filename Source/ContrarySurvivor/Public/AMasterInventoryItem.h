@@ -72,6 +72,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item", meta = (AllowPrivateAccess = "true"))
     UStaticMeshComponent* ItemMesh;
 
+	// --- Стак (Build 1.2.1, ТЗ Г). Механизм патронов (AAmmoItem) поднят в базу: шкура
+	// волка, тушёнка, аптечка и т.п. стакаются тем же счётчиком. MaxStackCount задаёт
+	// класс в конструкторе: 1 = предмет НЕ стакается (броня/оружие — прежнее поведение),
+	// >1 = стакается (AAmmoItem/AConsumableItem/AQuestItem ставят 999, «лимит как у
+	// патронов»). Слияние одинаковых предметов — UInventoryComponent::AddItem. ---
+
+	// Сколько штук в этом стаке. У нестакаемых всегда 1.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Stack", meta = (ClampMin = "0", DisplayPriority = "3"))
+	int32 StackCount = 1;
+
+	// Максимум штук в одном стаке. 1 = предмет не стакается.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Stack", meta = (ClampMin = "1", DisplayPriority = "4"))
+	int32 MaxStackCount = 1;
+
 
 	// Functions:
 	UFUNCTION(BlueprintCallable, Category = "Item")
@@ -87,5 +101,22 @@ public:
 	// вида «BP_Pistol_C_1» в корне: GetName() наружу больше не уходит (ADR-049).
 	UFUNCTION(BlueprintPure, Category = "Item")
 	FText GetItemDisplayText() const;
+
+	// --- Стак: доступ (поднято из AAmmoItem, Build 1.2.1 ТЗ Г) ---
+
+	UFUNCTION(BlueprintPure, Category = "Item|Stack")
+	FORCEINLINE bool IsStackable() const { return MaxStackCount > 1; }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Stack")
+	FORCEINLINE int32 GetStackCount() const { return StackCount; }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Stack")
+	FORCEINLINE int32 GetStackSpace() const { return FMath::Max(0, MaxStackCount - StackCount); }
+
+	// Можно ли слить этот стак с Other: оба стакаемы, ОДИН класс и ОДИН служебный ключ
+	// ItemName (класс общий на разные предметы: AQuestItem — и шкура, и ноутбук;
+	// AConsumableItem — вода/консервы/бинт, различает их именно ключ).
+	UFUNCTION(BlueprintPure, Category = "Item|Stack")
+	bool CanStackWith(const AMasterInventoryItem* Other) const;
 
 };
