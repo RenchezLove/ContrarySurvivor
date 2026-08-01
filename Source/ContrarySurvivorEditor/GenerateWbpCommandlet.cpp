@@ -473,7 +473,12 @@ namespace
 	// Экраны (геометрия и цвета — дефолты Canvas-пути ContrarySurvivorHUD.h)
 	// ======================================================================
 
-	// Одна строка рюкзака: плашка -> имя + «использовать» + выброс.
+	// Одна строка рюкзака: плашка -> имя + «использовать» + выброс. КАНВАС ВНУТРИ ПЛАШКИ
+	// (Build 1.2.1, задача Рината «двигать мышкой всё»): прежний ряд-коробка RowBox заменён
+	// канвасом RowCanvas — имя слева растяжкой по якорям, кнопки у правого края в своих
+	// канвас-слотах с ручками. Корень остаётся SizeBox: высота строки прежняя (48), ширину
+	// даёт слот ScrollBox. Механизм наполнения списка не тронут: строки по-прежнему плодит
+	// код классом WBP_InventoryRow_C.
 	bool BuildInventoryRow(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -487,41 +492,51 @@ namespace
 		Plate->SetPadding(FMargin(8.0f, 4.0f));
 		RowSize->SetContent(Plate);
 
-		UHorizontalBox* RowBox = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("RowBox"));
-		Plate->SetContent(RowBox);
+		UCanvasPanel* RowCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RowCanvas"));
+		Plate->SetContent(RowCanvas);
 
+		// Имя — растяжка от левого края до зоны кнопок (запас справа = кнопки + зазоры),
+		// вертикально центрировано на середине строки (якорь Y 0.5, авторазмер по высоте).
 		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("NameText"), TEXT("Предмет x1"),
 			FLinearColor::White, 15, TEXT("Regular"));
 		Name->bIsVariable = true;
-		if (UHorizontalBoxSlot* NameSlot = RowBox->AddChildToHorizontalBox(Name))
+		if (UCanvasPanelSlot* NameSlot = RowCanvas->AddChildToCanvas(Name))
 		{
-			NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			NameSlot->SetVerticalAlignment(VAlign_Center);
+			NameSlot->SetAnchors(FAnchors(0.0f, 0.5f, 1.0f, 0.5f));
+			NameSlot->SetOffsets(FMargin(0.0f, 0.0f, 160.0f, 0.0f));
+			NameSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+			NameSlot->SetAutoSize(true);
 		}
 
+		// Кнопки — якорь правый край, вертикальный центр; прежние зазоры ряда сохранены:
+		// [имя][6][Использовать][6+2][X][2-край]. Явный прямоугольник — ручки ресайза.
 		UButton* Use = MakeStyledButton(Tree, TEXT("UseButton"),
 			FLinearColor(0.2f, 0.35f, 0.5f, 1.0f), FLinearColor(0.25f, 0.45f, 0.62f, 1.0f),
 			FLinearColor(0.3f, 0.5f, 0.7f, 1.0f));
 		UTextBlock* UseCaption = MakeText(Tree, Roboto, TEXT("UseText"), TEXT("Использовать"),
 			FLinearColor::White, 13, TEXT("Regular"));
 		UseCaption->bIsVariable = true;
-		Use->SetContent(UseCaption);
-		if (UHorizontalBoxSlot* UseSlot = RowBox->AddChildToHorizontalBox(Use))
+		SetButtonContent(Use, UseCaption);
+		if (UCanvasPanelSlot* UseSlot = RowCanvas->AddChildToCanvas(Use))
 		{
-			UseSlot->SetVerticalAlignment(VAlign_Center);
-			UseSlot->SetPadding(FMargin(6.0f, 2.0f));
+			UseSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			UseSlot->SetAlignment(FVector2D(1.0f, 0.5f));
+			UseSlot->SetPosition(FVector2D(-46.0f, 0.0f));
+			UseSlot->SetSize(FVector2D(108.0f, 32.0f));
 		}
 
 		UButton* Drop = MakeStyledButton(Tree, TEXT("DropButton"),
 			FLinearColor(0.45f, 0.15f, 0.12f, 1.0f), FLinearColor(0.58f, 0.2f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f));
 		// Подпись выброса — статичная (код её не трогает, текст Рината).
-		Drop->SetContent(MakeText(Tree, Roboto, TEXT("DropLabel"), TEXT("X"),
+		SetButtonContent(Drop, MakeText(Tree, Roboto, TEXT("DropLabel"), TEXT("X"),
 			FLinearColor::White, 13, TEXT("Bold")));
-		if (UHorizontalBoxSlot* DropSlot = RowBox->AddChildToHorizontalBox(Drop))
+		if (UCanvasPanelSlot* DropSlot = RowCanvas->AddChildToCanvas(Drop))
 		{
-			DropSlot->SetVerticalAlignment(VAlign_Center);
-			DropSlot->SetPadding(FMargin(2.0f, 2.0f));
+			DropSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			DropSlot->SetAlignment(FVector2D(1.0f, 0.5f));
+			DropSlot->SetPosition(FVector2D(-2.0f, 0.0f));
+			DropSlot->SetSize(FVector2D(36.0f, 32.0f));
 		}
 		return true;
 	}
@@ -623,46 +638,39 @@ namespace
 			TEXT("Инвентарь"), FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 22, TEXT("Bold")),
 			FVector2D(0.0f, 0.0f));
 
-		// Строка статов: три пары «иконка + значение» ОДНИМ рядом. Ряд остаётся HBox
-		// сознательно: числа меняются в игре и толкают соседей — по отдельности на канвасе
-		// пары наезжали бы друг на друга при росте числа. Ряд целиком двигается мышкой.
+		// Строка статов: три пары «иконка + значение». Build 1.2.1 (задача Рината «двигать
+		// мышкой всё»): прежний ряд-коробка StatsRow убран — каждая иконка и каждое значение
+		// в СВОЁМ канвас-слоте. Позиции повторяют раскладку ряда при образцовых текстах:
+		// [монета 22][6]«0»[24][голод 22][6]«100 из 100»[24][жажда 22][6]«100 из 100»;
+		// ширины образцов — оценка по метрике Roboto 16 (Slate-замер в коммандлете
+		// недоступен), при пересборке фактическую геометрию владельца переносит
+		// ConvertInventoryStatsRowToPairSlots. Числа в игре растут вправо; при 4+ значных
+		// деньгах пара наедет на соседнюю иконку — теперь Ринат разводит их мышкой сам.
 		const FLinearColor StatsColor(1.0f, 0.85f, 0.2f, 1.0f); // UIMoneyColor
-		UHorizontalBox* StatsRow = Tree->ConstructWidget<UHorizontalBox>(
-			UHorizontalBox::StaticClass(), TEXT("StatsRow"));
 		auto AddStatPair = [&](const TCHAR* IconName, const TCHAR* TexturePath,
-			const TCHAR* ValueName, const TCHAR* ValueSample, float LeftPad)
+			const TCHAR* ValueName, const TCHAR* ValueSample, float IconX, float ValueX)
 		{
-			UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), FName(IconName));
-			if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, TexturePath))
+			// Иконка через MakeIcon: размер пишется в кисть (прежний SetDesiredSizeOverride
+			// в ассет не сериализовался — иконки выходили натуральных 32 px).
+			UImage* Icon = MakeIcon(Tree, TEXT("WBP_Inventory"), FName(IconName), TexturePath, 22.0f);
+			if (UCanvasPanelSlot* IconSlot = CanvasAuto(PanelCanvas, Icon, FVector2D(IconX, 45.0f)))
 			{
-				Icon->SetBrushFromTexture(Texture, /*bMatchSize=*/false);
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning, TEXT("WBP_Inventory: текстура %s не загрузилась."), TexturePath);
-			}
-			Icon->SetDesiredSizeOverride(FVector2D(22.0f, 22.0f));
-			if (UHorizontalBoxSlot* IconSlot = StatsRow->AddChildToHorizontalBox(Icon))
-			{
-				IconSlot->SetVerticalAlignment(VAlign_Center);
-				IconSlot->SetPadding(FMargin(LeftPad, 0.0f, 0.0f, 0.0f));
+				IconSlot->SetAlignment(FVector2D(0.0f, 0.5f)); // вертикальный центр прежнего ряда
 			}
 			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
 				StatsColor, 16, TEXT("Regular"));
 			Value->bIsVariable = true;
-			if (UHorizontalBoxSlot* ValueSlot = StatsRow->AddChildToHorizontalBox(Value))
+			if (UCanvasPanelSlot* ValueSlot = CanvasAuto(PanelCanvas, Value, FVector2D(ValueX, 45.0f)))
 			{
-				ValueSlot->SetVerticalAlignment(VAlign_Center);
-				ValueSlot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
+				ValueSlot->SetAlignment(FVector2D(0.0f, 0.5f));
 			}
 		};
 		AddStatPair(TEXT("InvMoneyIcon"), TEXT("/Game/UI/Icons/T_Icon_Money.T_Icon_Money"),
-			TEXT("InvMoneyText"), TEXT("0"), 0.0f);
+			TEXT("InvMoneyText"), TEXT("0"), 0.0f, 28.0f);
 		AddStatPair(TEXT("InvHungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"),
-			TEXT("InvHungerText"), TEXT("100 из 100"), 24.0f);
+			TEXT("InvHungerText"), TEXT("100 из 100"), 61.0f, 89.0f);
 		AddStatPair(TEXT("InvThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"),
-			TEXT("InvThirstText"), TEXT("100 из 100"), 24.0f);
-		CanvasAuto(PanelCanvas, StatsRow, FVector2D(0.0f, 34.0f)); // под заголовком (+8)
+			TEXT("InvThirstText"), TEXT("100 из 100"), 191.0f, 219.0f);
 
 		// Левая колонка: снаряжение. Ширина = прежняя доля 0.42 от 928 минус зазор 12 ≈ 378.
 		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("EquipHeaderText"),
@@ -723,15 +731,15 @@ namespace
 	}
 
 	// Экран смерти — КАНВАС-ПЕРВЫЙ (ADR-051 п.1, волна «двигать мышкой все окна» 07-28):
-	// затемнение + каждый элемент прежнего столбца (заголовок, ряды статистики, строки
-	// итога, кнопка, подсказка) в СВОЁМ канвас-слоте с ручками. Прежний столб DeathBox
-	// (VerticalBox) убран: его слоты ручек не дают. Якорь всех элементов — точка чуть выше
+	// затемнение + каждый элемент прежнего столбца (заголовок, строки итога, кнопки,
+	// подсказка) в СВОЁМ канвас-слоте с ручками. Якорь всех элементов — точка чуть выше
 	// середины экрана (0.5/0.45, где стоял центр столба); позиции Y повторяют раскладку,
-	// которую столб считал сам (высота строки от кегля + прежние отступы). Ряды статистики
-	// остаются HorizontalBox сознательно: значение растёт в игре и толкает подпись — на
-	// канвасе порознь они наезжали бы друг на друга; начинка рядов замкнута
-	// (bLockedInDesigner), клик в дизайнере выделяет ряд целиком. Экран ничего не прячет
-	// (и Canvas-путь не прятал) — пустот от скрытых элементов тут не бывает.
+	// которую столб считал сам (высота строки от кегля + прежние отступы). Build 1.2.1
+	// (задача Рината «двигать мышкой всё»): ряды-коробки статистики и столб блока потерь
+	// тоже разложены — каждая подпись и каждое значение в своём канвас-слоте (пары — по
+	// разделителю у оси, см. AddStatPair), блок потерь — вложенный канвас LossPanel.
+	// Значение пары растёт в игре вправо от оси и подпись не толкает. Внутри кнопок
+	// начинка по-прежнему замкнута (кнопка двигается целиком).
 	bool BuildDeath(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -762,32 +770,34 @@ namespace
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("TitleText"), TEXT("ВЫ ПОГИБЛИ"),
 			FLinearColor(0.9f, 0.12f, 0.1f, 1.0f), 42, TEXT("Bold")), -236.0f);
 
-		// Каждая строка статистики — пара «статичная подпись + значение» в одном ряду:
-		// подпись принадлежит Ринату, код пишет только число (ADR-050).
+		// Каждая строка статистики — пара «статичная подпись + значение»: подпись
+		// принадлежит Ринату, код пишет только число (ADR-050). Build 1.2.1 (задача Рината
+		// «двигать мышкой всё»): прежний ряд-коробка убран — каждый текст в СВОЁМ
+		// канвас-слоте. Ширину текста headless не замерить (FSlateApplication при -run= не
+		// создаётся), поэтому пара выравнивается по разделителю: подпись прижата правым
+		// краем к точке −4 от оси, значение начинается в +4 — прежний зазор 8 и прежние Y
+		// сохранены, колонка значений выходит ровной (раньше каждый ряд центрировался
+		// отдельно и левые края строк гуляли).
 		const FLinearColor StatColor(0.95f, 0.95f, 0.95f, 1.0f);
-		auto AddStatLine = [&](const TCHAR* LabelName, const TCHAR* Caption,
+		auto AddStatPair = [&](const TCHAR* LabelName, const TCHAR* Caption,
 			const TCHAR* ValueName, const TCHAR* ValueSample, float Y)
 		{
-			UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(
-				UHorizontalBox::StaticClass(), FName(*(FString(ValueName) + TEXT("Row"))));
-			Row->AddChildToHorizontalBox(
-				MakeText(Tree, Roboto, FName(LabelName), Caption, StatColor, 22, TEXT("Regular")));
-
+			if (UCanvasPanelSlot* LabelSlot = CanvasAuto(Root,
+				MakeText(Tree, Roboto, FName(LabelName), Caption, StatColor, 22, TEXT("Regular")),
+				FVector2D(-4.0f, Y), FAnchors(0.5f, 0.45f, 0.5f, 0.45f)))
+			{
+				LabelSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+			}
 			UTextBlock* Value = MakeText(Tree, Roboto, FName(ValueName), ValueSample,
 				StatColor, 22, TEXT("Regular"));
 			Value->bIsVariable = true;
-			if (UHorizontalBoxSlot* ValueSlot = Row->AddChildToHorizontalBox(Value))
-			{
-				ValueSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
-			}
-			PlaceCentered(Row, Y);
-			LockPanelChildrenInDesigner(Row);
+			CanvasAuto(Root, Value, FVector2D(4.0f, Y), FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
 		};
-		AddStatLine(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"), -164.0f);
-		AddStatLine(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"), -132.0f);
-		AddStatLine(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"), -100.0f);
-		AddStatLine(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"), -68.0f);
-		AddStatLine(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"), -36.0f);
+		AddStatPair(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"), -164.0f);
+		AddStatPair(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"), -132.0f);
+		AddStatPair(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"), -100.0f);
+		AddStatPair(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"), -68.0f);
+		AddStatPair(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"), -36.0f);
 
 		PlaceCentered(MakeText(Tree, Roboto, TEXT("RespawnLineText"),
 			TEXT("Возрождение у костра в деревне."), StatColor, 19, TEXT("Regular")), 10.0f);
@@ -804,48 +814,50 @@ namespace
 
 		// --- Блок «Будет потеряно» (Build 1.2, ТЗ №1 раздел 2): заголовок, сетка позиций
 		// (наполняет код: до 8 иконок с количеством), хвост «и ещё N», строка денег.
-		// Один столб в одном канвас-слоте: блок живёт/прячется как целое (LossPanel),
-		// начинка замкнута — клик в дизайнере выделяет блок целиком.
+		// Build 1.2.1 (задача Рината «двигать мышкой всё»): LossPanel — теперь ВЛОЖЕННЫЙ
+		// КАНВАС в своём канвас-слоте. Код по-прежнему прячет блок целиком (LossPanel биндится
+		// как UWidget — DeathScreenWidget.cpp:186), а заголовок/сетка/хвост/деньги внутри
+		// лежат каждый в своём канвас-слоте с ручками. Y внутри блока повторяют прежний столб
+		// (высоты строк от кегля + прежние отступы 6/4/4); цена канваса — при спрятанном
+		// хвосте «и ещё N» строка денег вверх больше не подъезжает.
 		const FLinearColor LossColor(0.95f, 0.55f, 0.15f, 1.0f);
-		UVerticalBox* LossPanel = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("LossPanel"));
+		UCanvasPanel* LossPanel = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LossPanel"));
 		LossPanel->bIsVariable = true;
-
-		UTextBlock* LossHeader = MakeText(Tree, Roboto, TEXT("LossHeaderText"),
-			TEXT("БУДЕТ ПОТЕРЯНО"), LossColor, 18, TEXT("Bold"));
-		if (UVerticalBoxSlot* HeaderSlot = LossPanel->AddChildToVerticalBox(LossHeader))
+		if (UCanvasPanelSlot* LossSlot = Root->AddChildToCanvas(LossPanel))
 		{
-			HeaderSlot->SetHorizontalAlignment(HAlign_Center);
-			HeaderSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+			LossSlot->SetAnchors(FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
+			LossSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			LossSlot->SetPosition(FVector2D(0.0f, 132.0f));
+			LossSlot->SetSize(FVector2D(560.0f, 150.0f)); // вмещает сетку из 8 иконок 44 px
 		}
+
+		// Элемент блока: горизонтальный центр канваса LossPanel (как прежний HAlign_Center).
+		auto PlaceLossCentered = [&](UWidget* Widget, float Y)
+		{
+			if (UCanvasPanelSlot* Slot = CanvasAuto(LossPanel, Widget,
+				FVector2D(0.0f, Y), FAnchors(0.5f, 0.0f, 0.5f, 0.0f)))
+			{
+				Slot->SetAlignment(FVector2D(0.5f, 0.0f));
+			}
+		};
+
+		PlaceLossCentered(MakeText(Tree, Roboto, TEXT("LossHeaderText"),
+			TEXT("БУДЕТ ПОТЕРЯНО"), LossColor, 18, TEXT("Bold")), 0.0f);
 
 		UHorizontalBox* LossGrid = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("LossGrid"));
 		LossGrid->bIsVariable = true;
-		if (UVerticalBoxSlot* GridSlot = LossPanel->AddChildToVerticalBox(LossGrid))
-		{
-			GridSlot->SetHorizontalAlignment(HAlign_Center);
-			GridSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
-		}
+		PlaceLossCentered(LossGrid, 30.0f); // заголовок ~24 + прежний отступ 6
 
 		UTextBlock* LossMore = MakeText(Tree, Roboto, TEXT("LossMoreText"),
 			TEXT("и ещё 3 предметов"), FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular"));
 		LossMore->bIsVariable = true;
 		LossMore->SetVisibility(ESlateVisibility::Collapsed); // видимость ведёт код
-		if (UVerticalBoxSlot* MoreSlot = LossPanel->AddChildToVerticalBox(LossMore))
-		{
-			MoreSlot->SetHorizontalAlignment(HAlign_Center);
-			MoreSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
-		}
+		PlaceLossCentered(LossMore, 97.0f); // сетка: иконка 44 + количество ~19 + отступ 4
 
 		UTextBlock* LossMoney = MakeText(Tree, Roboto, TEXT("LossMoneyText"),
 			TEXT("−0 монет"), LossColor, 16, TEXT("Bold"));
 		LossMoney->bIsVariable = true;
-		if (UVerticalBoxSlot* LossMoneySlot = LossPanel->AddChildToVerticalBox(LossMoney))
-		{
-			LossMoneySlot->SetHorizontalAlignment(HAlign_Center);
-		}
-
-		PlaceCentered(LossPanel, 132.0f);
-		LockPanelChildrenInDesigner(LossPanel);
+		PlaceLossCentered(LossMoney, 120.0f); // хвост ~19 + отступ 4
 
 		// --- Золотая кнопка «Спасти рюкзак» (Build 1.2, ТЗ №1): единый золотой цвет
 		// rewarded-кнопок (раздел 0 п.9), иконка видео + заголовок + живая подстрока с
@@ -992,6 +1004,11 @@ namespace
 	// ======================================================================
 
 	// Одна строка списков магазина: плашка -> имя + цена + кнопка действия (Buy/Sell).
+	// КАНВАС ВНУТРИ ПЛАШКИ (Build 1.2.1, задача Рината «двигать мышкой всё»): прежний
+	// ряд-коробка RowBox заменён канвасом RowCanvas — имя слева растяжкой по якорям,
+	// цена/«не хватает монет»/кнопка у правого края в своих канвас-слотах с ручками.
+	// Корень остаётся SizeBox: высота строки прежняя (48), ширину даёт слот ScrollBox.
+	// Механизм наполнения списков не тронут: строки плодит код классом WBP_ShopRow_C.
 	bool BuildShopRow(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1005,40 +1022,45 @@ namespace
 		Plate->SetPadding(FMargin(8.0f, 4.0f));
 		RowSize->SetContent(Plate);
 
-		UHorizontalBox* RowBox = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("RowBox"));
-		Plate->SetContent(RowBox);
+		UCanvasPanel* RowCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RowCanvas"));
+		Plate->SetContent(RowCanvas);
 
+		// Имя — растяжка от левого края до зоны цены/кнопки, вертикальный центр строки.
 		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("NameText"), TEXT("Товар"),
 			FLinearColor::White, 15, TEXT("Regular"));
 		Name->bIsVariable = true;
-		if (UHorizontalBoxSlot* NameSlot = RowBox->AddChildToHorizontalBox(Name))
+		if (UCanvasPanelSlot* NameSlot = RowCanvas->AddChildToCanvas(Name))
 		{
-			NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			NameSlot->SetVerticalAlignment(VAlign_Center);
+			NameSlot->SetAnchors(FAnchors(0.0f, 0.5f, 1.0f, 0.5f));
+			NameSlot->SetOffsets(FMargin(0.0f, 0.0f, 170.0f, 0.0f));
+			NameSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+			NameSlot->SetAutoSize(true);
 		}
 
-		// Цена — золотой акцент (UIMoneyColor); кубик необязательный, но кладём:
-		// без него код дописывает цену к имени.
+		// Цена — золотой акцент (UIMoneyColor); кубик необязательный, но кладём: без него
+		// код дописывает цену к имени. Правый край цены — слева от кнопки с прежними
+		// зазорами ([цена][8+6][кнопка][6-край]).
 		UTextBlock* Price = MakeText(Tree, Roboto, TEXT("PriceText"), TEXT("0"),
 			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 15, TEXT("Regular"));
 		Price->bIsVariable = true;
-		if (UHorizontalBoxSlot* PriceSlot = RowBox->AddChildToHorizontalBox(Price))
+		if (UCanvasPanelSlot* PriceSlot = CanvasAuto(RowCanvas, Price,
+			FVector2D(-104.0f, 0.0f), FAnchors(1.0f, 0.5f, 1.0f, 0.5f)))
 		{
-			PriceSlot->SetVerticalAlignment(VAlign_Center);
-			PriceSlot->SetPadding(FMargin(8.0f, 0.0f));
+			PriceSlot->SetAlignment(FVector2D(1.0f, 0.5f));
 		}
 
 		// «Не хватает монет» — код показывает эту строку только в недоступных товарах,
 		// в остальных прячет (ADR-049: одним цветом кнопки часть игроков не считывает).
-		// В ассете сразу Collapsed — видимость переключает код.
+		// В ассете сразу Collapsed — видимость переключает код. На канвасе стоит левее
+		// цены (запас под цену до 4 знаков): скрытая строка места не освобождает.
 		UTextBlock* NoMoney = MakeText(Tree, Roboto, TEXT("NoMoneyText"), TEXT("Не хватает монет"),
 			FLinearColor(0.85f, 0.35f, 0.3f, 1.0f), 13, TEXT("Regular"));
 		NoMoney->SetVisibility(ESlateVisibility::Collapsed);
 		NoMoney->bIsVariable = true;
-		if (UHorizontalBoxSlot* NoMoneySlot = RowBox->AddChildToHorizontalBox(NoMoney))
+		if (UCanvasPanelSlot* NoMoneySlot = CanvasAuto(RowCanvas, NoMoney,
+			FVector2D(-160.0f, 0.0f), FAnchors(1.0f, 0.5f, 1.0f, 0.5f)))
 		{
-			NoMoneySlot->SetVerticalAlignment(VAlign_Center);
-			NoMoneySlot->SetPadding(FMargin(8.0f, 0.0f));
+			NoMoneySlot->SetAlignment(FVector2D(1.0f, 0.5f));
 		}
 
 		// Кнопка действия — зелёная, как доступные строки Canvas-пути (InvSlotFilledColor);
@@ -1049,11 +1071,13 @@ namespace
 		UTextBlock* ActionCaption = MakeText(Tree, Roboto, TEXT("ActionText"), TEXT("Купить"),
 			FLinearColor::White, 13, TEXT("Regular"));
 		ActionCaption->bIsVariable = true;
-		Action->SetContent(ActionCaption);
-		if (UHorizontalBoxSlot* ActionSlot = RowBox->AddChildToHorizontalBox(Action))
+		SetButtonContent(Action, ActionCaption);
+		if (UCanvasPanelSlot* ActionSlot = RowCanvas->AddChildToCanvas(Action))
 		{
-			ActionSlot->SetVerticalAlignment(VAlign_Center);
-			ActionSlot->SetPadding(FMargin(6.0f, 2.0f));
+			ActionSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			ActionSlot->SetAlignment(FVector2D(1.0f, 0.5f));
+			ActionSlot->SetPosition(FVector2D(-6.0f, 0.0f));
+			ActionSlot->SetSize(FVector2D(84.0f, 32.0f));
 		}
 		return true;
 	}
@@ -1178,18 +1202,16 @@ namespace
 		SliderQty->bIsVariable = true;
 		CanvasAuto(SliderCanvas, SliderQty, FVector2D(118.0f, 32.0f));
 
-		// Пересчёт пачек в патроны: показывается ТОЛЬКО при покупке патронов. Прячется
-		// ЦЕЛИКОМ контейнер SliderQtyAmmoRow — вместе с подписью, иначе она висела бы при
-		// покупке аптечки (ловушка скрытия, ADR-050). В ассете сразу Collapsed.
-		UHorizontalBox* AmmoRow = Tree->ConstructWidget<UHorizontalBox>(
-			UHorizontalBox::StaticClass(), TEXT("SliderQtyAmmoRow"));
-		AmmoRow->SetVisibility(ESlateVisibility::Collapsed);
-		AmmoRow->bIsVariable = true;
+		// Пересчёт пачек в патроны: показывается ТОЛЬКО при покупке патронов, в ассете
+		// сразу Collapsed. Build 1.2.1 (задача Рината «двигать мышкой всё»): прежняя
+		// обёртка SliderQtyAmmoRow убрана — в ряду жил ОДИН этот текст, отдельной подписи
+		// нет, прятать контейнер незачем; при отсутствии ряда код переключает видимость
+		// самого текста (ShopScreenWidget.cpp:389, ветка else if — проверено).
 		UTextBlock* SliderQtyAmmo = MakeText(Tree, Roboto, TEXT("SliderQtyAmmoText"),
 			TEXT("всего 30 патронов"), SliderQtyColor, 16, TEXT("Regular"));
+		SliderQtyAmmo->SetVisibility(ESlateVisibility::Collapsed);
 		SliderQtyAmmo->bIsVariable = true;
-		AmmoRow->AddChildToHorizontalBox(SliderQtyAmmo);
-		CanvasAuto(SliderCanvas, AmmoRow, FVector2D(0.0f, 57.0f));
+		CanvasAuto(SliderCanvas, SliderQtyAmmo, FVector2D(0.0f, 57.0f));
 
 		// Ползунок: диапазон/шаг выставляет код при каждой транзакции — тут только кубик.
 		// По ширине — растяжка (при ресайзе панели тянется), высота фиксированная.
@@ -1239,6 +1261,61 @@ namespace
 		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Подтвердить"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 0.0f);
+
+		// Золотая кнопка «Продать дороже» (Build 1.2, ТЗ №2). Раньше её добавлял ТОЛЬКО
+		// -augment (AugmentShopSellAdButton) — пересборка -rebuild оставила бы магазин без
+		// кнопки рекламы; с Build 1.2.1 она строится и здесь. Геометрия, стиль и тексты —
+		// один в один с дополнением; в ассете сразу Collapsed (видимость решают условия ТЗ
+		// в коде UShopScreenWidget), начинка замкнута — кнопка двигается целиком.
+		UButton* SellAd = MakeStyledButton(Tree, TEXT("SellAdButton"),
+			FLinearColor(0.85f, 0.62f, 0.14f, 1.0f), FLinearColor(0.95f, 0.72f, 0.2f, 1.0f),
+			FLinearColor(1.0f, 0.8f, 0.3f, 1.0f)); // тёплое золото — единый цвет rewarded-кнопок
+		SellAd->SetVisibility(ESlateVisibility::Collapsed);
+		SellAd->bIsVariable = true;
+
+		UHorizontalBox* SellAdRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("SellAdRow"));
+		UImage* SellAdIcon = MakeIcon(Tree, TEXT("WBP_Shop"), TEXT("SellAdIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_AdVideo.T_Icon_AdVideo"), 24.0f);
+		SellAdIcon->SetColorAndOpacity(FLinearColor(0.1f, 0.08f, 0.03f, 1.0f));
+		if (UHorizontalBoxSlot* SellAdIconSlot = SellAdRow->AddChildToHorizontalBox(SellAdIcon))
+		{
+			SellAdIconSlot->SetVerticalAlignment(VAlign_Center);
+			SellAdIconSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
+		}
+
+		UVerticalBox* SellAdLabelBox = Tree->ConstructWidget<UVerticalBox>(
+			UVerticalBox::StaticClass(), TEXT("SellAdLabelBox"));
+		const FLinearColor GoldTextColor(0.1f, 0.08f, 0.03f, 1.0f);
+		UTextBlock* SellAdPrice = MakeText(Tree, Roboto, TEXT("SellAdText"),
+			NSLOCTEXT("Shop", "SellAdSample", "Продать за 225 вместо 150"),
+			GoldTextColor, 15, TEXT("Bold"));
+		SellAdPrice->bIsVariable = true;
+		if (UVerticalBoxSlot* SellAdPriceSlot = SellAdLabelBox->AddChildToVerticalBox(SellAdPrice))
+		{
+			SellAdPriceSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		UTextBlock* SellAdSub = MakeText(Tree, Roboto, TEXT("SellAdSubText"),
+			NSLOCTEXT("Shop", "SellAdSubSample", "на 50% больше за просмотр ролика"),
+			GoldTextColor, 11, TEXT("Regular"));
+		SellAdSub->bIsVariable = true;
+		if (UVerticalBoxSlot* SellAdSubSlot = SellAdLabelBox->AddChildToVerticalBox(SellAdSub))
+		{
+			SellAdSubSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		if (UHorizontalBoxSlot* SellAdLabelSlot = SellAdRow->AddChildToHorizontalBox(SellAdLabelBox))
+		{
+			SellAdLabelSlot->SetVerticalAlignment(VAlign_Center);
+		}
+		SetButtonContent(SellAd, SellAdRow);
+		if (UCanvasPanelSlot* SellAdSlot = SliderCanvas->AddChildToCanvas(SellAd))
+		{
+			// Низ-лево панели сделки (Отмена/Подтвердить живут в правом-нижнем углу).
+			SellAdSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
+			SellAdSlot->SetAlignment(FVector2D(0.0f, 1.0f));
+			SellAdSlot->SetPosition(FVector2D(0.0f, -24.0f));
+			SellAdSlot->SetSize(FVector2D(280.0f, 50.0f));
+		}
 		return true;
 	}
 
@@ -1778,13 +1855,17 @@ namespace
 			TEXT("/Script/ContrarySurvivor.ShopRowWidget"), &BuildShopRow,
 			{ TEXT("NameText"), TEXT("PriceText"), TEXT("ActionButton"), TEXT("ActionText"),
 			  TEXT("NoMoneyText") } },
+		// Build 1.2.1: обёртки SliderQtyAmmoRow в контракте больше нет (текст пересчёта
+		// лежит в своём канвас-слоте, код прячет его напрямую); золотая кнопка теперь
+		// строится в BuildShop — её кубики вошли в контракт.
 		{ TEXT("/Game/UI/WBP_Shop"), TEXT("WBP_Shop"),
 			TEXT("/Script/ContrarySurvivor.ShopScreenWidget"), &BuildShop,
 			{ TEXT("MoneyText"), TEXT("BuyList"), TEXT("SellList"), TEXT("CloseButton"),
 			  TEXT("SliderPanel"), TEXT("SliderTitleText"), TEXT("SliderQtyText"),
-			  TEXT("SliderQtyAmmoRow"), TEXT("SliderQtyAmmoText"), TEXT("QtySlider"),
+			  TEXT("SliderQtyAmmoText"), TEXT("QtySlider"),
 			  TEXT("QtyMinusButton"), TEXT("QtyPlusButton"), TEXT("SliderTotalText"),
-			  TEXT("SliderConfirmButton"), TEXT("SliderCancelButton") } },
+			  TEXT("SliderConfirmButton"), TEXT("SliderCancelButton"),
+			  TEXT("SellAdButton"), TEXT("SellAdText"), TEXT("SellAdSubText") } },
 		{ TEXT("/Game/UI/WBP_Dialog"), TEXT("WBP_Dialog"),
 			TEXT("/Script/ContrarySurvivor.DialogScreenWidget"), &BuildDialog,
 			{ TEXT("NPCNameText"), TEXT("ReplicaText"),
@@ -1830,17 +1911,31 @@ namespace
 
 	const FLockContract GLockContracts[] =
 	{
+		// Build 1.2.1: шесть кубиков строки статов — в своих канвас-слотах, свободны.
 		{ TEXT("WBP_Inventory"),
 			{ TEXT("HeadSlotButtonBox"), TEXT("HeadSlotButtonCaption"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"),
 			  TEXT("TorsoSlotButtonBox"), TEXT("TorsoSlotButtonCaption"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"),
 			  TEXT("LegsSlotButtonBox"), TEXT("LegsSlotButtonCaption"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"),
 			  TEXT("CloseLabel") },
-			{ TEXT("HeadSlotButton"), TEXT("TorsoSlotButton"), TEXT("LegsSlotButton"), TEXT("CloseButton") } },
+			{ TEXT("HeadSlotButton"), TEXT("TorsoSlotButton"), TEXT("LegsSlotButton"), TEXT("CloseButton"),
+			  TEXT("InvMoneyIcon"), TEXT("InvMoneyText"), TEXT("InvHungerIcon"), TEXT("InvHungerText"),
+			  TEXT("InvThirstIcon"), TEXT("InvThirstText") } },
+		// Build 1.2.1: начинка золотой кнопки замкнута (кнопка двигается целиком);
+		// текст пересчёта патронов — свободный канвас-слот.
 		{ TEXT("WBP_Shop"),
 			{ TEXT("CloseLabel"), TEXT("QtyMinusLabel"), TEXT("QtyPlusLabel"),
-			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel") },
+			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel"),
+			  TEXT("SellAdIcon"), TEXT("SellAdText"), TEXT("SellAdSubText") },
 			{ TEXT("CloseButton"), TEXT("QtyMinusButton"), TEXT("QtyPlusButton"),
-			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton") } },
+			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton"),
+			  TEXT("SellAdButton"), TEXT("SliderQtyAmmoText") } },
+		// Build 1.2.1: строки списков — начинка кнопок замкнута, имя/цена/кнопки свободны.
+		{ TEXT("WBP_ShopRow"),
+			{ TEXT("ActionText") },
+			{ TEXT("NameText"), TEXT("PriceText"), TEXT("NoMoneyText"), TEXT("ActionButton") } },
+		{ TEXT("WBP_InventoryRow"),
+			{ TEXT("UseText"), TEXT("DropLabel") },
+			{ TEXT("NameText"), TEXT("UseButton"), TEXT("DropButton") } },
 		// Подписи-слова (HealthBarLabel и родня) в контракт НЕ входят: владелец удалил их
 		// из своего ассета, перенос стилизации при -rebuild убирает их и из новой раскладки
 		// (в свежесгенерированном ассете они есть и тоже замкнуты, но контракт проверяет
@@ -1871,15 +1966,18 @@ namespace
 			{ TEXT("CloseText"), TEXT("TakeAllText") },
 			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("LootList"),
 			  TEXT("CloseButton"), TEXT("TakeAllButton") } },
+		// Build 1.2.1 («двигать мышкой всё»): рядов-коробок статистики больше нет — каждая
+		// подпись и каждое значение в своём канвас-слоте, свободны; блок потерь — вложенный
+		// канвас, его тексты и сетка тоже свободны. Замкнута только начинка кнопок.
 		{ TEXT("WBP_Death"),
-			{ TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
-			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
-			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLabel"), TEXT("RespawnSubText"),
-			  TEXT("LossHeaderText"), TEXT("LossGrid"), TEXT("LossMoreText"), TEXT("LossMoneyText"),
+			{ TEXT("RespawnLabel"), TEXT("RespawnSubText"),
 			  TEXT("SaveBackpackIcon"), TEXT("SaveBackpackLabel"), TEXT("SaveBackpackSubText") },
-			{ TEXT("TitleText"), TEXT("LifetimeTextRow"), TEXT("KillerTextRow"), TEXT("MoneyTextRow"),
-			  TEXT("QuestsTextRow"), TEXT("KillsTextRow"), TEXT("RespawnLineText"), TEXT("MoneyLossText"),
+			{ TEXT("TitleText"),
+			  TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
+			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
+			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLineText"), TEXT("MoneyLossText"),
 			  TEXT("ConsumablesLineText"), TEXT("SavedLineText"), TEXT("LossPanel"),
+			  TEXT("LossHeaderText"), TEXT("LossGrid"), TEXT("LossMoreText"), TEXT("LossMoneyText"),
 			  TEXT("SaveBackpackButton"), TEXT("RespawnButton"), TEXT("KeyHintText") } },
 	};
 
@@ -2255,7 +2353,10 @@ namespace
 	void AugmentShopAmmoRow(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_Shop");
-		if (Tree->FindWidget(TEXT("SliderQtyAmmoRow")))
+		// Build 1.2.1: в новой раскладке обёртки нет — SliderQtyAmmoText лежит в своём
+		// канвас-слоте, и заворачивать его обратно нельзя (пропали бы ручки). Строка уже
+		// есть в ЛЮБОМ виде — дополнению делать нечего.
+		if (Tree->FindWidget(TEXT("SliderQtyAmmoRow")) || Tree->FindWidget(TEXT("SliderQtyAmmoText")))
 		{
 			return;
 		}
@@ -2685,6 +2786,99 @@ namespace
 		}
 	}
 
+	// Build 1.2.1: переезд строки статов инвентаря «ряд-коробка StatsRow -> шесть
+	// канвас-слотов». Расстановка владельца снимается со СТАРОГО дерева: позиция ряда — с
+	// его канвас-слота, отступы — со старых hbox-слотов детей, ширины иконок — из их кистей
+	// (Brush.ImageSize; в реальном ассете иконки без явного размера кисти рисуются 32 px —
+	// прежний SetDesiredSizeOverride(22) в ассет не сериализовался). Ширины ТЕКСТОВ в
+	// ассете не хранятся (это Slate-замер, в коммандлете недоступный) — берётся оценка
+	// образцов по метрике Roboto 16. Ряда в старом дереве нет — пары остаются на штатных
+	// позициях свежей генерации (громкая строка в лог, сверить глазами).
+	void ConvertInventoryStatsRowToPairSlots(UWidgetTree* Tree, const TCHAR* AssetName,
+		const TMap<FName, UWidget*>& OldWidgets)
+	{
+		UWidget* const* OldRow = OldWidgets.Find(FName(TEXT("StatsRow")));
+		const UCanvasPanelSlot* OldRowSlot = OldRow ? Cast<UCanvasPanelSlot>((*OldRow)->Slot) : nullptr;
+		if (!OldRowSlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("REBUILD %s: ряда 'StatsRow' в старом дереве нет (или он не в канвас-слоте) — пары статов остались на штатных позициях, сверить вид глазами."),
+				AssetName);
+			return;
+		}
+		const FVector2D RowPos = OldRowSlot->GetPosition();
+
+		struct FPairSpec
+		{
+			const TCHAR* IconName;
+			const TCHAR* ValueName;
+			float SampleTextWidth; // оценка ширины образца значения (Roboto 16)
+			float DefaultIconPad;  // отступ слева по прежней генерации
+		};
+		const FPairSpec Pairs[] =
+		{
+			{ TEXT("InvMoneyIcon"),  TEXT("InvMoneyText"),   9.0f,  0.0f }, // «0»
+			{ TEXT("InvHungerIcon"), TEXT("InvHungerText"), 78.0f, 24.0f }, // «100 из 100»
+			{ TEXT("InvThirstIcon"), TEXT("InvThirstText"), 78.0f, 24.0f },
+		};
+
+		// Отступ слева старого hbox-слота (нет слота — дефолт прежней генерации).
+		auto OldLeftPad = [&OldWidgets](const TCHAR* WidgetName, float Default)
+		{
+			UWidget* const* Old = OldWidgets.Find(FName(WidgetName));
+			const UHorizontalBoxSlot* HSlot = Old ? Cast<UHorizontalBoxSlot>((*Old)->Slot) : nullptr;
+			return HSlot ? HSlot->GetPadding().Left : Default;
+		};
+		// Фактический размер старой иконки из её кисти.
+		auto OldIconSize = [&OldWidgets](const TCHAR* WidgetName)
+		{
+			FVector2D Size(22.0f, 22.0f);
+			UWidget* const* Old = OldWidgets.Find(FName(WidgetName));
+			if (const UImage* Img = Old ? Cast<UImage>(*Old) : nullptr)
+			{
+				Size = Img->GetBrush().GetImageSize();
+			}
+			return Size;
+		};
+
+		// Высота прежнего ряда = самый высокий ребёнок (тексты 16pt ≈ 21 px ниже иконок);
+		// дети центрировались по вертикали — центр переносится на канвас-позиции.
+		float RowHeight = 21.0f;
+		for (const FPairSpec& Pair : Pairs)
+		{
+			RowHeight = FMath::Max(RowHeight, static_cast<float>(OldIconSize(Pair.IconName).Y));
+		}
+		const float CenterY = RowPos.Y + RowHeight * 0.5f;
+
+		float X = RowPos.X;
+		for (const FPairSpec& Pair : Pairs)
+		{
+			const FVector2D IconSize = OldIconSize(Pair.IconName);
+			X += OldLeftPad(Pair.IconName, Pair.DefaultIconPad);
+			if (UWidget* NewIcon = Tree->FindWidget(FName(Pair.IconName)))
+			{
+				if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(NewIcon->Slot))
+				{
+					Slot->SetPosition(FVector2D(X, CenterY));
+				}
+			}
+			X += IconSize.X;
+			X += OldLeftPad(Pair.ValueName, 6.0f);
+			if (UWidget* NewValue = Tree->FindWidget(FName(Pair.ValueName)))
+			{
+				if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(NewValue->Slot))
+				{
+					Slot->SetPosition(FVector2D(X, CenterY));
+				}
+			}
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("REBUILD %s: пара '%s'+'%s' разложена от X=%.0f (иконка %.0fx%.0f, центр Y=%.1f)."),
+				AssetName, Pair.IconName, Pair.ValueName,
+				X - OldLeftPad(Pair.ValueName, 6.0f) - IconSize.X, IconSize.X, IconSize.Y, CenterY);
+			X += Pair.SampleTextWidth;
+		}
+	}
+
 	void TransferOwnerStyle(UWidgetTree* Tree, const TCHAR* AssetName,
 		const TMap<FName, UWidget*>& OldWidgets)
 	{
@@ -2826,16 +3020,22 @@ namespace
 		}
 
 		// 4. Старое, чему в новой раскладке пары не нашлось. Намеренно выброшены: StatsBox
-		// (заменён канвас-слотами ещё в ADR-051) и, с Build 1.2.1 (Д1), ряды-коробки статов
+		// (заменён канвас-слотами ещё в ADR-051); с Build 1.2.1 (Д1) — ряды-коробки статов
 		// с их SizeBox'ами (полоски переехали в свои канвас-слоты, геометрию перенёс
-		// ConvertPlayerStatsRowsToBarSlots). Всё остальное — громко: владелец мог создать
-		// кубик руками (например, AmmoBagText), автоматически его не вернуть — только
-		// руками по этому логу.
+		// ConvertPlayerStatsRowsToBarSlots); с волны разлочки Build 1.2.1 — ряды-коробки
+		// экрана смерти (пары в канвас-слотах), StatsRow инвентаря
+		// (ConvertInventoryStatsRowToPairSlots), RowBox строк списков (канвас RowCanvas) и
+		// обёртка SliderQtyAmmoRow магазина (текст прячется напрямую). Всё остальное —
+		// громко: владелец мог создать кубик руками (например, AmmoBagText), автоматически
+		// его не вернуть — только руками по этому логу.
 		const FName IntentionallyDropped[] =
 		{
 			FName(TEXT("StatsBox")),
 			FName(TEXT("HealthRow")), FName(TEXT("HungerRow")), FName(TEXT("ThirstRow")),
 			FName(TEXT("HealthBarSize")), FName(TEXT("HungerBarSize")), FName(TEXT("ThirstBarSize")),
+			FName(TEXT("LifetimeTextRow")), FName(TEXT("KillerTextRow")), FName(TEXT("MoneyTextRow")),
+			FName(TEXT("QuestsTextRow")), FName(TEXT("KillsTextRow")),
+			FName(TEXT("StatsRow")), FName(TEXT("RowBox")), FName(TEXT("SliderQtyAmmoRow")),
 		};
 		for (const TPair<FName, UWidget*>& Old : OldWidgets)
 		{
@@ -2855,6 +3055,11 @@ namespace
 		if (FCString::Strcmp(AssetName, TEXT("WBP_PlayerStats")) == 0)
 		{
 			ConvertPlayerStatsRowsToBarSlots(Tree, AssetName, OldWidgets);
+		}
+		// Тот же переезд для строки статов инвентаря (волна разлочки Build 1.2.1).
+		if (FCString::Strcmp(AssetName, TEXT("WBP_Inventory")) == 0)
+		{
+			ConvertInventoryStatsRowToPairSlots(Tree, AssetName, OldWidgets);
 		}
 
 		UE_LOG(LogGenerateWbp, Display,
@@ -3075,14 +3280,15 @@ int32 UGenerateWbpCommandlet::DumpSlotsAll()
 int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 {
 	// Пересборка канвас-первой раскладкой (ADR-051 п.1 + волна «двигать мышкой все окна»
-	// 07-28: диалог и экран смерти). Перенос значений владельца (TransferOwnerStyle)
-	// включён ВСЕМ ассетам с его ручной стилизацией: WBP_PlayerStats — коммит dfaffd0,
-	// WBP_Dialog/WBP_Shop/WBP_Inventory — коммит 5c2b058 (раньше у магазина и инвентаря
-	// перенос был выключен — тогда правок владельца в них не было; после 5c2b058 пересборка
-	// без переноса стёрла бы стилизацию). У WBP_Death правок владельца нет (git-история —
-	// только генерация cc919a8), его пересборка чистая. Остальные ассеты пересборке не
-	// подлежат. Процессный предохранитель (проверяет лид перед запуском): git status
-	// пересобираемых .uasset должен быть чист — иначе прогон затёр бы несохранённые правки.
+	// 07-28: диалог и экран смерти; волна разлочки Build 1.2.1: строки списков, экран
+	// смерти и строка статов инвентаря без рядов-коробок). Перенос значений владельца
+	// (TransferOwnerStyle) включён ВСЕМ ассетам списка: WBP_PlayerStats — коммит dfaffd0,
+	// WBP_Dialog/WBP_Shop/WBP_Inventory — коммит 5c2b058, WBP_Inventory дополнительно —
+	// ручная расстановка Рината 562c85d; WBP_Death и строки — на будущее (правок владельца
+	// могло прибавиться, перенос на идентичном дереве безвреден). Остальные ассеты
+	// пересборке не подлежат. Процессный предохранитель (проверяет лид перед запуском):
+	// git status пересобираемых .uasset должен быть чист — иначе прогон затёр бы
+	// несохранённые правки.
 	struct FRebuildEntry
 	{
 		const TCHAR* AssetName;
@@ -3090,11 +3296,13 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 	};
 	static const FRebuildEntry RebuildAssets[] =
 	{
+		{ TEXT("WBP_ShopRow"), true },
 		{ TEXT("WBP_Shop"), true },
+		{ TEXT("WBP_InventoryRow"), true },
 		{ TEXT("WBP_Inventory"), true },
 		{ TEXT("WBP_PlayerStats"), true },
 		{ TEXT("WBP_Dialog"), true },
-		{ TEXT("WBP_Death"), false },
+		{ TEXT("WBP_Death"), true },
 	};
 
 	int32 FailCount = 0;
