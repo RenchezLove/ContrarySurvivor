@@ -7,6 +7,7 @@
 #include "WolfCharacter.generated.h"
 
 class UStatsComponent;
+class UCorpseLootComponent;
 class UAnimSequence;
 class AMasterInventoryItem;
 class APickup;
@@ -95,9 +96,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "4"))
 	float SpeedMultiplierVsBandit = 1.3f;
 
-	// Через сколько секунд после смерти убрать тело.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Death", meta = (DisplayPriority = "5"))
-	float CorpseLifeSpan = 5.0f;
+	// Через сколько секунд после смерти убрать тело. Build 1.2.1 (ТЗ А1): труп теперь
+	// ОБЫСКИВАЕТСЯ (шкура/деньги внутри), поэтому лежит дольше — дефолт 60 с (было 5).
+	// Не обысканный остаток исчезает вместе с трупом.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death", meta = (ClampMin = "1.0", DisplayPriority = "5"))
+	float CorpseLifeSpan = 60.0f;
+
+	// Контейнер лута трупа (Build 1.2.1, ТЗ А1): смерть кладёт шкуру и деньги СЮДА
+	// (мешок-пикап убран), игрок забирает через окно обыска «Обыскать [E]».
+	// Живёт в мастер-классе волка — BP-наследники получают механизм автоматически.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Loot")
+	UCorpseLootComponent* CorpseLoot;
 
 	// --- Лут при смерти (GDD §7.8). Волк DRAFT: деньги 5-15, ниже шанс предмета, чем у бандита. ---
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot", meta = (DisplayPriority = "6"))
@@ -132,7 +141,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot|Quest")
 	FText QuestLootItemText = NSLOCTEXT("Items", "WolfPelt", "Шкура волка");
 
-	// Спавнит лут (деньги + шанс предмета) в позиции трупа.
+	// Кладёт лут (гарантированную шкуру + деньги) В ТРУП (CorpseLoot) — Build 1.2.1,
+	// ТЗ А1: мешок-пикап с трупов убран. Вызывается из HandleDeath.
 	void DropLoot();
 
 	// --- Капсула коллизии волка (квадрупед). DRAFT ---

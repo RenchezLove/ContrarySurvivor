@@ -2,6 +2,7 @@
 
 #include "WolfCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): лут в трупе
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства волка в квест
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Controllers/WolfAIController.h"
@@ -29,6 +30,10 @@ AWolfCharacter::AWolfCharacter()
 	PrimaryActorTick.bCanEverTick = true;
 
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+
+	// Build 1.2.1 (ТЗ А1): контейнер лута трупа в мастер-классе волка — BP-наследники
+	// получают обыск автоматически. Наполняется в DropLoot (из HandleDeath).
+	CorpseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("CorpseLoot"));
 
 	// Лут по умолчанию (editor-независимо): расходник + базовый пикап.
 	LootItemClass = AConsumableItem::StaticClass();
@@ -291,22 +296,49 @@ void AWolfCharacter::HandleDeath()
 void AWolfCharacter::DropLoot()
 {
 	UWorld* World = GetWorld();
-	const FVector Loc = GetActorLocation();
+	if (!World)
+	{
+		return;
+	}
 	const float Money = FMath::RoundToFloat(FMath::FRandRange(LootMoneyMin, LootMoneyMax));
 
-	// КВЕСТОВЫЙ ДРОП (Фаза 5): «Шкура волка» гарантированно (dropChance=1.0) + деньги.
-	// Имя задаётся ЯВНО на проспавненном экземпляре (APickup::DropLoot -> DroppedItem->ItemName),
-	// поэтому в логе подбора волчьего лута читается name 'Шкура волка', а не дефолт класса.
-	//
-	// БАГ QA (исправлено): раньше волк ронял ВТОРОЙ, безымянный generic-consumable пикап
-	// вплотную к шкуре. Под force-drop (U) спавнились ОБА, и при подборе ближайшего игрок
-	// часто брал безымянный generic ('Canned Food'-подобный), а не шкуру. Шкура — единственный
-	// предмет-лут волка (тематично, GDD §7.8): второй generic-дроп убран, шкура детерминирована.
-	APickup::DropLoot(World, Loc, Money,
-		QuestLootItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestLootItemName,
-		QuestLootItemText);
+	// КВЕСТОВЫЙ ДРОП (Фаза 5): «Шкура волка» гарантированно + деньги. Build 1.2.1 (ТЗ А1):
+	// мешок-пикап убран — шкура и деньги остаются В ТРУПЕ (CorpseLoot), игрок забирает их
+	// окном обыска. Имя/название задаются ЯВНО на экземпляре (класс AQuestItem общий на
+	// шкуру и ноутбук — конструктор различить их не может).
+	TArray<AMasterInventoryItem*> Loot;
+	if (QuestLootItemClass)
+	{
+		FActorSpawnParameters Sp;
+		Sp.Owner = this;
+		Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AMasterInventoryItem* Pelt = World->SpawnActor<AMasterInventoryItem>(
+			QuestLootItemClass, GetActorLocation(), FRotator::ZeroRotator, Sp);
+		if (Pelt)
+		{
+			// Предмет лута — данные рюкзака, не объект сцены (как в APickup::DropLoot).
+			Pelt->SetActorHiddenInGame(true);
+			Pelt->SetActorEnableCollision(false);
+			Pelt->ItemName = QuestLootItemName;
+			Pelt->ItemDisplayText = QuestLootItemText;
+			Loot.Add(Pelt);
+		}
+	}
+
+	if (CorpseLoot)
+	{
+		CorpseLoot->InitLoot(Money, Loot);
+	}
+	else
+	{
+		for (AMasterInventoryItem* It : Loot)
+		{
+			if (IsValid(It)) { It->Destroy(); }
+		}
+	}
 
 	FQADebug::QA(World, FString::Printf(
-		TEXT("QA: wolf loot = '%s' (guaranteed, money=%.0f)"), *QuestLootItemName, Money),
+		TEXT("QA: wolf loot = '%s' (guaranteed, money=%.0f) -> corpse"), *QuestLootItemName, Money),
 		/*bScreen=*/true);
 }

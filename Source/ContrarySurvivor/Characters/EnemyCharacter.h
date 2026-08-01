@@ -8,6 +8,7 @@
 #include "EnemyCharacter.generated.h"
 
 class UStatsComponent;
+class UCorpseLootComponent;
 class AMasterInventoryItem;
 class APickup;
 
@@ -91,9 +92,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "2"))
 	float BanditWalkSpeed = 650.0f;
 
-	// Через сколько секунд после смерти Destroy тела (даём отыграть рэгдолл).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Death", meta = (DisplayPriority = "3"))
-	float CorpseLifeSpan = 5.0f;
+	// Через сколько секунд после смерти Destroy тела. Build 1.2.1 (ТЗ А1): труп теперь
+	// ОБЫСКИВАЕТСЯ (лут внутри), поэтому лежит дольше — дефолт 60 с (был 5); EditAnywhere —
+	// тюнинг на размещённом экземпляре/BP. Не обысканный остаток исчезает вместе с трупом.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death", meta = (ClampMin = "1.0", DisplayPriority = "3"))
+	float CorpseLifeSpan = 60.0f;
+
+	// Контейнер лута трупа (Build 1.2.1, ТЗ А1): смерть складывает деньги/расходники СЮДА
+	// (мешок-пикап с трупов убран), игрок забирает через окно обыска «Обыскать [E]».
+	// Живёт в мастер-классе — BP-наследники получают механизм автоматически.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Loot")
+	UCorpseLootComponent* CorpseLoot;
 
 	// --- Лут при смерти (GDD §7.8: «враги дают деньги, изношенное оружие») ---
 	// Деньги: случайно в [LootMoneyMin..Max]. Бандит DRAFT 10-30 (GDD §7.6 экономика).
@@ -121,12 +130,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (DisplayPriority = "8"))
 	TArray<FBanditLootEntry> LootTable;
 
-	// Класс пикапа-лута (по умолчанию APickup, без BP/редактора).
+	// Класс пикапа-лута. С Build 1.2.1 в ДРОПЕ НЕ используется (лут уходит в труп,
+	// см. CorpseLoot); поле оставлено, чтобы не терять настройку BP-наследников.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
 	TSubclassOf<APickup> PickupClass;
 
-	// Спавнит лут (деньги + шанс 1-2 расходников из LootTable) в позиции трупа.
-	// Вызывается из HandleDeath.
+	// Кладёт лут (деньги + шанс 1-2 расходников из LootTable) В ТРУП (CorpseLoot) —
+	// Build 1.2.1, ТЗ А1: мешок-пикап с трупов убран. Вызывается из HandleDeath.
 	void DropLoot();
 
 	// Реакция на смерть из делегата UStatsComponent::OnDeath.

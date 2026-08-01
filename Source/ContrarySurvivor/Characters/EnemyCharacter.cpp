@@ -2,6 +2,7 @@
 
 #include "EnemyCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): лут в трупе
 #include "ContrarySurvivor/Components/QuestComponent.h" // Фаза 5: засчёт убийства бандита в квест
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
@@ -18,6 +19,10 @@
 AEnemyCharacter::AEnemyCharacter()
 {
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+
+	// Build 1.2.1 (ТЗ А1): контейнер лута трупа в МАСТЕР-классе — BP-наследники получают
+	// обыск автоматически. Наполняется в DropLoot (из HandleDeath).
+	CorpseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("CorpseLoot"));
 
 	// Лут по умолчанию (editor-независимо): пикап без BP + таблица расходников Консервы/
 	// Вода/Бинт с равновероятным выбором (Ринат 07-17). Имена — из единого источника
@@ -311,21 +316,17 @@ void AEnemyCharacter::DropLoot()
 		}
 	}
 
-	// Один пикап несёт деньги + «мешок» предметов (InitLootBag/ADR-027) — подбор клавишей E
-	// отдаёт всё разом, как у дропа расходников при смерти игрока.
-	UClass* SpawnClass = PickupClass ? *PickupClass : APickup::StaticClass();
-	APickup* Pickup = World->SpawnActor<APickup>(SpawnClass, Loc, FRotator::ZeroRotator, Sp);
-	if (Pickup)
+	// Build 1.2.1 (ТЗ А1): мешок-пикап с трупов УБРАН — деньги и предметы остаются В ТРУПЕ
+	// (CorpseLoot), игрок забирает их через окно обыска («Обыскать [E]», частичный обыск
+	// штатен). Не забранное исчезает вместе с трупом (CorpseLifeSpan).
+	if (CorpseLoot)
 	{
-		Pickup->InitLoot(Money, nullptr);
-		if (Items.Num() > 0)
-		{
-			Pickup->InitLootBag(Items);
-		}
+		CorpseLoot->InitLoot(Money, Items);
 	}
 	else
 	{
-		// Пикап не заспавнился — прибираем висящие скрытые предметы, чтобы не утекли в мир.
+		// Контейнера нет (не должно случаться: создаётся в конструкторе) — не оставляем
+		// висящие скрытые предметы в мире.
 		for (AMasterInventoryItem* It : Items)
 		{
 			if (IsValid(It)) { It->Destroy(); }
@@ -333,9 +334,9 @@ void AEnemyCharacter::DropLoot()
 		Items.Reset();
 	}
 
-	// QA-инструментирование (формат в духе APickup::DropLoot): что дропнулось при смерти бандита.
+	// QA-инструментирование: что легло в труп при смерти бандита (формат DROPLOOT сохранён).
 	FQADebug::QA(World, FString::Printf(
-		TEXT("QA: DROPLOOT money=%.0f chance=%.2f roll=%.2f hit=%s items=%d [%s]"),
+		TEXT("QA: DROPLOOT money=%.0f chance=%.2f roll=%.2f hit=%s items=%d [%s] -> corpse"),
 		Money, EffectiveChance, Roll, bChanceHit ? TEXT("YES") : TEXT("no"),
 		Items.Num(), *ItemNamesLog), /*bScreen=*/true);
 }
