@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h" // Build 1.2.1 (ТЗ А4): MID свечения
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
@@ -16,7 +17,11 @@
 
 APickup::APickup()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Build 1.2.1 (ТЗ А4): тик разрешён, но по умолчанию ВЫКЛЮЧЕН — включает его только
+	// BeginPlay при включённом свечении с пульсацией (bCanEverTick=false нельзя включить
+	// в рантайме, поэтому разрешение здесь, а гейт — bStartWithTickEnabled).
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	// Корень-сфера (маркер позиции лута). Подбор теперь по клавише E (контроллер ищет
 	// ближайший пикап и зовёт Collect), а не по overlap — поэтому коллизию/оверлапы гасим.
@@ -26,15 +31,28 @@ APickup::APickup()
 	PickupTrigger->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	PickupTrigger->SetGenerateOverlapEvents(false);
 
-	// Плейсхолдер-визуал (без коллизии). Меш мелкий, чтобы читался как «лут на земле».
+	// Визуал (без коллизии). Build 1.2.1 (ТЗ А3): уменьшающий масштаб 0.3 старого
+	// шара-заглушки УБРАН — его наследовали BP_Pickup/BP_PickupWolf, и реальные меши
+	// модельера выходили «микроскопическими» (сами меши уже в игровом масштабе:
+	// свёрток 45 см, мешок 39 см — паспорта ассетов). Дефолтный меш теперь мешок
+	// SM_LootSack, а не движковый шар: фолбэк-пути спавна (базовый APickup без BP)
+	// тоже перестают показывать «серый шар». Меша нет на диске — прежний шар 0.3.
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	MeshComponent->SetupAttachment(PickupTrigger);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	MeshComponent->SetRelativeScale3D(FVector(0.3f, 0.3f, 0.3f));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-	if (SphereMesh.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SackMesh(TEXT("/Game/Environment/Props/SM_LootSack.SM_LootSack"));
+	if (SackMesh.Succeeded())
 	{
-		MeshComponent->SetStaticMesh(SphereMesh.Object);
+		MeshComponent->SetStaticMesh(SackMesh.Object);
+	}
+	else
+	{
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+		if (SphereMesh.Succeeded())
+		{
+			MeshComponent->SetStaticMesh(SphereMesh.Object);
+		}
+		MeshComponent->SetRelativeScale3D(FVector(0.3f, 0.3f, 0.3f));
 	}
 }
 
@@ -48,7 +66,63 @@ void APickup::BeginPlay()
 	if (World && World->IsGameWorld())
 	{
 		SpawnPlacedLoot();
+		SetupGlow(); // Build 1.2.1 (ТЗ А4): свечение, если включено на экземпляре/BP
 	}
+}
+
+void APickup::SetupGlow()
+{
+	if (!bGlowEnabled || !MeshComponent)
+	{
+		return;
+	}
+
+	// MID от материала слота 0 (после починки А2 это M_VColor с параметрами свечения).
+	GlowMID = MeshComponent->CreateDynamicMaterialInstance(0);
+	if (!GlowMID)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("Pickup '%s': свечение включено, но MID слота 0 не создался — свечения не будет."),
+			*GetName());
+		return;
+	}
+
+	// Материал без параметров свечения — громко в лог: значит на меше не M_VColor
+	// (или М_VColor без -pickupfix), и Set*ParameterValue уйдёт в пустоту.
+	float ProbeValue = 0.0f;
+	if (!GlowMID->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("GlowIntensity")), ProbeValue))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("Pickup '%s': у материала '%s' нет параметра GlowIntensity — свечение работать не будет."),
+			*GetName(), *GetNameSafe(GlowMID->Parent));
+	}
+
+	GlowMID->SetVectorParameterValue(TEXT("GlowColor"), GlowColor);
+	GlowMID->SetScalarParameterValue(TEXT("GlowIntensity"), FMath::Max(0.0f, GlowStrength));
+
+	// Пульсация — единственная причина тикать; ровное свечение выставлено и забыто.
+	if (GlowPulsePeriod > KINDA_SMALL_NUMBER)
+	{
+		SetActorTickEnabled(true);
+	}
+}
+
+void APickup::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (!GlowMID || GlowPulsePeriod <= KINDA_SMALL_NUMBER)
+	{
+		SetActorTickEnabled(false);
+		return;
+	}
+
+	// Синус полного цикла за GlowPulsePeriod; сила ходит 25%..100% от заданной, чтобы
+	// пикап не «гас» целиком в нижней точке пульса.
+	GlowTime += DeltaTime;
+	const float Phase = FMath::Sin(2.0f * PI * GlowTime / GlowPulsePeriod);
+	const float Pulse = 0.625f + 0.375f * Phase;
+	GlowMID->SetScalarParameterValue(TEXT("GlowIntensity"), FMath::Max(0.0f, GlowStrength) * Pulse);
 }
 
 void APickup::SpawnPlacedLoot()

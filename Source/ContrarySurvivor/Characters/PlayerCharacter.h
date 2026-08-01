@@ -372,6 +372,12 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float DeathDropShareFraction = 0.50f;
 
+    // Build 1.2.1 (ТЗ В1, Ринат утвердил ровно 360 с): порог суммарного игрового времени,
+    // после которого доступны все три rewarded-точки (рюкзак/магазин/ежедневка). Был
+    // константой 15 минут в AdGatingLogic.h — теперь настраивается здесь без пересборки.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "0.0", DisplayName = "Порог рекламы (сек игрового времени)", DisplayPriority = "1"))
+    float AdMinPlaytimeSeconds = 360.0f;
+
     // Лимит показов «Спасти рюкзак» в календарные сутки (ТЗ №1 п.3: не более 3).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "0"))
     int32 BackpackAdDailyLimit = 3;
@@ -487,6 +493,11 @@ protected:
 
     // Процедурные эффекты камеры (#28): дыхание + look-ahead через SpringArm->TargetOffset.
     virtual void Tick(float DeltaTime) override;
+
+    // Build 1.2.1 (ТЗ В2): отладочная клавиша F «реклама доступна сейчас» — легаси-бинд на
+    // input-компоненте пешки (QA-действия контроллера живут в его SetupInputComponent, это
+    // первый бинд на самой пешке; маппинг QAUnlockAds=F — Config/DefaultInput.ini).
+    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
     // Применяет тюнингуемые knob-параметры камеры (#20) к компонентам SpringArm/Camera один раз
     // на этапе конструирования. ВАЖНО: не зовём в BeginPlay/Tick — иначе перетирались бы правки
@@ -616,9 +627,13 @@ public:
     // --- Build 1.2: суммарное игровое время + счётчики rewarded-рекламы (хранятся в сейве) ---
 
     // Суммарное игровое время профиля с установки, сек (сейв + несброшенный остаток сессии).
-    // По нему работает глобальный запрет рекламы первые 15 минут (AdGating).
+    // По нему работает глобальный запрет рекламы до порога AdMinPlaytimeSeconds (AdGating).
     UFUNCTION(BlueprintPure, Category = "Ads")
     float GetTotalPlayTimeSeconds() const { return SavedPlayTimeBase + UnflushedPlayTime; }
+
+    // Порог игрового времени для рекламы (ТЗ В1) — его передают точки показа в AdGating.
+    UFUNCTION(BlueprintPure, Category = "Ads")
+    float GetAdMinPlaytimeSeconds() const { return AdMinPlaytimeSeconds; }
 
     // Использований «Спасти рюкзак» за сегодняшние календарные сутки (лимит 3/сутки).
     int32 GetBackpackAdUsesToday() const;
@@ -787,6 +802,10 @@ protected:
     // Сброс накопленного игрового времени сессии в сейв (таймер PlaytimeFlushInterval).
     void FlushPlayTime();
 
+    // Build 1.2.1 (ТЗ В2): обработчик клавиши F — добивает накопитель игрового времени до
+    // порога AdMinPlaytimeSeconds, немедленно пишет его в сейв и печатает LogQA-строку.
+    void OnQAUnlockAds();
+
     // Применяет загруженный сейв к игроку (статы + телепорт в точку респауна).
     void ApplySaveData(const UContrarySaveGame* Save);
 
@@ -819,6 +838,10 @@ private:
 
     // Номер смерти за сессию (аналитика ТЗ №1). Инкремент в HandleDeath.
     int32 DeathCountThisSession = 0;
+
+    // Build 1.2.1 (ТЗ Е): анимация смерти запущена (меш ушёл в Single Node) — Respawn
+    // обязан вернуть режим AnimationBlueprint, иначе игрок остался бы в позе смерти.
+    bool bDeathAnimPlayed = false;
 
     // --- Build 1.2: накопитель игрового времени (гейт «15 минут без рекламы») ---
     // База из сейва (читается в BeginPlay, обновляется при сбросе) + несброшенный остаток.

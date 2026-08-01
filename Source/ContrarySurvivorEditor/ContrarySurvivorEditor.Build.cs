@@ -21,10 +21,12 @@ public class ContrarySurvivorEditor : ModuleRules
 		// AnimGraph — редакторные узлы UAnimGraphNode_Slot/_Root и UAnimationGraphSchema;
 		// AnimGraphRuntime — структуры самих узлов анимации (FAnimNode_Slot);
 		// BlueprintGraph — UEdGraphSchema_K2::GN_AnimGraph, каноническое имя графа анимации.
+		// RenderCore/RHI — Build 1.2.1 (-pickupfix): StaticMeshResources.h (пруф вершинных
+		// цветов мешей лута через ColorVertexBuffer) тянет типы буферов рендера.
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UMG", "UMGEditor", "UnrealEd", "AssetRegistry", "Slate", "SlateCore", "ContrarySurvivor",
-			"AnimGraph", "AnimGraphRuntime", "BlueprintGraph"
+			"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "RenderCore", "RHI"
 		});
 
 		// Заголовки геймплей-модуля лежат подпапками вне его Public/ и включаются по конвенции

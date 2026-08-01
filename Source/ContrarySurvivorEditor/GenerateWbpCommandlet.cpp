@@ -2,6 +2,7 @@
 
 #include "GenerateWbpCommandlet.h"
 
+#include "Algo/Find.h" // список намеренно выброшенных кубиков при -rebuild (Build 1.2.1 Д1)
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
@@ -24,8 +25,14 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Engine/StaticMesh.h" // Build 1.2.1 (-pickupfix): материал слотов мешей лута
 #include "Engine/Texture2D.h" // LoadObject<UTexture2D> для иконок (в Image.h только объявление)
 #include "GameFramework/PlayerController.h"
+#include "Materials/Material.h" // Build 1.2.1 (-pickupfix): параметры свечения в M_VColor
+#include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionVectorParameter.h"
+#include "StaticMeshResources.h" // пруф вершинных цветов (ColorVertexBuffer)
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/PackageName.h"
 #include "Styling/SlateTypes.h"
@@ -1363,13 +1370,15 @@ namespace
 	// Постоянная панель статов: WBP_PlayerStats (вид = Canvas DrawPlayerStats, верх-лево)
 	// ======================================================================
 
-	// Полоска стата: SizeBox-габарит -> ProgressBar + текст поверх слева (Overlay).
-	// Строка шкалы: полоска, поверх неё СТАТИЧНАЯ подпись слева («Здоровье») и ЗНАЧЕНИЕ
-	// справа («80/100»). Подпись — не переменная: код её не биндит и не переписывает,
-	// Ринат правит текст и стиль сам (ADR-050). Значение — кубик с точным именем.
+	// Полоска стата: Overlay в СВОЁМ канвас-слоте -> ProgressBar растяжкой + текст поверх.
+	// Build 1.2.1 (Д1, Ринат: «Не могу настроить размер полосок... Разлочь мне этот umg»):
+	// прежний SizeBox с жёсткими Width/Height УБРАН — размер полоски задаёт КАНВАС-СЛОТ
+	// Overlay'я (явный, не авто), бар заполняет Overlay растяжкой, и ручки слота в
+	// дизайнере реально меняют размер полоски. Подпись — не переменная: код её не биндит
+	// и не переписывает, Ринат правит текст и стиль сам (ADR-050). Значение — кубик кода.
 	UOverlay* MakeStatBar(UWidgetTree* Tree, UObject* Roboto, const TCHAR* BarName,
 		const TCHAR* ValueName, const FString& LabelCaption, const FString& ValueSample,
-		const FLinearColor& FillColor, float Width, float Height)
+		const FLinearColor& FillColor)
 	{
 		UOverlay* Overlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(),
 			FName(*(FString(BarName) + TEXT("Overlay"))));
@@ -1384,12 +1393,12 @@ namespace
 		Bar->SetPercent(1.0f); // заполнение ставит код каждый кадр
 		Bar->bIsVariable = true;
 
-		USizeBox* BarSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-			FName(*(FString(BarName) + TEXT("Size"))));
-		BarSize->SetWidthOverride(Width);
-		BarSize->SetHeightOverride(Height);
-		BarSize->SetContent(Bar);
-		Overlay->AddChildToOverlay(BarSize);
+		if (UOverlaySlot* BarSlot = Overlay->AddChildToOverlay(Bar))
+		{
+			// Растяжка на весь Overlay: его габарит диктует канвас-слот (ручки дизайнера).
+			BarSlot->SetHorizontalAlignment(HAlign_Fill);
+			BarSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 
 		// Подпись — обычный Text, код его НЕ трогает (bIsVariable=false).
 		UTextBlock* Label = MakeText(Tree, Roboto, FName(*(FString(BarName) + TEXT("Label"))),
@@ -1416,41 +1425,18 @@ namespace
 		return Overlay;
 	}
 
-	// Ряд стата «иконка + тело»: HorizontalBox, иконка слева по центру вертикали — та же
-	// геометрия, что раньше делал -augment (AugPrependIcon). Ряд — верхнеуровневый элемент
-	// канваса; его начинку BuildPlayerStats замыкает (LockPanelChildrenInDesigner).
-	UHorizontalBox* MakeStatRow(UWidgetTree* Tree, const FName& RowName, const FName& IconName,
-		const TCHAR* TexturePath, float IconSize, UWidget* Body)
-	{
-		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), RowName);
-		if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(
-			MakeIcon(Tree, TEXT("WBP_PlayerStats"), IconName, TexturePath, IconSize)))
-		{
-			IconSlot->SetVerticalAlignment(VAlign_Center);
-			IconSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
-		}
-		if (UHorizontalBoxSlot* BodySlot = Row->AddChildToHorizontalBox(Body))
-		{
-			BodySlot->SetVerticalAlignment(VAlign_Center);
-		}
-		return Row;
-	}
-
 	// Панель статов: столбец верх-лево (HP -> голод -> жажда -> патроны -> деньги).
-	// Канвас-первая раскладка (ADR-051 п.1, жалоба владельца 07-27): каждый ряд лежит в
-	// СВОЁМ канвас-слоте — в дизайнере у него ручки, его таскают мышкой. Прежний столб
-	// StatsBox (VerticalBox) убран: его слоты ручек не дают. Начинка рядов замкнута —
-	// клик в дизайнере выделяет весь ряд. Ряды сразу с иконками (нынешний вид панели
-	// после доводок -augment; слова-подписи владелец из своего ассета удалил — при
-	// -rebuild их убирает перенос стилизации, см. TransferOwnerStyle).
+	// Build 1.2.1 (Д1, просьба Рината): полоски здоровья/еды/воды — КАЖДАЯ в СВОЁМ
+	// канвас-слоте с ЯВНЫМ размером (ручки ресайза в дизайнере реально меняют размер
+	// полоски), иконки — отдельные канвас-слоты рядом (авторазмер, таскаются мышкой).
+	// Прежние ряды-коробки (HealthRow и родня, HorizontalBox) убраны: слот коробки ручек
+	// полоске не давал, а SizeBox внутри жёстко держал габарит. Начинка полоски (бар,
+	// подпись, значение) замкнута — клик в дизайнере выделяет полоску целиком.
 	//
-	// Геометрия прежнего столба: старт 24,24 (PlayerHudMarginX/Y), высоты рядов 28/24/24,
-	// отступы 6/4/8/8 -> позиции Y: 24, 58, 86, 118 (патроны), 146 (деньги). Позиция
-	// денег резервирует ~20 px под строку патронов: столб сжимался, пока патроны спрятаны,
-	// канвас-слот не сжимается — с ножом в руках между жаждой и деньгами будет зазор
-	// (цена ручек; владелец волен перетащить плашку). Эти числа — для СВЕЖЕЙ генерации;
-	// при -rebuild столбец перекладывается по фактическим высотам виджетов владельца
-	// (ReflowPlayerStatsColumn — в реальном ассете иконки 32 px, ряды выше).
+	// Геометрия прежнего столба: старт 24,24 (PlayerHudMarginX/Y), полоски 28/24/24 px,
+	// Y: 24, 58, 86, 118 (патроны), 146 (деньги); иконка 24 px, зазор 6 -> полоска X=54.
+	// Эти числа — для СВЕЖЕЙ генерации; при -rebuild геометрия снимается со старого
+	// дерева владельца (ConvertPlayerStatsRowsToBarSlots — в реальном ассете иконки 32 px).
 	bool BuildPlayerStats(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1467,32 +1453,43 @@ namespace
 			CanvasAuto(Root, Widget, FVector2D(24.0f, Y));
 		};
 
-		// Здоровье: полоска 320x28 (PlayerHealthBarWidth, PlayerHealthFillColor).
-		UHorizontalBox* HealthRow = MakeStatRow(Tree, TEXT("HealthRow"), TEXT("HealthIcon"),
-			TEXT("/Game/UI/Icons/T_Icon_Health.T_Icon_Health"), 24.0f,
-			MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
-				TEXT("Здоровье"), TEXT("100/100"),
-				FLinearColor(0.85f, 0.1f, 0.1f, 0.95f), 320.0f, 28.0f));
-		PlaceTopLevel(HealthRow, 24.0f);
-		LockPanelChildrenInDesigner(HealthRow);
+		// Иконка стата: свой канвас-слот, авторазмер (габарит даёт кисть 24 px).
+		auto PlaceStatIcon = [&](const FName& IconName, const TCHAR* TexturePath, const FVector2D& Pos)
+		{
+			UImage* Icon = MakeIcon(Tree, TEXT("WBP_PlayerStats"), IconName, TexturePath, 24.0f);
+			Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
+			CanvasAuto(Root, Icon, Pos);
+		};
+
+		// Полоска стата: свой канвас-слот с явным размером (ручки ресайза), начинка замкнута.
+		auto PlaceStatBar = [&](UOverlay* BarOverlay, const FVector2D& Pos, const FVector2D& Size)
+		{
+			BarOverlay->SetVisibility(ESlateVisibility::HitTestInvisible);
+			CanvasAt(Root, BarOverlay, Pos, Size);
+			LockPanelChildrenInDesigner(BarOverlay);
+		};
+
+		// Здоровье: полоска 320x28 (PlayerHealthBarWidth, PlayerHealthFillColor);
+		// иконка 24 px центрируется по высоте полоски (+2).
+		PlaceStatIcon(TEXT("HealthIcon"), TEXT("/Game/UI/Icons/T_Icon_Health.T_Icon_Health"),
+			FVector2D(24.0f, 26.0f));
+		PlaceStatBar(MakeStatBar(Tree, Roboto, TEXT("HealthBar"), TEXT("HealthText"),
+				TEXT("Здоровье"), TEXT("100/100"), FLinearColor(0.85f, 0.1f, 0.1f, 0.95f)),
+			FVector2D(54.0f, 24.0f), FVector2D(320.0f, 28.0f));
 
 		// Голод и жажда: полоски 224x24 — 0.7 длины здоровья (решение владельца,
 		// перенесено из доводки -augment).
-		UHorizontalBox* HungerRow = MakeStatRow(Tree, TEXT("HungerRow"), TEXT("HungerIcon"),
-			TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"), 24.0f,
-			MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
-				TEXT("Голод"), TEXT("100"),
-				FLinearColor(0.85f, 0.55f, 0.1f, 0.95f), 224.0f, 24.0f)); // HungerColor
-		PlaceTopLevel(HungerRow, 58.0f);
-		LockPanelChildrenInDesigner(HungerRow);
+		PlaceStatIcon(TEXT("HungerIcon"), TEXT("/Game/UI/Icons/T_Icon_Hunger.T_Icon_Hunger"),
+			FVector2D(24.0f, 58.0f));
+		PlaceStatBar(MakeStatBar(Tree, Roboto, TEXT("HungerBar"), TEXT("HungerText"),
+				TEXT("Голод"), TEXT("100"), FLinearColor(0.85f, 0.55f, 0.1f, 0.95f)), // HungerColor
+			FVector2D(54.0f, 58.0f), FVector2D(224.0f, 24.0f));
 
-		UHorizontalBox* ThirstRow = MakeStatRow(Tree, TEXT("ThirstRow"), TEXT("ThirstIcon"),
-			TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"), 24.0f,
-			MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
-				TEXT("Жажда"), TEXT("100"),
-				FLinearColor(0.15f, 0.55f, 0.9f, 0.95f), 224.0f, 24.0f)); // ThirstColor
-		PlaceTopLevel(ThirstRow, 86.0f);
-		LockPanelChildrenInDesigner(ThirstRow);
+		PlaceStatIcon(TEXT("ThirstIcon"), TEXT("/Game/UI/Icons/T_Icon_Thirst.T_Icon_Thirst"),
+			FVector2D(24.0f, 86.0f));
+		PlaceStatBar(MakeStatBar(Tree, Roboto, TEXT("ThirstBar"), TEXT("ThirstText"),
+				TEXT("Жажда"), TEXT("100"), FLinearColor(0.15f, 0.55f, 0.9f, 0.95f)), // ThirstColor
+			FVector2D(54.0f, 86.0f), FVector2D(224.0f, 24.0f));
 
 		// Патроны: код показывает строку только с огнестрелом в руках. Прячется ЦЕЛИКОМ
 		// контейнер AmmoRow — вместе с подписью «Патроны», иначе подпись висела бы одна
@@ -1556,6 +1553,176 @@ namespace
 		MoneyPlate->SetContent(MoneyRow);
 		PlaceTopLevel(MoneyPlate, 146.0f);
 		LockSubtreeInDesigner(MoneyRow); // вся начинка плашки; сама плашка свободна
+		return true;
+	}
+
+	// ======================================================================
+	// Плашка конца сюжета: WBP_EndOfStory (Build 1.2.1, ТЗ Д2)
+	// ======================================================================
+
+	// Канвас-первая: подложка, сообщение, строка-статус и обе кнопки — каждый в СВОЁМ
+	// канвас-слоте с якорем верх-центр (у кнопок ручки; плашка компактная, экран не
+	// закрывает — геометрия повторяет кодовый вид FEndOfStoryStyle: ширина 620, Y=110).
+	// Имена кубиков = BindWidgetOptional-полям UEndOfStoryWidget; тексты в игре ставит
+	// InitContent (дословный текст Рината живёт EditAnywhere на HUD) — здесь образцы.
+	bool BuildEndOfStory(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Канвас-слот с якорем верх-центр экрана (доли 0.5/0.0), позиция = смещение от якоря.
+		auto TopCenter = [Root](UWidget* Widget, const FVector2D& Pos, const FVector2D& Size,
+			const FVector2D& Alignment)
+		{
+			if (UCanvasPanelSlot* Slot = Root->AddChildToCanvas(Widget))
+			{
+				Slot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+				Slot->SetAlignment(Alignment);
+				Slot->SetPosition(Pos);
+				Slot->SetSize(Size);
+			}
+		};
+
+		// Подложка (дефолты кодового стиля: чёрная 0.8, скругление 6).
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Plate"));
+		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f), 6.0f));
+		Plate->bIsVariable = true;
+		TopCenter(Plate, FVector2D(0.0f, 110.0f), FVector2D(620.0f, 158.0f), FVector2D(0.5f, 0.0f));
+
+		// Сообщение (образец; живой текст ставит код).
+		UTextBlock* Message = MakeText(Tree, Roboto, TEXT("MessageText"),
+			TEXT("Здесь заканчивается сюжет текущей версии игры."),
+			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 15, TEXT("Regular"));
+		Message->SetAutoWrapText(true);
+		Message->bIsVariable = true;
+		TopCenter(Message, FVector2D(0.0f, 126.0f), FVector2D(588.0f, 56.0f), FVector2D(0.5f, 0.0f));
+
+		// Строка-статус «Канал скоро появится»: скрыта, показывает код по [Написать мне]
+		// при пустой ссылке (Collapsed в ассете — как AmmoRow панели статов).
+		UTextBlock* Status = MakeText(Tree, Roboto, TEXT("StatusText"), TEXT("Канал скоро появится"),
+			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 14, TEXT("Bold"));
+		Status->SetJustification(ETextJustify::Center);
+		Status->SetVisibility(ESlateVisibility::Collapsed);
+		Status->bIsVariable = true;
+		TopCenter(Status, FVector2D(0.0f, 186.0f), FVector2D(588.0f, 22.0f), FVector2D(0.5f, 0.0f));
+
+		// Кнопки: [Написать мне] слева от центра, [Играть дальше] справа; подписи — кубики
+		// кода, замкнуты внутри кнопок (клик в дизайнере выделяет кнопку с ручками).
+		const FLinearColor BtnNormal(0.25f, 0.28f, 0.33f, 1.0f); // ButtonColor кодового стиля
+		const FLinearColor BtnHovered(0.32f, 0.36f, 0.42f, 1.0f);
+		const FLinearColor BtnPressed(0.18f, 0.20f, 0.24f, 1.0f);
+		const FLinearColor BtnText(0.95f, 0.96f, 1.0f, 1.0f);
+
+		UButton* Write = MakeStyledButton(Tree, TEXT("WriteButton"), BtnNormal, BtnHovered, BtnPressed);
+		UTextBlock* WriteLabel = MakeText(Tree, Roboto, TEXT("WriteButtonText"),
+			TEXT("Написать мне"), BtnText, 14, TEXT("Bold"));
+		WriteLabel->SetJustification(ETextJustify::Center);
+		WriteLabel->bIsVariable = true;
+		SetButtonContent(Write, WriteLabel);
+		TopCenter(Write, FVector2D(-8.0f, 214.0f), FVector2D(220.0f, 40.0f), FVector2D(1.0f, 0.0f));
+
+		UButton* Play = MakeStyledButton(Tree, TEXT("PlayButton"), BtnNormal, BtnHovered, BtnPressed);
+		UTextBlock* PlayLabel = MakeText(Tree, Roboto, TEXT("PlayButtonText"),
+			TEXT("Играть дальше"), BtnText, 14, TEXT("Bold"));
+		PlayLabel->SetJustification(ETextJustify::Center);
+		PlayLabel->bIsVariable = true;
+		SetButtonContent(Play, PlayLabel);
+		TopCenter(Play, FVector2D(8.0f, 214.0f), FVector2D(200.0f, 40.0f), FVector2D(0.0f, 0.0f));
+
+		return true;
+	}
+
+	// ======================================================================
+	// Окно обыска трупа: WBP_CorpseLoot (Build 1.2.1, ТЗ А1; код окна — UCorpseLootWidget)
+	// ======================================================================
+
+	// Канвас-схема «похоже на экран торговли» (Ринат): затемнение, центральная панель с
+	// золотой рамкой, заголовок, крестик, список лута растяжкой, «Забрать всё» внизу.
+	// Тексты кубиков ставит код окна (TitleLabel/TakeAllCaption/CloseCaption — Class
+	// Defaults ассета); строки списка создаёт код классом RowWidgetClass (кодовое дерево).
+	bool BuildCorpseLoot(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Затемнение на весь экран; Visible — клики в мир не проходят (модалка).
+		UBorder* Dim = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+		Dim->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.6f));
+		Dim->SetVisibility(ESlateVisibility::Visible);
+		if (UCanvasPanelSlot* DimSlot = Root->AddChildToCanvas(Dim))
+		{
+			DimSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+			DimSlot->SetOffsets(FMargin(0.0f));
+		}
+
+		// Центральная панель 640x520 (уже инвентаря: один список) с золотой рамкой;
+		// внутри собственный канвас, содержимое в области за вычетом отступа 16 (608x488).
+		UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Panel->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Panel->SetPadding(FMargin(16.0f));
+		if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Panel))
+		{
+			PanelSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			PanelSlot->SetPosition(FVector2D::ZeroVector);
+			PanelSlot->SetSize(FVector2D(640.0f, 520.0f));
+		}
+
+		UCanvasPanel* PanelCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
+		Panel->SetContent(PanelCanvas);
+
+		// Заголовок (живой текст ставит код: TitleLabel из Class Defaults).
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"), TEXT("Обыск трупа"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 20, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasAuto(PanelCanvas, Title, FVector2D(0.0f, 0.0f));
+
+		// Крестик (верх-право; Esc ведёт контроллер). Подпись — кубик кода, замкнута.
+		UButton* Close = MakeStyledButton(Tree, TEXT("CloseButton"),
+			FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), FLinearColor(0.4f, 0.4f, 0.45f, 1.0f),
+			FLinearColor(0.22f, 0.22f, 0.26f, 1.0f));
+		UTextBlock* CloseLabel = MakeText(Tree, Roboto, TEXT("CloseText"), TEXT("X"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 14, TEXT("Bold"));
+		CloseLabel->SetJustification(ETextJustify::Center);
+		CloseLabel->bIsVariable = true;
+		SetButtonContent(Close, CloseLabel);
+		if (UCanvasPanelSlot* CloseSlot = PanelCanvas->AddChildToCanvas(Close))
+		{
+			CloseSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
+			CloseSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+			CloseSlot->SetPosition(FVector2D(0.0f, 0.0f));
+			CloseSlot->SetSize(FVector2D(36.0f, 32.0f));
+		}
+
+		// Список лута (деньги + предметы одним списком) — растяжка: при ресайзе панели
+		// мышкой тянется следом; низ — над кнопкой «Забрать всё».
+		UScrollBox* Loot = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("LootList"));
+		Loot->bIsVariable = true;
+		CanvasStretch(PanelCanvas, Loot, FAnchors(0.0f, 0.0f, 1.0f, 1.0f),
+			FMargin(0.0f, 44.0f, 0.0f, 60.0f));
+
+		// «Забрать всё» (низ-право). Подпись — кубик кода (TakeAllCaption), замкнута.
+		UButton* TakeAll = MakeStyledButton(Tree, TEXT("TakeAllButton"),
+			FLinearColor(0.16f, 0.36f, 0.16f, 1.0f), FLinearColor(0.2f, 0.46f, 0.2f, 1.0f),
+			FLinearColor(0.12f, 0.28f, 0.12f, 1.0f));
+		UTextBlock* TakeAllLabel = MakeText(Tree, Roboto, TEXT("TakeAllText"), TEXT("Забрать всё"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 15, TEXT("Bold"));
+		TakeAllLabel->SetJustification(ETextJustify::Center);
+		TakeAllLabel->bIsVariable = true;
+		SetButtonContent(TakeAll, TakeAllLabel);
+		if (UCanvasPanelSlot* TakeAllSlot = PanelCanvas->AddChildToCanvas(TakeAll))
+		{
+			TakeAllSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+			TakeAllSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+			TakeAllSlot->SetPosition(FVector2D(0.0f, 0.0f));
+			TakeAllSlot->SetSize(FVector2D(220.0f, 44.0f));
+		}
+
 		return true;
 	}
 
@@ -1628,6 +1795,20 @@ namespace
 			{ TEXT("HealthBar"), TEXT("HealthText"), TEXT("HungerBar"), TEXT("HungerText"),
 			  TEXT("ThirstBar"), TEXT("ThirstText"), TEXT("AmmoRow"), TEXT("AmmoText"),
 			  TEXT("MoneyText") } },
+		// Build 1.2.1 (ТЗ Д2): плашка конца сюжета — кубики по BindWidgetOptional-полям
+		// UEndOfStoryWidget (WidthBox в WBP нет: ширину даёт канвас-слот, поле остаётся null).
+		{ TEXT("/Game/UI/WBP_EndOfStory"), TEXT("WBP_EndOfStory"),
+			TEXT("/Script/ContrarySurvivor.EndOfStoryWidget"), &BuildEndOfStory,
+			{ TEXT("Plate"), TEXT("MessageText"), TEXT("StatusText"),
+			  TEXT("WriteButton"), TEXT("WriteButtonText"),
+			  TEXT("PlayButton"), TEXT("PlayButtonText") } },
+		// Build 1.2.1 (ТЗ А1): окно обыска трупа — кубики по BindWidgetOptional-полям
+		// UCorpseLootWidget (строки списка создаёт код классом RowWidgetClass).
+		{ TEXT("/Game/UI/WBP_CorpseLoot"), TEXT("WBP_CorpseLoot"),
+			TEXT("/Script/ContrarySurvivor.CorpseLootWidget"), &BuildCorpseLoot,
+			{ TEXT("TitleText"), TEXT("LootList"),
+			  TEXT("TakeAllButton"), TEXT("TakeAllText"),
+			  TEXT("CloseButton"), TEXT("CloseText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -1664,16 +1845,32 @@ namespace
 		// из своего ассета, перенос стилизации при -rebuild убирает их и из новой раскладки
 		// (в свежесгенерированном ассете они есть и тоже замкнуты, но контракт проверяет
 		// реальный ассет проекта).
+		// Build 1.2.1 (Д1): полоски (Overlay) и иконки — СВОБОДНЫ (свои канвас-слоты с
+		// ручками, Ринат их таскает и ресайзит); замкнута только начинка полосок
+		// (бар/значение — клик выделяет полоску целиком). Рядов-коробок и SizeBox больше нет.
 		{ TEXT("WBP_PlayerStats"),
-			{ TEXT("HealthIcon"), TEXT("HealthBarOverlay"), TEXT("HealthBarSize"), TEXT("HealthBar"), TEXT("HealthText"),
-			  TEXT("HungerIcon"), TEXT("HungerBarOverlay"), TEXT("HungerBarSize"), TEXT("HungerBar"), TEXT("HungerText"),
-			  TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"), TEXT("ThirstBarSize"), TEXT("ThirstBar"), TEXT("ThirstText"),
+			{ TEXT("HealthBar"), TEXT("HealthText"),
+			  TEXT("HungerBar"), TEXT("HungerText"),
+			  TEXT("ThirstBar"), TEXT("ThirstText"),
 			  TEXT("AmmoText"), TEXT("MoneyRow"), TEXT("MoneyIcon"), TEXT("MoneyText") },
-			{ TEXT("HealthRow"), TEXT("HungerRow"), TEXT("ThirstRow"), TEXT("AmmoRow"), TEXT("MoneyPlate") } },
+			{ TEXT("HealthIcon"), TEXT("HealthBarOverlay"),
+			  TEXT("HungerIcon"), TEXT("HungerBarOverlay"),
+			  TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"),
+			  TEXT("AmmoRow"), TEXT("MoneyPlate") } },
 		{ TEXT("WBP_Dialog"),
 			{ TEXT("AcceptText"), TEXT("DeclineText"), TEXT("TurnInText"), TEXT("CloseText") },
 			{ TEXT("PanelPlate"), TEXT("NPCNameText"), TEXT("ReplicaText"),
 			  TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton") } },
+		// Build 1.2.1 (Д2): подписи кнопок замкнуты, кнопки/подложка/тексты свободны (ручки).
+		{ TEXT("WBP_EndOfStory"),
+			{ TEXT("WriteButtonText"), TEXT("PlayButtonText") },
+			{ TEXT("Plate"), TEXT("MessageText"), TEXT("StatusText"),
+			  TEXT("WriteButton"), TEXT("PlayButton") } },
+		// Build 1.2.1 (А1): окно обыска — подписи кнопок замкнуты, остальное с ручками.
+		{ TEXT("WBP_CorpseLoot"),
+			{ TEXT("CloseText"), TEXT("TakeAllText") },
+			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("LootList"),
+			  TEXT("CloseButton"), TEXT("TakeAllButton") } },
 		{ TEXT("WBP_Death"),
 			{ TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
 			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
@@ -1967,6 +2164,21 @@ namespace
 	void AugmentPlayerStats(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_PlayerStats");
+
+		// Build 1.2.1 (Д1): в новой раскладке полоски лежат в СВОИХ канвас-слотах, и все
+		// правки этого дополнения уже входят в свежую генерацию (иконки, MoneyRow, AmmoRow,
+		// длину полосок задаёт слот). Заворачивать полоску обратно в ряд-коробку НЕЛЬЗЯ —
+		// пропали бы ручки ресайза Рината. Детект новой схемы — канвас-слот у полоски.
+		if (UWidget* HealthOverlay = Tree->FindWidget(TEXT("HealthBarOverlay")))
+		{
+			if (Cast<UCanvasPanelSlot>(HealthOverlay->Slot))
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: раскладка Д1 (полоски в канвас-слотах) — дополнение уже входит в неё, пропуск."),
+					Name);
+				return;
+			}
+		}
 
 		struct FStatRow
 		{
@@ -2391,88 +2603,86 @@ namespace
 		return Value;
 	}
 
-	// Вертикальная перестройка столбца статов ПОСЛЕ переноса стиля: прежний VerticalBox
-	// складывал ряды по фактической высоте содержимого, канвас так не умеет — считаем
-	// сами той же формулой (отступы прежние: 6/4/8/8). Высота ряда = max(иконка, полоска);
-	// размеры берутся из УЖЕ перенесённых значений владельца — в реальном ассете иконки
-	// 32 px, а не 24: прежний -augment писал размер мимо ассета (см. MakeIcon), чинить
-	// это сейчас нельзя — изменился бы принятый владельцем вид. Строка патронов — оценка
-	// 20 px (замер Slate в коммандлете недоступен): место под неё резервируется, поэтому
-	// с ножом в руках между жаждой и деньгами остаётся зазор (столб сжимался, канвас-слот
-	// не сжимается — цена ручек; владелец волен перетащить плашку денег).
-	void ReflowPlayerStatsColumn(UWidgetTree* Tree, const TCHAR* AssetName)
+	// Build 1.2.1 (Д1): переезд «ряд-коробка -> отдельные канвас-слоты иконки и полоски».
+	// Расстановка Рината снимается со СТАРОГО дерева (оно канвас-первое ПО РЯДАМ с 07-28):
+	// позиция ряда — с его канвас-слота, фактические размеры — с его иконки
+	// (Brush.ImageSize; в реальном ассете 32 px) и его SizeBox (Width/HeightOverride —
+	// значения владельца). Новая иконка встаёт на место старой (центр по высоте ряда),
+	// новая полоска — правее иконки с прежним зазором 6 и ПРЕЖНИМ размером полоски.
+	// Ряда в старом дереве нет / он не в канвас-слоте — полоска остаётся на штатной
+	// позиции свежей генерации (громкая строка в лог, сверить глазами).
+	void ConvertPlayerStatsRowsToBarSlots(UWidgetTree* Tree, const TCHAR* AssetName,
+		const TMap<FName, UWidget*>& OldWidgets)
 	{
 		struct FRowSpec
 		{
 			const TCHAR* RowName;
 			const TCHAR* IconName;
+			const TCHAR* OverlayName;
 			const TCHAR* SizeName;
-			float TopPad;
+			FVector2D DefaultBarSize;
 		};
 		const FRowSpec Rows[] =
 		{
-			{ TEXT("HealthRow"), TEXT("HealthIcon"), TEXT("HealthBarSize"), 0.0f },
-			{ TEXT("HungerRow"), TEXT("HungerIcon"), TEXT("HungerBarSize"), 6.0f },
-			{ TEXT("ThirstRow"), TEXT("ThirstIcon"), TEXT("ThirstBarSize"), 4.0f },
+			{ TEXT("HealthRow"), TEXT("HealthIcon"), TEXT("HealthBarOverlay"), TEXT("HealthBarSize"), FVector2D(320.0f, 28.0f) },
+			{ TEXT("HungerRow"), TEXT("HungerIcon"), TEXT("HungerBarOverlay"), TEXT("HungerBarSize"), FVector2D(224.0f, 24.0f) },
+			{ TEXT("ThirstRow"), TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"), TEXT("ThirstBarSize"), FVector2D(224.0f, 24.0f) },
 		};
-
-		// База — фактическая позиция ряда здоровья (уже учитывает сдвиг столба владельца).
-		UWidget* Health = Tree->FindWidget(FName(TEXT("HealthRow")));
-		UCanvasPanelSlot* HealthSlot = Health ? Cast<UCanvasPanelSlot>(Health->Slot) : nullptr;
-		if (!HealthSlot)
-		{
-			UE_LOG(LogGenerateWbp, Warning,
-				TEXT("REBUILD %s: HealthRow без канвас-слота — перестройка столбца пропущена."), AssetName);
-			return;
-		}
-		const float X = HealthSlot->GetPosition().X;
-		float Y = HealthSlot->GetPosition().Y;
 
 		for (const FRowSpec& Row : Rows)
 		{
-			UWidget* RowWidget = Tree->FindWidget(FName(Row.RowName));
-			UCanvasPanelSlot* Slot = RowWidget ? Cast<UCanvasPanelSlot>(RowWidget->Slot) : nullptr;
-			if (!Slot)
+			UWidget* const* OldRow = OldWidgets.Find(FName(Row.RowName));
+			const UCanvasPanelSlot* OldRowSlot = OldRow ? Cast<UCanvasPanelSlot>((*OldRow)->Slot) : nullptr;
+			if (!OldRowSlot)
 			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("REBUILD %s: ряда '%s' в старом дереве нет (или он не в канвас-слоте) — иконка и полоска остались на штатных позициях, сверить вид глазами."),
+					AssetName, Row.RowName);
 				continue;
 			}
-			Y += Row.TopPad;
-			Slot->SetPosition(FVector2D(X, Y));
+			const FVector2D RowPos = OldRowSlot->GetPosition();
 
-			float RowHeight = 0.0f;
-			if (const UImage* Icon = Cast<UImage>(Tree->FindWidget(FName(Row.IconName))))
+			// Фактические размеры владельца из старого дерева.
+			FVector2D IconSize(24.0f, 24.0f);
+			if (UWidget* const* OldIcon = OldWidgets.Find(FName(Row.IconName)))
 			{
-				const FVector2D IconSize = Icon->GetBrush().GetImageSize();
-				RowHeight = FMath::Max(RowHeight, IconSize.Y);
+				if (const UImage* Img = Cast<UImage>(*OldIcon))
+				{
+					IconSize = Img->GetBrush().GetImageSize();
+				}
 			}
-			if (const USizeBox* Size = Cast<USizeBox>(Tree->FindWidget(FName(Row.SizeName))))
+			FVector2D BarSize = Row.DefaultBarSize;
+			if (UWidget* const* OldSize = OldWidgets.Find(FName(Row.SizeName)))
 			{
-				RowHeight = FMath::Max(RowHeight, Size->GetHeightOverride());
+				if (const USizeBox* SB = Cast<USizeBox>(*OldSize))
+				{
+					BarSize = FVector2D(SB->GetWidthOverride(), SB->GetHeightOverride());
+				}
 			}
-			Y += RowHeight;
-		}
 
-		const float AmmoRowHeightEstimate = 20.0f; // текст Roboto 14 с тенью
-		if (UWidget* AmmoRow = Tree->FindWidget(FName(TEXT("AmmoRow"))))
-		{
-			if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(AmmoRow->Slot))
+			// Раскладка прежнего ряда: иконка слева (центр по высоте), полоска через зазор 6.
+			const float RowHeight = FMath::Max(IconSize.Y, BarSize.Y);
+			if (UWidget* NewIcon = Tree->FindWidget(FName(Row.IconName)))
 			{
-				Y += 8.0f;
-				Slot->SetPosition(FVector2D(X, Y));
-				Y += AmmoRowHeightEstimate;
+				if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(NewIcon->Slot))
+				{
+					Slot->SetPosition(FVector2D(RowPos.X, RowPos.Y + (RowHeight - IconSize.Y) * 0.5f));
+				}
 			}
-		}
-		if (UWidget* MoneyPlate = Tree->FindWidget(FName(TEXT("MoneyPlate"))))
-		{
-			if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(MoneyPlate->Slot))
+			if (UWidget* NewBar = Tree->FindWidget(FName(Row.OverlayName)))
 			{
-				Y += 8.0f;
-				Slot->SetPosition(FVector2D(X, Y));
+				if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(NewBar->Slot))
+				{
+					Slot->SetPosition(FVector2D(RowPos.X + IconSize.X + 6.0f,
+						RowPos.Y + (RowHeight - BarSize.Y) * 0.5f));
+					Slot->SetSize(BarSize);
+				}
 			}
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("REBUILD %s: ряд '%s' (поз. %s) разложен: иконка %.0fx%.0f, полоска %.0fx%.0f в своём канвас-слоте."),
+				AssetName, Row.RowName, *RowPos.ToString(),
+				IconSize.X, IconSize.Y, BarSize.X, BarSize.Y);
 		}
-		UE_LOG(LogGenerateWbp, Display,
-			TEXT("REBUILD %s: столбец статов переложен по фактическим высотам, нижняя точка Y=%.0f."),
-			AssetName, Y);
 	}
 
 	void TransferOwnerStyle(UWidgetTree* Tree, const TCHAR* AssetName,
@@ -2615,13 +2825,22 @@ namespace
 			// даёт новая раскладка), отдельной строки в лог не нужно.
 		}
 
-		// 4. Старое, чему в новой раскладке пары не нашлось. StatsBox выброшен намеренно
-		// (его заменили канвас-слоты); всё остальное — громко: владелец мог создать кубик
-		// руками (например, AmmoBagText), автоматически его не вернуть — только руками
-		// по этому логу.
+		// 4. Старое, чему в новой раскладке пары не нашлось. Намеренно выброшены: StatsBox
+		// (заменён канвас-слотами ещё в ADR-051) и, с Build 1.2.1 (Д1), ряды-коробки статов
+		// с их SizeBox'ами (полоски переехали в свои канвас-слоты, геометрию перенёс
+		// ConvertPlayerStatsRowsToBarSlots). Всё остальное — громко: владелец мог создать
+		// кубик руками (например, AmmoBagText), автоматически его не вернуть — только
+		// руками по этому логу.
+		const FName IntentionallyDropped[] =
+		{
+			FName(TEXT("StatsBox")),
+			FName(TEXT("HealthRow")), FName(TEXT("HungerRow")), FName(TEXT("ThirstRow")),
+			FName(TEXT("HealthBarSize")), FName(TEXT("HungerBarSize")), FName(TEXT("ThirstBarSize")),
+		};
 		for (const TPair<FName, UWidget*>& Old : OldWidgets)
 		{
-			if (MatchedNames.Contains(Old.Key) || Old.Key == FName(TEXT("StatsBox")))
+			if (MatchedNames.Contains(Old.Key)
+				|| Algo::Find(IntentionallyDropped, Old.Key) != nullptr)
 			{
 				continue;
 			}
@@ -2630,25 +2849,12 @@ namespace
 				AssetName, *Old.Key.ToString(), *Old.Value->GetClass()->GetName());
 		}
 
-		// 5. Столбец статов складывается заново по фактическим (перенесённым) высотам —
-		// ТОЛЬКО при переезде со старой контейнерной схемы (ряды жили в столбе StatsBox,
-		// канвас-позиций у них не было). Если старое дерево уже канвас-первое, ряды
-		// получили расстановку владельца в шаге 3б — перекладка перетёрла бы её.
+		// 5. Build 1.2.1 (Д1): панель статов — переезд «ряды-коробки -> отдельные
+		// канвас-слоты иконок и полосок»: позиции/размеры снимаются со старых рядов
+		// владельца (шаг 3б их не покрывает — рядов в новой раскладке больше нет).
 		if (FCString::Strcmp(AssetName, TEXT("WBP_PlayerStats")) == 0)
 		{
-			UWidget* const* OldHealthRow = OldWidgets.Find(FName(TEXT("HealthRow")));
-			const bool bOldWasCanvasFirst =
-				OldHealthRow && Cast<UCanvasPanelSlot>((*OldHealthRow)->Slot) != nullptr;
-			if (bOldWasCanvasFirst)
-			{
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("REBUILD %s: ряды взяли расстановку со старого канваса владельца — перекладка столбца пропущена."),
-					AssetName);
-			}
-			else
-			{
-				ReflowPlayerStatsColumn(Tree, AssetName);
-			}
+			ConvertPlayerStatsRowsToBarSlots(Tree, AssetName, OldWidgets);
 		}
 
 		UE_LOG(LogGenerateWbp, Display,
@@ -2789,6 +2995,10 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	if (Switches.Contains(TEXT("adicon")))
 	{
 		return GenerateAdIcon();
+	}
+	if (Switches.Contains(TEXT("pickupfix")))
+	{
+		return FixPickupAssets();
 	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
 }
@@ -3271,4 +3481,184 @@ int32 UGenerateWbpCommandlet::GenerateAdIcon()
 	UE_LOG(LogGenerateWbp, Display, TEXT("ADICON OK: %s (%dx%d, контур + треугольник) сохранена в %s."),
 		*PackageName, Size, Size, *Filename);
 	return 0;
+}
+
+int32 UGenerateWbpCommandlet::FixPickupAssets()
+{
+	// Build 1.2.1 (ТЗ А2/А4). Причина «серых» пикапов ДОКАЗАНА срезом ассетов: меши
+	// SM_LootSack/SM_HidePickup импортированы БЕЗ материалов (bImportMaterials=false в
+	// метаданных импорта), в слоте — движковый WorldGridMaterial (та самая серая шахматка).
+	// Перекрытий материала в C++/BP НЕТ (гипотеза ТЗ не подтвердилась). Паспорта модельера:
+	// красить вершинными цветами, «в UE вешать M_VColor». Здесь: (А2) M_VColor в слот 0
+	// всех трёх мешей лута (+ запасной рюкзак) с пруфом числа вершин с цветом; (А4) в
+	// M_VColor добавляется эмиссив-пара GlowColor(чёрный) x GlowIntensity(0) — нулевые
+	// дефолты не меняют вид ни одного пользователя материала, живые значения ставит MID
+	// пикапа (APickup::SetupGlow). Повторный прогон — no-op (идемпотентно).
+	UMaterial* VColor = LoadObject<UMaterial>(nullptr, TEXT("/Game/Materials/M_VColor.M_VColor"));
+	if (!VColor)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("PICKUPFIX: /Game/Materials/M_VColor не загрузился — стоп."));
+		return 1;
+	}
+
+	int32 Errors = 0;
+
+	auto SaveAsset = [&Errors](UObject* Asset, const TCHAR* Context)
+	{
+		const FString PackageName = Asset->GetOutermost()->GetName();
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			PackageName, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(Asset->GetOutermost(), Asset, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("PICKUPFIX: SavePackage не сохранил %s (%s)."),
+				*Filename, Context);
+			++Errors;
+			return false;
+		}
+		UE_LOG(LogGenerateWbp, Display, TEXT("PICKUPFIX: %s сохранён (%s)."), *PackageName, Context);
+		return true;
+	};
+
+	// --- А4: параметры свечения в M_VColor (идемпотентно: по имени GlowIntensity) ---
+	bool bAlreadyHasGlow = false;
+	for (UMaterialExpression* Expr : VColor->GetExpressionCollection().Expressions)
+	{
+		const UMaterialExpressionScalarParameter* Scalar = Cast<UMaterialExpressionScalarParameter>(Expr);
+		if (Scalar && Scalar->ParameterName == FName(TEXT("GlowIntensity")))
+		{
+			bAlreadyHasGlow = true;
+			break;
+		}
+	}
+	if (bAlreadyHasGlow)
+	{
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("PICKUPFIX: у M_VColor уже есть GlowIntensity — параметры свечения пропущены."));
+	}
+	else
+	{
+		UMaterialEditorOnlyData* EditorData = VColor->GetEditorOnlyData();
+		if (!EditorData)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("PICKUPFIX: у M_VColor нет editor-данных — стоп."));
+			return 1;
+		}
+		VColor->Modify();
+
+		UMaterialExpressionVectorParameter* GlowColor =
+			NewObject<UMaterialExpressionVectorParameter>(VColor);
+		GlowColor->ParameterName = TEXT("GlowColor");
+		GlowColor->DefaultValue = FLinearColor::Black; // чёрный x что угодно = эмиссив 0
+		GlowColor->Material = VColor;
+		GlowColor->MaterialExpressionEditorX = -700;
+		GlowColor->MaterialExpressionEditorY = 320;
+
+		UMaterialExpressionScalarParameter* GlowIntensity =
+			NewObject<UMaterialExpressionScalarParameter>(VColor);
+		GlowIntensity->ParameterName = TEXT("GlowIntensity");
+		GlowIntensity->DefaultValue = 0.0f;
+		GlowIntensity->Material = VColor;
+		GlowIntensity->MaterialExpressionEditorX = -700;
+		GlowIntensity->MaterialExpressionEditorY = 520;
+
+		UMaterialExpressionMultiply* GlowMul = NewObject<UMaterialExpressionMultiply>(VColor);
+		GlowMul->Material = VColor;
+		GlowMul->MaterialExpressionEditorX = -420;
+		GlowMul->MaterialExpressionEditorY = 400;
+		GlowMul->A.Connect(0, GlowColor);
+		GlowMul->B.Connect(0, GlowIntensity);
+
+		FMaterialExpressionCollection& Collection = VColor->GetExpressionCollection();
+		Collection.AddExpression(GlowColor);
+		Collection.AddExpression(GlowIntensity);
+		Collection.AddExpression(GlowMul);
+		EditorData->EmissiveColor.Connect(0, GlowMul);
+
+		VColor->PreEditChange(nullptr);
+		VColor->PostEditChange();
+		if (SaveAsset(VColor, TEXT("А4: GlowColor x GlowIntensity -> Emissive, дефолты нулевые")))
+		{
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("PICKUPFIX: M_VColor получил параметры свечения (дефолт: эмиссив 0 — вид прочих пользователей не тронут)."));
+		}
+	}
+
+	// --- А2: M_VColor в слоты мешей лута ---
+	const TCHAR* MeshPaths[] =
+	{
+		TEXT("/Game/Environment/Props/SM_LootSack.SM_LootSack"),     // мешок (BP_Pickup + дефолт APickup)
+		TEXT("/Game/Environment/Props/SM_HidePickup.SM_HidePickup"), // свёрток шкуры (BP_PickupWolf)
+		TEXT("/Game/Environment/Props/SM_LootBackpack.SM_LootBackpack"), // запасной вариант — чиним заодно
+	};
+	for (const TCHAR* Path : MeshPaths)
+	{
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, Path);
+		if (!Mesh)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("PICKUPFIX: меш %s не загрузился."), Path);
+			++Errors;
+			continue;
+		}
+
+		// Пруф вершинных цветов: M_VColor без них красить нечем (рендер белым).
+		int32 ColorVerts = -1; // -1 = проверить не удалось (рендер-данных нет)
+		if (const FStaticMeshRenderData* RenderData = Mesh->GetRenderData())
+		{
+			if (RenderData->LODResources.Num() > 0)
+			{
+				ColorVerts = static_cast<int32>(
+					RenderData->LODResources[0].VertexBuffers.ColorVertexBuffer.GetNumVertices());
+			}
+		}
+		if (ColorVerts == 0)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("PICKUPFIX: у %s НЕТ вершинных цветов — M_VColor его не покрасит, нужен реимпорт FBX с цветами."),
+				*Mesh->GetName());
+			++Errors;
+		}
+
+		// Слоты: всё, что не M_VColor (у обоих мешей это WorldGridMaterial), заменяется.
+		bool bChanged = false;
+		TArray<FStaticMaterial>& Slots = Mesh->GetStaticMaterials();
+		for (int32 Index = 0; Index < Slots.Num(); ++Index)
+		{
+			UMaterialInterface* Current = Slots[Index].MaterialInterface;
+			if (Current == VColor)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("PICKUPFIX: %s слот %d уже M_VColor — пропуск."), *Mesh->GetName(), Index);
+				continue;
+			}
+			// SetMaterial (editor-путь) сам ведёт Pre/PostEditChange ассета.
+			Mesh->SetMaterial(Index, VColor);
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display, TEXT("PICKUPFIX: %s слот %d: %s -> M_VColor."),
+				*Mesh->GetName(), Index, *GetNameSafe(Current));
+		}
+		if (Slots.Num() == 0)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("PICKUPFIX: у %s нет слотов материалов."), *Mesh->GetName());
+			++Errors;
+			continue;
+		}
+
+		if (bChanged && !SaveAsset(Mesh, TEXT("А2: материал слота -> M_VColor")))
+		{
+			continue;
+		}
+
+		// Финальный срез-пруф ассета: слоты, вершинные цвета, реальный габарит (для А3:
+		// у свёртка ~45 см по длинной оси при масштабе 1 — паспорт модельера).
+		const FVector Extent = Mesh->GetBoundingBox().GetExtent() * 2.0f;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("PICKUPFIX СРЕЗ: %s — слот0=%s, вершин с цветом %s, габарит %.0fx%.0fx%.0f см."),
+			*Mesh->GetName(), *GetNameSafe(Slots[0].MaterialInterface),
+			ColorVerts < 0 ? TEXT("НЕ ПРОВЕРЕНО (нет рендер-данных)") : *FString::FromInt(ColorVerts),
+			Extent.X, Extent.Y, Extent.Z);
+	}
+
+	return Errors == 0 ? 0 : 1;
 }

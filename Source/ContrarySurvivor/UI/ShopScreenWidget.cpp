@@ -433,7 +433,8 @@ void UShopScreenWidget::UpdateSellAdButton()
 
 	// Условия показа (ТЗ №2 п.4): все обязаны выполниться, иначе кнопка прячется целиком.
 	FString DenyReason;
-	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds()))
+	// Порог теперь EditAnywhere на игроке (Build 1.2.1 В1: 360 с вместо константы 15 мин).
+	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds(), Player->GetAdMinPlaytimeSeconds()))
 	{
 		DenyReason = TEXT("under_15min");
 	}

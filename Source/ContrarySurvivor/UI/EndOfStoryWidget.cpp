@@ -26,6 +26,47 @@ void UEndOfStoryWidget::NativeOnInitialized()
 		return;
 	}
 
+	// Build 1.2.1 (ТЗ Д2), детект как в TouchControlsWidget.cpp: WBP-наследник приходит с
+	// деревом Рината, построенным из ассета ДО этого вызова, — кубики уже привязаны
+	// BindWidgetOptional, строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		// Недостающие имена — предупреждение (элемент не работает, остальное живёт).
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ MessageText, TEXT("MessageText") }, { StatusText, TEXT("StatusText") },
+			{ WriteButton, TEXT("WriteButton") }, { PlayButton, TEXT("PlayButton") },
+			{ WriteButtonText, TEXT("WriteButtonText") }, { PlayButtonText, TEXT("PlayButtonText") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("EndOfStoryWidget: кубик %s не найден в WBP_EndOfStory — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
+	if (WriteButton)
+	{
+		WriteButton->OnClicked.AddDynamic(this, &UEndOfStoryWidget::HandleWriteClicked);
+	}
+	if (PlayButton)
+	{
+		PlayButton->OnClicked.AddDynamic(this, &UEndOfStoryWidget::HandlePlayClicked);
+	}
+}
+
+void UEndOfStoryWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("EndOfStoryRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -34,28 +75,27 @@ void UEndOfStoryWidget::NativeOnInitialized()
 
 	// SizeBox фиксирует ширину, Border — подложка; внутри вертикальный стек:
 	// сообщение -> строка-статус (скрыта) -> ряд кнопок. Высота растёт за текстом.
-	WidthBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("EndOfStoryWidth"));
-	Plate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("EndOfStoryPlate"));
+	// Имена кубиков = именам BindWidgetOptional-полей (те же, что в WBP_EndOfStory).
+	WidthBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("WidthBox"));
+	Plate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Plate"));
 	UVerticalBox* Stack = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("EndOfStoryStack"));
 
-	MessageText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EndOfStoryMessage"));
+	MessageText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MessageText"));
 	MessageText->SetAutoWrapText(true);
 	MessageText->SetJustification(ETextJustify::Left);
 
-	StatusText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EndOfStoryStatus"));
+	StatusText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StatusText"));
 	StatusText->SetAutoWrapText(true);
 	StatusText->SetJustification(ETextJustify::Center);
 	StatusText->SetVisibility(ESlateVisibility::Collapsed);
 
 	UHorizontalBox* ButtonRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("EndOfStoryButtons"));
-	WriteButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("EndOfStoryWriteBtn"));
-	PlayButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("EndOfStoryPlayBtn"));
-	WriteButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EndOfStoryWriteLabel"));
-	PlayButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("EndOfStoryPlayLabel"));
+	WriteButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("WriteButton"));
+	PlayButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PlayButton"));
+	WriteButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WriteButtonText"));
+	PlayButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PlayButtonText"));
 	WriteButton->SetContent(WriteButtonText);
 	PlayButton->SetContent(PlayButtonText);
-	WriteButton->OnClicked.AddDynamic(this, &UEndOfStoryWidget::HandleWriteClicked);
-	PlayButton->OnClicked.AddDynamic(this, &UEndOfStoryWidget::HandlePlayClicked);
 
 	if (UVerticalBoxSlot* MsgSlot = Stack->AddChildToVerticalBox(MessageText))
 	{
@@ -91,6 +131,12 @@ void UEndOfStoryWidget::NativeOnInitialized()
 
 void UEndOfStoryWidget::ApplyStyle(const FEndOfStoryStyle& Style)
 {
+	// Дерево из WBP: стиль/раскладка целиком Рината (ТЗ Д2) — HUD-стиль не применяется
+	// (тот же принцип, что у тач-слоя: «код кубики не перекрашивает»).
+	if (bDesignerTree)
+	{
+		return;
+	}
 	if (WidthBox)
 	{
 		WidthBox->SetWidthOverride(FMath::Max(200.0f, Style.BoxWidth));

@@ -29,6 +29,7 @@
 #include "APantsArmor.h"
 #include "AArmorTiers.h" // тест-комплект Т3 для QA-клавиши F3 (ADR-042)
 #include "Engine/SkeletalMesh.h" // загрузка мешей одежды Т0 (ApplyStartClothing)
+#include "Components/SkeletalMeshComponent.h" // Build 1.2.1 (ТЗ Е): возврат AnimBP после анимации смерти
 #include "AConsumableItem.h"
 #include "AAmmoItem.h" // патроны как стак-предмет рюкзака (Фаза 5)
 #include "ARangedWeapon.h"
@@ -1359,24 +1360,26 @@ void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSe
         return;
     }
 
-    // Стак патронов: продаём Qty патронов из пачки за UnitSellPrice/патрон.
-    if (AAmmoItem* Ammo = Cast<AAmmoItem>(Item))
+    // Build 1.2.1 (блок Г, патч cpp): ЛЮБОЙ стак-предмет (патроны, шкуры, тушёнка,
+    // аптечки — поля стака в базе AMasterInventoryItem с a4252ba) продаётся по Qty штук
+    // за UnitSellPrice/штуку. Поведение патронов не изменилось — тот же путь.
+    if (Item->IsStackable())
     {
-        const int32 SellCount = FMath::Clamp(Qty, 1, Ammo->StackCount);
+        const int32 SellCount = FMath::Clamp(Qty, 1, Item->StackCount);
         if (SellCount <= 0)
         {
             return;
         }
         const float Gain = UnitSellPrice * static_cast<float>(SellCount);
-        Ammo->StackCount -= SellCount;
+        Item->StackCount -= SellCount;
         Stats->AddMoney(Gain);
-        if (Ammo->StackCount <= 0)
+        if (Item->StackCount <= 0)
         {
-            Inventory->RemoveItem(Ammo);
-            Ammo->Destroy();
+            Inventory->RemoveItem(Item);
+            Item->Destroy();
         }
-        UE_LOG(LogQA, Display, TEXT("QA: SELL %d ammo for %.0f, balance %.0f (backpack left %d)"),
-            SellCount, Gain, Stats->GetMoney(), GetReserveAmmoInInventory());
+        UE_LOG(LogQA, Display, TEXT("QA: SELL %d x '%s' for %.0f, balance %.0f"),
+            SellCount, *Item->ItemName, Gain, Stats->GetMoney());
         // Build 1.2 (ТЗ №2 п.6): shop_sell_completed для ВСЕХ продаж (value = сумма).
         if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
         {
@@ -1669,7 +1672,18 @@ DeathLoss::FPlan APlayerCharacter::ComputeDeathLossPlan(bool bBackpackRescued) c
 {
     const float ItemFrac = bBackpackRescued ? DeathRescuedLossFraction : DeathConsumableLossFraction;
     const float MoneyFrac = bBackpackRescued ? DeathRescuedLossFraction : DeathMoneyLossFraction;
-    return DeathLoss::Compute(GetDeathLossCandidates().Num(), MoneyAtDeath,
+
+    // Build 1.2.1 (блок Г, стаки): база плана — сумма ШТУК по стакам, а не число акторов,
+    // иначе «70% расходников» превратилось бы в «70% стаков» и стак терялся бы целиком.
+    int32 TotalPieces = 0;
+    for (const AMasterInventoryItem* Item : GetDeathLossCandidates())
+    {
+        if (IsValid(Item))
+        {
+            TotalPieces += FMath::Max(1, Item->GetStackCount());
+        }
+    }
+    return DeathLoss::Compute(TotalPieces, MoneyAtDeath,
         ItemFrac, MoneyFrac, DeathDropShareFraction);
 }
 
@@ -1770,6 +1784,33 @@ void APlayerCharacter::ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan)
         MoneyAtDeath, Plan.LostMoney, Plan.DroppedMoney, Stats->GetMoney());
 }
 
+void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+    Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+    if (PlayerInputComponent)
+    {
+        // Build 1.2.1 (ТЗ В2): F — «реклама доступна сейчас». Легаси-маппинг QAUnlockAds=F
+        // в Config/DefaultInput.ini; работает в игровом режиме ввода (жать ДО смерти/магазина).
+        PlayerInputComponent->BindAction(TEXT("QAUnlockAds"), IE_Pressed,
+            this, &APlayerCharacter::OnQAUnlockAds);
+    }
+}
+
+void APlayerCharacter::OnQAUnlockAds()
+{
+    const float Before = GetTotalPlayTimeSeconds();
+    const float Deficit = AdMinPlaytimeSeconds - Before;
+    if (Deficit > 0.0f)
+    {
+        UnflushedPlayTime += Deficit; // добить накопитель ровно до порога
+    }
+    FlushPlayTime(); // немедленно в сейв, не ждать 60-секундный таймер
+    UE_LOG(LogQA, Display,
+        TEXT("QA: AD UNLOCK (key F) - playtime %.0f -> %.0f s (threshold %.0f), written to save"),
+        Before, GetTotalPlayTimeSeconds(), AdMinPlaytimeSeconds);
+}
+
 void APlayerCharacter::FlushPlayTime()
 {
     if (UnflushedPlayTime <= 0.0f)
@@ -1855,11 +1896,17 @@ void APlayerCharacter::HandleDeath()
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
         LastLifeDuration, *LastDamagerName.ToString(), EnemyKillCount);
 
-    // Останавливаем персонажа (анимации смерти нет — просто гасим движение; тело остаётся).
+    // Останавливаем персонажа (гасим движение; тело остаётся на месте).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
         Move->StopMovementImmediately();
     }
+
+    // Build 1.2.1 (ТЗ Е): анимация смерти «ложится на спину» — ДО показа экрана смерти.
+    // Поле DeathAnimation уже в мастер-базе гуманоидов (MasterHumanoidCharacter.h:100);
+    // ассета нет — false, прежнее поведение (тело просто замирает). true — меш ушёл в
+    // Single Node, флаг напоминает Respawn вернуть AnimationBlueprint.
+    bDeathAnimPlayed = PlayDeathAnimationIfSet();
 
     AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController());
     if (PC)
@@ -1941,6 +1988,18 @@ void APlayerCharacter::Respawn(bool bBackpackRescued)
         UE_LOG(LogTemp, Warning, TEXT("Respawn stats: HP %.1f/%.1f, Hunger %.1f, Thirst %.1f (frac HP %.2f / Surv %.2f)"),
             Stats->GetHealth(), Stats->GetMaxHealth(), Stats->GetHunger(), Stats->GetThirst(),
             RespawnHealthFraction, RespawnSurvivalFraction);
+    }
+
+    // 3б) Build 1.2.1 (ТЗ Е): вернуть меш из Single Node (анимация смерти) в штатный AnimBP.
+    //     SetAnimationMode при смене режима переинициализирует AnimInstance
+    //     (SkeletalMeshComponent.cpp, UE 5.5) — игрок снова в живой позе.
+    if (bDeathAnimPlayed)
+    {
+        if (USkeletalMeshComponent* MeshComp = GetMesh())
+        {
+            MeshComp->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+        }
+        bDeathAnimPlayed = false;
     }
 
     // 4) Сбрасываем трекинг жизни и врага-убийцу для следующей жизни.

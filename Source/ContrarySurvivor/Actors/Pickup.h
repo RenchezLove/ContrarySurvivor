@@ -9,6 +9,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class UMaterialInstanceDynamic;
 class AMasterInventoryItem;
 class APlayerCharacter;
 
@@ -67,6 +68,10 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	// Build 1.2.1 (ТЗ А4): тик нужен ТОЛЬКО пульсации свечения — включается в BeginPlay
+	// при включённом свечении с периодом > 0, иначе актор не тикает (как раньше).
+	virtual void Tick(float DeltaTime) override;
+
 	// Триггер подбора: overlap по Pawn (как у костра-сейва).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
 	USphereComponent* PickupTrigger;
@@ -109,6 +114,24 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0", DisplayPriority = "5"))
 	int32 PlacedAmmoAmount = 0;
 
+	// --- Build 1.2.1 (ТЗ А4, Ринат: «хочу добавить ему свечение») ---
+	// Свечение мешка/свёртка: MID от материала меша (M_VColor несёт параметры
+	// GlowColor/GlowIntensity с нулевыми дефолтами — остальные пользователи материала
+	// не затронуты). Настройка на экземпляре/BP, дефолт ВЫКЛ (решение Рината).
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayName = "Свечение включено", DisplayPriority = "6"))
+	bool bGlowEnabled = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayName = "Цвет свечения", DisplayPriority = "7", EditCondition = "bGlowEnabled"))
+	FLinearColor GlowColor = FLinearColor(1.0f, 0.78f, 0.25f, 1.0f); // тёплый янтарный, в тон шнуру мешка
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayName = "Сила свечения", DisplayPriority = "8", EditCondition = "bGlowEnabled"))
+	float GlowStrength = 3.0f;
+
+	// Период полного цикла пульсации, сек. 0 = ровное свечение без пульса (и без тика).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayName = "Период пульсации (сек, 0 = ровное)", DisplayPriority = "9", EditCondition = "bGlowEnabled"))
+	float GlowPulsePeriod = 2.0f;
+
 	// Предмет, который пикап отдаёт в рюкзак при подборе (nullptr = только деньги).
 	UPROPERTY()
 	AMasterInventoryItem* CarriedItem = nullptr;
@@ -122,6 +145,16 @@ private:
 	// D8: спавнит размещённый лут (PlacedItemClass/PlacedAmmoAmount) скрытыми предметами
 	// в CarriedItems. Зовётся из BeginPlay только в игровом мире.
 	void SpawnPlacedLoot();
+
+	// Build 1.2.1 (ТЗ А4): создаёт MID слота 0 и включает свечение (+тик при пульсации).
+	void SetupGlow();
+
+	// MID свечения (создан из материала меша). UPROPERTY — защита от GC.
+	UPROPERTY()
+	UMaterialInstanceDynamic* GlowMID = nullptr;
+
+	// Накопленное время пульса (фаза синуса).
+	float GlowTime = 0.0f;
 
 	// true, если лут уже подобран игроком (чтобы EndPlay не уничтожил отданный предмет).
 	bool bCollected = false;

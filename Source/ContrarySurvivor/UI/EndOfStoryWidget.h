@@ -96,9 +96,14 @@ struct FEndOfStoryGate
  * Кнопки: [Написать мне] — открывает ссылку на канал, а пока ссылки нет, показывает строку
  * «Канал скоро появится»; [Играть дальше] — закрывает плашку.
  *
- * Дерево целиком строится в C++ (WidgetTree), .uasset не нужен — создаётся напрямую
- * CreateWidget<UEndOfStoryWidget>(PC, UEndOfStoryWidget::StaticClass()) (образец —
- * ULimpIndicatorWidget). Тексты и стиль — EditAnywhere-поля AContrarySurvivorHUD.
+ * Build 1.2.1 (ТЗ Д2) — два пути, как у UTouchControlsWidget:
+ *  - создан из WBP_EndOfStory (родитель этот класс) → дерево Рината из дизайнера, кубики
+ *    приходят по BindWidgetOptional-именам (Plate/MessageText/StatusText/WriteButton/
+ *    PlayButton/WriteButtonText/PlayButtonText), код их НЕ перекрашивает (стиль целиком
+ *    в ассете); ассет генерирует GenerateWbpCommandlet (канвас-первая, кнопки с ручками);
+ *  - ассета нет / слот HUD пуст → прежний кодовый вид: дерево строится в C++ (WidgetTree),
+ *    стиль — EditAnywhere-поля AContrarySurvivorHUD (FEndOfStoryStyle).
+ * Тексты в ОБОИХ путях ставит InitContent (дословный текст Рината живёт на HUD).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UEndOfStoryWidget : public USelfHidingWidget
@@ -112,7 +117,8 @@ public:
 		const FText& InPlayButtonLabel, const FText& InChannelPendingText,
 		const FString& InChannelUrl);
 
-	// Применяет стиль к уже построенному дереву (зовёт HUD сразу после создания).
+	// Применяет стиль к КОДОВОМУ дереву (зовёт HUD сразу после создания). Для дерева из
+	// WBP — no-op: стиль и раскладка целиком принадлежат ассету Рината (ТЗ Д2).
 	void ApplyStyle(const FEndOfStoryStyle& Style);
 
 protected:
@@ -129,31 +135,40 @@ private:
 	// Закрыть плашку и вернуть игровой режим ввода (если игрок не успел открыть модалку).
 	void CloseAndRestoreInput();
 
-	// Фиксирует ширину плашки; высота растёт за текстом (авто-перенос).
-	UPROPERTY()
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_EndOfStory (BindWidgetOptional биндит по имени).
+	void BuildCodeTree();
+
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
+
+	// Фиксирует ширину плашки (только кодовое дерево; в WBP её нет — размер у канвас-слотов).
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<USizeBox> WidthBox;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> Plate;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MessageText;
 
 	// Строка «Канал скоро появится» — скрыта, показывается по [Написать мне] при пустой ссылке.
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StatusText;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> WriteButton;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> PlayButton;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> WriteButtonText;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> PlayButtonText;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 
 	// Текст-статус и ссылка (латчатся в InitContent).
 	FText ChannelPendingText;

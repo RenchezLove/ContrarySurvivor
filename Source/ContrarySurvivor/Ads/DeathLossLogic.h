@@ -19,10 +19,15 @@ namespace DeathLoss
 {
 	struct FPlan
 	{
-		// Сколько расходников теряется (снимаются из рюкзака).
+		// Build 1.2.1 (блок Г, стаки): счёт идёт ШТУКАМИ, не акторами — «70% расходников»
+		// означает 70% суммы штук во всех стаках; стак теряет штуки уменьшением счётчика,
+		// а не исчезает целиком. Раскладку штук по конкретным стакам даёт
+		// SplitLossAcrossStacks (та же функция у превью экрана смерти и применения).
+
+		// Сколько ШТУК расходников теряется (списываются со стаков рюкзака).
 		int32 LostItems = 0;
 
-		// Из потерянных — сколько падает мешком на месте гибели (первые по списку);
+		// Из потерянных штук — сколько падает мешком на месте гибели (первые по списку);
 		// остальные (LostItems - DroppedItems) уничтожаются.
 		int32 DroppedItems = 0;
 
@@ -33,9 +38,25 @@ namespace DeathLoss
 		float DroppedMoney = 0.0f;
 	};
 
-	// ItemCount — расходников в рюкзаке (неэкипированных); Money — денег на момент смерти;
-	// ItemLossFrac/MoneyLossFrac — доли потери [0..1]; DropFrac — доля потерянного,
-	// падающая мешком [0..1]. Все доли клампятся, отрицательные входы дают нулевой план.
+	// ItemCount — сумма ШТУК неэкипированных расходников рюкзака (по стакам); Money —
+	// денег на момент смерти; ItemLossFrac/MoneyLossFrac — доли потери [0..1]; DropFrac —
+	// доля потерянного, падающая мешком [0..1]. Доли клампятся, отрицательные входы дают
+	// нулевой план.
 	CONTRARYSURVIVOR_API FPlan Compute(int32 ItemCount, float Money,
 		float ItemLossFrac, float MoneyLossFrac, float DropFrac);
+
+	// Потеря одного стака в раскладке SplitLossAcrossStacks: сколько штук из него падает
+	// мешком и сколько уничтожается (остальное остаётся в стаке).
+	struct FStackLoss
+	{
+		int32 DroppedPieces = 0;
+		int32 DestroyedPieces = 0;
+	};
+
+	// Build 1.2.1: раскладка потери ШТУК по стакам в порядке инвентаря. StackSizes —
+	// размеры стаков кандидатов; теряются первые LostPieces штук, из них первые
+	// DroppedPieces падают мешком. DroppedPieces клампится в [0..LostPieces]; мусорные
+	// размеры (<0) читаются как 0. Результат — на каждый вход по элементу.
+	CONTRARYSURVIVOR_API TArray<FStackLoss> SplitLossAcrossStacks(
+		const TArray<int32>& StackSizes, int32 LostPieces, int32 DroppedPieces);
 }

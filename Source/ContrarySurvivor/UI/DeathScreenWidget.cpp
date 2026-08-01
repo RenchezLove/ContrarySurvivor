@@ -208,7 +208,8 @@ void UDeathScreenWidget::RefreshLossPreview()
 	IAdService* Ads = AdService::Get(this);
 
 	FString DenyReason;
-	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds()))
+	// Порог теперь EditAnywhere на игроке (Build 1.2.1 В1: 360 с вместо константы 15 мин).
+	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds(), Player->GetAdMinPlaytimeSeconds()))
 	{
 		DenyReason = TEXT("under_15min");
 	}

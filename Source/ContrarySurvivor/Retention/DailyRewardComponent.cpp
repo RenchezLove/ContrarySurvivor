@@ -183,7 +183,8 @@ void UDailyRewardComponent::EvaluateDailyReward()
 	{
 		DenyReason = TEXT("first_day");
 	}
-	else if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds()))
+	// Порог теперь EditAnywhere на игроке (Build 1.2.1 В1: 360 с вместо константы 15 мин).
+	else if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds(), Player->GetAdMinPlaytimeSeconds()))
 	{
 		DenyReason = TEXT("under_15min");
 	}

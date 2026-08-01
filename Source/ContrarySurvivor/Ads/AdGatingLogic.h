@@ -15,8 +15,12 @@
  */
 namespace AdGating
 {
-	// 15 минут (ТЗ раздел 0 п.2). Единая константа всех трёх точек.
-	inline constexpr double MinPlaytimeSeconds = 15.0 * 60.0;
+	// Build 1.2.1 (ТЗ В1, Ринат утвердил ровно 360 с): порог больше НЕ жёсткая константа
+	// трёх точек — живое значение настраивается EditAnywhere на игроке
+	// (APlayerCharacter::AdMinPlaytimeSeconds), все три точки показа передают его сюда
+	// вторым аргументом. Эта константа осталась дефолтом поля и дефолт-аргументом чистой
+	// функции (headless-тесты гоняют её без UObject). Было: 15 минут (ТЗ раздел 0 п.2).
+	inline constexpr double MinPlaytimeSeconds = 360.0;
 
 	// Пройден ли глобальный порог игрового времени.
 	CONTRARYSURVIVOR_API bool IsPlaytimeGatePassed(double TotalPlaySeconds,
