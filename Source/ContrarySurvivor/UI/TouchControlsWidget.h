@@ -106,13 +106,18 @@ public:
 	// в руках»). Мягкие ссылки — паттерн иконок брони HUD: текстуры может не быть,
 	// тогда иконка не показывается, без крашей. Правится в Class Defaults WBP. ---
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "1"))
+	// Build 1.2.2 (приёмка Рината: «поменяй иконки оружия в главном интерфейсе на наши
+	// новые»): рендеры моделей из /Game/UI/Icons/Items — те же картинки, что у пистолета и
+	// ножа в инвентаре (APistol.cpp / AMeleeWeapon.cpp), вместо старых рисованных значков.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "1",
+		DisplayName = "Иконка пистолета"))
 	TSoftObjectPtr<UTexture2D> PistolIconTexture =
-		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Pistol.T_Icon_Pistol")));
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Pistol.T_Item_Pistol")));
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Weapon Icon", meta = (DisplayPriority = "2",
+		DisplayName = "Иконка ножа"))
 	TSoftObjectPtr<UTexture2D> KnifeIconTexture =
-		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Knife.T_Icon_Knife")));
+		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Knife.T_Item_Knife")));
 
 	// --- Число кадров рядом с кнопкой ПАУЗА (Build 1, Блок E). Настраивается прямо здесь, в том
 	// же виджете, где кнопка паузы (директива Рината). Значение берётся из GetCurrentFPS. ---

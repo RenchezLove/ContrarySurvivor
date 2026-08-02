@@ -109,14 +109,29 @@ void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 		}
 	}
 	const int32 ProtectionPct = FMath::RoundToInt(Player->GetEffectiveArmorFraction() * 100.0f);
-	const AMasterWeapon* Weapon = Player->GetCurrentWeapon();
-	const FString WeaponName = Weapon ? Weapon->GetName() : FString();
 
 	if (BackpackCount != LastBackpackCount || ProtectionPct != LastProtectionPct
-		|| WeaponName != LastWeaponName)
+		|| MakeWeaponSignature() != LastWeaponName)
 	{
 		RefreshAll();
 	}
+}
+
+FString UInventoryScreenWidget::MakeWeaponSignature() const
+{
+	// Состав ОБОИХ слотов плюс пометка, какой сейчас в руках: смена оружия по кнопке
+	// меняет только пометку — она обязана попасть в сигнатуру, иначе слоты не обновятся.
+	if (!Player)
+	{
+		return FString();
+	}
+	const AMasterWeapon* Ranged = Player->GetRangedWeaponInstance();
+	const AMasterWeapon* Melee = Player->GetMeleeWeaponInstance();
+	const AMasterWeapon* InHands = Player->GetCurrentWeapon();
+	return FString::Printf(TEXT("%s|%s|%s"),
+		Ranged ? *Ranged->GetName() : TEXT("-"),
+		Melee ? *Melee->GetName() : TEXT("-"),
+		InHands ? *InHands->GetName() : TEXT("-"));
 }
 
 void UInventoryScreenWidget::RefreshAll()
@@ -139,36 +154,14 @@ void UInventoryScreenWidget::RefreshAll()
 		Args.Add(TEXT("Percent"), FText::AsNumber(ProtectionPct));
 		ProtectionText->SetText(FText::Format(ProtectionFormat, Args));
 	}
-	const AMasterWeapon* Weapon = Player->GetCurrentWeapon();
-	if (WeaponText)
-	{
-		// Здесь была ГЛАВНАЯ протечка служебных имён: стоял Weapon->GetName() и игрок читал
-		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Название берётся как у любого предмета,
-		// с пустыми руками — то же слово, что у пустого слота брони.
-		FFormatNamedArguments Args;
-		Args.Add(TEXT("ItemName"), Weapon ? Weapon->GetItemDisplayText() : EmptySlotText);
-		WeaponText->SetText(FText::Format(WeaponFormat, Args));
-	}
-	if (WeaponSlotIcon)
-	{
-		// Build 1.2.2 (Ринат: «в слоте иконка экипированной вещи»): та же схема, что у
-		// слотов брони — иконка только при оружии в руках, пустые руки = прежний вид.
-		UTexture2D* WeaponIcon = nullptr;
-		if (Weapon)
-		{
-			const TSoftObjectPtr<UTexture2D> SoftIcon = Weapon->GetItemIcon();
-			WeaponIcon = SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous();
-		}
-		if (WeaponIcon)
-		{
-			WeaponSlotIcon->SetBrushFromTexture(WeaponIcon, /*bMatchSize=*/false);
-			WeaponSlotIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-		}
-		else
-		{
-			WeaponSlotIcon->SetVisibility(ESlateVisibility::Collapsed);
-		}
-	}
+	// --- Два слота оружия (Build 1.2.2, Ринат: «один слот под холодное оружие и один под
+	// огнестрельное»). Экземпляры живут оба сразу, в руках — один: он и помечается.
+	// Это ТОЛЬКО отображение, переключение оружия по-прежнему делает SwitchWeapon.
+	const AMasterWeapon* InHands = Player->GetCurrentWeapon();
+	const AMasterWeapon* Ranged = Player->GetRangedWeaponInstance();
+	const AMasterWeapon* Melee = Player->GetMeleeWeaponInstance();
+	RefreshWeaponSlot(Ranged, Ranged && Ranged == InHands, RangedSlotText, RangedSlotIcon);
+	RefreshWeaponSlot(Melee, Melee && Melee == InHands, MeleeSlotText, MeleeSlotIcon);
 
 	// --- Рюкзак: СЕТКА ПЛИТОК (Build 1.2.2, Ринат: «иконки в сетке, как в сталкере или
 	// LDoE») внутри прежнего ScrollBox-кубика. Плитки — динамика (как раньше строки):
@@ -183,6 +176,12 @@ void UInventoryScreenWidget::RefreshAll()
 		{
 			UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>(
 				UUniformGridPanel::StaticClass());
+			// Зазоры между плитками (приёмка Рината: ряды слипались по вертикали). Отступ
+			// кладётся на КАЖДУЮ ячейку со всех сторон, поэтому берём половину — между
+			// соседними плитками складываются две половины и получается заданное число,
+			// а по краю сетки остаётся половина. Сетку строит код, в дизайнере этих
+			// отступов не поменять — они параметры окна (TileSpacingX/Y).
+			Grid->SetSlotPadding(FMargin(TileSpacingX * 0.5f, TileSpacingY * 0.5f));
 			BackpackList->AddChild(Grid);
 
 			APlayerController* PC = GetOwningPlayer();
@@ -237,7 +236,44 @@ void UInventoryScreenWidget::RefreshAll()
 	// Обновляем сигнатуру ПОСЛЕ пересборки (иначе тик пересоберёт повторно).
 	LastBackpackCount = BackpackCount;
 	LastProtectionPct = ProtectionPct;
-	LastWeaponName = Weapon ? Weapon->GetName() : FString();
+	LastWeaponName = MakeWeaponSignature();
+}
+
+void UInventoryScreenWidget::RefreshWeaponSlot(const AMasterWeapon* Weapon, bool bInHands,
+	UTextBlock* SlotText, UImage* SlotIcon)
+{
+	if (SlotText)
+	{
+		// Здесь была ГЛАВНАЯ протечка служебных имён: стоял Weapon->GetName() и игрок читал
+		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Название берётся как у любого предмета,
+		// пустой слот — то же слово, что у пустого слота брони.
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("ItemName"), Weapon ? Weapon->GetItemDisplayText() : EmptySlotText);
+		SlotText->SetText(FText::Format(bInHands ? WeaponInHandsFormat : WeaponFormat, Args));
+	}
+
+	if (SlotIcon)
+	{
+		// Та же схема, что у слотов брони: иконка только при оружии в слоте, пусто — кубик
+		// спрятан (под ним видна подложка из WBP). Размер иконки берётся из ассета
+		// (Brush.ImageSize) — bMatchSize=false его не трогает, поэтому правки Рината
+		// в дизайнере код не перебивает.
+		UTexture2D* Icon = nullptr;
+		if (Weapon)
+		{
+			const TSoftObjectPtr<UTexture2D> SoftIcon = Weapon->GetItemIcon();
+			Icon = SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous();
+		}
+		if (Icon)
+		{
+			SlotIcon->SetBrushFromTexture(Icon, /*bMatchSize=*/false);
+			SlotIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			SlotIcon->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
 }
 
 void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* SlotText, UImage* SlotIcon)

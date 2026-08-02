@@ -129,6 +129,9 @@ protected:
 
 	// Один слот paper-doll: текст (имя надетого / «(пусто)») + иконка надетого предмета
 	// (Collapsed, когда пусто — под ней видна статичная подложка Рината из WBP).
+	// РАЗМЕР иконки и кегль подписи слота код НЕ задаёт: они живут в самом WBP_Inventory
+	// (Brush.ImageSize у картинки, Font у текста) и принадлежат Ринату — с Build 1.2.2 эти
+	// кубики разомкнуты в дизайнере, он крутит их сам, а пересборка окна их сохраняет.
 	// Параметр НЕ «Slot»: имя шэдоуило бы член UWidget::Slot (C4458 при -WarningsAsErrors).
 	void RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* SlotText, UImage* SlotIcon);
 
@@ -139,6 +142,9 @@ protected:
 
 	// Снять броню слота (клик по занятому слоту; пустой — ничего).
 	void UnequipSlot(EArmorSlot ArmorSlot);
+
+	// Состав обоих слотов оружия + какое в руках, одной строкой — сигнатура для тика.
+	FString MakeWeaponSignature() const;
 
 	// --- Кубики WBP_Inventory (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 

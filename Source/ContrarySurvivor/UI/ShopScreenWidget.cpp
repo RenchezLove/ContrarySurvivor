@@ -137,6 +137,10 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 	// ScrollBox-кубика — сетка плиток; клик по плитке = прежняя кнопка Купить/Продать.
 	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>(
 		UUniformGridPanel::StaticClass());
+	// Зазоры между плитками: отступ кладётся на КАЖДУЮ ячейку со всех сторон, поэтому
+	// берём половину — между соседними плитками складываются две половины и получается
+	// заданное число, по краю сетки остаётся половина (та же схема, что в инвентаре).
+	Grid->SetSlotPadding(FMargin(TileSpacingX * 0.5f, TileSpacingY * 0.5f));
 	List->AddChild(Grid);
 
 	APlayerController* PC = GetOwningPlayer();

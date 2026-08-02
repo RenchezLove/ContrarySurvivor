@@ -613,6 +613,16 @@ namespace
 		return true;
 	}
 
+	// Размер иконки и кегль названия в слоте брони. Значения — только СТАРТОВЫЕ: с
+	// Build 1.2.2 оба кубика разомкнуты в дизайнере и дальше ими владеет Ринат
+	// (пересборка окна его значения сохраняет — TransferOwnerStyle переносит Brush и Font).
+	constexpr float ArmorSlotIconSize = 48.0f;
+	constexpr int32 ArmorSlotTextSize = 16;
+
+	// Стартовый размер иконки в слоте оружия (дальше им владеет Ринат — кубик лежит в
+	// своём канвас-слоте с ручками). Шаг между двумя слотами оружия считается от него.
+	constexpr float WeaponSlotIconSize = 40.0f;
+
 	// Слот брони paper-doll: кнопка (клик по занятому — снять) с подписью, иконкой и текстом
 	// надетого. Габарит задаёт канвас-слот вызывающего (ADR-051: ручки мышкой).
 	UButton* MakeArmorSlotButton(UWidgetTree* Tree, UObject* Roboto,
@@ -635,8 +645,15 @@ namespace
 		}
 
 		// Иконка надетого: код прячет её на пустом слоте — в ассете сразу Collapsed.
+		// Размер пишем В КИСТЬ (Brush.ImageSize): прежний SetDesiredSizeOverride трогает
+		// только живой Slate-виджет и в ассет не сохраняется (Image.cpp:122-128) — из-за
+		// этого иконка в слоте выходила натуральных 32 px и терялась рядом с подписью
+		// (приёмка Рината). Код игры ставит текстуру с bMatchSize=false и этот размер не
+		// перебивает, поэтому дальше им владеет Ринат (кубик разомкнут, см. ниже).
 		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), IconName);
-		Icon->SetDesiredSizeOverride(FVector2D(40.0f, 40.0f));
+		FSlateBrush IconBrush;
+		IconBrush.SetImageSize(FVector2D(ArmorSlotIconSize, ArmorSlotIconSize));
+		Icon->SetBrush(IconBrush);
 		Icon->SetVisibility(ESlateVisibility::Collapsed);
 		Icon->bIsVariable = true;
 		if (UHorizontalBoxSlot* IconSlot = SlotBox->AddChildToHorizontalBox(Icon))
@@ -647,7 +664,7 @@ namespace
 
 		// Что надето — ставит код («(пусто)» / имя брони).
 		UTextBlock* Worn = MakeText(Tree, Roboto, TextName, TEXT("(пусто)"),
-			FLinearColor::White, 15, TEXT("Regular"));
+			FLinearColor::White, ArmorSlotTextSize, TEXT("Regular"));
 		Worn->bIsVariable = true;
 		if (UHorizontalBoxSlot* WornSlot = SlotBox->AddChildToHorizontalBox(Worn))
 		{
@@ -659,6 +676,19 @@ namespace
 		// Контент — в самом конце: SetButtonContent замыкает поддерево целиком,
 		// включая только что добавленных детей (клик выделяет саму кнопку).
 		SetButtonContent(SlotButton, SlotBox);
+
+		// ...и сразу СНИМАЕМ замок с трёх кубиков начинки (ADR-056, решение Рината на
+		// приёмке: «не могу увеличить место под картинки в слотах брони, а также текст —
+		// они залочены»). Замкнутому виджету дизайнер блокирует панель «Детали»
+		// (SWidgetDetailsView.cpp:375-393) и не пускает его в сетку выделения
+		// (SDesignerView.cpp:2060-2070) — именно это и мешало. Замок проверяется по
+		// собственному флагу каждого виджета, обход детей от него не зависит
+		// (SDesignerView.cpp:2078-2088), поэтому коробка остаётся замкнутой, а её дети
+		// выделяются. Цена: клик по иконке/тексту выделит их, а не кнопку целиком —
+		// саму кнопку теперь берут за свободный край слота или из панели «Иерархия».
+		Caption->SetLockedInDesigner(false);
+		Icon->SetLockedInDesigner(false);
+		Worn->SetLockedInDesigner(false);
 		return SlotButton;
 	}
 
@@ -768,27 +798,40 @@ namespace
 		Protection->bIsVariable = true;
 		CanvasAuto(PanelCanvas, Protection, FVector2D(64.0f, 297.0f));
 
+		// Подпись блока оружия — статичный текст Рината, код его не трогает.
 		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("WeaponLabel"), TEXT("Оружие"),
 			FLinearColor::White, 15, TEXT("Regular")), FVector2D(0.0f, 319.0f));
 
-		// Иконка оружия в руках (Build 1.2.2, Ринат: «в слоте иконка экипированной вещи») —
-		// порядок как в слотах брони: подпись, иконка, название. Текстуру ставит код экрана,
-		// с пустыми руками кубик спрятан — в ассете сразу Collapsed.
-		UImage* WeaponIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WeaponSlotIcon"));
-		WeaponIcon->SetVisibility(ESlateVisibility::Collapsed);
-		WeaponIcon->bIsVariable = true;
-		if (UCanvasPanelSlot* WeaponIconSlot = PanelCanvas->AddChildToCanvas(WeaponIcon))
+		// ДВА слота оружия (Build 1.2.2, Ринат на приёмке: «должен быть один слот под
+		// холодное оружие и один слот под огнестрельное»). Экземпляры у игрока живут оба
+		// сразу, в руках один — тот помечается словами формата (WeaponInHandsFormat).
+		// Каждый слот = иконка + название, оба кубика в своих канвас-слотах (ручки мышкой).
+		// Текстуру и видимость иконки ставит код экрана, пустой слот — иконка спрятана,
+		// в ассете сразу Collapsed. Размер иконки живёт в кисти и принадлежит Ринату.
+		auto AddWeaponSlot = [&](const TCHAR* IconName, const TCHAR* TextName, float Y)
 		{
-			WeaponIconSlot->SetAnchors(FAnchors());
-			WeaponIconSlot->SetAlignment(FVector2D::ZeroVector);
-			WeaponIconSlot->SetPosition(FVector2D(64.0f, 316.0f));
-			WeaponIconSlot->SetSize(FVector2D(24.0f, 24.0f));
-		}
+			UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), FName(IconName));
+			FSlateBrush IconBrush;
+			IconBrush.SetImageSize(FVector2D(WeaponSlotIconSize, WeaponSlotIconSize));
+			Icon->SetBrush(IconBrush);
+			Icon->SetVisibility(ESlateVisibility::Collapsed);
+			Icon->bIsVariable = true;
+			if (UCanvasPanelSlot* IconSlot = PanelCanvas->AddChildToCanvas(Icon))
+			{
+				IconSlot->SetAnchors(FAnchors());
+				IconSlot->SetAlignment(FVector2D::ZeroVector);
+				IconSlot->SetPosition(FVector2D(64.0f, Y - 3.0f));
+				IconSlot->SetSize(FVector2D(WeaponSlotIconSize, WeaponSlotIconSize));
+			}
 
-		UTextBlock* Weapon = MakeText(Tree, Roboto, TEXT("WeaponText"), TEXT("Пусто"),
-			FLinearColor::White, 15, TEXT("Regular"));
-		Weapon->bIsVariable = true;
-		CanvasAuto(PanelCanvas, Weapon, FVector2D(96.0f, 319.0f));
+			UTextBlock* Name = MakeText(Tree, Roboto, FName(TextName), TEXT("Пусто"),
+				FLinearColor::White, 15, TEXT("Regular"));
+			Name->bIsVariable = true;
+			CanvasAuto(PanelCanvas, Name, FVector2D(64.0f + WeaponSlotIconSize + 8.0f, Y));
+		};
+		AddWeaponSlot(TEXT("RangedSlotIcon"), TEXT("RangedSlotText"), 319.0f);   // огнестрельное
+		AddWeaponSlot(TEXT("MeleeSlotIcon"), TEXT("MeleeSlotText"),
+			319.0f + WeaponSlotIconSize + 8.0f);                                 // холодное
 
 		// Правая колонка: рюкзак. Заголовок — у прежней доли 0.42; список — якоря-РАСТЯЖКА
 		// до краёв панели (низ — над кнопкой закрытия): при ресайзе панели тянется следом.
@@ -1853,7 +1896,9 @@ namespace
 			  TEXT("HeadSlotButton"), TEXT("HeadSlotText"), TEXT("HeadSlotIcon"),
 			  TEXT("TorsoSlotButton"), TEXT("TorsoSlotText"), TEXT("TorsoSlotIcon"),
 			  TEXT("LegsSlotButton"), TEXT("LegsSlotText"), TEXT("LegsSlotIcon"),
-			  TEXT("ProtectionText"), TEXT("WeaponText"), TEXT("WeaponSlotIcon"),
+			  TEXT("ProtectionText"),
+			  TEXT("RangedSlotText"), TEXT("RangedSlotIcon"),
+			  TEXT("MeleeSlotText"), TEXT("MeleeSlotIcon"),
 			  TEXT("BackpackList"), TEXT("CloseButton") } },
 		{ TEXT("/Game/UI/WBP_Death"), TEXT("WBP_Death"),
 			TEXT("/Script/ContrarySurvivor.DeathScreenWidget"), &BuildDeath,
@@ -1924,14 +1969,21 @@ namespace
 	const FLockContract GLockContracts[] =
 	{
 		// Build 1.2.1: шесть кубиков строки статов — в своих канвас-слотах, свободны.
+		// Build 1.2.2 (ADR-056, решение Рината): начинка слотов брони — подпись, иконка и
+		// название надетого — тоже СВОБОДНА (он крутит их размеры сам). Замкнутыми в слотах
+		// остались только коробки-контейнеры: они не мешают, а клик по свободному краю
+		// слота по-прежнему выделяет кнопку.
 		{ TEXT("WBP_Inventory"),
-			{ TEXT("HeadSlotButtonBox"), TEXT("HeadSlotButtonCaption"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"),
-			  TEXT("TorsoSlotButtonBox"), TEXT("TorsoSlotButtonCaption"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"),
-			  TEXT("LegsSlotButtonBox"), TEXT("LegsSlotButtonCaption"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"),
+			{ TEXT("HeadSlotButtonBox"), TEXT("TorsoSlotButtonBox"), TEXT("LegsSlotButtonBox"),
 			  TEXT("CloseLabel") },
 			{ TEXT("HeadSlotButton"), TEXT("TorsoSlotButton"), TEXT("LegsSlotButton"), TEXT("CloseButton"),
+			  TEXT("HeadSlotButtonCaption"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"),
+			  TEXT("TorsoSlotButtonCaption"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"),
+			  TEXT("LegsSlotButtonCaption"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"),
 			  TEXT("InvMoneyIcon"), TEXT("InvMoneyText"), TEXT("InvHungerIcon"), TEXT("InvHungerText"),
-			  TEXT("InvThirstIcon"), TEXT("InvThirstText") } },
+			  TEXT("InvThirstIcon"), TEXT("InvThirstText"),
+			  TEXT("RangedSlotIcon"), TEXT("RangedSlotText"),
+			  TEXT("MeleeSlotIcon"), TEXT("MeleeSlotText") } },
 		// Build 1.2.1: начинка золотой кнопки замкнута (кнопка двигается целиком);
 		// текст пересчёта патронов — свободный канвас-слот.
 		{ TEXT("WBP_Shop"),
@@ -2892,6 +2944,143 @@ namespace
 		}
 	}
 
+	// Build 1.2.2: переезд «один слот оружия -> два» (Ринат: «должен быть один слот под
+	// холодное оружие и один слот под огнестрельное»). Слот огнестрела встаёт РОВНО на
+	// место прежнего единственного слота — вид и кисть владельца переносятся на него
+	// поимённо (WeaponSlotIcon -> RangedSlotIcon, WeaponText -> RangedSlotText); слот
+	// холодного оружия — копия огнестрельного, сдвинутая НИЖЕ, а если ниже уже нет места
+	// (владелец держит слот у самого низа панели) — ВПРАВО. Шаг по имени в белом списке
+	// не пройдёт (там сверяются одинаковые имена), поэтому перенос делается здесь вручную.
+	// Старого слота в дереве нет — новые остаются на штатных позициях свежей генерации
+	// (громкая строка в лог, сверить глазами).
+	void ConvertInventoryWeaponSlotToTwoSlots(UWidgetTree* Tree, const TCHAR* AssetName,
+		const TMap<FName, UWidget*>& OldWidgets)
+	{
+		struct FMoveSpec
+		{
+			const TCHAR* OldName;
+			const TCHAR* RangedName;
+			const TCHAR* MeleeName;
+		};
+		const FMoveSpec Moves[] =
+		{
+			{ TEXT("WeaponSlotIcon"), TEXT("RangedSlotIcon"), TEXT("MeleeSlotIcon") },
+			{ TEXT("WeaponText"),     TEXT("RangedSlotText"), TEXT("MeleeSlotText") },
+		};
+
+		// Габарит строки = самый крупный перенесённый кубик (обычно иконка; у текста
+		// авторазмер, в ассете его размер не хранится). Ничего не нашлось — шаг по штатной
+		// генерации. Заодно запоминаем самый НИЖНИЙ кубик блока оружия.
+		float RowHeight = WeaponSlotIconSize;
+		float RowWidth = WeaponSlotIconSize;
+		float LowestTop = 0.0f;
+		for (const FMoveSpec& Move : Moves)
+		{
+			UWidget* const* Old = OldWidgets.Find(FName(Move.OldName));
+			if (const UCanvasPanelSlot* OldSlot = Old ? Cast<UCanvasPanelSlot>((*Old)->Slot) : nullptr)
+			{
+				LowestTop = FMath::Max(LowestTop, OldSlot->GetLayout().Offsets.Top);
+				if (!OldSlot->GetAutoSize())
+				{
+					RowHeight = FMath::Max(RowHeight, static_cast<float>(OldSlot->GetSize().Y));
+					RowWidth = FMath::Max(RowWidth, static_cast<float>(OldSlot->GetSize().X));
+				}
+			}
+		}
+
+		// Куда ставить второй слот. Вниз — если строка целиком влезает в панель владельца
+		// (её высота за вычетом отступа рамки UIPanelPadding=16 с двух сторон). У Рината
+		// после приёмки блок оружия стоит у самого низа — там вниз места нет, и слот уехал
+		// бы за край окна; в этом случае ставим вправо, свободная ширина панели это позволяет.
+		float PanelInnerHeight = 0.0f;
+		if (UWidget* const* OldPanel = OldWidgets.Find(FName(TEXT("PanelPlate"))))
+		{
+			if (const UCanvasPanelSlot* PanelSlot = Cast<UCanvasPanelSlot>((*OldPanel)->Slot))
+			{
+				PanelInnerHeight = static_cast<float>(PanelSlot->GetSize().Y) - 2.0f * 16.0f;
+			}
+		}
+		const float StepY = RowHeight + 8.0f;
+		const float StepX = RowWidth + 8.0f;
+		const bool bPlaceBelow = PanelInnerHeight <= 0.0f || (LowestTop + StepY <= PanelInnerHeight);
+		const FVector2D Step = bPlaceBelow ? FVector2D(0.0f, StepY) : FVector2D(StepX, 0.0f);
+
+		bool bMovedAny = false;
+		for (const FMoveSpec& Move : Moves)
+		{
+			UWidget* const* Old = OldWidgets.Find(FName(Move.OldName));
+			const UCanvasPanelSlot* OldSlot = Old ? Cast<UCanvasPanelSlot>((*Old)->Slot) : nullptr;
+			if (!OldSlot)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("REBUILD %s: старого кубика '%s' в дереве нет (или он не в канвас-слоте) — слоты '%s'/'%s' остались на штатных позициях, сверить вид глазами."),
+					AssetName, Move.OldName, Move.RangedName, Move.MeleeName);
+				continue;
+			}
+
+			// Вид владельца (кисть с её размером / шрифт) — с одного старого кубика на оба новых.
+			TArray<FName> PropNames;
+			UWidget* NewRanged = Tree->FindWidget(FName(Move.RangedName));
+			UWidget* NewMelee = Tree->FindWidget(FName(Move.MeleeName));
+			if (NewRanged && NewRanged->GetClass() == (*Old)->GetClass())
+			{
+				CollectOwnerStyleProps(NewRanged, PropNames);
+				for (const FName& PropName : PropNames)
+				{
+					FProperty* Prop = FindFProperty<FProperty>(NewRanged->GetClass(), PropName);
+					if (!Prop)
+					{
+						continue;
+					}
+					const void* OldValue = Prop->ContainerPtrToValuePtr<const void>(*Old);
+					// Текст названия каждый кадр переписывает код игры — переносить его
+					// со старого кубика незачем (иначе в слоте холодного оружия в
+					// дизайнере висело бы имя пистолета), всё остальное это вид владельца.
+					if (PropName == FName(TEXT("Text")))
+					{
+						continue;
+					}
+					Prop->CopyCompleteValue(Prop->ContainerPtrToValuePtr<void>(NewRanged), OldValue);
+					if (NewMelee && NewMelee->GetClass() == (*Old)->GetClass())
+					{
+						Prop->CopyCompleteValue(Prop->ContainerPtrToValuePtr<void>(NewMelee), OldValue);
+					}
+				}
+			}
+
+			// Расстановка: огнестрел — точно на место старого слота, холодное — строкой ниже.
+			const FAnchorData OldLayout = OldSlot->GetLayout();
+			if (UCanvasPanelSlot* RangedSlot = NewRanged ? Cast<UCanvasPanelSlot>(NewRanged->Slot) : nullptr)
+			{
+				RangedSlot->SetLayout(OldLayout);
+				RangedSlot->SetAutoSize(OldSlot->GetAutoSize());
+				RangedSlot->SetZOrder(OldSlot->GetZOrder());
+			}
+			if (UCanvasPanelSlot* MeleeSlot = NewMelee ? Cast<UCanvasPanelSlot>(NewMelee->Slot) : nullptr)
+			{
+				FAnchorData MeleeLayout = OldLayout;
+				MeleeLayout.Offsets.Left += Step.X;
+				MeleeLayout.Offsets.Top += Step.Y;
+				MeleeSlot->SetLayout(MeleeLayout);
+				MeleeSlot->SetAutoSize(OldSlot->GetAutoSize());
+				MeleeSlot->SetZOrder(OldSlot->GetZOrder());
+			}
+			bMovedAny = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("REBUILD %s: '%s' (%.0f,%.0f) -> '%s' на том же месте, '%s' со сдвигом (%.0f,%.0f)."),
+				AssetName, Move.OldName, OldLayout.Offsets.Left, OldLayout.Offsets.Top,
+				Move.RangedName, Move.MeleeName, Step.X, Step.Y);
+		}
+
+		if (bMovedAny)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("REBUILD %s: второй слот оружия (холодное) поставлен %s первого (сдвиг %.0f,%.0f; низ блока был на %.0f, внутренняя высота панели %.0f) — если он лёг на другой кубик, подвинуть мышкой в дизайнере."),
+				AssetName, bPlaceBelow ? TEXT("ПОД") : TEXT("СПРАВА от"),
+				Step.X, Step.Y, LowestTop, PanelInnerHeight);
+		}
+	}
+
 	void TransferOwnerStyle(UWidgetTree* Tree, const TCHAR* AssetName,
 		const TMap<FName, UWidget*>& OldWidgets)
 	{
@@ -2954,6 +3143,21 @@ namespace
 			}
 			MatchedNames.Add(NewWidget->GetFName());
 			UWidget* OldWidget = *OldPtr;
+
+			// Кубик, ЗАМКНУТЫЙ в старом ассете, владелец править не мог: дизайнер не пускает
+			// его ни в сетку выделения (SDesignerView.cpp:2060-2070), ни в панель «Детали»
+			// (SWidgetDetailsView.cpp:375-393). Значит его вид в старом ассете — прежний
+			// дефолт генератора, а не работа владельца. Поэтому при размыкании (волна
+			// ADR-056: начинка слотов брони) берём вид и место из НОВОЙ генерации, иначе
+			// перенос вернул бы ровно ту мелкую иконку, из-за которой замок и снимали.
+			if (OldWidget->IsLockedInDesigner() && !NewWidget->IsLockedInDesigner())
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("REBUILD %s: '%s' в старом ассете был замкнут и теперь размыкается — вид взят из новой генерации (править его владелец не мог)."),
+					AssetName, *NewWidget->GetName());
+				continue;
+			}
+
 			if (OldWidget->GetClass() != NewWidget->GetClass())
 			{
 				UE_LOG(LogGenerateWbp, Warning,
@@ -3049,6 +3253,9 @@ namespace
 			FName(TEXT("LifetimeTextRow")), FName(TEXT("KillerTextRow")), FName(TEXT("MoneyTextRow")),
 			FName(TEXT("QuestsTextRow")), FName(TEXT("KillsTextRow")),
 			FName(TEXT("StatsRow")), FName(TEXT("RowBox")), FName(TEXT("SliderQtyAmmoRow")),
+			// Build 1.2.2: единственный слот оружия разошёлся на два — вид и место старых
+			// кубиков переносит ConvertInventoryWeaponSlotToTwoSlots.
+			FName(TEXT("WeaponText")), FName(TEXT("WeaponSlotIcon")),
 		};
 		for (const TPair<FName, UWidget*>& Old : OldWidgets)
 		{
@@ -3069,10 +3276,12 @@ namespace
 		{
 			ConvertPlayerStatsRowsToBarSlots(Tree, AssetName, OldWidgets);
 		}
-		// Тот же переезд для строки статов инвентаря (волна разлочки Build 1.2.1).
+		// Тот же переезд для строки статов инвентаря (волна разлочки Build 1.2.1) и для
+		// слота оружия, разошедшегося на два (Build 1.2.2).
 		if (FCString::Strcmp(AssetName, TEXT("WBP_Inventory")) == 0)
 		{
 			ConvertInventoryStatsRowToPairSlots(Tree, AssetName, OldWidgets);
+			ConvertInventoryWeaponSlotToTwoSlots(Tree, AssetName, OldWidgets);
 		}
 
 		UE_LOG(LogGenerateWbp, Display,
