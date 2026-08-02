@@ -10,6 +10,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AMasterInventoryItem.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Button.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/PanelWidget.h"

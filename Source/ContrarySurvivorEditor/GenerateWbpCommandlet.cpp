@@ -473,71 +473,143 @@ namespace
 	// Экраны (геометрия и цвета — дефолты Canvas-пути ContrarySurvivorHUD.h)
 	// ======================================================================
 
-	// Одна строка рюкзака: плашка -> имя + «использовать» + выброс. КАНВАС ВНУТРИ ПЛАШКИ
-	// (Build 1.2.1, задача Рината «двигать мышкой всё»): прежний ряд-коробка RowBox заменён
-	// канвасом RowCanvas — имя слева растяжкой по якорям, кнопки у правого края в своих
-	// канвас-слотах с ручками. Корень остаётся SizeBox: высота строки прежняя (48), ширину
-	// даёт слот ScrollBox. Механизм наполнения списка не тронут: строки по-прежнему плодит
-	// код классом WBP_InventoryRow_C.
-	bool BuildInventoryRow(UWidgetTree* Tree)
+	// ПЛИТКА ПРЕДМЕТА WBP_ItemTile (Build 1.2.2, решение Рината: «иконки в сетке, как в
+	// сталкере или LDoE») — ОДНА на инвентарь/магазин/обыск, вместо прежних строковых
+	// WBP_InventoryRow/WBP_ShopRow. Структура и имена кубиков повторяют кодовое
+	// дерево-фолбэк UItemTileWidget::BuildFallbackTree (один контракт имён на оба пути):
+	// SizeBox -> Overlay -> [кнопка во всю плитку -> плашка-отступ -> столбик: зона иконки
+	// (квадрат + цифра количества в правом нижнем углу ИКОНКИ) / название ПОД иконкой /
+	// цена / статус] + мини-кнопка выброса поверх, в верхнем правом углу. Габариты плитки
+	// и иконки ставит код окна (SetTileSize из настроек экрана) — здесь дефолты инвентаря.
+	// Канвас-слотов нет намеренно: плитка — динамика списков (размер задаёт сетка), в
+	// дизайнере у неё правится стиль (цвета/шрифты/кисти), а не расстановка.
+	bool BuildItemTile(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
 
-		USizeBox* RowSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("RowSize"));
-		RowSize->SetMinDesiredHeight(48.0f); // комфортная пальцу высота строки (guide: 40-60)
-		Tree->RootWidget = RowSize;
+		USizeBox* TileSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileSizeBox"));
+		TileSize->SetWidthOverride(110.0f);
+		TileSize->SetHeightOverride(150.0f);
+		Tree->RootWidget = TileSize;
 
-		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RowPlate"));
-		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), 4.0f)); // InvSlotColor
-		Plate->SetPadding(FMargin(8.0f, 4.0f));
-		RowSize->SetContent(Plate);
+		UOverlay* TileOverlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileOverlay"));
+		TileSize->SetContent(TileOverlay);
 
-		UCanvasPanel* RowCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RowCanvas"));
-		Plate->SetContent(RowCanvas);
+		// Кнопка основного действия — вся плитка (использовать/надеть/купить/продать/
+		// забрать — решает окно-владелец). Цвета — InvSlotColor с подсветками, как слоты
+		// брони; недоступную покупку код гасит (Disabled-стиль полупрозрачный).
+		UButton* Tile = MakeStyledButton(Tree, TEXT("TileButton"),
+			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
+			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f));
+		if (UOverlaySlot* TileSlot = TileOverlay->AddChildToOverlay(Tile))
+		{
+			TileSlot->SetHorizontalAlignment(HAlign_Fill);
+			TileSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 
-		// Имя — растяжка от левого края до зоны кнопок (запас справа = кнопки + зазоры),
-		// вертикально центрировано на середине строки (якорь Y 0.5, авторазмер по высоте).
-		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("NameText"), TEXT("Предмет x1"),
-			FLinearColor::White, 15, TEXT("Regular"));
+		// Плашка держит только внутренний отступ (фон даёт стиль кнопки — не перекрываем
+		// её подсветки), имя то же, что в кодовом фолбэке.
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("TilePlate"));
+		Plate->SetBrushColor(FLinearColor::Transparent);
+		Plate->SetPadding(FMargin(6.0f));
+
+		UVerticalBox* Stack = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("TileStack"));
+		Plate->SetContent(Stack);
+
+		// Зона иконки: квадрат + цифра количества в правом нижнем углу иконки.
+		UOverlay* IconZone = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileIconZone"));
+		if (UVerticalBoxSlot* IconZoneSlot = Stack->AddChildToVerticalBox(IconZone))
+		{
+			IconZoneSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+
+		USizeBox* IconBox = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileIconBox"));
+		IconBox->SetWidthOverride(86.0f);
+		IconBox->SetHeightOverride(86.0f);
+		if (UOverlaySlot* IconBoxSlot = IconZone->AddChildToOverlay(IconBox))
+		{
+			IconBoxSlot->SetHorizontalAlignment(HAlign_Center);
+			IconBoxSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		// Иконка предмета — текстуру ставит код окна (SetTileData), в ассете пустая.
+		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("TileIcon"));
+		Icon->bIsVariable = true;
+		IconBox->SetContent(Icon);
+
+		// Цифра количества — видимость ведёт код (только у стака >1); лежит поверх иконки,
+		// без тени пропадала бы на светлом арте.
+		UTextBlock* Count = MakeText(Tree, Roboto, TEXT("TileCountText"), TEXT("x1"),
+			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 14, TEXT("Bold"));
+		ApplyTextShadow(Count);
+		Count->bIsVariable = true;
+		if (UOverlaySlot* CountSlot = IconZone->AddChildToOverlay(Count))
+		{
+			CountSlot->SetHorizontalAlignment(HAlign_Right);
+			CountSlot->SetVerticalAlignment(VAlign_Bottom);
+			CountSlot->SetPadding(FMargin(0.0f, 0.0f, 2.0f, 2.0f));
+		}
+
+		// Подпись-название ПОД иконкой — постоянная (решение Рината), с переносом строк.
+		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("TileNameText"), TEXT("Предмет"),
+			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 12, TEXT("Regular"));
+		Name->SetJustification(ETextJustify::Center);
+		Name->SetAutoWrapText(true);
 		Name->bIsVariable = true;
-		if (UCanvasPanelSlot* NameSlot = RowCanvas->AddChildToCanvas(Name))
+		if (UVerticalBoxSlot* NameSlot = Stack->AddChildToVerticalBox(Name))
 		{
-			NameSlot->SetAnchors(FAnchors(0.0f, 0.5f, 1.0f, 0.5f));
-			NameSlot->SetOffsets(FMargin(0.0f, 0.0f, 160.0f, 0.0f));
-			NameSlot->SetAlignment(FVector2D(0.0f, 0.5f));
-			NameSlot->SetAutoSize(true);
+			NameSlot->SetHorizontalAlignment(HAlign_Fill);
+			NameSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 		}
 
-		// Кнопки — якорь правый край, вертикальный центр; прежние зазоры ряда сохранены:
-		// [имя][6][Использовать][6+2][X][2-край]. Явный прямоугольник — ручки ресайза.
-		UButton* Use = MakeStyledButton(Tree, TEXT("UseButton"),
-			FLinearColor(0.2f, 0.35f, 0.5f, 1.0f), FLinearColor(0.25f, 0.45f, 0.62f, 1.0f),
-			FLinearColor(0.3f, 0.5f, 0.7f, 1.0f));
-		UTextBlock* UseCaption = MakeText(Tree, Roboto, TEXT("UseText"), TEXT("Использовать"),
-			FLinearColor::White, 13, TEXT("Regular"));
-		UseCaption->bIsVariable = true;
-		SetButtonContent(Use, UseCaption);
-		if (UCanvasPanelSlot* UseSlot = RowCanvas->AddChildToCanvas(Use))
+		// Цена под названием (UIMoneyColor) — вне магазина код держит её спрятанной.
+		UTextBlock* Price = MakeText(Tree, Roboto, TEXT("TilePriceText"), TEXT("0"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 12, TEXT("Bold"));
+		Price->SetJustification(ETextJustify::Center);
+		Price->SetVisibility(ESlateVisibility::Collapsed);
+		Price->bIsVariable = true;
+		if (UVerticalBoxSlot* PriceSlot = Stack->AddChildToVerticalBox(Price))
 		{
-			UseSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
-			UseSlot->SetAlignment(FVector2D(1.0f, 0.5f));
-			UseSlot->SetPosition(FVector2D(-46.0f, 0.0f));
-			UseSlot->SetSize(FVector2D(108.0f, 32.0f));
+			PriceSlot->SetHorizontalAlignment(HAlign_Fill);
 		}
 
+		// «Не хватает монет» (ADR-049: одним потухшим цветом кнопки не обойтись) —
+		// код показывает только когда нужно.
+		UTextBlock* Status = MakeText(Tree, Roboto, TEXT("TileStatusText"), TEXT("Не хватает монет"),
+			FLinearColor(0.85f, 0.35f, 0.3f, 1.0f), 10, TEXT("Regular"));
+		Status->SetJustification(ETextJustify::Center);
+		Status->SetAutoWrapText(true);
+		Status->SetVisibility(ESlateVisibility::Collapsed);
+		Status->bIsVariable = true;
+		if (UVerticalBoxSlot* StatusSlot = Stack->AddChildToVerticalBox(Status))
+		{
+			StatusSlot->SetHorizontalAlignment(HAlign_Fill);
+		}
+
+		// Контент кнопки — в самом конце: SetButtonContent замыкает поддерево целиком.
+		SetButtonContent(Tile, Plate);
+
+		// Мини-кнопка выброса ПОВЕРХ плитки (не внутри TileButton — клики не путаются);
+		// в ассете спрятана: показывает только рюкзак (SetDropVisible).
+		USizeBox* DropBox = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileDropBox"));
+		DropBox->SetWidthOverride(26.0f);
+		DropBox->SetHeightOverride(26.0f);
+		if (UOverlaySlot* DropBoxSlot = TileOverlay->AddChildToOverlay(DropBox))
+		{
+			DropBoxSlot->SetHorizontalAlignment(HAlign_Right);
+			DropBoxSlot->SetVerticalAlignment(VAlign_Top);
+			DropBoxSlot->SetPadding(FMargin(0.0f, 2.0f, 2.0f, 0.0f));
+		}
 		UButton* Drop = MakeStyledButton(Tree, TEXT("DropButton"),
 			FLinearColor(0.45f, 0.15f, 0.12f, 1.0f), FLinearColor(0.58f, 0.2f, 0.16f, 1.0f),
 			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f));
+		Drop->SetVisibility(ESlateVisibility::Collapsed);
 		// Подпись выброса — статичная (код её не трогает, текст Рината).
-		SetButtonContent(Drop, MakeText(Tree, Roboto, TEXT("DropLabel"), TEXT("X"),
-			FLinearColor::White, 13, TEXT("Bold")));
-		if (UCanvasPanelSlot* DropSlot = RowCanvas->AddChildToCanvas(Drop))
-		{
-			DropSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
-			DropSlot->SetAlignment(FVector2D(1.0f, 0.5f));
-			DropSlot->SetPosition(FVector2D(-2.0f, 0.0f));
-			DropSlot->SetSize(FVector2D(36.0f, 32.0f));
-		}
+		UTextBlock* DropCaption = MakeText(Tree, Roboto, TEXT("DropLabel"), TEXT("X"),
+			FLinearColor::White, 11, TEXT("Bold"));
+		DropCaption->SetJustification(ETextJustify::Center);
+		SetButtonContent(Drop, DropCaption);
+		DropBox->SetContent(Drop);
 		return true;
 	}
 
@@ -698,10 +770,25 @@ namespace
 
 		CanvasAuto(PanelCanvas, MakeText(Tree, Roboto, TEXT("WeaponLabel"), TEXT("Оружие"),
 			FLinearColor::White, 15, TEXT("Regular")), FVector2D(0.0f, 319.0f));
+
+		// Иконка оружия в руках (Build 1.2.2, Ринат: «в слоте иконка экипированной вещи») —
+		// порядок как в слотах брони: подпись, иконка, название. Текстуру ставит код экрана,
+		// с пустыми руками кубик спрятан — в ассете сразу Collapsed.
+		UImage* WeaponIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WeaponSlotIcon"));
+		WeaponIcon->SetVisibility(ESlateVisibility::Collapsed);
+		WeaponIcon->bIsVariable = true;
+		if (UCanvasPanelSlot* WeaponIconSlot = PanelCanvas->AddChildToCanvas(WeaponIcon))
+		{
+			WeaponIconSlot->SetAnchors(FAnchors());
+			WeaponIconSlot->SetAlignment(FVector2D::ZeroVector);
+			WeaponIconSlot->SetPosition(FVector2D(64.0f, 316.0f));
+			WeaponIconSlot->SetSize(FVector2D(24.0f, 24.0f));
+		}
+
 		UTextBlock* Weapon = MakeText(Tree, Roboto, TEXT("WeaponText"), TEXT("Пусто"),
 			FLinearColor::White, 15, TEXT("Regular"));
 		Weapon->bIsVariable = true;
-		CanvasAuto(PanelCanvas, Weapon, FVector2D(64.0f, 319.0f));
+		CanvasAuto(PanelCanvas, Weapon, FVector2D(96.0f, 319.0f));
 
 		// Правая колонка: рюкзак. Заголовок — у прежней доли 0.42; список — якоря-РАСТЯЖКА
 		// до краёв панели (низ — над кнопкой закрытия): при ресайзе панели тянется следом.
@@ -1000,87 +1087,10 @@ namespace
 	}
 
 	// ======================================================================
-	// Магазин: WBP_ShopRow + WBP_Shop (геометрия и цвета — Canvas DrawShop/DrawShopSlider)
+	// Магазин: WBP_Shop (геометрия и цвета — Canvas DrawShop/DrawShopSlider).
+	// Строковый WBP_ShopRow УДАЛЁН (Build 1.2.2): списки заполняет общая плитка
+	// WBP_ItemTile (BuildItemTile выше).
 	// ======================================================================
-
-	// Одна строка списков магазина: плашка -> имя + цена + кнопка действия (Buy/Sell).
-	// КАНВАС ВНУТРИ ПЛАШКИ (Build 1.2.1, задача Рината «двигать мышкой всё»): прежний
-	// ряд-коробка RowBox заменён канвасом RowCanvas — имя слева растяжкой по якорям,
-	// цена/«не хватает монет»/кнопка у правого края в своих канвас-слотах с ручками.
-	// Корень остаётся SizeBox: высота строки прежняя (48), ширину даёт слот ScrollBox.
-	// Механизм наполнения списков не тронут: строки плодит код классом WBP_ShopRow_C.
-	bool BuildShopRow(UWidgetTree* Tree)
-	{
-		UObject* Roboto = LoadRobotoFont();
-
-		USizeBox* RowSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("RowSize"));
-		RowSize->SetMinDesiredHeight(48.0f); // комфортная пальцу высота (guide 40-60; как WBP_InventoryRow)
-		Tree->RootWidget = RowSize;
-
-		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RowPlate"));
-		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), 4.0f)); // InvSlotColor
-		Plate->SetPadding(FMargin(8.0f, 4.0f));
-		RowSize->SetContent(Plate);
-
-		UCanvasPanel* RowCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RowCanvas"));
-		Plate->SetContent(RowCanvas);
-
-		// Имя — растяжка от левого края до зоны цены/кнопки, вертикальный центр строки.
-		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("NameText"), TEXT("Товар"),
-			FLinearColor::White, 15, TEXT("Regular"));
-		Name->bIsVariable = true;
-		if (UCanvasPanelSlot* NameSlot = RowCanvas->AddChildToCanvas(Name))
-		{
-			NameSlot->SetAnchors(FAnchors(0.0f, 0.5f, 1.0f, 0.5f));
-			NameSlot->SetOffsets(FMargin(0.0f, 0.0f, 170.0f, 0.0f));
-			NameSlot->SetAlignment(FVector2D(0.0f, 0.5f));
-			NameSlot->SetAutoSize(true);
-		}
-
-		// Цена — золотой акцент (UIMoneyColor); кубик необязательный, но кладём: без него
-		// код дописывает цену к имени. Правый край цены — слева от кнопки с прежними
-		// зазорами ([цена][8+6][кнопка][6-край]).
-		UTextBlock* Price = MakeText(Tree, Roboto, TEXT("PriceText"), TEXT("0"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 15, TEXT("Regular"));
-		Price->bIsVariable = true;
-		if (UCanvasPanelSlot* PriceSlot = CanvasAuto(RowCanvas, Price,
-			FVector2D(-104.0f, 0.0f), FAnchors(1.0f, 0.5f, 1.0f, 0.5f)))
-		{
-			PriceSlot->SetAlignment(FVector2D(1.0f, 0.5f));
-		}
-
-		// «Не хватает монет» — код показывает эту строку только в недоступных товарах,
-		// в остальных прячет (ADR-049: одним цветом кнопки часть игроков не считывает).
-		// В ассете сразу Collapsed — видимость переключает код. На канвасе стоит левее
-		// цены (запас под цену до 4 знаков): скрытая строка места не освобождает.
-		UTextBlock* NoMoney = MakeText(Tree, Roboto, TEXT("NoMoneyText"), TEXT("Не хватает монет"),
-			FLinearColor(0.85f, 0.35f, 0.3f, 1.0f), 13, TEXT("Regular"));
-		NoMoney->SetVisibility(ESlateVisibility::Collapsed);
-		NoMoney->bIsVariable = true;
-		if (UCanvasPanelSlot* NoMoneySlot = CanvasAuto(RowCanvas, NoMoney,
-			FVector2D(-160.0f, 0.0f), FAnchors(1.0f, 0.5f, 1.0f, 0.5f)))
-		{
-			NoMoneySlot->SetAlignment(FVector2D(1.0f, 0.5f));
-		}
-
-		// Кнопка действия — зелёная, как доступные строки Canvas-пути (InvSlotFilledColor);
-		// подпись ставит код («Купить»/«Продать»), недоступную кнопку код гасит сам.
-		UButton* Action = MakeStyledButton(Tree, TEXT("ActionButton"),
-			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
-			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f));
-		UTextBlock* ActionCaption = MakeText(Tree, Roboto, TEXT("ActionText"), TEXT("Купить"),
-			FLinearColor::White, 13, TEXT("Regular"));
-		ActionCaption->bIsVariable = true;
-		SetButtonContent(Action, ActionCaption);
-		if (UCanvasPanelSlot* ActionSlot = RowCanvas->AddChildToCanvas(Action))
-		{
-			ActionSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
-			ActionSlot->SetAlignment(FVector2D(1.0f, 0.5f));
-			ActionSlot->SetPosition(FVector2D(-6.0f, 0.0f));
-			ActionSlot->SetSize(FVector2D(84.0f, 32.0f));
-		}
-		return true;
-	}
 
 	// Экран магазина — КАНВАС-ПЕРВЫЙ (ADR-051 п.1; механика и арифметика — как BuildInventory:
 	// панель 960x600, отступ 16 -> область 928x568, доли колонок 0.52/0.48). Подпись «Монеты»
@@ -1718,7 +1728,8 @@ namespace
 	// Канвас-схема «похоже на экран торговли» (Ринат): затемнение, центральная панель с
 	// золотой рамкой, заголовок, крестик, список лута растяжкой, «Забрать всё» внизу.
 	// Тексты кубиков ставит код окна (TitleLabel/TakeAllCaption/CloseCaption — Class
-	// Defaults ассета); строки списка создаёт код классом RowWidgetClass (кодовое дерево).
+	// Defaults ассета); сетку плиток в списке создаёт код классом TileWidgetClass
+	// (Build 1.2.2 — общая плитка WBP_ItemTile).
 	bool BuildCorpseLoot(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1816,8 +1827,8 @@ namespace
 		std::initializer_list<const TCHAR*> ExpectedCubes; // контракт BindWidgetOptional
 	};
 
-	// Порядок важен: WBP_InventoryRow ДО WBP_Inventory и WBP_ShopRow ДО WBP_Shop
-	// (экрану назначается класс его строки). Пустые заготовки Рината
+	// Порядок важен: WBP_ItemTile ДО экранов с сетками (WBP_Inventory/WBP_Shop/
+	// WBP_CorpseLoot — им на CDO назначается класс плитки). Пустые заготовки Рината
 	// (WBP_ShopScreenWiget/ShopRow/Dialog/PlayerStats) он удалил сам 07-19 («ничего
 	// не создал по итогу», коммит 2754045) — эти панели теперь тоже генерируем.
 	const FWbpSpec GAssets[] =
@@ -1829,16 +1840,21 @@ namespace
 			  TEXT("InteractButton"), TEXT("InteractText"), TEXT("SprintButton"), TEXT("SprintText"),
 			  TEXT("WeaponButton"), TEXT("WeaponText"), TEXT("InventoryButton"), TEXT("InventoryText"),
 			  TEXT("PauseButton"), TEXT("PauseText"), TEXT("WeaponIconImage") } },
-		{ TEXT("/Game/UI/WBP_InventoryRow"), TEXT("WBP_InventoryRow"),
-			TEXT("/Script/ContrarySurvivor.InventoryRowWidget"), &BuildInventoryRow,
-			{ TEXT("NameText"), TEXT("UseButton"), TEXT("UseText"), TEXT("DropButton") } },
+		// Build 1.2.2: общая плитка предмета (инвентарь/магазин/обыск) вместо строковых
+		// WBP_InventoryRow/WBP_ShopRow — кубики по BindWidgetOptional-полям UItemTileWidget.
+		{ TEXT("/Game/UI/WBP_ItemTile"), TEXT("WBP_ItemTile"),
+			TEXT("/Script/ContrarySurvivor.ItemTileWidget"), &BuildItemTile,
+			{ TEXT("TileSizeBox"), TEXT("TileButton"), TEXT("TileIconBox"), TEXT("TileIcon"),
+			  TEXT("TileCountText"), TEXT("TileNameText"), TEXT("TilePriceText"),
+			  TEXT("TileStatusText"), TEXT("DropButton") } },
 		{ TEXT("/Game/UI/WBP_Inventory"), TEXT("WBP_Inventory"),
 			TEXT("/Script/ContrarySurvivor.InventoryScreenWidget"), &BuildInventory,
 			{ TEXT("InvMoneyText"), TEXT("InvHungerText"), TEXT("InvThirstText"),
 			  TEXT("HeadSlotButton"), TEXT("HeadSlotText"), TEXT("HeadSlotIcon"),
 			  TEXT("TorsoSlotButton"), TEXT("TorsoSlotText"), TEXT("TorsoSlotIcon"),
 			  TEXT("LegsSlotButton"), TEXT("LegsSlotText"), TEXT("LegsSlotIcon"),
-			  TEXT("ProtectionText"), TEXT("WeaponText"), TEXT("BackpackList"), TEXT("CloseButton") } },
+			  TEXT("ProtectionText"), TEXT("WeaponText"), TEXT("WeaponSlotIcon"),
+			  TEXT("BackpackList"), TEXT("CloseButton") } },
 		{ TEXT("/Game/UI/WBP_Death"), TEXT("WBP_Death"),
 			TEXT("/Script/ContrarySurvivor.DeathScreenWidget"), &BuildDeath,
 			{ TEXT("LifetimeText"), TEXT("KillerText"), TEXT("MoneyText"), TEXT("QuestsText"),
@@ -1851,10 +1867,6 @@ namespace
 		{ TEXT("/Game/UI/WBP_InteractPrompt"), TEXT("WBP_InteractPrompt"),
 			TEXT("/Script/ContrarySurvivor.InteractPromptWidget"), &BuildInteractPrompt,
 			{ TEXT("PromptText") } },
-		{ TEXT("/Game/UI/WBP_ShopRow"), TEXT("WBP_ShopRow"),
-			TEXT("/Script/ContrarySurvivor.ShopRowWidget"), &BuildShopRow,
-			{ TEXT("NameText"), TEXT("PriceText"), TEXT("ActionButton"), TEXT("ActionText"),
-			  TEXT("NoMoneyText") } },
 		// Build 1.2.1: обёртки SliderQtyAmmoRow в контракте больше нет (текст пересчёта
 		// лежит в своём канвас-слоте, код прячет его напрямую); золотая кнопка теперь
 		// строится в BuildShop — её кубики вошли в контракт.
@@ -1884,7 +1896,7 @@ namespace
 			  TEXT("WriteButton"), TEXT("WriteButtonText"),
 			  TEXT("PlayButton"), TEXT("PlayButtonText") } },
 		// Build 1.2.1 (ТЗ А1): окно обыска трупа — кубики по BindWidgetOptional-полям
-		// UCorpseLootWidget (строки списка создаёт код классом RowWidgetClass).
+		// UCorpseLootWidget (сетку плиток создаёт код классом TileWidgetClass, Build 1.2.2).
 		{ TEXT("/Game/UI/WBP_CorpseLoot"), TEXT("WBP_CorpseLoot"),
 			TEXT("/Script/ContrarySurvivor.CorpseLootWidget"), &BuildCorpseLoot,
 			{ TEXT("TitleText"), TEXT("LootList"),
@@ -1929,13 +1941,13 @@ namespace
 			{ TEXT("CloseButton"), TEXT("QtyMinusButton"), TEXT("QtyPlusButton"),
 			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton"),
 			  TEXT("SellAdButton"), TEXT("SliderQtyAmmoText") } },
-		// Build 1.2.1: строки списков — начинка кнопок замкнута, имя/цена/кнопки свободны.
-		{ TEXT("WBP_ShopRow"),
-			{ TEXT("ActionText") },
-			{ TEXT("NameText"), TEXT("PriceText"), TEXT("NoMoneyText"), TEXT("ActionButton") } },
-		{ TEXT("WBP_InventoryRow"),
-			{ TEXT("UseText"), TEXT("DropLabel") },
-			{ TEXT("NameText"), TEXT("UseButton"), TEXT("DropButton") } },
+		// Build 1.2.2: плитка предмета — вся начинка кнопки плитки замкнута (клик в
+		// дизайнере выделяет кнопку целиком), сами кнопки и коробка выброса свободны.
+		{ TEXT("WBP_ItemTile"),
+			{ TEXT("TilePlate"), TEXT("TileStack"), TEXT("TileIconZone"), TEXT("TileIconBox"),
+			  TEXT("TileIcon"), TEXT("TileCountText"), TEXT("TileNameText"),
+			  TEXT("TilePriceText"), TEXT("TileStatusText"), TEXT("DropLabel") },
+			{ TEXT("TileButton"), TEXT("TileDropBox"), TEXT("DropButton") } },
 		// Подписи-слова (HealthBarLabel и родня) в контракт НЕ входят: владелец удалил их
 		// из своего ассета, перенос стилизации при -rebuild убирает их и из новой раскладки
 		// (в свежесгенерированном ассете они есть и тоже замкнуты, но контракт проверяет
@@ -2453,22 +2465,8 @@ namespace
 		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: добавлена золотая кнопка SellAdButton."), Name);
 	}
 
-	// WBP_ShopRow, пункт 7: строка «Не хватает монет» рядом с ценой. В ассете спрятана —
-	// код показывает её только в тех товарах, на которые не хватает денег.
-	void AugmentShopRow(UWidgetTree* Tree, bool& bChanged)
-	{
-		const TCHAR* Name = TEXT("WBP_ShopRow");
-		if (Tree->FindWidget(TEXT("NoMoneyText")))
-		{
-			return;
-		}
-		UTextBlock* NoMoney = AugMakeTextLike(Tree,
-			Cast<UTextBlock>(Tree->FindWidget(TEXT("PriceText"))),
-			TEXT("NoMoneyText"), NSLOCTEXT("Shop", "NotEnoughMoney", "Не хватает монет"));
-		NoMoney->SetVisibility(ESlateVisibility::Collapsed);
-
-		AugInsertAfter(Tree, Name, TEXT("PriceText"), NoMoney, bChanged);
-	}
+	// Правка AugmentShopRow УДАЛЕНА (Build 1.2.2): строкового WBP_ShopRow больше нет,
+	// «Не хватает монет» живёт в плитке (TileStatusText, ставит код магазина).
 
 	// WBP_QuestTracker, пункт 8: в ассете лежит текст-заглушка от генерации. Строку пишет
 	// код, а пока квеста нет — кубик должен быть пустым, иначе заглушка мелькает на экране.
@@ -2522,49 +2520,64 @@ namespace
 			Name, *IconPos.ToString());
 	}
 
-	// Экраны со списками: класс строки на CDO (без него списки пусты; guide требовал ручного
-	// шага, генератор делает его сам — просьба лида). Зовётся ПОСЛЕ компиляции (CDO свежий)
-	// и при генерации, и при пересборке (-rebuild).
-	void ApplyRowClassFixup(const FWbpSpec& Spec, UWidgetBlueprint* WBP)
+	// Экраны с сетками плиток (Build 1.2.2): класс плитки WBP_ItemTile_C на CDO окна.
+	// Без него окно работает на кодовом дереве C++-плитки (дефолт в NativeOnInitialized),
+	// но стилизация Рината из ассета плитки не подхватится — назначаем сами (guide требовал
+	// ручного шага, генератор делает его за владельца — просьба лида). Зовётся ПОСЛЕ
+	// компиляции (CDO свежий) и при генерации, и при пересборке (-rebuild).
+	template <typename TScreenWidget>
+	void AssignTileClass(const TCHAR* AssetName, UWidgetBlueprint* WBP)
+	{
+		UClass* TileClass = StaticLoadClass(UItemTileWidget::StaticClass(), nullptr,
+			TEXT("/Game/UI/WBP_ItemTile.WBP_ItemTile_C"));
+		TScreenWidget* CDO = WBP->GeneratedClass
+			? Cast<TScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+			: nullptr;
+		if (TileClass && CDO)
+		{
+			CDO->TileWidgetClass = TileClass;
+			UE_LOG(LogGenerateWbp, Display, TEXT("%s: Tile Widget Class = %s."),
+				AssetName, *TileClass->GetName());
+		}
+		else
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("%s: Tile Widget Class НЕ назначен (класс плитки=%d, CDO=%d) — окно живёт на кодовой C++-плитке."),
+				AssetName, TileClass ? 1 : 0, CDO ? 1 : 0);
+		}
+	}
+
+	// Проверка -verify: класс плитки на CDO окна назначен (пустой — окно молча живёт на
+	// кодовой C++-плитке и стилизация Рината из WBP_ItemTile не подхватывается).
+	template <typename TScreenWidget>
+	bool VerifyTileClass(const TCHAR* AssetName, UWidgetBlueprint* WBP)
+	{
+		const TScreenWidget* CDO = WBP->GeneratedClass
+			? Cast<TScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
+			: nullptr;
+		if (CDO && CDO->TileWidgetClass)
+		{
+			UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY %s: Tile Widget Class = %s."),
+				AssetName, *CDO->TileWidgetClass->GetName());
+			return true;
+		}
+		UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — Tile Widget Class пуст."), AssetName);
+		return false;
+	}
+
+	void ApplyTileClassFixup(const FWbpSpec& Spec, UWidgetBlueprint* WBP)
 	{
 		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Inventory")) == 0)
 		{
-			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
-				TEXT("/Game/UI/WBP_InventoryRow.WBP_InventoryRow_C"));
-			UInventoryScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UInventoryScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (RowClass && CDO)
-			{
-				CDO->RowWidgetClass = RowClass;
-				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Inventory: Row Widget Class = %s."), *RowClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("WBP_Inventory: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
-					RowClass ? 1 : 0, CDO ? 1 : 0);
-			}
+			AssignTileClass<UInventoryScreenWidget>(Spec.AssetName, WBP);
 		}
-
 		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
 		{
-			UClass* RowClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
-				TEXT("/Game/UI/WBP_ShopRow.WBP_ShopRow_C"));
-			UShopScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (RowClass && CDO)
-			{
-				CDO->RowWidgetClass = RowClass;
-				UE_LOG(LogGenerateWbp, Display, TEXT("WBP_Shop: Row Widget Class = %s."), *RowClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("WBP_Shop: Row Widget Class НЕ назначен (класс строки=%d, CDO=%d) — назначить в редакторе."),
-					RowClass ? 1 : 0, CDO ? 1 : 0);
-			}
+			AssignTileClass<UShopScreenWidget>(Spec.AssetName, WBP);
+		}
+		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
+		{
+			AssignTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
 		}
 	}
 
@@ -2601,7 +2614,7 @@ namespace
 			return 1;
 		}
 
-		ApplyRowClassFixup(Spec, WBP);
+		ApplyTileClassFixup(Spec, WBP);
 
 		WBP->SetFlags(RF_Public | RF_Standalone);
 		FAssetRegistryModule::AssetCreated(WBP);
@@ -3153,7 +3166,7 @@ namespace
 			return 1;
 		}
 
-		ApplyRowClassFixup(Spec, WBP);
+		ApplyTileClassFixup(Spec, WBP);
 
 		const FString Filename = FPackageName::LongPackageNameToFilename(
 			Spec.PackageName, FPackageName::GetAssetPackageExtension());
@@ -3280,11 +3293,13 @@ int32 UGenerateWbpCommandlet::DumpSlotsAll()
 int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 {
 	// Пересборка канвас-первой раскладкой (ADR-051 п.1 + волна «двигать мышкой все окна»
-	// 07-28: диалог и экран смерти; волна разлочки Build 1.2.1: строки списков, экран
-	// смерти и строка статов инвентаря без рядов-коробок). Перенос значений владельца
+	// 07-28: диалог и экран смерти; волна разлочки Build 1.2.1: экран смерти и строка
+	// статов инвентаря без рядов-коробок; Build 1.2.2: вместо строк списков — общая
+	// плитка WBP_ItemTile, она ПЕРВАЯ в списке: фиксап окон ищет её класс _C на диске;
+	// окно обыска добавлено ради того же фиксапа). Перенос значений владельца
 	// (TransferOwnerStyle) включён ВСЕМ ассетам списка: WBP_PlayerStats — коммит dfaffd0,
 	// WBP_Dialog/WBP_Shop/WBP_Inventory — коммит 5c2b058, WBP_Inventory дополнительно —
-	// ручная расстановка Рината 562c85d; WBP_Death и строки — на будущее (правок владельца
+	// ручная расстановка Рината 562c85d; остальным — на будущее (правок владельца
 	// могло прибавиться, перенос на идентичном дереве безвреден). Остальные ассеты
 	// пересборке не подлежат. Процессный предохранитель (проверяет лид перед запуском):
 	// git status пересобираемых .uasset должен быть чист — иначе прогон затёр бы
@@ -3296,10 +3311,10 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 	};
 	static const FRebuildEntry RebuildAssets[] =
 	{
-		{ TEXT("WBP_ShopRow"), true },
+		{ TEXT("WBP_ItemTile"), true },
 		{ TEXT("WBP_Shop"), true },
-		{ TEXT("WBP_InventoryRow"), true },
 		{ TEXT("WBP_Inventory"), true },
+		{ TEXT("WBP_CorpseLoot"), true },
 		{ TEXT("WBP_PlayerStats"), true },
 		{ TEXT("WBP_Dialog"), true },
 		{ TEXT("WBP_Death"), true },
@@ -3367,7 +3382,6 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStats },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopAmmoRow },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopSellAdButton },
-		{ TEXT("/Game/UI/WBP_ShopRow"),       TEXT("WBP_ShopRow"),       &AugmentShopRow },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTracker },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
 	};
@@ -3529,40 +3543,19 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			}
 		}
 
-		// Дополнительный контракт инвентаря: класс строки рюкзака назначен.
+		// Дополнительный контракт окон с сетками плиток (Build 1.2.2): класс плитки
+		// WBP_ItemTile_C назначен на CDO окна.
 		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_Inventory")) == 0)
 		{
-			const UInventoryScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UInventoryScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (CDO && CDO->RowWidgetClass)
-			{
-				UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY WBP_Inventory: Row Widget Class = %s."),
-					*CDO->RowWidgetClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: WBP_Inventory — Row Widget Class пуст."));
-				bOk = false;
-			}
+			bOk = VerifyTileClass<UInventoryScreenWidget>(Spec.AssetName, WBP);
 		}
-
-		// Тот же контракт магазина: класс строки списков назначен.
 		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_Shop")) == 0)
 		{
-			const UShopScreenWidget* CDO = WBP->GeneratedClass
-				? Cast<UShopScreenWidget>(WBP->GeneratedClass->GetDefaultObject())
-				: nullptr;
-			if (CDO && CDO->RowWidgetClass)
-			{
-				UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY WBP_Shop: Row Widget Class = %s."),
-					*CDO->RowWidgetClass->GetName());
-			}
-			else
-			{
-				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: WBP_Shop — Row Widget Class пуст."));
-				bOk = false;
-			}
+			bOk = VerifyTileClass<UShopScreenWidget>(Spec.AssetName, WBP);
+		}
+		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
+		{
+			bOk = VerifyTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
 		}
 
 		if (bOk)
