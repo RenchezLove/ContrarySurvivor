@@ -9,6 +9,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.2: общий контейнер обыска
 #include "AMasterInventoryItem.h"
 #include "AAmmoItem.h" // D8: пачка патронов размещаемого пикапа (PlacedAmmoAmount)
 #include "UInventoryComponent.h"
@@ -54,11 +55,23 @@ APickup::APickup()
 		}
 		MeshComponent->SetRelativeScale3D(FVector(0.3f, 0.3f, 0.3f));
 	}
+
+	// Build 1.2.2: контейнер содержимого — тот же класс, что носит труп врага, поэтому
+	// мешок открывает уже существующее окно обыска, а не своё второе.
+	LootContainer = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("LootContainer"));
 }
 
 void APickup::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Заголовок окна обыска и подписка на «из мешка что-то забрали» — до наполнения,
+	// чтобы первое же изменение содержимого дошло до нас.
+	if (LootContainer)
+	{
+		LootContainer->SearchTitle = SearchWindowTitle;
+		LootContainer->OnLootChanged.AddUObject(this, &APickup::HandleLootChanged);
+	}
 
 	// D8: размещённый на карте пикап сам наполняет себя предметами из Edit-полей.
 	// Только в игровом мире; у рантайм-дропов (DropLoot/мешок смерти) поля пусты — no-op.
@@ -142,13 +155,27 @@ void APickup::Tick(float DeltaTime)
 void APickup::SpawnPlacedLoot()
 {
 	UWorld* World = GetWorld();
-	if (!World || (!PlacedItemClass && PlacedAmmoAmount <= 0))
+	if (!World || !LootContainer)
 	{
+		return;
+	}
+
+	// Пикап без предметов, но с деньгами — тоже наполнение: деньги кладём в контейнер
+	// всегда, иначе размещённый на карте кошелёк остался бы пустым.
+	if (!PlacedItemClass && PlacedAmmoAmount <= 0)
+	{
+		if (MoneyAmount > 0.0f)
+		{
+			LootContainer->AddLoot(MoneyAmount, TArray<AMasterInventoryItem*>(), /*bRegisterSearchable=*/false);
+			MoneyAmount = 0.0f; // источник правды один — контейнер
+		}
 		return;
 	}
 
 	FActorSpawnParameters Sp;
 	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	TArray<AMasterInventoryItem*> PlacedItems;
 
 	// Предмет лута — данные рюкзака, не объект на сцене (тот же приём, что в DropLoot).
 	auto SpawnHiddenItem = [&](TSubclassOf<AMasterInventoryItem> ItemClass) -> AMasterInventoryItem*
@@ -159,7 +186,7 @@ void APickup::SpawnPlacedLoot()
 		{
 			Item->SetActorHiddenInGame(true);
 			Item->SetActorEnableCollision(false);
-			CarriedItems.Add(Item);
+			PlacedItems.Add(Item);
 		}
 		return Item;
 	};
@@ -218,30 +245,64 @@ void APickup::SpawnPlacedLoot()
 
 	UE_LOG(LogTemp, Log, TEXT("Pickup '%s': placed loot ready (money=%.0f, items=%d, ammo=%d)"),
 		*GetName(), MoneyAmount, SpawnedCount, PlacedAmmoAmount);
+
+	// Всё расставленное дизайнером — в контейнер обыска (реестр обыскиваемых трупов пикапу
+	// не нужен: контроллер находит его перебором акторов APickup).
+	LootContainer->AddLoot(MoneyAmount, PlacedItems, /*bRegisterSearchable=*/false);
+	MoneyAmount = 0.0f; // деньги переехали в контейнер — двойного учёта быть не должно
 }
 
 void APickup::InitLoot(float Money, AMasterInventoryItem* InCarriedItem)
 {
-	MoneyAmount = Money;
-	CarriedItem = InCarriedItem;
+	// Зовётся ПОСЛЕ спавна (BeginPlay уже прошёл) — добавляем к тому, что уже лежит.
+	if (LootContainer)
+	{
+		TArray<AMasterInventoryItem*> Items;
+		if (IsValid(InCarriedItem))
+		{
+			Items.Add(InCarriedItem);
+		}
+		LootContainer->AddLoot(Money, Items, /*bRegisterSearchable=*/false);
+	}
 }
 
 void APickup::InitLootBag(const TArray<AMasterInventoryItem*>& Items, float Money)
 {
 	// A4/ADR-027: «мешок» из нескольких предметов (предметы уже сняты из рюкзака и скрыты).
-	// Build 1.2: + доля потерянных при смерти денег (подбор — штатный путь MoneyAmount).
-	CarriedItems = Items;
-	MoneyAmount = FMath::Max(0.0f, Money);
+	// Build 1.2: + доля потерянных при смерти денег (в окне обыска — отдельная плитка «Деньги»).
+	if (LootContainer)
+	{
+		LootContainer->AddLoot(FMath::Max(0.0f, Money), Items, /*bRegisterSearchable=*/false);
+	}
 }
 
 bool APickup::HasLoot() const
 {
-	return MoneyAmount > 0.0f || IsValid(CarriedItem) || CarriedItems.Num() > 0;
+	// Единственный источник правды о содержимом — контейнер. MoneyAmount к этому моменту
+	// уже переехал в него (BeginPlay), поэтому второй раз не считается.
+	return LootContainer && LootContainer->HasLoot();
+}
+
+void APickup::HandleLootChanged()
+{
+	// Забор всего разом (Collect) сам решает судьбу мешка в конце — не мешаем ему.
+	if (bTakingAll || !LootContainer)
+	{
+		return;
+	}
+
+	// Обыскали до конца — мешок исчезает (как раньше исчезал сразу после подбора).
+	// Открытое окно обыска закроется само: оно следит за живостью контейнера.
+	if (!LootContainer->HasLoot())
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP '%s' обыскан до конца — исчезает"), *GetName());
+		Destroy();
+	}
 }
 
 bool APickup::Collect(APlayerCharacter* Player)
 {
-	if (!IsValid(Player))
+	if (!IsValid(Player) || !LootContainer)
 	{
 		return false;
 	}
@@ -249,86 +310,69 @@ bool APickup::Collect(APlayerCharacter* Player)
 	UStatsComponent* Stats = Player->GetStats();
 	UInventoryComponent* Inv = Player->GetInventory();
 
-	// QA-инструментирование: КТО подбирает и ЧТО (класс предмета), + найдены ли приёмники.
-	const FString ItemClassName = IsValid(CarriedItem) ? CarriedItem->GetClass()->GetName() : TEXT("none");
+	const float Money = LootContainer->GetMoney();
+	const TArray<AMasterInventoryItem*> Items = LootContainer->GetLootItems();
+
+	// QA-инструментирование: КТО подбирает и ЧТО, + найдены ли приёмники.
 	FQADebug::QA(this, FString::Printf(
-		TEXT("QA: COLLECT %s by %s (money=%.0f, Stats=%s Inv=%s)"),
-		*ItemClassName, *Player->GetName(), MoneyAmount,
+		TEXT("QA: COLLECT %d items by %s (money=%.0f, Stats=%s Inv=%s)"),
+		Items.Num(), *Player->GetName(), Money,
 		Stats ? TEXT("ok") : TEXT("NULL"), Inv ? TEXT("ok") : TEXT("NULL")), /*bScreen=*/true);
 
+	// Пока идёт забор всего разом, обработчик изменений мешок не уничтожает: иначе
+	// контейнер умер бы посреди перебора предметов.
+	bTakingAll = true;
+
 	// Деньги -> в статы. Считаем «начислено», только если реально добавили (или денег нет).
-	bool bMoneyDone = (MoneyAmount <= 0.0f);
-	if (MoneyAmount > 0.0f && Stats)
+	bool bMoneyDone = (Money <= 0.0f);
+	if (Money > 0.0f && Stats)
 	{
-		Stats->AddMoney(MoneyAmount);
-		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': +%.0f money"), *GetName(), MoneyAmount);
-		UE_LOG(LogQA, Display, TEXT("QA: PICKUP +%.0f money. Balance now %.0f"), MoneyAmount, Stats->GetMoney());
+		Stats->AddMoney(LootContainer->TakeMoney());
+		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': +%.0f money"), *GetName(), Money);
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP +%.0f money. Balance now %.0f"), Money, Stats->GetMoney());
 		bMoneyDone = true;
 	}
 
-	// Предмет -> в рюкзак (предмет уже скрыт/без коллизии, как тестовые предметы).
-	bool bItemDone = !IsValid(CarriedItem);
-	if (IsValid(CarriedItem) && Inv)
-	{
-		Inv->AddItem(CarriedItem);
-		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted item %s"), *GetName(), *CarriedItem->GetName());
-		UE_LOG(LogQA, Display, TEXT("QA: PICKUP item '%s' (name '%s') into backpack"),
-			*CarriedItem->GetName(), *CarriedItem->ItemName);
-		CarriedItem = nullptr; // передан игроку, EndPlay его не уничтожит
-		bItemDone = true;
-	}
-
-	// A4/ADR-027: «мешок» из нескольких предметов (дроп расходников при смерти) — отдаём ВСЕ.
-	bool bBagDone = (CarriedItems.Num() == 0);
-	if (CarriedItems.Num() > 0 && Inv)
+	// Предметы -> в рюкзак (предметы уже скрыты/без коллизии, как тестовые предметы).
+	bool bItemsDone = (Items.Num() == 0);
+	if (Items.Num() > 0 && Inv)
 	{
 		int32 Given = 0;
-		for (AMasterInventoryItem* It : CarriedItems)
+		for (AMasterInventoryItem* It : Items)
 		{
-			if (IsValid(It)) { Inv->AddItem(It); ++Given; }
+			if (!IsValid(It) || !LootContainer->TakeItem(It))
+			{
+				continue;
+			}
+			if (Inv->AddItem(It))
+			{
+				++Given;
+			}
+			else
+			{
+				// В рюкзак не лёг — не оставляем сироту в мире (то же правило, что в окне обыска).
+				It->Destroy();
+				UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': предмет не лёг в рюкзак — уничтожен"), *GetName());
+			}
 		}
-		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted bag of %d items"), *GetName(), Given);
-		UE_LOG(LogQA, Display, TEXT("QA: PICKUP bag of %d items into backpack"), Given);
-		CarriedItems.Reset(); // переданы игроку, EndPlay их не уничтожит
-		bBagDone = true;
+		UE_LOG(LogTemp, Log, TEXT("Pickup '%s': looted %d items"), *GetName(), Given);
+		UE_LOG(LogQA, Display, TEXT("QA: PICKUP %d items into backpack"), Given);
+		bItemsDone = (LootContainer->GetLootItems().Num() == 0);
 	}
+
+	bTakingAll = false;
 
 	// BUG2-фикс: НЕ уничтожаем пикап, если что-то из лута не удалось начислить — иначе деньги/
 	// предмет «терялись». Пикап остаётся на земле; игрок может нажать E ещё раз.
-	if (!bMoneyDone || !bItemDone || !bBagDone)
+	if (!bMoneyDone || !bItemsDone || LootContainer->HasLoot())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': collect partial (money %s, item %s, bag %s) — kept on ground"),
-			*GetName(), bMoneyDone ? TEXT("ok") : TEXT("FAIL"), bItemDone ? TEXT("ok") : TEXT("FAIL"),
-			bBagDone ? TEXT("ok") : TEXT("FAIL"));
+		UE_LOG(LogTemp, Warning, TEXT("Pickup '%s': collect partial (money %s, items %s) — kept on ground"),
+			*GetName(), bMoneyDone ? TEXT("ok") : TEXT("FAIL"), bItemsDone ? TEXT("ok") : TEXT("FAIL"));
 		return false;
 	}
 
-	bCollected = true;
 	Destroy();
 	return true;
-}
-
-void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	// Если пикап исчез (например, по таймеру/смене уровня) НЕ будучи подобранным —
-	// уничтожаем висящий «при себе» предмет, чтобы он не утёк в мире.
-	if (!bCollected && IsValid(CarriedItem))
-	{
-		CarriedItem->Destroy();
-		CarriedItem = nullptr;
-	}
-
-	// A4/ADR-027: то же для предметов «мешка» (дроп расходников), если не подобрали.
-	if (!bCollected)
-	{
-		for (AMasterInventoryItem* It : CarriedItems)
-		{
-			if (IsValid(It)) { It->Destroy(); }
-		}
-		CarriedItems.Reset();
-	}
-
-	Super::EndPlay(EndPlayReason);
 }
 
 APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAmount,

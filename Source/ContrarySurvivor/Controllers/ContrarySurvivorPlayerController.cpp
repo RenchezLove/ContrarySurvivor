@@ -1445,8 +1445,19 @@ void AContrarySurvivorPlayerController::OnInteract()
 			APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
 			if (Pickup && PlayerChar)
 			{
-				const bool bOk = Pickup->Collect(PlayerChar);
-				UE_LOG(LogTemp, Log, TEXT("Interact: pickup collect %s"), bOk ? TEXT("OK") : TEXT("FAIL"));
+				// Build 1.2.2 (Ринат: «нужно, что бы был BP_Picup с механикой похожей на ту,
+				// что я обыскиваю ящик или труп и выбираю что себе положить в инвентарь»):
+				// мешок открывает ТО ЖЕ окно обыска, что и труп. Мгновенный забор всего разом
+				// остался у пикапов с включённым переключателем на классе.
+				if (Pickup->UsesSearchWindow())
+				{
+					OpenCorpseLoot(Pickup->GetLootContainer());
+				}
+				else
+				{
+					const bool bOk = Pickup->Collect(PlayerChar);
+					UE_LOG(LogTemp, Log, TEXT("Interact: pickup collect %s"), bOk ? TEXT("OK") : TEXT("FAIL"));
+				}
 			}
 			// Ближайший интерактив пересчитается в следующем Tick.
 			break;
@@ -2095,7 +2106,17 @@ FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
 	const bool bTouch = HasTouchLayer();
 	switch (CurrentInteractKind)
 	{
-		case EInteractKind::Pickup: return bTouch ? InteractPromptPickupTouch : InteractPromptPickup;
+		case EInteractKind::Pickup:
+		{
+			// Build 1.2.2: мешок с окном обыска подписывается как труп — «обыскать», потому
+			// что действие теперь одно и то же. Мгновенный подбор остаётся «подобрать».
+			const APickup* NearPickup = Cast<APickup>(CurrentInteractActor);
+			if (NearPickup && NearPickup->UsesSearchWindow())
+			{
+				return bTouch ? InteractPromptCorpseTouch : InteractPromptCorpse;
+			}
+			return bTouch ? InteractPromptPickupTouch : InteractPromptPickup;
+		}
 		case EInteractKind::Trader: return bTouch ? InteractPromptTraderTouch : InteractPromptTrader;
 		case EInteractKind::Elder:  return bTouch ? InteractPromptElderTouch : InteractPromptElder;
 		case EInteractKind::Corpse: return bTouch ? InteractPromptCorpseTouch : InteractPromptCorpse;

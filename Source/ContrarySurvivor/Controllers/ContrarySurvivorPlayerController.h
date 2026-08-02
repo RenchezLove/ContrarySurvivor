@@ -80,7 +80,7 @@ public:
 
 	// --- Обыск трупа (Build 1.2.1, ТЗ А1) — вызывается OnInteract (E у трупа) и HUD ---
 
-	// Открыть окно обыска трупа (контейнер лута — на трупе врага).
+	// Открыть окно обыска (контейнер лута — на трупе врага или на мешке-пикапе, Build 1.2.2).
 	UFUNCTION(BlueprintCallable, Category = "CorpseLoot")
 	void OpenCorpseLoot(class UCorpseLootComponent* Corpse);
 
@@ -328,7 +328,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "6"))
 	FText InteractPromptElderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderTouch", "Поговорить");
 
-	// Build 1.2.1 (ТЗ А1): подсказка у трупа врага с лутом — «Обыскать [E]».
+	// Build 1.2.1 (ТЗ А1): подсказка у трупа врага с лутом — «Обыскать [E]». Build 1.2.2:
+	// та же подсказка у мешка-пикапа, который открывает окно обыска (действие одно и то же).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "7"))
 	FText InteractPromptCorpse = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpse", "E — обыскать");
 

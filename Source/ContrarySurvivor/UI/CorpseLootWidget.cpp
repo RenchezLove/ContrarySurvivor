@@ -161,6 +161,15 @@ void UCorpseLootWidget::InitCorpseLoot(UCorpseLootComponent* InCorpse, APlayerCh
 	Corpse = InCorpse;
 	Player = InPlayer;
 	bCloseRequested = false;
+
+	// Build 1.2.2: одно окно обслуживает и труп, и мешок-пикап, поэтому заголовок берём у
+	// самого контейнера. Пусто — остаётся собственный заголовок окна («Обыск трупа»).
+	if (TitleText)
+	{
+		const FText ContainerTitle = InCorpse ? InCorpse->SearchTitle : FText::GetEmpty();
+		TitleText->SetText(ContainerTitle.IsEmpty() ? TitleLabel : ContainerTitle);
+	}
+
 	RefreshList();
 }
 

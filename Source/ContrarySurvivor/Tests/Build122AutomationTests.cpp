@@ -10,17 +10,28 @@
 //   - арифметика поправки ножа: константы конструктора AMeleeWeapon = точная инверсия
 //     сокет-трансформа этой волны (композиция даёт тождество -> нож лежит по кости);
 //   - предупреждение о ПУСТОМ пикапе, размещённом на карте (LogQA Warning), и его
-//     ОТСУТСТВИЕ у рантайм-спавна (DropLoot/мешок смерти наполняются ПОСЛЕ BeginPlay).
+//     ОТСУТСТВИЕ у рантайм-спавна (DropLoot/мешок смерти наполняются ПОСЛЕ BeginPlay);
+//   - обыск мешка-пикапа (ТЗ Рината про BP_Picup): содержимое лежит в общем контейнере
+//     UCorpseLootComponent, по умолчанию открывается окно (а не мгновенный забор), забор
+//     ИДЁТ ПОШТУЧНО, опустевший мешок исчезает, в реестр обыскиваемых трупов он не встаёт;
+//   - переключатель «забирать всё сразу» возвращает прежнее поведение Collect.
 // НЕ покрывается headless (нужен PIE): фактическая поза оружия в ладони на анимируемом
-//   персонаже (скелетные меши в тест-мире не грузятся) — за живым осмотром Рината/лида.
+//   персонаже (скелетные меши в тест-мире не грузятся), клики по плиткам самого окна
+//   обыска (Slate) — за живым осмотром Рината/лида.
 
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AMeleeWeapon.h"
+#include "AConsumableItem.h"
+#include "AMasterInventoryItem.h"
 #include "Animation/Skeleton.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Components/CorpseLootComponent.h"
+#include "ContrarySurvivor/Components/StatsComponent.h"
+#include "UInventoryComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/SkeletalMeshSocket.h"
 #include "Engine/World.h"
@@ -85,6 +96,49 @@ namespace Build122TestWorld
 		}
 		GEngine->DestroyWorldContext(World);
 		World->DestroyWorld(/*bInformEngineOfWorld=*/false);
+	}
+
+	template <typename T>
+	static T* Spawn(UWorld* World, const FVector& Loc = FVector(0.f, 0.f, 100.f))
+	{
+		if (!World)
+		{
+			return nullptr;
+		}
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		return World->SpawnActor<T>(T::StaticClass(), Loc, FRotator::ZeroRotator, Params);
+	}
+
+	// Расходник-«данные» с заданным типом и стаком (как его кладёт лут в мешок).
+	static AConsumableItem* SpawnConsumable(UWorld* World, EConsumableType Type, int32 Stack = 1)
+	{
+		AConsumableItem* Item = Spawn<AConsumableItem>(World);
+		if (Item)
+		{
+			Item->ConsumableType = Type;
+			Item->ItemName = AConsumableItem::GetDefaultDisplayName(Type);
+			Item->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Type);
+			Item->StackCount = Stack;
+			Item->SetActorHiddenInGame(true);
+			Item->SetActorEnableCollision(false);
+		}
+		return Item;
+	}
+
+	// Живые записи реестра обыскиваемых трупов ИМЕННО этого мира (реестр статический,
+	// в нём могут доживать записи прошлых тестов).
+	static int32 CountValidCorpses(UWorld* World)
+	{
+		int32 Count = 0;
+		for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : UCorpseLootComponent::GetSearchableCorpses())
+		{
+			if (Ptr.IsValid() && Ptr->GetWorld() == World)
+			{
+				++Count;
+			}
+		}
+		return Count;
 	}
 }
 
@@ -220,6 +274,153 @@ bool FBuild122PickupPlacedEmptyWarnTest::RunTest(const FString& Parameters)
 
 	Build122TestWorld::Destroy(World);
 	return true;
+}
+
+// ===========================================================================
+// 4. Мешок-пикап обыскивается как труп (ТЗ Рината про BP_Picup): содержимое лежит в общем
+//    контейнере, по умолчанию открывается окно (а не мгновенный забор), брать можно
+//    ПОШТУЧНО, опустевший мешок исчезает. В реестр обыскиваемых трупов мешок не встаёт —
+//    иначе один и тот же лут предлагался бы двумя разными интерактивами.
+//    Забор эмулируем так, как его делает окно: TakeItem/TakeMoney контейнера + рюкзак/статы
+//    (сами кнопки окна — Slate, headless не кликаются).
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122PickupSearchWindowTest,
+	"ContrarySurvivor.Build122.Pickup.SearchTakeOneByOne", Build122TestFlags)
+
+bool FBuild122PickupSearchWindowTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		APlayerCharacter* Player = Build122TestWorld::Spawn<APlayerCharacter>(World);
+		UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
+		UStatsComponent* Stats = Player ? Player->GetStats() : nullptr;
+		APickup* Bag = Build122TestWorld::Spawn<APickup>(World, FVector(200.f, 0.f, 100.f));
+		AConsumableItem* Food = Build122TestWorld::SpawnConsumable(World, EConsumableType::Food);
+		AConsumableItem* Water = Build122TestWorld::SpawnConsumable(World, EConsumableType::Water);
+
+		TestNotNull(TEXT("Рюкзак игрока"), Inv);
+		TestNotNull(TEXT("Статы игрока"), Stats);
+		TestNotNull(TEXT("Мешок-пикап"), Bag);
+		TestNotNull(TEXT("Еда"), Food);
+		TestNotNull(TEXT("Вода"), Water);
+
+		if (Inv && Stats && Bag && Food && Water)
+		{
+			const int32 CorpsesBefore = Build122TestWorld::CountValidCorpses(World);
+
+			TArray<AMasterInventoryItem*> BagItems;
+			BagItems.Add(Food);
+			BagItems.Add(Water);
+			Bag->InitLootBag(BagItems, /*Money=*/50.0f);
+
+			UCorpseLootComponent* Container = Bag->GetLootContainer();
+			TestNotNull(TEXT("У мешка есть контейнер обыска"), Container);
+			if (!Container)
+			{
+				Build122TestWorld::Destroy(World);
+				return false;
+			}
+
+			TestTrue(TEXT("По умолчанию мешок открывает окно обыска"), Bag->UsesSearchWindow());
+			TestTrue(TEXT("В мешке есть что забирать"), Bag->HasLoot());
+			TestEqual(TEXT("Деньги легли в контейнер"), Container->GetMoney(), 50.0f);
+			TestEqual(TEXT("Оба предмета легли в контейнер"), Container->GetLootItems().Num(), 2);
+			TestEqual(TEXT("Мешок НЕ встал в реестр обыскиваемых трупов"),
+				Build122TestWorld::CountValidCorpses(World), CorpsesBefore);
+
+			// Забор ПОШТУЧНО: первый предмет уходит игроку, мешок остаётся лежать.
+			const float MoneyBefore = Stats->GetMoney();
+			TestTrue(TEXT("Первый предмет вынут из мешка"), Container->TakeItem(Food));
+			TestTrue(TEXT("Первый предмет лёг в рюкзак"), Inv->AddItem(Food));
+			TestTrue(TEXT("Мешок остался на земле — забрали не всё"), IsValid(Bag));
+			TestEqual(TEXT("В мешке остался один предмет"), Container->GetLootItems().Num(), 1);
+			TestTrue(TEXT("Остаток мешка виден клавише действия"), Bag->HasLoot());
+
+			// Деньги — отдельная плитка окна.
+			Stats->AddMoney(Container->TakeMoney());
+			TestEqual(TEXT("Деньги начислены игроку"), Stats->GetMoney(), MoneyBefore + 50.0f);
+			TestTrue(TEXT("Мешок жив, пока в нём лежит второй предмет"), IsValid(Bag));
+
+			// Последняя вещь — мешок опустел и исчезает (как раньше исчезал после подбора).
+			TestTrue(TEXT("Второй предмет вынут из мешка"), Container->TakeItem(Water));
+			TestTrue(TEXT("Второй предмет лёг в рюкзак"), Inv->AddItem(Water));
+			TestFalse(TEXT("Обысканный до конца мешок исчез"), IsValid(Bag));
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 5. Переключатель «забирать всё сразу» возвращает прежнее поведение (Collect отдаёт
+//    деньги и предметы одним нажатием и уничтожает пикап), а брошенное содержимое
+//    умирает вместе с мешком — скрытые акторы-данные не должны оставаться в мире.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122PickupInstantCollectTest,
+	"ContrarySurvivor.Build122.Pickup.InstantCollectSwitch", Build122TestFlags)
+
+bool FBuild122PickupInstantCollectTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		APlayerCharacter* Player = Build122TestWorld::Spawn<APlayerCharacter>(World);
+		UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
+		UStatsComponent* Stats = Player ? Player->GetStats() : nullptr;
+		APickup* Bag = Build122TestWorld::Spawn<APickup>(World, FVector(300.f, 0.f, 100.f));
+		AConsumableItem* Food = Build122TestWorld::SpawnConsumable(World, EConsumableType::Food);
+
+		if (Inv && Stats && Bag && Food)
+		{
+			Bag->bInstantCollect = true;
+			TestFalse(TEXT("Переключатель убирает окно обыска"), Bag->UsesSearchWindow());
+
+			Bag->InitLoot(/*Money=*/30.0f, Food);
+			const float MoneyBefore = Stats->GetMoney();
+			const int32 EntriesBefore = Inv->GetInventoryItems().Num();
+
+			TestTrue(TEXT("Мгновенный подбор прошёл целиком"), Bag->Collect(Player));
+			TestEqual(TEXT("Деньги начислены"), Stats->GetMoney(), MoneyBefore + 30.0f);
+			TestEqual(TEXT("Предмет попал в рюкзак"), Inv->GetInventoryItems().Num(), EntriesBefore + 1);
+			TestFalse(TEXT("Пикап уничтожен после подбора"), IsValid(Bag));
+
+			// Не забранное содержимое: раньше его чистил APickup::EndPlay, теперь — EndPlay
+			// контейнера. Проверяем, что предмет не остаётся висеть в мире.
+			APickup* Abandoned = Build122TestWorld::Spawn<APickup>(World, FVector(400.f, 0.f, 100.f));
+			AConsumableItem* Lost = Build122TestWorld::SpawnConsumable(World, EConsumableType::Water);
+			if (Abandoned && Lost)
+			{
+				Abandoned->InitLoot(/*Money=*/0.0f, Lost);
+				World->DestroyActor(Abandoned);
+				TestFalse(TEXT("Брошенное содержимое уничтожено вместе с мешком"), IsValid(Lost));
+			}
+			else
+			{
+				bOk = false;
+			}
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
 }
 
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -12,29 +12,45 @@ UCorpseLootComponent::UCorpseLootComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-void UCorpseLootComponent::InitLoot(float InMoney, const TArray<AMasterInventoryItem*>& InItems)
+void UCorpseLootComponent::InitLoot(float InMoney, const TArray<AMasterInventoryItem*>& InItems,
+	bool bRegisterSearchable)
 {
-	Money = FMath::Max(0.0f, InMoney);
-
+	// Замещающая укладка (труп): начинаем с чистого контейнера.
+	Money = 0.0f;
 	Items.Reset();
+	AddLoot(InMoney, InItems, bRegisterSearchable);
+}
+
+void UCorpseLootComponent::AddLoot(float InMoney, const TArray<AMasterInventoryItem*>& InItems,
+	bool bRegisterSearchable)
+{
+	Money = FMath::Max(0.0f, Money + InMoney);
+
 	for (AMasterInventoryItem* Item : InItems)
 	{
 		if (IsValid(Item))
 		{
-			Items.Add(Item);
+			Items.AddUnique(Item);
 		}
 	}
 
 	// Регистрация в реестре обыскиваемых + попутная чистка отмерших слабых ссылок
 	// (трупы исчезают по таймеру — не копим пустые записи между волнами врагов).
-	SearchableCorpses.RemoveAll([](const TWeakObjectPtr<UCorpseLootComponent>& Ptr)
+	// Пикап регистрации не просит: его контроллер находит перебором акторов APickup.
+	if (bRegisterSearchable)
 	{
-		return !Ptr.IsValid();
-	});
-	SearchableCorpses.AddUnique(this);
+		SearchableCorpses.RemoveAll([](const TWeakObjectPtr<UCorpseLootComponent>& Ptr)
+		{
+			return !Ptr.IsValid();
+		});
+		SearchableCorpses.AddUnique(this);
+	}
 
-	UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot init on '%s' - money=%.0f items=%d"),
-		*GetNameSafe(GetOwner()), Money, Items.Num());
+	if (InMoney > 0.0f || InItems.Num() > 0)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot init on '%s' - money=%.0f items=%d"),
+			*GetNameSafe(GetOwner()), Money, Items.Num());
+	}
 }
 
 bool UCorpseLootComponent::HasLoot() const
@@ -74,6 +90,10 @@ float UCorpseLootComponent::TakeMoney()
 	{
 		UE_LOG(LogQA, Display, TEXT("QA: CORPSE take money %.0f from '%s' (left: items=%d)"),
 			Taken, *GetNameSafe(GetOwner()), GetLootItems().Num());
+
+		// Оповещение — ПОСЛЕДНИМ действием: слушатель (мешок-пикап) вправе уничтожить
+		// владельца прямо здесь, после броадкаста мы к своим полям уже не обращаемся.
+		OnLootChanged.Broadcast();
 	}
 	return Taken;
 }
@@ -86,6 +106,10 @@ bool UCorpseLootComponent::TakeItem(AMasterInventoryItem* Item)
 	}
 	UE_LOG(LogQA, Display, TEXT("QA: CORPSE take item '%s' from '%s' (left: money=%.0f items=%d)"),
 		*Item->ItemName, *GetNameSafe(GetOwner()), Money, GetLootItems().Num());
+
+	// Оповещение — ПОСЛЕДНИМ действием (см. TakeMoney): опустевший мешок-пикап
+	// уничтожает себя прямо в обработчике, поэтому после броадкаста ничего не трогаем.
+	OnLootChanged.Broadcast();
 	return true;
 }
 
