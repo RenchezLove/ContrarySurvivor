@@ -20,6 +20,12 @@ AMasterWeapon::AMasterWeapon()
 	bIsReloading       = false;
 	LastFireTime       = -9999.0f; // Чтобы первый выстрел был доступен сразу
 
+	// Build 1.2.2: поправка хвата нулевая = оружие лежит ровно по сокету WeaponGripSocket
+	// (поза сокета подобрана Ринатом с превью ПИСТОЛЕТА — пистолету поправка не нужна).
+	GripOffsetLocation = FVector::ZeroVector;
+	GripOffsetRotation = FRotator::ZeroRotator;
+	LeftHandGripSocketName = NAME_None; // пусто = одноручное (задел на двуручное)
+
 	// Категория для логики инвентаря/потери рюкзака (Фаза 4): оружие не теряется при смерти.
 	ItemCategory = EItemCategory::Weapon;
 }

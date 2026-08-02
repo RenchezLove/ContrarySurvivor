@@ -288,9 +288,9 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     bool bUseGripSocket = false;
 
     // ПРИОРИТЕТ 0 (Build 1.2) — настоящий АВТОРСКИЙ СОКЕТ WeaponGripSocketName: если он
-    // есть на скелете/меше любого из наших мешей, крепим к нему и цифровые офсеты НЕ
-    // применяем — положение целиком задаёт сокет (Ринат двигает его мышкой в редакторе
-    // скелета). USkeletalMesh::FindSocket (SkeletalMesh.cpp:4660, UE 5.5) возвращает
+    // есть на скелете/меше любого из наших мешей, крепим к нему (Ринат двигает сокет
+    // мышкой в редакторе скелета; с Build 1.2.2 ПОВЕРХ сокета всегда добавляется цифровая
+    // поправка класса оружия — см. ниже). USkeletalMesh::FindSocket (SkeletalMesh.cpp:4660, UE 5.5) возвращает
     // объект ТОЛЬКО для авторских сокетов меша/скелета, для костей — nullptr: этим
     // отличаем сокет от кости (DoesSocketExist истинен для обоих). В упакованной игре
     // сокеты скелета тоже в SocketMap (SkeletalMesh.cpp:4816,4827) — Android не теряет.
@@ -346,12 +346,25 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
         CurrentWeapon->AttachToComponent(BoneCarrier,
             FAttachmentTransformRules::SnapToTargetNotIncludingScale,
             AttachName);
-        if (!bUseGripSocket)
+
+        // Build 1.2.2: ЦИФРОВАЯ ПОПРАВКА КЛАССА ОРУЖИЯ применяется ВСЕГДА — и поверх сокета
+        // (раньше при сокете игнорировалась: один сокет на всех, а нож должен лежать иначе,
+        // чем пистолет, — Ринат: «нож теперь лежит неправильно»). База, поверх которой идёт
+        // поправка: сокет = тождество (позу задаёт сам сокет), кость = прежние офсеты
+        // персонажа WeaponGripLocation/Rotation. Композиция трансформов, НЕ сложение полей:
+        // итог = ПоправкаОружия ∘ База (FTransform A*B в UE = «сначала A, потом B»).
+        // Масштаб не трогаем: attach выше сохранил мировой масштаб оружия (KeepWorld),
+        // а SetRelativeLocationAndRotation масштабную часть не пишет.
+        const FTransform WeaponGripOffsetTM(
+            CurrentWeapon->GetGripOffsetRotation(), CurrentWeapon->GetGripOffsetLocation());
+        const FTransform BaseGripTM = bUseGripSocket
+            ? FTransform::Identity
+            : FTransform(WeaponGripRotation, WeaponGripLocation);
+        const FTransform FinalGripTM = WeaponGripOffsetTM * BaseGripTM;
+        if (USceneComponent* WeaponRoot = CurrentWeapon->GetRootComponent())
         {
-            // Прежний путь (кость): относительный офсет грипа (подбор по скрину).
-            // При сокете офсеты НЕ применяются — положение целиком задаёт сокет.
-            CurrentWeapon->SetActorRelativeLocation(WeaponGripLocation);
-            CurrentWeapon->SetActorRelativeRotation(WeaponGripRotation);
+            WeaponRoot->SetRelativeLocationAndRotation(
+                FinalGripTM.GetLocation(), FinalGripTM.GetRotation());
         }
 
         const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();

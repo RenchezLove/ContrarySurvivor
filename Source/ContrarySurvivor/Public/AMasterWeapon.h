@@ -53,6 +53,32 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Ammo")
 	int32 CurrentAmmoReserve;
 
+	// --- Хват (Build 1.2.2, Ринат: «пистолет нормально, но нож теперь лежит неправильно») ---
+	// Скелетный сокет WeaponGripSocket ОДИН на всех, а лежать в ладони каждое оружие должно
+	// по-своему. Поэтому поза сокета = эталон ПИСТОЛЕТА (Ринат подбирал её с превью пистолета),
+	// а каждый класс оружия несёт СВОЮ цифровую поправку, которую EquipWeapon применяет ПОВЕРХ
+	// сокета всегда (раньше при сокете поправки игнорировались — это и сломало нож).
+	// Пистолет = нулевая поправка. Нож = инверсия сокет-трансформа (поза кости R_Hand, как
+	// до правки сокета) — задаётся в конструкторе AMeleeWeapon, расчёт в ADR волны.
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Grip", meta = (DisplayPriority = "1",
+		DisplayName = "Поправка хвата: сдвиг",
+		ToolTip = "Сдвиг оружия в ладони ОТНОСИТЕЛЬНО сокета хвата (в местных единицах сокета). Применяется всегда, поверх позиции сокета. Ноль = оружие лежит ровно по сокету (эталон пистолета)."))
+	FVector GripOffsetLocation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Grip", meta = (DisplayPriority = "2",
+		DisplayName = "Поправка хвата: поворот",
+		ToolTip = "Поворот оружия в ладони ОТНОСИТЕЛЬНО сокета хвата. Применяется всегда, поверх позиции сокета. Ноль = оружие повёрнуто ровно по сокету (эталон пистолета)."))
+	FRotator GripOffsetRotation;
+
+	// Задел на двуручное оружие (Build 1.2.2, Ринат: «какое-то оружие будет удерживаться
+	// двумя руками»): имя сокета ЛЕВОЙ руки на МЕШЕ САМОГО ОРУЖИЯ. Пусто = одноручное.
+	// Пока только данные (IK левой руки подключится отдельной волной; см. ADR волны 1.2.2).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Grip", meta = (DisplayPriority = "3",
+		DisplayName = "Сокет левой руки на меше оружия (пусто = одноручное)",
+		ToolTip = "Имя сокета на меше самого оружия, за который возьмётся ЛЕВАЯ рука двуручного хвата. Пусто = оружие одноручное. Пока задел данных: IK левой руки будет подключён отдельно."))
+	FName LeftHandGripSocketName;
+
 	// --- Состояние ---
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|State", meta = (DisplayPriority = "3"))
@@ -104,4 +130,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Weapon|State")
 	FORCEINLINE bool GetIsReloading() const { return bIsReloading; }
+
+	// --- Хват (Build 1.2.2) ---
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Grip")
+	FORCEINLINE FVector GetGripOffsetLocation() const { return GripOffsetLocation; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Grip")
+	FORCEINLINE FRotator GetGripOffsetRotation() const { return GripOffsetRotation; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Grip")
+	FORCEINLINE FName GetLeftHandGripSocketName() const { return LeftHandGripSocketName; }
 };

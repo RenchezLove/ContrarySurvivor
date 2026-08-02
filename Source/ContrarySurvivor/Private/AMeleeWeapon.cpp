@@ -57,6 +57,16 @@ AMeleeWeapon::AMeleeWeapon()
 	ItemName        = FString("Knife");
 	ItemDisplayText = NSLOCTEXT("Items", "Knife", "Нож");
 	ItemDescription = FString("A short blade for close combat.");
+
+	// --- Поправка хвата ножа (Build 1.2.2) ---
+	// Сокет WeaponGripSocket Ринат развернул под ПИСТОЛЕТ (yaw≈180° + сдвиг Y −0.0613 в
+	// местных единицах кости R_Hand) — нож при этом «лёг неправильно». Эта поправка = точная
+	// ИНВЕРСИЯ сокет-трансформа (напечатана прогоном AddGripSocket -normalize): поправка ∘
+	// сокет = тождество, то есть нож снова лежит ровно по кости R_Hand — как до правки сокета
+	// (офсеты игрока/бандита нулевые, проверено срезом CDO 08-02). Тонкая доводка — этими же
+	// полями в Details.
+	GripOffsetLocation = FVector(0.000000, -0.061311, 0.000000);
+	GripOffsetRotation = FRotator(0.000341, 179.999728, -0.000062);
 }
 
 // Радиус капсулы актёра (0, если это не персонаж) — общая часть расчёта дистанции
