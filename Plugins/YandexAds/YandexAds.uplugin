@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Yandex Ads (Rewarded)",
+	"Description": "Yandex Mobile Ads SDK for Android with Yandex mediation (VK Ads adapter). Rewarded video only. Adds Gradle dependencies and the Java bridge through UPL; the game talks to it through IAdService.",
+	"Category": "Advertising",
+	"CreatedBy": "ContrarySurvivor",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "YandexAds",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	]
+}

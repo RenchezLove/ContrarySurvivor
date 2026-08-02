@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/Ads/MockAdService.h"
 #include "ContrarySurvivor/Ads/MockAdWidget.h"
+#include "ContrarySurvivor/Ads/YandexAdService.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Blueprint/UserWidget.h"
 #include "Engine/GameInstance.h"
@@ -78,5 +79,19 @@ IAdService* AdService::Get(const UObject* WorldContextObject)
 {
 	const UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
 	UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
-	return GI ? GI->GetSubsystem<UMockAdService>() : nullptr;
+	if (!GI)
+	{
+		return nullptr;
+	}
+
+	// На Android работает боевая реализация поверх Yandex Mobile Ads. Её сабсистема
+	// создаётся ТОЛЬКО там (UYandexAdService::ShouldCreateSubsystem), поэтому в редакторе
+	// и на десктопе этот поиск ничего не находит и мы штатно падаем на прежнюю заглушку —
+	// проверки в редакторе продолжают работать как раньше.
+	if (UYandexAdService* Real = GI->GetSubsystem<UYandexAdService>())
+	{
+		return Real;
+	}
+
+	return GI->GetSubsystem<UMockAdService>();
 }

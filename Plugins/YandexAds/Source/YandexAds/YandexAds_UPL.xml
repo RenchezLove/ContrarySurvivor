@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Yandex Mobile Ads: подключение SDK и Java-прослойки на этапе сборки Android.
+
+	Версии выбраны по официальной паре из документации Яндекса (страница подключения
+	VK Ads через медиацию): основной SDK 8.2.0 + адаптер VK Ads 5.45.3.3. Адаптер объявляет
+	жёсткие границы совместимости (SDK Яндекса от 8.2.0 до 8.2.1 не включительно, SDK VK Ads
+	от 5.45.3 до 5.45.4 не включительно), поэтому произвольные версии сюда подставлять нельзя.
+	Наличие обоих артефактов в Maven Central проверено запросом (ответ 200).
+
+	Отдельный репозиторий для VK Ads не нужен: и SDK, и адаптер лежат в Maven Central.
+-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<init>
+		<log text="YandexAds init"/>
+	</init>
+
+	<!--
+		Документация Яндекса требует компиляцию под API 35. Сам артефакт этого не навязывает
+		(в его META-INF/.../aar-metadata.properties записано minCompileSdk=1), но следуем
+		требованию вендора. Для этого на машине должна быть установлена платформа android-35.
+	-->
+	<minimumSDKAPI>
+		<insertValue value="35"/>
+		<insertNewline/>
+	</minimumSDKAPI>
+
+	<!--
+		UE 5.5 генерирует сборку с плагином Android Gradle 8.5.2, а он про API 35 ещё не знает
+		и ругается. Строка гасит именно это предупреждение и ни на что больше не влияет.
+	-->
+	<gradleProperties>
+		<insertValue value="android.suppressUnsupportedCompileSdk=35"/>
+		<insertNewline/>
+	</gradleProperties>
+
+	<buildGradleAdditions>
+		<insert>
+// YandexAds -- START
+repositories {
+	google()
+	mavenCentral()
+}
+dependencies {
+	implementation 'com.yandex.android:mobileads:8.2.0'
+	implementation 'com.yandex.ads.mediation:mobileads-mytarget:5.45.3.3'
+}
+// YandexAds -- STOP
+		</insert>
+	</buildGradleAdditions>
+
+	<!--
+		Класс прослойки ищется из C++ по имени и содержит native-метод обратного вызова,
+		поэтому переименовывать и вырезать его нельзя. Правила для самих SDK приезжают
+		вместе с их артефактами, дублировать их здесь не нужно.
+	-->
+	<proguardAdditions>
+		<insert>
+# YandexAds -- START
+-keep class com.contrarysurvivor.ads.YandexAdBridge { *; }
+-keepclasseswithmembernames class com.contrarysurvivor.ads.YandexAdBridge {
+	native &lt;methods&gt;;
+}
+-dontwarn com.yandex.**
+-dontwarn com.my.target.**
+# YandexAds -- STOP
+		</insert>
+	</proguardAdditions>
+
+	<!--
+		SDK объявляет INTERNET, ACCESS_NETWORK_STATE и свою рекламную активность сам,
+		сборщик манифестов их подтянет. Дублируем два разрешения явно — так же сделано
+		в плагине GameAnalytics этого проекта, лишними они не будут.
+	-->
+	<androidManifestUpdates>
+		<addPermission android:name="android.permission.INTERNET"/>
+		<addPermission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+	</androidManifestUpdates>
+
+	<!-- Java-прослойка едет в сборочную папку; оттуда движок кладёт её в gradle-проект. -->
+	<prebuildCopies>
+		<log text="Copying YandexAds java to staging"/>
+		<copyDir src="$S(PluginDir)/Java" dst="$S(BuildDir)/src/com/contrarysurvivor/ads"/>
+	</prebuildCopies>
+</root>

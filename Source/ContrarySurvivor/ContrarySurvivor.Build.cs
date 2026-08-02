@@ -33,6 +33,10 @@ public class ContrarySurvivor : ModuleRules
 			PublicDefinitions.Add("WITH_GAMEANALYTICS=0");
 		}
 
+		// Build 1.2.1: мост к Yandex Mobile Ads (плагин Plugins/YandexAds лежит в репозитории).
+		// Вне Android модуль собирается пустышкой, поэтому зависимость безусловная.
+		PrivateDependencyModuleNames.Add("YandexAds");
+
 		// Uncomment if you are using online features
 		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
 
