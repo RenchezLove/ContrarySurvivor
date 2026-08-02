@@ -367,7 +367,8 @@ void APlayerCharacter::ApplyPostProcessSettings()
 
     if (!bEnablePostProcess)
     {
-        // Снимаем наши оверрайды — камера рисует без нашей постобработки.
+        // Снимаем ВСЕ наши оверрайды — камера рисует без нашей постобработки.
+        // Список обязан покрывать каждое поле, которое мы включаем ниже (иначе выключатель врёт).
         PP.bOverride_VignetteIntensity   = false;
         PP.bOverride_FilmGrainIntensity  = false;
         PP.bOverride_AutoExposureMethod  = false;
@@ -376,6 +377,28 @@ void APlayerCharacter::ApplyPostProcessSettings()
         PP.bOverride_ColorSaturation     = false;
         PP.bOverride_ColorGainHighlights = false;
         PP.bOverride_ColorGainShadows    = false;
+
+        PP.bOverride_BloomIntensity      = false;
+        PP.bOverride_BloomThreshold      = false;
+        PP.bOverride_ColorContrast       = false;
+        PP.bOverride_ColorGamma          = false;
+        PP.bOverride_ColorGainMidtones   = false;
+        PP.bOverride_ColorCorrectionShadowsMax    = false;
+        PP.bOverride_ColorCorrectionHighlightsMin = false;
+        PP.bOverride_FilmSlope           = false;
+        PP.bOverride_FilmToe             = false;
+        PP.bOverride_FilmShoulder        = false;
+        PP.bOverride_SceneFringeIntensity           = false;
+        PP.bOverride_ChromaticAberrationStartOffset = false;
+        PP.bOverride_Sharpen             = false;
+        PP.bOverride_TemperatureType     = false;
+        PP.bOverride_WhiteTemp           = false;
+        PP.bOverride_WhiteTint           = false;
+        PP.bOverride_MotionBlurAmount    = false;
+        PP.bOverride_DepthOfFieldScale   = false;
+        PP.bOverride_AmbientOcclusionIntensity     = false;
+        PP.bOverride_LensFlareIntensity            = false;
+        PP.bOverride_ScreenSpaceReflectionIntensity = false;
         return;
     }
 
@@ -420,13 +443,102 @@ void APlayerCharacter::ApplyPostProcessSettings()
     PP.bOverride_ColorSaturation = true;
     PP.ColorSaturation = FVector4(Saturation, Saturation, Saturation, 1.0f);
 
-    // Тёплые света: усиление красного, ослабление синего в светах (gain, W=1).
+    // Тёплые света: усиление красного, ослабление синего в светах, помноженные на общую
+    // яркость светов (gain по зоне; W=1 — множитель-мастер движка, см. ColorCorrect в
+    // PostProcessCombineLUTs.usf: итог = xyz * w).
     PP.bOverride_ColorGainHighlights = true;
-    PP.ColorGainHighlights = FVector4(1.0f + PPHighlightWarmth, 1.0f, 1.0f - PPHighlightWarmth, 1.0f);
+    PP.ColorGainHighlights = FVector4(
+        PPHighlightGain * (1.0f + PPHighlightWarmth),
+        PPHighlightGain,
+        PPHighlightGain * (1.0f - PPHighlightWarmth),
+        1.0f);
 
-    // Холодные тени: усиление синего, ослабление красного в тенях.
+    // Холодные тени: усиление синего, ослабление красного, помноженные на общую яркость теней.
     PP.bOverride_ColorGainShadows = true;
-    PP.ColorGainShadows = FVector4(1.0f - PPShadowCoolness, 1.0f, 1.0f + PPShadowCoolness, 1.0f);
+    PP.ColorGainShadows = FVector4(
+        PPShadowGain * (1.0f - PPShadowCoolness),
+        PPShadowGain,
+        PPShadowGain * (1.0f + PPShadowCoolness),
+        1.0f);
+
+    // Яркость полутонов — отдельной зоной (движок домножает зону на глобальные значения).
+    PP.bOverride_ColorGainMidtones = true;
+    PP.ColorGainMidtones = FVector4(PPMidtoneGain, PPMidtoneGain, PPMidtoneGain, 1.0f);
+
+    // Свечение ярких мест. Порог отсекает тусклые пиксели, иначе светится весь кадр и он «плывёт».
+    // Мобильный конвейер UE 5.5 включает проход свечения по условию BloomIntensity > 0
+    // (PostProcessing.cpp:2435) и читает порог в BloomSetup (PostProcessMobile.cpp:343).
+    PP.bOverride_BloomIntensity = true;
+    PP.BloomIntensity = bPPEnableBloom ? FMath::Max(0.0f, PPBloomIntensity) : 0.0f;
+    PP.bOverride_BloomThreshold = true;
+    PP.BloomThreshold = PPBloomThreshold;
+
+    // Контраст и гамма всей картинки (глобальная зона; на неё домножаются зоны выше).
+    PP.bOverride_ColorContrast = true;
+    PP.ColorContrast = FVector4(PPContrast, PPContrast, PPContrast, 1.0f);
+    PP.bOverride_ColorGamma = true;
+    PP.ColorGamma = FVector4(PPGamma, PPGamma, PPGamma, 1.0f);
+
+    // Границы зон «тени / полутона / света» по яркости пикселя.
+    PP.bOverride_ColorCorrectionShadowsMax = true;
+    PP.ColorCorrectionShadowsMax = PPShadowsMax;
+    PP.bOverride_ColorCorrectionHighlightsMin = true;
+    PP.ColorCorrectionHighlightsMin = PPHighlightsMin;
+
+    // Плёночная кривая: как кадр уходит в чёрное и в белое. Считается в таблицу цвета,
+    // на телефоне лишних проходов не добавляет.
+    PP.bOverride_FilmSlope = true;
+    PP.FilmSlope = PPFilmSlope;
+    PP.bOverride_FilmToe = true;
+    PP.FilmToe = PPFilmToe;
+    PP.bOverride_FilmShoulder = true;
+    PP.FilmShoulder = PPFilmShoulder;
+
+    // Хроматическая аберрация у краёв кадра (значение в процентах ширины кадра).
+    PP.bOverride_SceneFringeIntensity = true;
+    PP.SceneFringeIntensity = PPChromaticAberration;
+    PP.bOverride_ChromaticAberrationStartOffset = true;
+    PP.ChromaticAberrationStartOffset = PPChromaticAberrationStart;
+
+    // Подрезка резкости в тонмаппере (общий проход с виньеткой, отдельного прохода нет).
+    PP.bOverride_Sharpen = true;
+    PP.Sharpen = PPSharpen;
+
+    // Баланс белого. Выключен — прописываем нейтральные 6500K/0, чтобы наш профиль не зависел
+    // от того, что оставил на камере кто-то другой.
+    PP.bOverride_TemperatureType = true;
+    PP.TemperatureType = TEMP_WhiteBalance;
+    PP.bOverride_WhiteTemp = true;
+    PP.WhiteTemp = bPPUseWhiteBalance ? PPWhiteTemp : 6500.0f;
+    PP.bOverride_WhiteTint = true;
+    PP.WhiteTint = bPPUseWhiteBalance ? PPWhiteTint : 0.0f;
+
+    // Тяжёлые эффекты: гасим явно нулями. На мобильном конвейере UE 5.5 смаз движения и
+    // экранные отражения в цепочке постобработки вообще отсутствуют (список проходов —
+    // PostProcessing.cpp:2280-2305), размытие по глубине и затенение складок есть, но дороги;
+    // прописанный ноль защищает от тома постобработки на уровне.
+    if (bPPDisableExpensiveEffects)
+    {
+        PP.bOverride_MotionBlurAmount = true;
+        PP.MotionBlurAmount = 0.0f;
+        PP.bOverride_DepthOfFieldScale = true;
+        PP.DepthOfFieldScale = 0.0f;
+        PP.bOverride_AmbientOcclusionIntensity = true;
+        PP.AmbientOcclusionIntensity = 0.0f;
+        PP.bOverride_LensFlareIntensity = true;
+        PP.LensFlareIntensity = 0.0f;
+        PP.bOverride_ScreenSpaceReflectionIntensity = true;
+        PP.ScreenSpaceReflectionIntensity = 0.0f;
+    }
+    else
+    {
+        // Выключатель снят — не навязываем свои значения, эффектами распоряжается уровень.
+        PP.bOverride_MotionBlurAmount = false;
+        PP.bOverride_DepthOfFieldScale = false;
+        PP.bOverride_AmbientOcclusionIntensity = false;
+        PP.bOverride_LensFlareIntensity = false;
+        PP.bOverride_ScreenSpaceReflectionIntensity = false;
+    }
 }
 
 void APlayerCharacter::SetIntroGradeAlpha(float Alpha)

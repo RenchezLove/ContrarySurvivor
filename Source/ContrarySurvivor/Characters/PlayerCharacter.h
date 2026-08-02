@@ -197,6 +197,10 @@ protected:
     float PPExposureCompensation = 0.0f;
 
     // Лёгкое зерно (film grain), очень слабое — «плёнка/потрёпанность».
+    // ВНИМАНИЕ: на телефоне зерна НЕ БУДЕТ. Движок 5.5 считает его только на настольном
+    // уровне возможностей видеокарты (PostProcessTonemap.cpp:29-32 и 196-200), а профили
+    // Android дополнительно опускают качество тонмаппера ниже порога зерна. Параметр влияет
+    // только на кадр на ПК.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
     float PPFilmGrainIntensity = 0.1f;
 
@@ -211,6 +215,118 @@ protected:
     // Холод теней [0..~0.3]: сдвигает тени к холодному (больше синего, меньше красного).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "0.3", DisplayPriority = "8"))
     float PPShadowCoolness = 0.05f;
+
+    // --- Расширенный профиль «дорогого кадра» (волна 08-02) ---
+    // ВАЖНО ПРО ТЕЛЕФОН. Всё, что ниже, считается на Android только при включённой мобильной
+    // постобработке (r.MobileHDR=1 — значение движка по умолчанию, в нашем конфиге не переопределено).
+    // Часть эффектов дополнительно гасится уровнем качества устройства (профиль Android_Low
+    // выключает свечение и виньетку, Android_Low/Mid — хроматическую аберрацию). Подробности —
+    // в комментариях у самих параметров.
+
+    // Свечение ярких мест (bloom): вокруг солнца, огня, ярких бликов появляется мягкий ореол.
+    // На телефоне работает (мобильный конвейер имеет свой проход свечения), на слабом профиле
+    // устройства (Android_Low) движок гасит свечение сам — это не ошибка кода.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "9"))
+    bool bPPEnableBloom = true;
+
+    // Сила свечения. 0 — выключено, 0.6-0.8 — заметно, но не «мыло», выше 2 — засветка.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "8.0", DisplayPriority = "10"))
+    float PPBloomIntensity = 0.7f;
+
+    // Порог свечения: насколько ярким должен быть пиксель, чтобы начать светиться.
+    // −1 — светится вообще всё (движковый дефолт, кадр «плывёт»); 1.0 — светятся только
+    // по-настоящему яркие места (солнце, блики, огонь) — это и даёт «дорогой» вид.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "-1.0", ClampMax = "8.0", DisplayPriority = "11"))
+    float PPBloomThreshold = 1.0f;
+
+    // Контраст всей картинки. 1 — как есть, больше 1 — тени глубже и света ярче,
+    // меньше 1 — картинка более плоская. Разумный коридор 0.9-1.2.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "12"))
+    float PPContrast = 1.05f;
+
+    // Гамма — яркость средних тонов. 1 — как есть, меньше 1 — полутона темнее (кадр «плотнее»),
+    // больше 1 — полутона светлее. Коридор 0.9-1.1.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.1", ClampMax = "2.0", DisplayPriority = "13"))
+    float PPGamma = 1.0f;
+
+    // Яркость ТЕНЕЙ (тёмной зоны кадра). Меньше 1 — тени глубже. Работает вместе с
+    // «холодом теней» выше: оба значения кладутся в одно и то же поле движка.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "14"))
+    float PPShadowGain = 0.97f;
+
+    // Яркость ПОЛУТОНОВ (средней зоны кадра — основная масса картинки).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "15"))
+    float PPMidtoneGain = 1.0f;
+
+    // Яркость СВЕТОВ (светлой зоны кадра). Работает вместе с «теплотой светов» выше.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "16"))
+    float PPHighlightGain = 1.02f;
+
+    // Граница «тени / полутона» по яркости: до этого значения пиксель считается тенью.
+    // Движковый дефолт 0.09. Поднимешь — «тенями» станет больше площади кадра.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "17"))
+    float PPShadowsMax = 0.09f;
+
+    // Граница «полутона / света» по яркости: с этого значения пиксель считается светом.
+    // Движковый дефолт 0.5.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "18"))
+    float PPHighlightsMin = 0.5f;
+
+    // --- Плёночная кривая (как кадр «сваливается» в чёрное и в белое) ---
+    // Считается в таблицу цвета один раз, на телефоне БЕСПЛАТНА (никаких лишних проходов).
+
+    // Наклон кривой — общий контраст плёнки. Дефолт движка 0.88, у нас чуть круче.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "19"))
+    float PPFilmSlope = 0.90f;
+
+    // «Носок» кривой — насколько мягко картинка уходит в чёрное. Больше — глубже и мягче тени.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "20"))
+    float PPFilmToe = 0.60f;
+
+    // «Плечо» кривой — насколько мягко картинка уходит в белое (не выжигает света).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "21"))
+    float PPFilmShoulder = 0.26f;
+
+    // --- Оптика объектива ---
+
+    // Хроматическая аберрация: у краёв кадра цвета чуть расходятся, как в настоящем объективе.
+    // Значение в процентах ширины кадра; 0.3-0.5 — деликатно, выше 1.5 — заметный «глюк».
+    // НА ТЕЛЕФОНЕ: движок гасит этот эффект на профилях Android_Low и Android_Mid
+    // (уровень качества постобработки 0 и 1) — там он не появится, сколько ни ставь.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "5.0", DisplayPriority = "22"))
+    float PPChromaticAberration = 0.35f;
+
+    // С какого расстояния от центра кадра начинается расхождение цветов (0 — от самого центра,
+    // 1 — только у самой рамки). 0.6 = центр чистый, работает только по краям.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "23"))
+    float PPChromaticAberrationStart = 0.6f;
+
+    // Подрезка резкости в тонмаппере: контуры становятся чётче, кадр перестаёт быть «мыльным».
+    // 0 — выключено, 0.3-0.6 — умеренно, выше 1 — «звенящие» ободки вокруг предметов.
+    // Стоит 4 дополнительных чтения кадра на пиксель — на слабом телефоне это платно.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "24"))
+    float PPSharpen = 0.35f;
+
+    // --- Баланс белого (общая температура кадра) ---
+
+    // Включает ручной баланс белого. Выключено — движок берёт нейтральный кадр.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "25"))
+    bool bPPUseWhiteBalance = false;
+
+    // Температура в градусах Кельвина: 6500 — нейтрально, ниже — кадр теплее (закат),
+    // выше — холоднее (пасмурно, ночь).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "1500.0", ClampMax = "15000.0", DisplayPriority = "26"))
+    float PPWhiteTemp = 6500.0f;
+
+    // Оттенок поперёк температуры: минус — в зелень, плюс — в пурпур. 0 — нейтрально.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (ClampMin = "-1.0", ClampMax = "1.0", DisplayPriority = "27"))
+    float PPWhiteTint = 0.0f;
+
+    // Жёстко выключает тяжёлые для телефона эффекты: смаз движения, размытие по глубине,
+    // затенение складок (SSAO), блики объектива, экранные отражения. Держать ВКЛЮЧЁННЫМ —
+    // это и есть страховка от того, что кто-то включит их томом постобработки на уровне.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|PostProcess", meta = (DisplayPriority = "28"))
+    bool bPPDisableExpensiveEffects = true;
 
     // --- Арка постобработки интро (Build 1, ТЗ раздел 4): по пути к деревне грейд плавно идёт
     // от «темнее и обесцвеченнее» к нормальному. Интерполяция альфой [0..1]: 0 = старт (значения
