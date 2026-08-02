@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"
+#include "ContrarySurvivor/UI/ItemTileWidget.h" // общая плитка предмета (Build 1.2.2, тайлы)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
@@ -18,145 +19,15 @@
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
+#include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Texture2D.h"
 #include "Styling/CoreStyle.h"
 
-// ===========================================================================
-// UCorpseLootRowWidget — одна строка списка обыска
-// ===========================================================================
-
-void UCorpseLootRowWidget::NativeOnInitialized()
-{
-	Super::NativeOnInitialized();
-
-	// Создан без WBP (RootWidget пуст) — строим кодовое дерево-фолбэк, чтобы окно
-	// работало и до генерации ассета (паттерн этапа F / UEndOfStoryWidget).
-	if (WidgetTree && !WidgetTree->RootWidget)
-	{
-		BuildFallbackTree();
-	}
-
-	if (TakeButton)
-	{
-		TakeButton->OnClicked.AddDynamic(this, &UCorpseLootRowWidget::HandleTakeClicked);
-	}
-	else
-	{
-		UE_LOG(LogQA, Warning, TEXT("CorpseLootRow: кубик TakeButton не найден — строку нельзя забрать кликом"));
-	}
-}
-
-void UCorpseLootRowWidget::BuildFallbackTree()
-{
-	// [иконка 32px][название (растяжка)][x3][кнопка «Забрать»] на тёмной подложке.
-	USizeBox* RowBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CorpseRowBox"));
-	WidgetTree->RootWidget = RowBox;
-	RowBox->SetMinDesiredHeight(44.0f);
-
-	UBorder* RowPlate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CorpseRowPlate"));
-	RowPlate->SetBrushColor(FLinearColor(1.0f, 1.0f, 1.0f, 0.06f));
-	RowPlate->SetPadding(FMargin(8.0f, 4.0f));
-	RowBox->SetContent(RowPlate);
-
-	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CorpseRowStack"));
-	RowPlate->SetContent(Row);
-
-	RowIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("RowIcon"));
-	if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(RowIcon))
-	{
-		IconSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
-		IconSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	RowNameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("RowNameText"));
-	RowNameText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 14));
-	RowNameText->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.95f, 0.95f, 1.0f)));
-	if (UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(RowNameText))
-	{
-		NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		NameSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	RowCountText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("RowCountText"));
-	RowCountText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 14));
-	RowCountText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.3f, 1.0f)));
-	if (UHorizontalBoxSlot* CountSlot = Row->AddChildToHorizontalBox(RowCountText))
-	{
-		CountSlot->SetPadding(FMargin(8.0f, 0.0f));
-		CountSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	// Тач-габарит кнопки задаёт SizeBox (у UButton 5.5 нет SetPadding).
-	USizeBox* TakeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("CorpseRowTakeBox"));
-	TakeBox->SetWidthOverride(110.0f);
-	TakeBox->SetHeightOverride(36.0f);
-	if (UHorizontalBoxSlot* BtnSlot = Row->AddChildToHorizontalBox(TakeBox))
-	{
-		BtnSlot->SetVerticalAlignment(VAlign_Center);
-	}
-
-	TakeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TakeButton"));
-	TakeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TakeText"));
-	TakeText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 12));
-	TakeText->SetColorAndOpacity(FSlateColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.0f)));
-	TakeButton->SetContent(TakeText);
-	TakeBox->SetContent(TakeButton);
-}
-
-void UCorpseLootRowWidget::SetupRow(UTexture2D* InIcon, const FText& InName, int32 InCount,
-	const FText& InTakeCaption)
-{
-	if (RowIcon)
-	{
-		if (InIcon)
-		{
-			// Габарит фиксируем В КИСТИ (Brush.ImageSize, 32px как иконки панели статов):
-			// SetDesiredSizeOverride пишет только в живой Slate и до конструирования виджета
-			// теряется (Image.cpp:122-128), а кисть надёжна в любой момент.
-			FSlateBrush IconBrush;
-			IconBrush.SetResourceObject(InIcon);
-			IconBrush.ImageSize = FVector2D(32.0f, 32.0f);
-			RowIcon->SetBrush(IconBrush);
-			RowIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-		}
-		else
-		{
-			RowIcon->SetVisibility(ESlateVisibility::Collapsed);
-		}
-	}
-
-	if (RowNameText)
-	{
-		RowNameText->SetText(InName);
-	}
-
-	if (RowCountText)
-	{
-		if (InCount > 1)
-		{
-			FFormatNamedArguments Args;
-			Args.Add(TEXT("Count"), FText::AsNumber(InCount));
-			RowCountText->SetText(FText::Format(CountFormat, Args));
-			RowCountText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-		}
-		else
-		{
-			RowCountText->SetVisibility(ESlateVisibility::Collapsed);
-		}
-	}
-
-	if (TakeText)
-	{
-		TakeText->SetText(InTakeCaption);
-	}
-}
-
-void UCorpseLootRowWidget::HandleTakeClicked()
-{
-	OnTakeClicked.Broadcast(this);
-}
+// Строковый UCorpseLootRowWidget УДАЛЁН (Build 1.2.2): обыск перешёл на общую плитку
+// UItemTileWidget — сетка иконок, клик по плитке = прежняя кнопка «Забрать».
 
 // ===========================================================================
 // UCorpseLootWidget — окно обыска
@@ -166,10 +37,10 @@ void UCorpseLootWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
 
-	// Дефолт класса строки — C++-строка с кодовым деревом: окно работает без ассетов.
-	if (!RowWidgetClass)
+	// Дефолт класса плитки — C++-плитка с кодовым деревом: окно работает без ассетов.
+	if (!TileWidgetClass)
 	{
-		RowWidgetClass = UCorpseLootRowWidget::StaticClass();
+		TileWidgetClass = UItemTileWidget::StaticClass();
 	}
 
 	if (WidgetTree && !WidgetTree->RootWidget)
@@ -317,37 +188,60 @@ void UCorpseLootWidget::RefreshList()
 	LootList->ClearChildren();
 
 	UCorpseLootComponent* CorpsePtr = Corpse.Get();
-	if (!CorpsePtr)
+	if (!CorpsePtr || !WidgetTree || !TileWidgetClass)
 	{
 		return;
 	}
 
-	APlayerController* PC = GetOwningPlayer();
+	// Build 1.2.2 (Ринат: «иконки в сетке, как в сталкере или LDoE»): внутри прежнего
+	// ScrollBox-кубика — сетка плиток; клик по плитке = прежняя кнопка «Забрать».
+	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>(
+		UUniformGridPanel::StaticClass());
+	LootList->AddChild(Grid);
 
-	// Строка денег — первой (дефолт Рината: деньги и предметы одним списком).
+	APlayerController* PC = GetOwningPlayer();
+	const int32 Columns = FMath::Max(1, TileColumns);
+	int32 TileIndex = 0;
+
+	auto AddTileToGrid = [&](UItemTileWidget* Tile)
+	{
+		if (UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(
+			Tile, TileIndex / Columns, TileIndex % Columns))
+		{
+			GridSlot->SetHorizontalAlignment(HAlign_Center);
+			GridSlot->SetVerticalAlignment(VAlign_Top);
+		}
+		++TileIndex;
+	};
+
+	// Плитка денег — первой (дефолт Рината: деньги и предметы одним списком); цифра в
+	// углу иконки = сумма (у денег «штука» и есть монета).
 	if (CorpsePtr->GetMoney() > 0.0f)
 	{
-		if (UCorpseLootRowWidget* Row = CreateWidget<UCorpseLootRowWidget>(PC, RowWidgetClass))
+		if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 		{
-			Row->bMoneyRow = true;
-			Row->SetupRow(nullptr, MoneyRowLabel,
-				FMath::RoundToInt32(CorpsePtr->GetMoney()), TakeCaption);
-			Row->OnTakeClicked.AddUObject(this, &UCorpseLootWidget::HandleRowTake);
-			LootList->AddChild(Row);
+			Tile->bMoneyTile = true;
+			UTexture2D* MoneyIcon = MoneyRowIcon.IsNull() ? nullptr : MoneyRowIcon.LoadSynchronous();
+			Tile->SetTileData(MoneyIcon, MoneyRowLabel, FMath::RoundToInt32(CorpsePtr->GetMoney()));
+			Tile->SetTileSize(TileSize, TileIconSize);
+			Tile->OnTileClicked.AddUObject(this, &UCorpseLootWidget::HandleTileTake);
+			AddTileToGrid(Tile);
 		}
 	}
 
 	// Предметы трупа: иконка + переводимое название + количество стака.
 	for (AMasterInventoryItem* Item : CorpsePtr->GetLootItems())
 	{
-		if (UCorpseLootRowWidget* Row = CreateWidget<UCorpseLootRowWidget>(PC, RowWidgetClass))
+		if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 		{
-			Row->Item = Item;
-			// Иконки может ещё не быть (рисует художник) — строка живёт на тексте.
-			UTexture2D* Icon = Item->ItemIcon.IsNull() ? nullptr : Item->ItemIcon.LoadSynchronous();
-			Row->SetupRow(Icon, Item->GetItemDisplayText(), Item->GetStackCount(), TakeCaption);
-			Row->OnTakeClicked.AddUObject(this, &UCorpseLootWidget::HandleRowTake);
-			LootList->AddChild(Row);
+			Tile->Item = Item;
+			// Иконки может не быть (незнакомый ключ) — плитка живёт на подписи.
+			const TSoftObjectPtr<UTexture2D> SoftIcon = Item->GetItemIcon();
+			Tile->SetTileData(SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous(),
+				Item->GetItemDisplayText(), Item->GetStackCount());
+			Tile->SetTileSize(TileSize, TileIconSize);
+			Tile->OnTileClicked.AddUObject(this, &UCorpseLootWidget::HandleTileTake);
+			AddTileToGrid(Tile);
 		}
 	}
 
@@ -406,18 +300,18 @@ void UCorpseLootWidget::TakeMoneyToPlayer()
 	}
 }
 
-void UCorpseLootWidget::HandleRowTake(UCorpseLootRowWidget* Row)
+void UCorpseLootWidget::HandleTileTake(UItemTileWidget* Tile)
 {
-	if (!Row)
+	if (!Tile)
 	{
 		return;
 	}
 
-	if (Row->bMoneyRow)
+	if (Tile->bMoneyTile)
 	{
 		TakeMoneyToPlayer();
 	}
-	else if (AMasterInventoryItem* TakenItem = Row->Item.Get())
+	else if (AMasterInventoryItem* TakenItem = Tile->Item.Get())
 	{
 		TakeItemToBackpack(TakenItem);
 	}

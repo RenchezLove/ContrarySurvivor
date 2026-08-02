@@ -42,5 +42,9 @@ APistol::APistol()
 	ItemDisplayText = NSLOCTEXT("Items", "Pistol", "Пистолет");
 	ItemDescription = FString("A reliable sidearm. 12 rounds per magazine.");
 
+	// Иконка для тайлового UI (Build 1.2.2) — мягкая ссылка, как у брони (ADR-043).
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(
+		TEXT("/Game/UI/Icons/Items/T_Item_Pistol.T_Item_Pistol")));
+
 	MuzzleSocketName = FName("MuzzleSocket");
 }

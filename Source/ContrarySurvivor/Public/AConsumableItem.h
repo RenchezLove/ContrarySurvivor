@@ -55,4 +55,12 @@ public:
 	// «Бинт»). Единственное место этих слов в коде: и лут бандита, и каталог торговца,
 	// и отладочная выдача берут название отсюда.
 	static FText GetDefaultDisplayText(EConsumableType Type);
+
+	// Иконка расходника по типу (Build 1.2.2, тайлы): рендеры модельера T_Item_*.
+	// Статик — чтобы каталог торговца мог показать иконку товара ДО спавна предмета.
+	static TSoftObjectPtr<UTexture2D> GetDefaultIcon(EConsumableType Type);
+
+	// Один класс обслуживает еду/воду/аптечку, а тип выставляется ПОСЛЕ спавна (лут
+	// бандита, покупка) — иконка вычисляется по текущему типу, явный ItemIcon главнее.
+	virtual TSoftObjectPtr<UTexture2D> GetItemIcon() const override;
 };

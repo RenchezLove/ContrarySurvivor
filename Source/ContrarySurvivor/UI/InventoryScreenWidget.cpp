@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
-#include "ContrarySurvivor/UI/InventoryRowWidget.h"
+#include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
@@ -9,15 +9,25 @@
 #include "AMasterInventoryItem.h" // EItemCategory, ItemIcon
 #include "AMasterWeapon.h"        // слот оружия (отображение)
 #include "UInventoryComponent.h"
+#include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/ScrollBox.h"
+#include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
 #include "Engine/Texture2D.h"
 
 void UInventoryScreenWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+
+	// Дефолт класса плитки — C++-плитка с кодовым деревом: экран работает без ассетов
+	// (паттерн окна обыска); WBP_ItemTile назначает генератор/Ринат.
+	if (!TileWidgetClass)
+	{
+		TileWidgetClass = UItemTileWidget::StaticClass();
+	}
 
 	if (HeadSlotButton)
 	{
@@ -139,17 +149,45 @@ void UInventoryScreenWidget::RefreshAll()
 		Args.Add(TEXT("ItemName"), Weapon ? Weapon->GetItemDisplayText() : EmptySlotText);
 		WeaponText->SetText(FText::Format(WeaponFormat, Args));
 	}
+	if (WeaponSlotIcon)
+	{
+		// Build 1.2.2 (Ринат: «в слоте иконка экипированной вещи»): та же схема, что у
+		// слотов брони — иконка только при оружии в руках, пустые руки = прежний вид.
+		UTexture2D* WeaponIcon = nullptr;
+		if (Weapon)
+		{
+			const TSoftObjectPtr<UTexture2D> SoftIcon = Weapon->GetItemIcon();
+			WeaponIcon = SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous();
+		}
+		if (WeaponIcon)
+		{
+			WeaponSlotIcon->SetBrushFromTexture(WeaponIcon, /*bMatchSize=*/false);
+			WeaponSlotIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			WeaponSlotIcon->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
 
-	// --- Рюкзак ---
+	// --- Рюкзак: СЕТКА ПЛИТОК (Build 1.2.2, Ринат: «иконки в сетке, как в сталкере или
+	// LDoE») внутри прежнего ScrollBox-кубика. Плитки — динамика (как раньше строки):
+	// каждый Refresh строит свежую UniformGrid-панель, старую забирает GC с ClearChildren.
 	int32 BackpackCount = 0;
 	if (BackpackList)
 	{
 		BackpackList->ClearChildren();
 
 		UInventoryComponent* Inv = Player->GetInventory();
-		if (Inv && RowWidgetClass)
+		if (Inv && TileWidgetClass && WidgetTree)
 		{
+			UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>(
+				UUniformGridPanel::StaticClass());
+			BackpackList->AddChild(Grid);
+
 			APlayerController* PC = GetOwningPlayer();
+			const int32 Columns = FMath::Max(1, TileColumns);
+			int32 TileIndex = 0;
 			for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
 			{
 				if (!IsValid(Item) || Inv->IsItemEquipped(Item))
@@ -159,40 +197,36 @@ void UInventoryScreenWidget::RefreshAll()
 				// Сигнатура в ШТУКАХ (как в NativeTick) — «x5» -> «x4» тоже пересборка.
 				BackpackCount += FMath::Max(1, Item->GetStackCount());
 
-				FText UseCaption;
-				switch (Item->GetItemCategory())
+				UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass);
+				if (!Tile)
 				{
-					case EItemCategory::Consumable: UseCaption = UseHintConsumable; break;
-					case EItemCategory::Armor:      UseCaption = UseHintArmor;      break;
-					default: break; // пусто — кнопка применения прячется в SetupRow
+					continue;
 				}
+				Tile->Item = Item;
 
-				// Название только через GetItemDisplayText: служебное имя актора наружу
-				// не уходит (ADR-050, порция 0). Build 1.2.1 (стаки): у стака >1 штуки к
-				// названию добавляется количество (формат StackNameFormat: «Тушёнка x5»).
-				FText RowName = Item->GetItemDisplayText();
-				if (Item->GetStackCount() > 1)
-				{
-					FFormatNamedArguments Args;
-					Args.Add(TEXT("ItemName"), RowName);
-					Args.Add(TEXT("Count"), FText::AsNumber(Item->GetStackCount()));
-					RowName = FText::Format(StackNameFormat, Args);
-				}
+				// Название только через GetItemDisplayText, иконка только через GetItemIcon
+				// (ADR-050: служебные имена и поля напрямую наружу не уходят).
+				const TSoftObjectPtr<UTexture2D> SoftIcon = Item->GetItemIcon();
+				Tile->SetTileData(SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous(),
+					Item->GetItemDisplayText(), Item->GetStackCount());
+				Tile->SetTileSize(TileSize, TileIconSize);
+				Tile->SetDropVisible(true); // выброс — мини-кнопка в углу плитки
+				Tile->OnTileClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileUse);
+				Tile->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileDrop);
 
-				if (UInventoryRowWidget* Row = CreateWidget<UInventoryRowWidget>(PC, RowWidgetClass))
+				if (UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(
+					Tile, TileIndex / Columns, TileIndex % Columns))
 				{
-					Row->Item = Item;
-					Row->SetupRow(RowName, UseCaption);
-					Row->OnUseClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowUse);
-					Row->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleRowDrop);
-					BackpackList->AddChild(Row);
+					GridSlot->SetHorizontalAlignment(HAlign_Center);
+					GridSlot->SetVerticalAlignment(VAlign_Top);
 				}
+				++TileIndex;
 			}
 		}
-		else if (!RowWidgetClass)
+		else if (!TileWidgetClass)
 		{
 			UE_LOG(LogQA, Warning,
-				TEXT("InventoryScreenWidget: RowWidgetClass пуст (назначь WBP_InventoryRow в Class Defaults WBP_Inventory) — рюкзак пуст"));
+				TEXT("InventoryScreenWidget: TileWidgetClass пуст — рюкзак пуст (дефолт ставится в NativeOnInitialized)"));
 		}
 	}
 	else
@@ -220,10 +254,12 @@ void UInventoryScreenWidget::RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* 
 		// Иконка ТОЛЬКО надетого предмета (мягкая ссылка; пересборки редкие — по действиям
 		// игрока, синхронная загрузка не бьёт по кадру). Пустой слот — иконка прячется,
 		// под ней видна статичная подложка Рината из WBP (арт пустого слота — его зона).
+		// Build 1.2.2: через GetItemIcon() — единый геттер иконок (вычисляемые у наследников).
 		UTexture2D* Icon = nullptr;
-		if (Eq && !Eq->ItemIcon.IsNull())
+		if (Eq)
 		{
-			Icon = Eq->ItemIcon.LoadSynchronous();
+			const TSoftObjectPtr<UTexture2D> SoftIcon = Eq->GetItemIcon();
+			Icon = SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous();
 		}
 		if (Icon)
 		{
@@ -257,22 +293,30 @@ void UInventoryScreenWidget::HandleCloseClicked()
 	OnCloseRequested.Broadcast(); // закрывает контроллер (тот же путь, что клавиша Tab)
 }
 
-void UInventoryScreenWidget::HandleRowUse(UInventoryRowWidget* Row)
+void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 {
-	AMasterInventoryItem* Item = Row ? Row->Item.Get() : nullptr;
-	if (Player && IsValid(Item))
+	AMasterInventoryItem* Item = Tile ? Tile->Item.Get() : nullptr;
+	if (!Player || !IsValid(Item))
 	{
-		Player->Inv_UseBackpackItem(Item); // тот же вызов, что клик Canvas-строки
+		return;
+	}
+	// Клик по плитке = применить. Действие есть только у расходника (использовать) и
+	// брони (надеть) — прочие предметы (квест/патроны) по клику молчат, как раньше
+	// строка без кнопки «Использовать».
+	const EItemCategory Category = Item->GetItemCategory();
+	if (Category == EItemCategory::Consumable || Category == EItemCategory::Armor)
+	{
+		Player->Inv_UseBackpackItem(Item); // тот же вызов, что раньше кнопка строки
 		RefreshAll();
 	}
 }
 
-void UInventoryScreenWidget::HandleRowDrop(UInventoryRowWidget* Row)
+void UInventoryScreenWidget::HandleTileDrop(UItemTileWidget* Tile)
 {
-	AMasterInventoryItem* Item = Row ? Row->Item.Get() : nullptr;
+	AMasterInventoryItem* Item = Tile ? Tile->Item.Get() : nullptr;
 	if (Player && IsValid(Item))
 	{
-		Player->Inv_DropItem(Item); // тот же вызов, что кнопка [X] Canvas-строки
+		Player->Inv_DropItem(Item); // тот же вызов, что раньше кнопка [X] строки
 		RefreshAll();
 	}
 }

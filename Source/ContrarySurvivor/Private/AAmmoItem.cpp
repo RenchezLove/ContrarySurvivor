@@ -9,6 +9,10 @@ AAmmoItem::AAmmoItem()
 	ItemDisplayText = NSLOCTEXT("Items", "Ammo9mm", "Патроны 9мм");
 	ItemCategory = EItemCategory::Resource;
 
+	// Иконка пачки (Build 1.2.2, тайлы) — мягкая ссылка, как у брони (ADR-043).
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(
+		TEXT("/Game/UI/Icons/Items/T_Item_Ammo9mm.T_Item_Ammo9mm")));
+
 	// Стак (поля в базе с Build 1.2.1): пачка создаётся ПУСТОЙ (счётчик наполняет
 	// покупка/размещённый пикап — прежнее поведение AAmmoItem), лимит 999 (DRAFT).
 	StackCount = 0;

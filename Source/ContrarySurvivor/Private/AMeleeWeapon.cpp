@@ -58,6 +58,10 @@ AMeleeWeapon::AMeleeWeapon()
 	ItemDisplayText = NSLOCTEXT("Items", "Knife", "Нож");
 	ItemDescription = FString("A short blade for close combat.");
 
+	// Иконка для тайлового UI (Build 1.2.2) — мягкая ссылка, как у брони (ADR-043).
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(
+		TEXT("/Game/UI/Icons/Items/T_Item_Knife.T_Item_Knife")));
+
 	// --- Поправка хвата ножа (Build 1.2.2) ---
 	// Сокет WeaponGripSocket Ринат развернул под ПИСТОЛЕТ (yaw≈180° + сдвиг Y −0.0613 в
 	// местных единицах кости R_Hand) — нож при этом «лёг неправильно». Эта поправка = точная

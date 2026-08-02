@@ -22,7 +22,7 @@ AHeadArmorT1::AHeadArmorT1()
 	ArmorSlot = EArmorSlot::Head;
 	ItemName = TEXT("Броня Т1 — голова");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT1Head", "Броня Т1 — голова");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T1_Head.T_Icon_Armor_T1_Head")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T1_Head.T_Item_Armor_T1_Head")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T1_Head.SK_Armor_T1_Head"));
@@ -38,7 +38,7 @@ ATorsoArmorT1::ATorsoArmorT1()
 	ArmorSlot = EArmorSlot::Torso;
 	ItemName = TEXT("Броня Т1 — торс");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT1Torso", "Броня Т1 — торс");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T1_Torso.T_Icon_Armor_T1_Torso")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T1_Torso.T_Item_Armor_T1_Torso")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T1_Torso.SK_Armor_T1_Torso"));
@@ -54,7 +54,7 @@ APantsArmorT1::APantsArmorT1()
 	ArmorSlot = EArmorSlot::Legs;
 	ItemName = TEXT("Броня Т1 — штаны");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT1Legs", "Броня Т1 — штаны");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T1_Legs.T_Icon_Armor_T1_Legs")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T1_Legs.T_Item_Armor_T1_Legs")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T1_Legs.SK_Armor_T1_Legs"));
@@ -72,7 +72,7 @@ AHeadArmorT2::AHeadArmorT2()
 	ArmorSlot = EArmorSlot::Head;
 	ItemName = TEXT("Броня Т2 — голова");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT2Head", "Броня Т2 — голова");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T2_Head.T_Icon_Armor_T2_Head")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T2_Head.T_Item_Armor_T2_Head")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T2_Head.SK_Armor_T2_Head"));
@@ -88,7 +88,7 @@ ATorsoArmorT2::ATorsoArmorT2()
 	ArmorSlot = EArmorSlot::Torso;
 	ItemName = TEXT("Броня Т2 — торс");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT2Torso", "Броня Т2 — торс");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T2_Torso.T_Icon_Armor_T2_Torso")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T2_Torso.T_Item_Armor_T2_Torso")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T2_Torso.SK_Armor_T2_Torso"));
@@ -104,7 +104,7 @@ APantsArmorT2::APantsArmorT2()
 	ArmorSlot = EArmorSlot::Legs;
 	ItemName = TEXT("Броня Т2 — штаны");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT2Legs", "Броня Т2 — штаны");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T2_Legs.T_Icon_Armor_T2_Legs")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T2_Legs.T_Item_Armor_T2_Legs")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T2_Legs.SK_Armor_T2_Legs"));
@@ -122,7 +122,7 @@ AHeadArmorT3::AHeadArmorT3()
 	ArmorSlot = EArmorSlot::Head;
 	ItemName = TEXT("Броня Т3 — голова");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT3Head", "Броня Т3 — голова");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T3_Head.T_Icon_Armor_T3_Head")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T3_Head.T_Item_Armor_T3_Head")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T3_Head.SK_Armor_T3_Head"));
@@ -138,7 +138,7 @@ ATorsoArmorT3::ATorsoArmorT3()
 	ArmorSlot = EArmorSlot::Torso;
 	ItemName = TEXT("Броня Т3 — торс");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT3Torso", "Броня Т3 — торс");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T3_Torso.T_Icon_Armor_T3_Torso")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T3_Torso.T_Item_Armor_T3_Torso")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T3_Torso.SK_Armor_T3_Torso"));
@@ -154,7 +154,7 @@ APantsArmorT3::APantsArmorT3()
 	ArmorSlot = EArmorSlot::Legs;
 	ItemName = TEXT("Броня Т3 — штаны");
 	ItemDisplayText = NSLOCTEXT("Items", "ArmorT3Legs", "Броня Т3 — штаны");
-	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/T_Icon_Armor_T3_Legs.T_Icon_Armor_T3_Legs")));
+	ItemIcon = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Armor_T3_Legs.T_Item_Armor_T3_Legs")));
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ArmorMeshFinder(
 		TEXT("/Game/Characters/Shared/Armor/SK_Armor_T3_Legs.SK_Armor_T3_Legs"));

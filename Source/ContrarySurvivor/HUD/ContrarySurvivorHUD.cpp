@@ -544,7 +544,7 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	auto DrawArmorSlot = [&](const FString& Name, EArmorSlot Slot, const TSoftObjectPtr<UTexture2D>& EmptyIcon)
 	{
 		AArmor* Eq = Player->GetEquippedArmor(Slot);
-		UTexture2D* Icon = ResolveIcon(Eq ? Eq->ItemIcon : EmptyIcon);
+		UTexture2D* Icon = ResolveIcon(Eq ? Eq->GetItemIcon() : EmptyIcon); // единый геттер иконок
 
 		const FString Worn = Eq
 			? (Eq->ItemName.IsEmpty() ? Eq->GetName() : Eq->ItemName)

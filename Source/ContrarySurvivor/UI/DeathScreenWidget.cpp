@@ -90,7 +90,7 @@ void UDeathScreenWidget::RefreshLossPreview()
 		{
 			FLossEntry NewEntry;
 			NewEntry.Name = Name;
-			NewEntry.Icon = Item->ItemIcon;
+			NewEntry.Icon = Item->GetItemIcon(); // единый геттер (вычислим у расходника/квест-предмета)
 			NewEntry.Count = 1;
 			Entries.Add(NewEntry);
 		}

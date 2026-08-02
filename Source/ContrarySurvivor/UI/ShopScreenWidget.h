@@ -11,7 +11,7 @@ class UTextBlock;
 class UButton;
 class UScrollBox;
 class USlider;
-class UShopRowWidget;
+class UItemTileWidget;
 class APlayerCharacter;
 class AMasterInventoryItem;
 
@@ -50,10 +50,25 @@ public:
 	// --- Настройки (Class Defaults WBP_Shop; владение переехало из HUD — ADR-048/решение лида:
 	// одно место правды; Canvas-путь использует прежние строки литералами до своего выпила) ---
 
-	// Класс строки списков: Ринат назначает сюда WBP_ShopRow. Пусто — списки не строятся
-	// (в лог уходит предупреждение), остальной экран работает.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "1"))
-	TSubclassOf<UShopRowWidget> RowWidgetClass;
+	// Класс ПЛИТКИ списков (Build 1.2.2, тайлы вместо строк): по умолчанию C++-плитка с
+	// кодовым деревом; Ринат/генератор назначает сюда WBP_ItemTile для стилизации.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "1",
+		DisplayName = "Класс плитки товара"))
+	TSubclassOf<UItemTileWidget> TileWidgetClass;
+
+	// Сетка списков: число колонок и габариты плитки/иконки (настраиваемые — ТЗ).
+	// Дефолт колонок меньше инвентарного: колонки магазина делят экран пополам.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "1", DisplayPriority = "2",
+		DisplayName = "Колонок в сетке списков"))
+	int32 TileColumns = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "3",
+		DisplayName = "Размер плитки"))
+	FVector2D TileSize = FVector2D(110.0f, 165.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "16.0", DisplayPriority = "4",
+		DisplayName = "Размер иконки в плитке"))
+	float TileIconSize = 72.0f;
 
 	// Тексты магазина. Подстановки в фигурных скобках подставляет код, остальное — твой
 	// текст. Статичные подписи («Монеты», «Количество») — отдельные кубики в дизайнере,
@@ -71,12 +86,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "3"))
 	FText SellActionText = NSLOCTEXT("Shop", "SellAction", "Продать");
 
-	// Цена в строке: {Price} — число. Отдельные форматы, потому что у выкупа знак плюс.
+	// Цена в плитке: {Price} — число. Отдельные форматы, потому что у выкупа знак плюс.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "4"))
 	FText BuyPriceFormat = NSLOCTEXT("Shop", "BuyPriceFormat", "{Price}");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "5"))
 	FText SellPriceFormat = NSLOCTEXT("Shop", "SellPriceFormat", "+{Price}");
+
+	// «Не хватает монет» в плитке недоступной покупки (ADR-049: одним потухшим цветом
+	// кнопки не обойтись, нужен текст). Переехало со строкового UShopRowWidget (Build 1.2.2).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "6"))
+	FText NotEnoughMoneyText = NSLOCTEXT("Shop", "NotEnoughMoney", "Не хватает монет");
 
 	// Название брони с прибавкой защиты: {ItemName} — название, {Percent} — прибавка.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Texts", meta = (DisplayPriority = "6"))
@@ -158,8 +178,8 @@ protected:
 	void HandleShopAdSuccess();
 	void HandleShopAdFail();
 
-	// Клик по кнопке строки (Buy/Sell) — payload в самой строке.
-	void HandleRowAction(UShopRowWidget* Row);
+	// Клик по плитке (Buy/Sell) — payload в самой плитке.
+	void HandleTileAction(UItemTileWidget* Tile);
 
 	// --- Транзакция количества (та же модель, что Canvas-слайдер: BUY по индексу каталога,
 	// SELL — стак патронов; прочие предметы продаются сразу без панели) ---

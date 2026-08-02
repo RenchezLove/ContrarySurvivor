@@ -44,9 +44,9 @@
 // Геймплей-модуль (включение по конвенции проекта, путь Source/ добавлен в Build.cs).
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
-#include "ContrarySurvivor/UI/InventoryRowWidget.h" // полный тип для TSubclassOf-присваивания
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
-#include "ContrarySurvivor/UI/ShopRowWidget.h"      // полный тип для TSubclassOf-присваивания
+#include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
+#include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
 
 DEFINE_LOG_CATEGORY_STATIC(LogGenerateWbp, Log, All);
 

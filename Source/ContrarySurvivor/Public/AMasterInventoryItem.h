@@ -102,6 +102,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item")
 	FText GetItemDisplayText() const;
 
+	// ЕДИНСТВЕННЫЙ способ получить иконку предмета для UI (Build 1.2.2, тайлы). База отдаёт
+	// поле ItemIcon как есть; классы, обслуживающие НЕСКОЛЬКО предметов, переопределяют:
+	// AConsumableItem — по типу (еда/вода/аптечка), AQuestItem — по служебному ключу
+	// (шкура/ноутбук). Это покрывает ВСЕ пути создания предмета (дроп, труп, каталог,
+	// размещённый пикап) без обязанности каждого спавнера прописывать иконку руками.
+	// Явно заданный ItemIcon (экземпляр/BP) всегда главнее вычисленного.
+	UFUNCTION(BlueprintPure, Category = "Item")
+	virtual TSoftObjectPtr<UTexture2D> GetItemIcon() const { return ItemIcon; }
+
 	// --- Стак: доступ (поднято из AAmmoItem, Build 1.2.1 ТЗ Г) ---
 
 	UFUNCTION(BlueprintPure, Category = "Item|Stack")

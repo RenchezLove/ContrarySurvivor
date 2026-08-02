@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
-#include "ContrarySurvivor/UI/ShopRowWidget.h"
+#include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Actors/ShopTypes.h"
@@ -11,16 +11,28 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AArmor.h"               // «+N% защиты» у позиций брони (как Canvas DrawShop, ADR-043)
 #include "AMasterInventoryItem.h"
-#include "AAmmoItem.h"            // стак патронов -> транзакция количества
+#include "AAmmoItem.h"            // стак патронов -> транзакция количества; иконка позиции Ammo
+#include "AConsumableItem.h"      // иконка расходника каталога по типу (Build 1.2.2, тайлы)
 #include "UInventoryComponent.h"
+#include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
 #include "Components/Slider.h"
+#include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
+#include "Engine/Texture2D.h"
 
 void UShopScreenWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+
+	// Дефолт класса плитки — C++-плитка с кодовым деревом: экран работает без ассетов
+	// (паттерн окна обыска); WBP_ItemTile назначает генератор/Ринат.
+	if (!TileWidgetClass)
+	{
+		TileWidgetClass = UItemTileWidget::StaticClass();
+	}
 
 	if (CloseButton)
 	{
@@ -110,23 +122,42 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 
 	List->ClearChildren();
 
-	if (!RowWidgetClass)
+	if (!TileWidgetClass)
 	{
 		UE_LOG(LogQA, Warning,
-			TEXT("ShopScreenWidget: RowWidgetClass пуст (назначь WBP_ShopRow в Class Defaults WBP_Shop) — списки пустые"));
+			TEXT("ShopScreenWidget: TileWidgetClass пуст — списки пустые (дефолт ставится в NativeOnInitialized)"));
 		return;
 	}
-	if (!Trader || !Player)
+	if (!Trader || !Player || !WidgetTree)
 	{
 		return;
 	}
+
+	// Build 1.2.2 (Ринат: «иконки в сетке, как в сталкере или LDoE»): внутри прежнего
+	// ScrollBox-кубика — сетка плиток; клик по плитке = прежняя кнопка Купить/Продать.
+	UUniformGridPanel* Grid = WidgetTree->ConstructWidget<UUniformGridPanel>(
+		UUniformGridPanel::StaticClass());
+	List->AddChild(Grid);
 
 	APlayerController* PC = GetOwningPlayer();
 	const float Money = GetPlayerMoney();
+	const int32 Columns = FMath::Max(1, TileColumns);
+	int32 TileIndex = 0;
+
+	auto AddTileToGrid = [&](UItemTileWidget* Tile)
+	{
+		if (UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(
+			Tile, TileIndex / Columns, TileIndex % Columns))
+		{
+			GridSlot->SetHorizontalAlignment(HAlign_Center);
+			GridSlot->SetVerticalAlignment(VAlign_Top);
+		}
+		++TileIndex;
+	};
 
 	if (bBuyList)
 	{
-		// Каталог вендора — метки строк те же, что у Canvas DrawShop (у брони «+N% защиты» из CDO).
+		// Каталог вендора — подписи те же, что у Canvas DrawShop (у брони «+N% защиты» из CDO).
 		const TArray<FShopEntry>& Catalog = Trader->GetCatalog();
 		for (int32 i = 0; i < Catalog.Num(); ++i)
 		{
@@ -145,16 +176,37 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 				Name = FText::Format(ArmorBonusFormat, ArmorArgs);
 			}
 
+			// Иконка позиции каталога — предмета ещё НЕТ, берём вычислимую: патроны — иконка
+			// пачки, расходник с типом — иконка типа, прочее — иконка CDO класса (GetItemIcon).
+			TSoftObjectPtr<UTexture2D> SoftIcon;
+			if (E.Kind == EShopEntryKind::Ammo)
+			{
+				SoftIcon = GetDefault<AAmmoItem>()->GetItemIcon();
+			}
+			else if (E.bApplyConsumableType)
+			{
+				SoftIcon = AConsumableItem::GetDefaultIcon(E.ConsumableType);
+			}
+			else if (E.ItemClass)
+			{
+				SoftIcon = GetDefault<AMasterInventoryItem>(E.ItemClass)->GetItemIcon();
+			}
+
 			FFormatNamedArguments PriceArgs;
 			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(E.Price)));
 
-			if (UShopRowWidget* Row = CreateWidget<UShopRowWidget>(PC, RowWidgetClass))
+			if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 			{
-				Row->CatalogIndex = i;
-				Row->SetupRow(Name, FText::Format(BuyPriceFormat, PriceArgs), BuyActionText,
-					/*bActionEnabled=*/Money >= E.Price);
-				Row->OnActionClicked.AddUObject(this, &UShopScreenWidget::HandleRowAction);
-				List->AddChild(Row);
+				Tile->CatalogIndex = i;
+				Tile->SetTileData(SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous(),
+					Name, /*InCount=*/1);
+				Tile->SetTileSize(TileSize, TileIconSize);
+				Tile->SetPriceText(FText::Format(BuyPriceFormat, PriceArgs));
+				const bool bAffordable = Money >= E.Price;
+				Tile->SetActionEnabled(bAffordable);
+				Tile->SetStatusText(bAffordable ? FText::GetEmpty() : NotEnoughMoneyText);
+				Tile->OnTileClicked.AddUObject(this, &UShopScreenWidget::HandleTileAction);
+				AddTileToGrid(Tile);
 			}
 		}
 	}
@@ -178,14 +230,16 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 			FFormatNamedArguments PriceArgs;
 			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(SellVal)));
 
-			if (UShopRowWidget* Row = CreateWidget<UShopRowWidget>(PC, RowWidgetClass))
+			if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 			{
-				Row->SellItem = Item;
-				Row->SetupRow(Item->GetItemDisplayText(),
-					FText::Format(SellPriceFormat, PriceArgs), SellActionText,
-					/*bActionEnabled=*/true);
-				Row->OnActionClicked.AddUObject(this, &UShopScreenWidget::HandleRowAction);
-				List->AddChild(Row);
+				Tile->Item = Item;
+				const TSoftObjectPtr<UTexture2D> SoftIcon = Item->GetItemIcon();
+				Tile->SetTileData(SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous(),
+					Item->GetItemDisplayText(), Item->GetStackCount());
+				Tile->SetTileSize(TileSize, TileIconSize);
+				Tile->SetPriceText(FText::Format(SellPriceFormat, PriceArgs));
+				Tile->OnTileClicked.AddUObject(this, &UShopScreenWidget::HandleTileAction);
+				AddTileToGrid(Tile);
 			}
 		}
 	}
@@ -200,9 +254,9 @@ void UShopScreenWidget::HandleCloseClicked()
 	OnCloseRequested.Broadcast(); // мир закрывает контроллер (CloseShop) — виджет только сообщает
 }
 
-void UShopScreenWidget::HandleRowAction(UShopRowWidget* Row)
+void UShopScreenWidget::HandleTileAction(UItemTileWidget* Tile)
 {
-	if (!Row || !Player || !Trader)
+	if (!Tile || !Player || !Trader)
 	{
 		return;
 	}
@@ -211,11 +265,11 @@ void UShopScreenWidget::HandleRowAction(UShopRowWidget* Row)
 		return; // панель количества модальна: пока открыта — списки не действуют (как Canvas)
 	}
 
-	if (Row->CatalogIndex != INDEX_NONE)
+	if (Tile->CatalogIndex != INDEX_NONE)
 	{
-		ArmBuyTransaction(Row->CatalogIndex);
+		ArmBuyTransaction(Tile->CatalogIndex);
 	}
-	else if (AMasterInventoryItem* Item = Row->SellItem.Get())
+	else if (AMasterInventoryItem* Item = Tile->Item.Get())
 	{
 		ArmSellTransaction(Item);
 	}

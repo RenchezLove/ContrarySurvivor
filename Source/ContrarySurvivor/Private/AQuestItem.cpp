@@ -18,3 +18,24 @@ void AQuestItem::Use()
 {
 	// Квест-предмет нельзя применить из рюкзака — намеренно пусто.
 }
+
+TSoftObjectPtr<UTexture2D> AQuestItem::GetItemIcon() const
+{
+	if (!ItemIcon.IsNull())
+	{
+		return ItemIcon; // явно заданная иконка главнее вычисленной
+	}
+	// Ключи — ДОСЛОВНО значения RequiredItemName квестов старосты (ElderNPC.cpp) и
+	// спавнеров (WolfCharacter/MasterEnemyBase). По контракту ADR-050 не меняются.
+	if (ItemName == TEXT("Шкура волка"))
+	{
+		return TSoftObjectPtr<UTexture2D>(FSoftObjectPath(
+			TEXT("/Game/UI/Icons/Items/T_Item_WolfHide.T_Item_WolfHide")));
+	}
+	if (ItemName == TEXT("Ноутбук"))
+	{
+		return TSoftObjectPtr<UTexture2D>(FSoftObjectPath(
+			TEXT("/Game/UI/Icons/Items/T_Item_Laptop.T_Item_Laptop")));
+	}
+	return TSoftObjectPtr<UTexture2D>(); // незнакомый ключ — без иконки
+}

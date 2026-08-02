@@ -10,7 +10,7 @@ class UTextBlock;
 class UButton;
 class UImage;
 class UScrollBox;
-class UInventoryRowWidget;
+class UItemTileWidget;
 class APlayerCharacter;
 enum class EArmorSlot : uint8;
 
@@ -39,9 +39,24 @@ public:
 
 	// --- Настройки (Class Defaults WBP_Inventory; владение переехало из HUD — ADR-048) ---
 
-	// Класс строки рюкзака: Ринат назначает сюда WBP_InventoryRow.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (DisplayPriority = "1"))
-	TSubclassOf<UInventoryRowWidget> RowWidgetClass;
+	// Класс ПЛИТКИ рюкзака (Build 1.2.2, тайлы вместо строк): по умолчанию C++-плитка с
+	// кодовым деревом; Ринат/генератор назначает сюда WBP_ItemTile для стилизации.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (DisplayPriority = "1",
+		DisplayName = "Класс плитки предмета"))
+	TSubclassOf<UItemTileWidget> TileWidgetClass;
+
+	// Сетка рюкзака: число колонок и габариты плитки/иконки (настраиваемые — ТЗ).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "1", DisplayPriority = "2",
+		DisplayName = "Колонок в сетке рюкзака"))
+	int32 TileColumns = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (DisplayPriority = "3",
+		DisplayName = "Размер плитки"))
+	FVector2D TileSize = FVector2D(110.0f, 150.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "16.0", DisplayPriority = "4",
+		DisplayName = "Размер иконки в плитке"))
+	float TileIconSize = 86.0f;
 
 	// Форматы ЗНАЧЕНИЙ. Подписи («Монеты», «Голод», «Жажда», «Защита», «Оружие») —
 	// статичные кубики в дизайнере, код их НЕ пишет (ADR-050). Раньше все три стата
@@ -71,18 +86,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "6"))
 	FText WeaponFormat = NSLOCTEXT("Inventory", "WeaponFormat", "{ItemName}");
 
-	// Подписи кнопки применения в строках рюкзака. В дизайнер уйти НЕ могут: слово
-	// зависит от предмета — расходник применяют, броню надевают.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "7"))
-	FText UseHintConsumable = NSLOCTEXT("Inventory", "UseHintConsumable", "Использовать");
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "8"))
-	FText UseHintArmor = NSLOCTEXT("Inventory", "UseHintArmor", "Надеть");
-
-	// Название строки-СТАКА (Build 1.2.1, ТЗ Г): {ItemName} — название, {Count} — штук в
-	// стаке. Применяется только при количестве больше 1 (одиночный предмет — как раньше).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
-	FText StackNameFormat = NSLOCTEXT("Inventory", "StackNameFormat", "{ItemName} x{Count}");
+	// Подписи «Использовать»/«Надеть» и формат «{ItemName} x{Count}» строкового рюкзака
+	// УДАЛЕНЫ (Build 1.2.2, тайлы): действие теперь — клик по самой плитке, а количество —
+	// цифра в правом нижнем углу иконки (UItemTileWidget::CountFormat).
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -96,9 +102,10 @@ protected:
 	UFUNCTION() void HandleLegsSlotClicked();
 	UFUNCTION() void HandleCloseClicked();
 
-	// Клики строк рюкзака (payload — в строке).
-	void HandleRowUse(UInventoryRowWidget* Row);
-	void HandleRowDrop(UInventoryRowWidget* Row);
+	// Клики плиток рюкзака (payload — в плитке): клик по плитке = использовать/надеть,
+	// мини-кнопка в углу = выбросить.
+	void HandleTileUse(UItemTileWidget* Tile);
+	void HandleTileDrop(UItemTileWidget* Tile);
 
 	// Полная пересборка paper-doll + рюкзака.
 	void RefreshAll();
@@ -161,7 +168,12 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> WeaponText;
 
-	// Список рюкзака (наполняется строками WBP_InventoryRow; прокрутка штатная).
+	// Иконка оружия в руках (Build 1.2.2, Ринат: «в слоте иконка экипированной вещи»);
+	// пустые руки — прячется, прежний вид (как иконки слотов брони).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> WeaponSlotIcon;
+
+	// Список рюкзака (ScrollBox из WBP; Build 1.2.2 — код кладёт внутрь СЕТКУ плиток).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UScrollBox> BackpackList;
 

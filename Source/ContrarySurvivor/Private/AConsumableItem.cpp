@@ -78,3 +78,24 @@ FText AConsumableItem::GetDefaultDisplayText(EConsumableType Type)
 		default:                      return NSLOCTEXT("Items", "ConsumableGeneric", "Расходник");
 	}
 }
+
+TSoftObjectPtr<UTexture2D> AConsumableItem::GetDefaultIcon(EConsumableType Type)
+{
+	// Рендеры модельера (Build 1.2.2, тайлы) — мягкие ссылки: текстуры может не быть
+	// в копии проекта, UI обязан жить без неё (тайл покажет только подпись).
+	const TCHAR* Path = nullptr;
+	switch (Type)
+	{
+		case EConsumableType::Food:   Path = TEXT("/Game/UI/Icons/Items/T_Item_CannedFood.T_Item_CannedFood"); break;
+		case EConsumableType::Water:  Path = TEXT("/Game/UI/Icons/Items/T_Item_Water.T_Item_Water"); break;
+		case EConsumableType::Medkit: Path = TEXT("/Game/UI/Icons/Items/T_Item_Medkit.T_Item_Medkit"); break;
+		default: return TSoftObjectPtr<UTexture2D>();
+	}
+	return TSoftObjectPtr<UTexture2D>(FSoftObjectPath(Path));
+}
+
+TSoftObjectPtr<UTexture2D> AConsumableItem::GetItemIcon() const
+{
+	// Явно заданная иконка (экземпляр/BP) главнее вычисленной по типу.
+	return ItemIcon.IsNull() ? GetDefaultIcon(ConsumableType) : ItemIcon;
+}
