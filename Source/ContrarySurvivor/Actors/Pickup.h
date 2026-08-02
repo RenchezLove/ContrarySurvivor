@@ -24,7 +24,10 @@ class APlayerCharacter;
  *
  * Дроп с врага: статический хелпер DropLoot (вызывается из HandleDeath бандита/волка).
  */
-UCLASS(Blueprintable)
+// Build 1.2.2: PrioritizeCategories поднимает категорию «Pickup» на самый верх Details —
+// дизайнер, поставивший пикап на карту, сразу видит поля наполнения (метаданные класса
+// наследуются и BP-наследником: KismetCompiler.cpp:1400-1402 копирует их в BP_Pickup_C).
+UCLASS(Blueprintable, meta = (PrioritizeCategories = "Pickup"))
 class CONTRARYSURVIVOR_API APickup : public AActor
 {
 	GENERATED_BODY()
@@ -82,7 +85,12 @@ protected:
 
 	// Сумма денег в пикапе (0 = нет денег). D8: EditAnywhere — задаётся на РАЗМЕЩЁННОМ
 	// экземпляре (лут точек интереса); рантайм-дроп по-прежнему пишет её через InitLoot.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayPriority = "1"))
+	// Build 1.2.2 (Ринат: «кнопка не срабатывает»): русские имена и подсказки у всех полей
+	// наполнения — пустой пикап (ни денег, ни предмета, ни патронов) клавиша E не видит
+	// (HasLoot()==false), поэтому дизайнер должен заполнить хотя бы одно из этих полей.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayPriority = "1",
+		DisplayName = "Денег внутри",
+		ToolTip = "Сколько денег получит игрок при подборе (0 = денег нет). Пикап, у которого не заполнено НИ ОДНО поле наполнения, кнопка подбора не видит."))
 	float MoneyAmount = 0.0f;
 
 	// --- D8: размещаемый лут (заполняет дизайнер на экземпляре на карте) ---
@@ -91,27 +99,37 @@ protected:
 
 	// Класс стартового предмета (nullptr = предмета нет). Особый случай: класс патронов
 	// (AAmmoItem) спавнится ОДНОЙ пачкой со стаком PlacedItemCount, а не N пустыми копиями.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2",
+		DisplayName = "Что лежит внутри (класс предмета)",
+		ToolTip = "Класс предмета, который окажется в рюкзаке при подборе (пусто = предмета нет). Патроны (AAmmoItem) кладутся одной пачкой размером «Сколько штук»."))
 	TSubclassOf<AMasterInventoryItem> PlacedItemClass;
 
 	// СЛУЖЕБНЫЙ КЛЮЧ предмета (пусто = ключ класса по умолчанию). НЕ переводится: по нему
 	// сходится зачёт квеста, если на уровень положен квест-предмет (ADR-050, порция 0).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "3"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "3",
+		DisplayName = "Служебный ключ предмета (для квестов)",
+		ToolTip = "Внутренний ключ предмета, по нему засчитываются квесты (например «Шкура волка»). Пусто = ключ класса по умолчанию. НЕ переводится и игроку не показывается."))
 	FString PlacedItemDisplayName;
 
 	// ПЕРЕВОДИМОЕ название этого же предмета, которое увидит игрок в рюкзаке (пусто =
 	// название класса по умолчанию, а если и его нет — откат на ключ выше).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "4"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "4",
+		DisplayName = "Название предмета для игрока",
+		ToolTip = "Название, которое игрок увидит в рюкзаке (переводимое). Пусто = название класса по умолчанию, а если и его нет — показывается служебный ключ."))
 	FText PlacedItemDisplayText;
 
 	// Сколько предметов положить (для AAmmoItem — размер стака одной пачки).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "1", DisplayPriority = "4"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "1", DisplayPriority = "4",
+		DisplayName = "Сколько штук",
+		ToolTip = "Сколько предметов положить внутрь. Для патронов — размер стака одной пачки."))
 	int32 PlacedItemCount = 1;
 
 	// Патроны В ДОПОЛНЕНИЕ к предмету (одна пачка AAmmoItem с этим стаком; 0 = без патронов).
 	// Отдельное поле, потому что точка интереса несёт «расходник И патроны» одним пикапом,
 	// а слот PlacedItemClass один (аналог поля денег).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0", DisplayPriority = "5"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0", DisplayPriority = "5",
+		DisplayName = "Патронов внутри (дополнительно)",
+		ToolTip = "Пачка патронов В ДОПОЛНЕНИЕ к предмету выше (0 = без патронов). Позволяет одним пикапом выдать «расходник И патроны»."))
 	int32 PlacedAmmoAmount = 0;
 
 	// --- Build 1.2.1 (ТЗ А4, Ринат: «хочу добавить ему свечение») ---
