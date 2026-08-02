@@ -10,6 +10,7 @@
 #include "Brushes/SlateColorBrush.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
+#include "Components/ButtonSlot.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
@@ -632,17 +633,39 @@ namespace
 			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f)); // InvSlotColor + подсветки
 
-		UHorizontalBox* SlotBox = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(),
+		// Начинка слота — ВЛОЖЕННАЯ КАНВА (приёмка Рината: «пунктирная сетка не даёт менять
+		// размер картинок и текста и двигать их в ячейках под броню»). Пунктир в дизайнере
+		// рисовал прежний ряд-коробка: он сам расставляет детей, и ручек перетаскивания у
+		// них нет — ручки даёт ТОЛЬКО канвас-слот (STransformHandle::CanResize,
+		// STransformHandle.cpp:153-155), поэтому лечит не разлочка, а смена контейнера.
+		// Имя кубика оставлено прежним («…Box»), чтобы не рвать контракт замков и привязки.
+		UCanvasPanel* SlotBox = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
 			FName(*(ButtonName.ToString() + TEXT("Box"))));
+
+		// Все трое — на канвас-слотах с якорем «левый край, середина по высоте»: слот
+		// владелец растягивает как хочет, а начинка остаётся по центру и не разъезжается.
+		auto PlaceInSlot = [&](UWidget* Widget, float X, bool bAutoSize, const FVector2D& Size)
+		{
+			if (UCanvasPanelSlot* CanvasSlot = SlotBox->AddChildToCanvas(Widget))
+			{
+				CanvasSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
+				CanvasSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+				CanvasSlot->SetPosition(FVector2D(X, 0.0f));
+				if (bAutoSize)
+				{
+					CanvasSlot->SetAutoSize(true);
+				}
+				else
+				{
+					CanvasSlot->SetSize(Size);
+				}
+			}
+		};
 
 		// Статичная подпись слота («Голова») — текст Рината, код не трогает.
 		UTextBlock* Caption = MakeText(Tree, Roboto, FName(*(ButtonName.ToString() + TEXT("Caption"))),
 			StaticCaption, FLinearColor(0.7f, 0.72f, 0.78f, 1.0f), 14, TEXT("Regular"));
-		if (UHorizontalBoxSlot* CapSlot = SlotBox->AddChildToHorizontalBox(Caption))
-		{
-			CapSlot->SetVerticalAlignment(VAlign_Center);
-			CapSlot->SetPadding(FMargin(8.0f, 0.0f));
-		}
+		PlaceInSlot(Caption, 8.0f, /*bAutoSize=*/true, FVector2D::ZeroVector);
 
 		// Иконка надетого: код прячет её на пустом слоте — в ассете сразу Collapsed.
 		// Размер пишем В КИСТЬ (Brush.ImageSize): прежний SetDesiredSizeOverride трогает
@@ -656,26 +679,28 @@ namespace
 		Icon->SetBrush(IconBrush);
 		Icon->SetVisibility(ESlateVisibility::Collapsed);
 		Icon->bIsVariable = true;
-		if (UHorizontalBoxSlot* IconSlot = SlotBox->AddChildToHorizontalBox(Icon))
-		{
-			IconSlot->SetVerticalAlignment(VAlign_Center);
-			IconSlot->SetPadding(FMargin(4.0f, 4.0f));
-		}
+		PlaceInSlot(Icon, 88.0f, /*bAutoSize=*/false, FVector2D(ArmorSlotIconSize, ArmorSlotIconSize));
 
 		// Что надето — ставит код («(пусто)» / имя брони).
 		UTextBlock* Worn = MakeText(Tree, Roboto, TextName, TEXT("(пусто)"),
 			FLinearColor::White, ArmorSlotTextSize, TEXT("Regular"));
 		Worn->bIsVariable = true;
-		if (UHorizontalBoxSlot* WornSlot = SlotBox->AddChildToHorizontalBox(Worn))
-		{
-			WornSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			WornSlot->SetVerticalAlignment(VAlign_Center);
-			WornSlot->SetPadding(FMargin(8.0f, 0.0f));
-		}
+		PlaceInSlot(Worn, 88.0f + ArmorSlotIconSize + 8.0f, /*bAutoSize=*/true, FVector2D::ZeroVector);
 
 		// Контент — в самом конце: SetButtonContent замыкает поддерево целиком,
 		// включая только что добавленных детей (клик выделяет саму кнопку).
 		SetButtonContent(SlotButton, SlotBox);
+
+		// Канва сама по себе размера не имеет: у слота кнопки выравнивание по умолчанию
+		// «по центру» (ButtonSlot.cpp:17-20) — с ним канва схлопнулась бы в точку и начинка
+		// пропала. Растягиваем её на всю кнопку и убираем отступ 4x2, чтобы координаты
+		// начинки считались от края слота.
+		if (UButtonSlot* ContentSlot = Cast<UButtonSlot>(SlotBox->Slot))
+		{
+			ContentSlot->SetHorizontalAlignment(HAlign_Fill);
+			ContentSlot->SetVerticalAlignment(VAlign_Fill);
+			ContentSlot->SetPadding(FMargin(0.0f));
+		}
 
 		// ...и сразу СНИМАЕМ замок с трёх кубиков начинки (ADR-056, решение Рината на
 		// приёмке: «не могу увеличить место под картинки в слотах брони, а также текст —
@@ -683,7 +708,7 @@ namespace
 		// (SWidgetDetailsView.cpp:375-393) и не пускает его в сетку выделения
 		// (SDesignerView.cpp:2060-2070) — именно это и мешало. Замок проверяется по
 		// собственному флагу каждого виджета, обход детей от него не зависит
-		// (SDesignerView.cpp:2078-2088), поэтому коробка остаётся замкнутой, а её дети
+		// (SDesignerView.cpp:2078-2088), поэтому канва слота остаётся замкнутой, а её дети
 		// выделяются. Цена: клик по иконке/тексту выделит их, а не кнопку целиком —
 		// саму кнопку теперь берут за свободный край слота или из панели «Иерархия».
 		Caption->SetLockedInDesigner(false);
