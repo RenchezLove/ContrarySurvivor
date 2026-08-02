@@ -545,6 +545,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Quest")
     UQuestComponent* GetQuests() const { return Quests; }
 
+    // Build 1.2.2 (два слота оружия в инвентаре, Ринат): экземпляры живут ОБА (спавн в
+    // BeginPlay), в руках один — CurrentWeapon базы. Экрану инвентаря нужны оба сразу.
+    UFUNCTION(BlueprintPure, Category = "Weapon")
+    AMasterWeapon* GetRangedWeaponInstance() const { return RangedWeaponInstance; }
+
+    UFUNCTION(BlueprintPure, Category = "Weapon")
+    AMasterWeapon* GetMeleeWeaponInstance() const { return MeleeWeaponInstance; }
+
     // Хромает ли игрок сейчас (HP на пороге LimpHealthFraction и ниже). Читает экранный
     // индикатор хромоты (ULimpIndicatorWidget) каждый тик для своей видимости.
     UFUNCTION(BlueprintPure, Category = "Movement|Limp")

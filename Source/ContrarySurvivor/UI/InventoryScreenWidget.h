@@ -12,6 +12,7 @@ class UImage;
 class UScrollBox;
 class UItemTileWidget;
 class APlayerCharacter;
+class AMasterWeapon;
 enum class EArmorSlot : uint8;
 
 /**
@@ -58,6 +59,17 @@ public:
 		DisplayName = "Размер иконки в плитке"))
 	float TileIconSize = 86.0f;
 
+	// Зазоры между плитками (Build 1.2.2, приёмка Рината: ряды слипались по вертикали).
+	// Сетку строит код — в дизайнере эти отступы не поменять, поэтому они параметры окна.
+	// Значение — расстояние между СОСЕДНИМИ плитками; по краям сетки остаётся половина.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "0.0", DisplayPriority = "5",
+		DisplayName = "Зазор между плитками по горизонтали"))
+	float TileSpacingX = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "0.0", DisplayPriority = "6",
+		DisplayName = "Зазор между плитками по вертикали"))
+	float TileSpacingY = 8.0f;
+
 	// Форматы ЗНАЧЕНИЙ. Подписи («Монеты», «Голод», «Жажда», «Защита», «Оружие») —
 	// статичные кубики в дизайнере, код их НЕ пишет (ADR-050). Раньше все три стата
 	// были слеплены в ОДИН кубик StatsText — теперь у каждого свой.
@@ -82,9 +94,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "5"))
 	FText ProtectionFormat = NSLOCTEXT("Inventory", "ProtectionFormat", "{Percent}%");
 
-	// Оружие в руках: {ItemName} — название предмета.
+	// Название оружия в слоте (Build 1.2.2 — слота ДВА: огнестрел и холодное, решение
+	// Рината): {ItemName} — название предмета.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "6"))
 	FText WeaponFormat = NSLOCTEXT("Inventory", "WeaponFormat", "{ItemName}");
+
+	// То же для оружия, которое СЕЙЧАС в руках, — с пометкой (отличать активный слот).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "7"))
+	FText WeaponInHandsFormat = NSLOCTEXT("Inventory", "WeaponInHandsFormat", "{ItemName} — в руках");
 
 	// Подписи «Использовать»/«Надеть» и формат «{ItemName} x{Count}» строкового рюкзака
 	// УДАЛЕНЫ (Build 1.2.2, тайлы): действие теперь — клик по самой плитке, а количество —
@@ -114,6 +131,11 @@ protected:
 	// (Collapsed, когда пусто — под ней видна статичная подложка Рината из WBP).
 	// Параметр НЕ «Slot»: имя шэдоуило бы член UWidget::Slot (C4458 при -WarningsAsErrors).
 	void RefreshArmorSlot(EArmorSlot ArmorSlot, UTextBlock* SlotText, UImage* SlotIcon);
+
+	// Один слот оружия (Build 1.2.2): название по WeaponFormat/WeaponInHandsFormat
+	// (активный помечается), иконка через GetItemIcon; нет оружия — слово пустого слота.
+	void RefreshWeaponSlot(const AMasterWeapon* Weapon, bool bInHands,
+		UTextBlock* SlotText, UImage* SlotIcon);
 
 	// Снять броню слота (клик по занятому слоту; пустой — ничего).
 	void UnequipSlot(EArmorSlot ArmorSlot);
@@ -164,14 +186,21 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> ProtectionText;
 
-	// «Оружие: Пистолет».
+	// Слоты оружия (Build 1.2.2, Ринат: «один слот под холодное оружие и один слот под
+	// огнестрельное»): текст названия + иконка на каждый. Экземпляры живут оба
+	// (GetRangedWeaponInstance/GetMeleeWeaponInstance), активный помечается
+	// WeaponInHandsFormat. Пустой слот — то же слово, что у пустого слота брони.
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> WeaponText;
+	TObjectPtr<UTextBlock> RangedSlotText;
 
-	// Иконка оружия в руках (Build 1.2.2, Ринат: «в слоте иконка экипированной вещи»);
-	// пустые руки — прячется, прежний вид (как иконки слотов брони).
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UImage> WeaponSlotIcon;
+	TObjectPtr<UImage> RangedSlotIcon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MeleeSlotText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> MeleeSlotIcon;
 
 	// Список рюкзака (ScrollBox из WBP; Build 1.2.2 — код кладёт внутрь СЕТКУ плиток).
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -185,8 +214,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<APlayerCharacter> Player;
 
-	// Сигнатура последней пересборки (число предметов рюкзака / процент защиты / имя оружия):
-	// изменилась — пересобираем. Ловит и внешние изменения (QA-клавиши выдачи предметов).
+	// Сигнатура последней пересборки (число предметов рюкзака / процент защиты / состав
+	// обоих слотов оружия + какой в руках): изменилась — пересобираем. Ловит и внешние
+	// изменения (QA-клавиши выдачи предметов).
 	int32 LastBackpackCount = -1;
 	int32 LastProtectionPct = -1;
 	FString LastWeaponName;
