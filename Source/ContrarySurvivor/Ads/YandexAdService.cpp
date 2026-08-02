@@ -63,7 +63,7 @@ void UYandexAdService::Deinitialize()
 		ForegroundHandle.Reset();
 	}
 
-	for (const TPair<FString, FDelegateHandle>& Pair : RetryHandles)
+	for (const TPair<FString, FTSTicker::FDelegateHandle>& Pair : RetryHandles)
 	{
 		FTSTicker::RemoveTicker(Pair.Value);
 	}
@@ -406,7 +406,7 @@ void UYandexAdService::ScheduleRetry(const FString& AdUnitId)
 
 	TWeakObjectPtr<UYandexAdService> WeakThis(this);
 	const FString Unit = AdUnitId;
-	const FDelegateHandle Handle = FTSTicker::GetCoreTicker().AddTicker(TEXT("YandexAdRetry"), Delay,
+	const FTSTicker::FDelegateHandle Handle = FTSTicker::GetCoreTicker().AddTicker(TEXT("YandexAdRetry"), Delay,
 		[WeakThis, Unit](float) -> bool
 		{
 			if (UYandexAdService* Self = WeakThis.Get())
@@ -421,7 +421,7 @@ void UYandexAdService::ScheduleRetry(const FString& AdUnitId)
 
 void UYandexAdService::CancelRetry(const FString& AdUnitId)
 {
-	if (const FDelegateHandle* Handle = RetryHandles.Find(AdUnitId))
+	if (const FTSTicker::FDelegateHandle* Handle = RetryHandles.Find(AdUnitId))
 	{
 		FTSTicker::RemoveTicker(*Handle);
 		RetryHandles.Remove(AdUnitId);

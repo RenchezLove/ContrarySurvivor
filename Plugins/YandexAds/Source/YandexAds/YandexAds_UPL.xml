@@ -44,6 +44,12 @@ repositories {
 dependencies {
 	implementation 'com.yandex.android:mobileads:8.2.0'
 	implementation 'com.yandex.ads.mediation:mobileads-mytarget:5.45.3.3'
+
+	// Адаптер объявляет свой SDK ПРОМЕЖУТКОМ версий [5.45.3,5.46.0), то есть Gradle
+	// притащил бы самую свежую версию из промежутка и завтра собрал бы другую сборку,
+	// чем сегодня. Прибиваем точную версию — ту самую, которую называет инструкция
+	// Яндекса при ручной установке («Download VK Ads SDK 5.45.3»).
+	implementation 'com.my.target:mytarget-sdk:5.45.3'
 }
 // YandexAds -- STOP
 		</insert>

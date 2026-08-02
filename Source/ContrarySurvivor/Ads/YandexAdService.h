@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "ContrarySurvivor/Ads/AdService.h"
 #include "YandexAdService.generated.h"
@@ -108,9 +109,11 @@ private:
 	// Сколько раз подряд не удалось загрузить — задаёт задержку следующей попытки.
 	TMap<FString, int32> LoadFailureCounts;
 
-	TMap<FString, FDelegateHandle> RetryHandles;
+	// У тикера движка СВОЙ тип ручки (FTSTicker::FDelegateHandle — это слабый указатель
+	// на его внутренний элемент), он НЕ совпадает с обычным FDelegateHandle делегатов.
+	TMap<FString, FTSTicker::FDelegateHandle> RetryHandles;
 
-	FDelegateHandle WatchdogHandle;
+	FTSTicker::FDelegateHandle WatchdogHandle;
 
 	FDelegateHandle AdEventHandle;
 	FDelegateHandle ForegroundHandle;
