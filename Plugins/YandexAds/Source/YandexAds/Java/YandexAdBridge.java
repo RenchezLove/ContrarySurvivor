@@ -243,6 +243,28 @@ public class YandexAdBridge
 		});
 	}
 
+	// Штатная отладочная панель SDK: показывает подхваченные адаптеры медиации с версиями
+	// и отмечает проблемы подключения. Нужна, чтобы на устройстве доказать, что адаптер
+	// VK реально попал в сборку. Вызывается консольной командой "ya.DebugPanel".
+	public static void showDebugPanel()
+	{
+		final Activity gameActivity = activity;
+		if (gameActivity == null)
+		{
+			Log.e(TAG, "showDebugPanel: game activity is null");
+			return;
+		}
+
+		gameActivity.runOnUiThread(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				YandexAds.showDebugPanel(gameActivity);
+			}
+		});
+	}
+
 	// Слушателя снимаем следующим шагом очереди сообщений, а не прямо внутри его же
 	// обратного вызова: SDK в этот момент ещё разбирает событие.
 	private static void release(final RewardedAd ad)

@@ -1,12 +1,20 @@
 // Copyright ContrarySurvivor. Yandex Mobile Ads bridge module.
 
 #include "YandexAdsBridge.h"
+#include "HAL/IConsoleManager.h"
 
 FOnYandexAdEvent& FYandexAdsBridge::OnAdEvent()
 {
 	static FOnYandexAdEvent Event;
 	return Event;
 }
+
+// Консольная команда для проверки на устройстве: показывает, какие адаптеры медиации
+// SDK реально подхватил. Вне Android — тихо ничего не делает.
+static FAutoConsoleCommand GYandexAdsDebugPanelCommand(
+	TEXT("ya.DebugPanel"),
+	TEXT("Yandex Ads: открыть отладочную панель SDK (список адаптеров медиации). Только Android."),
+	FConsoleCommandDelegate::CreateStatic(&FYandexAdsBridge::ShowDebugPanel));
 
 #if PLATFORM_ANDROID
 
@@ -95,6 +103,20 @@ void FYandexAdsBridge::ShowRewarded(const FString& AdUnitId)
 	AndroidJavaEnv::CheckJavaException();
 }
 
+void FYandexAdsBridge::ShowDebugPanel()
+{
+	JNIEnv* Env = nullptr;
+	jclass Class = nullptr;
+	jmethodID Method = nullptr;
+	if (!YandexAdsBridgeInternal::GetStaticMethod("showDebugPanel", "()V", Env, Class, Method))
+	{
+		return;
+	}
+
+	Env->CallStaticVoidMethod(Class, Method);
+	AndroidJavaEnv::CheckJavaException();
+}
+
 // Обратный вызов из Java. Приходит в потоке интерфейса Android, поэтому событие
 // перекладываем в игровой поток — подписчики живут там.
 JNI_METHOD void Java_com_contrarysurvivor_ads_YandexAdBridge_nativeOnAdEvent(
@@ -131,6 +153,10 @@ void FYandexAdsBridge::LoadRewarded(const FString& /*AdUnitId*/)
 }
 
 void FYandexAdsBridge::ShowRewarded(const FString& /*AdUnitId*/)
+{
+}
+
+void FYandexAdsBridge::ShowDebugPanel()
 {
 }
 
