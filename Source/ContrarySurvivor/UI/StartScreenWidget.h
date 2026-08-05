@@ -61,6 +61,24 @@ struct FStartScreenStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FText NewGameText = NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра");
 
+	// --- Подтверждение «Новая игра» (решение лида 08-05: случайное касание на телефоне
+	// стирает чужой прогресс без возможности отмены — нужен один явный переспрос). Первый клик
+	// по «Новая игра» НЕ стирает сейв — панель переключается в этот режим (те же две кнопки,
+	// подписи меняются); «Отмена» возвращает обычный выбор, «Да» стирает по-настоящему. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Confirm New Game")
+	FText ConfirmTitleText = NSLOCTEXT("StartScreenWidget", "ConfirmTitleText", "ТОЧНО ЗАНОВО?");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Confirm New Game")
+	FText ConfirmSubtitleText = NSLOCTEXT("StartScreenWidget", "ConfirmSubtitleText",
+		"Прежний прогресс будет стёрт без возможности отмены.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Confirm New Game")
+	FText ConfirmYesText = NSLOCTEXT("StartScreenWidget", "ConfirmYesText", "Да, начать заново");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Confirm New Game")
+	FText ConfirmCancelText = NSLOCTEXT("StartScreenWidget", "ConfirmCancelText", "Отмена");
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (ClampMin = "8"))
 	int32 ButtonFontSize = 19;
 
@@ -95,7 +113,8 @@ public:
 	FSimpleMulticastDelegate OnNewGameRequested;
 
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
-	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenStartScreen).
+	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenStartScreen). Запоминает
+	// стиль (CachedStyle) — переспрос «Новая игра» и отмена переключают подписи без пересоздания.
 	void ApplyStyle(const FStartScreenStyle& Style);
 
 protected:
@@ -107,15 +126,31 @@ protected:
 	virtual FReply NativeOnTouchStarted(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
 	virtual FReply NativeOnTouchEnded(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
 
+	// «Продолжить» в обычном режиме; в режиме переспроса эта же кнопка подписана «Отмена»
+	// и возвращает обычный выбор, а не грузит сейв.
 	UFUNCTION()
 	void HandleContinueClicked();
 
+	// «Новая игра»: первый клик ТОЛЬКО включает переспрос (сейв ещё цел); в режиме переспроса
+	// эта же кнопка подписана «Да, начать заново» и уже по-настоящему стирает прогресс.
 	UFUNCTION()
 	void HandleNewGameClicked();
 
 private:
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера, добавленная в колонку.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
+
+	// Подписи панели/кнопок для текущего режима (обычный выбор либо переспрос «Новая игра»).
+	// Цвета/размеры не трогает — та же ApplyStyle с другим набором текстов.
+	void ApplyChoiceLabels(const FStartScreenStyle& Style);
+	void ApplyConfirmLabels(const FStartScreenStyle& Style);
+
+	// Стиль, переданный ApplyStyle — нужен, чтобы переключаться между обычным выбором и
+	// переспросом «Новая игра» без пересоздания дерева.
+	FStartScreenStyle CachedStyle;
+
+	// Идёт переспрос «Точно начать заново?» (кнопки временно переподписаны).
+	bool bConfirmingNewGame = false;
 
 	// Элементы дерева, которые перекрашивает ApplyStyle.
 	UPROPERTY()

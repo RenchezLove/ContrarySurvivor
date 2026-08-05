@@ -87,9 +87,28 @@ void UStartScreenWidget::NativeOnInitialized()
 
 void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 {
+	CachedStyle = Style;
+
 	if (DimmerBorder) { DimmerBorder->SetBrushColor(Style.DimColor); }
 	if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
 	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
+
+	for (USizeBox* Box : ButtonBoxes)
+	{
+		if (Box)
+		{
+			Box->SetWidthOverride(Style.ButtonSize.X);
+			Box->SetHeightOverride(Style.ButtonSize.Y);
+		}
+	}
+
+	// Новый стиль применяется в ТЕКУЩЕМ режиме (обычный выбор либо переспрос «Новая игра»):
+	// иначе повторный ApplyStyle (например, из редактора) сбросил бы открытый переспрос.
+	bConfirmingNewGame ? ApplyConfirmLabels(Style) : ApplyChoiceLabels(Style);
+}
+
+void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
+{
 	if (TitleBlock)
 	{
 		TitleBlock->SetText(Style.TitleText);
@@ -114,15 +133,36 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 	};
 	StyleButtonLabel(ContinueLabel, Style.ContinueText);
 	StyleButtonLabel(NewGameLabel, Style.NewGameText);
+}
 
-	for (USizeBox* Box : ButtonBoxes)
+void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
+{
+	// Переспрос «Точно начать заново?» (решение лида 08-05): те же две кнопки, другие подписи —
+	// «Продолжить» временно становится «Отмена», «Новая игра» — «Да, начать заново».
+	if (TitleBlock)
 	{
-		if (Box)
-		{
-			Box->SetWidthOverride(Style.ButtonSize.X);
-			Box->SetHeightOverride(Style.ButtonSize.Y);
-		}
+		TitleBlock->SetText(Style.ConfirmTitleText);
+		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
+	if (SubtitleBlock)
+	{
+		SubtitleBlock->SetText(Style.ConfirmSubtitleText);
+		SubtitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
+		SubtitleBlock->SetColorAndOpacity(FSlateColor(Style.SubtitleColor));
+	}
+
+	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
+	{
+		if (Label)
+		{
+			Label->SetText(Text);
+			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+		}
+	};
+	StyleButtonLabel(ContinueLabel, Style.ConfirmCancelText);
+	StyleButtonLabel(NewGameLabel, Style.ConfirmYesText);
 }
 
 UButton* UStartScreenWidget::MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName)
@@ -150,11 +190,27 @@ UButton* UStartScreenWidget::MakeMenuButton(UVerticalBox* Column, const FText& L
 
 void UStartScreenWidget::HandleContinueClicked()
 {
+	if (bConfirmingNewGame)
+	{
+		// Кнопка сейчас подписана «Отмена» — переспрос закрыт, сейв цел, обычный выбор снова.
+		bConfirmingNewGame = false;
+		ApplyChoiceLabels(CachedStyle);
+		return;
+	}
 	OnContinueRequested.Broadcast();
 }
 
 void UStartScreenWidget::HandleNewGameClicked()
 {
+	if (!bConfirmingNewGame)
+	{
+		// Первый клик ничего не стирает — только переспрашивает (решение лида 08-05: случайное
+		// касание на телефоне не должно уничтожать прогресс без возможности отмены).
+		bConfirmingNewGame = true;
+		ApplyConfirmLabels(CachedStyle);
+		return;
+	}
+	// Кнопка сейчас подписана «Да, начать заново» — второе явное нажатие стирает по-настоящему.
 	OnNewGameRequested.Broadcast();
 }
 
