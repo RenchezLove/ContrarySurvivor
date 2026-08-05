@@ -1591,27 +1591,42 @@ bool APlayerCharacter::SaveGame()
     Save->PlayerLocation = GetActorLocation();
     Save->PlayerRotation = GetActorRotation();
 
-    // ЗАДЕЛ: инвентарь сериализуем как пути классов предметов рюкзака.
-    Save->InventoryItemClassPaths.Reset();
+    // Б3: рюкзак + экипированная броня — единый список (FSavedInventoryEntry), см. комментарий
+    // в ContrarySaveGame.h. GetInventoryItems() уже включает экипированные предметы (Фаза 4:
+    // «предмет может лежать в InventoryItems и быть экипированным одновременно») — отдельно
+    // спрашивать GetEquippedArmor по слотам не нужно, IsItemEquipped на том же предмете хватает.
+    Save->InventoryEntries.Reset();
     if (Inventory)
     {
         for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
         {
-            if (Item)
+            if (!Item)
             {
-                Save->InventoryItemClassPaths.Add(Item->GetClass()->GetPathName());
+                continue;
             }
+            FSavedInventoryEntry Entry;
+            Entry.ClassPath = Item->GetClass()->GetPathName();
+            Entry.ItemName = Item->ItemName;
+            Entry.ItemDisplayText = Item->ItemDisplayText;
+            Entry.StackCount = Item->GetStackCount();
+            Entry.bEquipped = Inventory->IsItemEquipped(Item);
+            // AConsumableItem: один класс обслуживает еду/воду/аптечку, тип — на экземпляре,
+            // классом (Entry.ClassPath) не определяется — без него восстановленный расходник
+            // всегда откатывался бы на дефолт Food (вода лечила бы голод вместо жажды).
+            if (const AConsumableItem* Cons = Cast<const AConsumableItem>(Item))
+            {
+                Entry.ConsumableType = Cons->ConsumableType;
+            }
+            Save->InventoryEntries.Add(Entry);
         }
     }
 
-    // ЗАДЕЛ (Фаза 4): сериализуем экипированную броню по слотам как пути классов.
-    auto ArmorPath = [](AArmor* Armor) -> FString
+    // Б3: журнал квестов — полный снимок (см. комментарий у поля Quests в ContrarySaveGame.h).
+    Save->Quests.Reset();
+    if (Quests)
     {
-        return Armor ? Armor->GetClass()->GetPathName() : FString();
-    };
-    Save->EquippedHeadArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Head));
-    Save->EquippedTorsoArmorClassPath = ArmorPath(GetEquippedArmor(EArmorSlot::Torso));
-    Save->EquippedLegsArmorClassPath  = ArmorPath(GetEquippedArmor(EArmorSlot::Legs));
+        Save->Quests = Quests->GetQuests();
+    }
 
     // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
     // слоте, но заполняются компонентами удержания, а не здесь. Объект Save создан свежим —
@@ -1633,7 +1648,18 @@ bool APlayerCharacter::SaveGame()
 
 bool APlayerCharacter::HasSaveGame() const
 {
-    return UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex);
+    // Б3: файл слота — это ещё не «есть что продолжать». FlushPlayTime создаёт файл уже через
+    // минуту игры (пишет ТОЛЬКО накопитель времени через LoadOrCreateSaveObject/WriteSaveObject,
+    // bHasData у такого объекта остаётся false), поэтому смотрим на признак РЕАЛЬНЫХ данных
+    // (bHasData=true ставит только настоящий SaveGame(), т.е. автосейв костра/пере-сейв смерти),
+    // а не на голый факт существования файла.
+    if (!UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    {
+        return false;
+    }
+    const UContrarySaveGame* Save = Cast<UContrarySaveGame>(
+        UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex));
+    return Save && Save->bHasData;
 }
 
 UContrarySaveGame* APlayerCharacter::LoadOrCreateSaveObject() const
@@ -1676,6 +1702,75 @@ bool APlayerCharacter::LoadGame()
     return true;
 }
 
+bool APlayerCharacter::LoadGameForContinue()
+{
+    // Б3 («Продолжить» на стартовом экране): полное восстановление прогресса — статы+позиция
+    // (как LoadGame), плюс содержимое рюкзака, экипированная броня, журнал квестов и накопитель
+    // игрового времени. Respawn() эту функцию НЕ зовёт (см. комментарий у LoadGame в заголовке) —
+    // смерть по-прежнему откатывает только статы/позицию, инвентарь между чекпоинтами не трогает.
+    if (!HasSaveGame())
+    {
+        return false;
+    }
+
+    UContrarySaveGame* Save = Cast<UContrarySaveGame>(
+        UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex));
+    if (!Save || !Save->bHasData)
+    {
+        return false;
+    }
+
+    ApplySaveData(Save);
+    RestoreInventoryAndArmor(Save);
+
+    if (Quests)
+    {
+        Quests->RestoreQuests(Save->Quests);
+    }
+
+    // BeginPlay уже прочитал накопитель времени в SavedPlayTimeBase; переприменяем явно —
+    // идемпотентно, но не оставляет скрытую зависимость от порядка BeginPlay/выбора игрока.
+    SavedPlayTimeBase = FMath::Max(0.0f, Save->TotalPlayTimeSeconds);
+    UnflushedPlayTime = 0.0f;
+
+    UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - loaded save (money %.0f, backpack %d item(s), quests %d)"),
+        Save->Money, Save->InventoryEntries.Num(), Save->Quests.Num());
+    return true;
+}
+
+void APlayerCharacter::ResetToNewGame()
+{
+    // Б3 («Новая игра» поверх существующего сейва, ТЗ издателя п.4 «честно стирает прогресс»):
+    // удаляем слот целиком (иначе получится каша из старых и новых данных) и приводим ЖИВЫЕ
+    // статы к стартовым значениям новой игры. Отдельная функция нужна потому, что BeginPlay уже
+    // отработал раньше решения игрока: HasSaveGame() тогда была true (сейв ещё существовал), и
+    // ветка «новая игра» (половина HP/голода/жажды) в BeginPlay не сработала.
+    UGameplayStatics::DeleteGameInSlot(SaveSlotName, SaveUserIndex);
+
+    if (Stats)
+    {
+        Stats->InitHealth(PlayerMaxHealth, /*bSetToMax=*/true);
+        Stats->InitMoney(StartingMoney);
+        Stats->SetHealth(Stats->GetMaxHealth() * NewGameHealthFraction);
+        Stats->SetHunger(Stats->GetSurvivalMax() * NewGameSurvivalFraction);
+        Stats->SetThirst(Stats->GetSurvivalMax() * NewGameSurvivalFraction);
+        UpdateLimpState(Stats->GetHealth(), Stats->GetMaxHealth());
+    }
+
+    // Накопитель игрового времени — заново (гейт рекламы 15 минут не наследует чужой прогресс).
+    SavedPlayTimeBase = 0.0f;
+    UnflushedPlayTime = 0.0f;
+
+    // Позиция — стартовый спавн (сейв в живого персонажа ещё не грузился, откатывать нечего).
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->StopMovementImmediately();
+    }
+    SetActorTransform(InitialSpawnTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+
+    UE_LOG(LogQA, Display, TEXT("QA: NEW GAME chosen over existing save - save wiped, stats reset to fresh start"));
+}
+
 void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
 {
     if (!Save)
@@ -1706,6 +1801,77 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
 
     SetActorLocationAndRotation(TargetLoc, Save->PlayerRotation,
         /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+}
+
+void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
+{
+    if (!Save || !Inventory)
+    {
+        return;
+    }
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FActorSpawnParameters Sp;
+    Sp.Owner = this;
+    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    int32 Restored = 0;
+    for (const FSavedInventoryEntry& Entry : Save->InventoryEntries)
+    {
+        UClass* ItemClass = StaticLoadClass(AMasterInventoryItem::StaticClass(), nullptr, *Entry.ClassPath);
+        if (!ItemClass)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("LoadGameForContinue: inventory class '%s' not found - entry skipped"), *Entry.ClassPath);
+            continue;
+        }
+
+        AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
+            ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+        if (!Item)
+        {
+            continue;
+        }
+
+        // Предмет рюкзака — данные, не объект сцены (как везде: GiveTestItems и т.п.).
+        Item->SetActorHiddenInGame(true);
+        Item->SetActorEnableCollision(false);
+        if (!Entry.ItemName.IsEmpty())
+        {
+            Item->ItemName = Entry.ItemName;
+        }
+        if (!Entry.ItemDisplayText.IsEmpty())
+        {
+            Item->ItemDisplayText = Entry.ItemDisplayText;
+        }
+        Item->StackCount = FMath::Clamp(Entry.StackCount, 0, FMath::Max(1, Item->MaxStackCount));
+
+        // AConsumableItem: тип (еда/вода/аптечка) — на экземпляре, класс его не определяет.
+        if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+        {
+            Cons->ConsumableType = Entry.ConsumableType;
+        }
+
+        Inventory->AddItem(Item);
+        ++Restored;
+
+        // Броня, надетая на момент сохранения, — надеваем заново (подмена меша слота + защита).
+        if (Entry.bEquipped)
+        {
+            if (AArmor* Armor = Cast<AArmor>(Item))
+            {
+                EquipArmor(Armor);
+                Inventory->SetItemEquipped(Armor, true);
+            }
+        }
+    }
+
+    UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - restored %d/%d backpack item(s)"),
+        Restored, Save->InventoryEntries.Num());
 }
 
 TArray<AMasterInventoryItem*> APlayerCharacter::GetDeathLossCandidates() const

@@ -12,6 +12,7 @@
 #include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor (ближайший вендор/магазин развязан от класса, A2)
 #include "ContrarySurvivor/UI/TouchControlsTypes.h" // FTouchButtonSettings (настройки тач-кнопок, этап G)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle (стиль меню паузы — поле контроллера)
+#include "ContrarySurvivor/UI/StartScreenWidget.h"  // FStartScreenStyle (Б3: стиль стартового экрана)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
@@ -20,6 +21,7 @@ class APickup;
 class UOnboardingComponent;
 class UTouchControlsWidget;
 class UPauseMenuWidget;
+class UStartScreenWidget;                  // Б3: экран «Продолжить»/«Новая игра», строится кодом
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
@@ -120,9 +122,9 @@ public:
 	// --- Этап F: онбординг/окно ежедневки ---
 
 	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
-	// смерти/меню паузы). Нужно UDailyRewardComponent: возвращать GameOnly после окна
-	// награды можно только если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen; }
+	// смерти/меню паузы/стартовый экран Б3). Нужно UDailyRewardComponent: возвращать GameOnly
+	// после окна награды можно только если игрок не успел открыть другую модалку.
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen; }
 
 	// Подавлен ли сейчас ввод движения интро-последовательностью (чёрный экран строк /
 	// авто-подход к деревне). Нужно индикатору хромоты (Build 1): разовая расшифровка
@@ -155,12 +157,35 @@ protected:
 	// Каждый кадр поддерживает авто-лок на ближайшей живой цели (см. UpdateAutoTarget).
 	virtual void Tick(float DeltaTime) override;
 
+	// --- Стартовый экран (Б3, ТЗ издателя) ---
+
+	// Найден сейв с реальным прогрессом — открывает экран «Продолжить»/«Новая игра» и блокирует
+	// геймплей (SetPause, как меню паузы) до выбора игрока. Интро при этом НЕ запускается.
+	void OpenStartScreen();
+
+	// Закрывает стартовый экран и снимает паузу (вызывается ОБОИМИ обработчиками кнопок —
+	// решение уже принято, дальше выбором распоряжается вызывающий).
+	void CloseStartScreen();
+
+	// «Продолжить»: закрыть экран, загрузить сейв целиком (APlayerCharacter::LoadGameForContinue).
+	// Интро НЕ запускается (Б3, замечание 9 ревизии — повторный показ интро при каждом запуске).
+	void HandleStartScreenContinue();
+
+	// «Новая игра» поверх существующего сейва: закрыть экран, честно стереть сейв
+	// (APlayerCharacter::ResetToNewGame) и запустить обычную новую игру (с полным интро).
+	void HandleStartScreenNewGame();
+
 	// --- Интро (Build 1, ТЗ раздел 2) ---
 
-	// Один раз (когда пешка появилась) решает, играть ли интро, и запускает его. Полное интро —
-	// только новая игра (нет сейва); повторный заход — интро с hold-to-skip; после смерти интро
-	// не запускается (BeginPlay контроллера при респауне не вызывается повторно).
+	// Один раз (когда пешка появилась) решает дальнейший ход: реальный сейв — открыть стартовый
+	// экран (см. выше), иначе сразу StartNewGameFlow (Б3: полноценное меню издатель убрал из
+	// объёма первой выкладки — прежнего варианта «интро с hold-to-skip при повторном заходе»
+	// больше нет, интро играет ТОЛЬКО при новой игре).
 	void MaybeStartIntro();
+
+	// Обычная новая игра: запускает полное (не пропускаемое) интро, если оно включено.
+	// Вызывается и когда сейва не было вовсе, и после «Новая игра» на стартовом экране.
+	void StartNewGameFlow();
 
 	// Запускает интро: чёрный экран, блок ввода движения, тёмный грейд, цель-деревня.
 	void StartIntro(bool bSkippable);
@@ -298,6 +323,11 @@ protected:
 	// (директива Рината 07-18: настройка в BP контроллера без пересборки).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (DisplayPriority = "1"))
 	FPauseMenuStyle PauseMenuStyle;
+
+	// Стиль стартового экрана «Продолжить»/«Новая игра» (Б3) — тот же паттерн настройки
+	// без пересборки, что у меню паузы.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (DisplayPriority = "1"))
+	FStartScreenStyle StartScreenStyle;
 
 	// Тексты контекстной подсказки взаимодействия (низ-центр экрана, рисует HUD).
 	// Локализация (ADR-050): FText, дефолты через NSLOCTEXT (LOCTEXT в значении по
@@ -682,6 +712,10 @@ private:
 	// Источник переключения — OnTogglePauseMenu (Esc/L/Android Back) и кнопки меню.
 	bool bPauseMenuOpen = false;
 
+	// Открыт ли стартовый экран «Продолжить»/«Новая игра» (Б3): мир на SetPause, как меню паузы.
+	// Источник переключения — MaybeStartIntro (открытие) и HandleStartScreen*/CloseStartScreen.
+	bool bStartScreenOpen = false;
+
 	// Экранный тач-слой (этап G): создаётся в BeginPlay на Android или при bEnableTouchControls.
 	// null — слой выключен.
 	UPROPERTY()
@@ -690,6 +724,11 @@ private:
 	// Виджет меню паузы: создаётся лениво при первом открытии, дальше переиспользуется.
 	UPROPERTY()
 	TObjectPtr<UPauseMenuWidget> PauseMenuWidget;
+
+	// Виджет стартового экрана (Б3): создаётся лениво, максимум один раз за сессию (либо
+	// «Продолжить», либо «Новая игра» — повторно экран не открывается).
+	UPROPERTY()
+	TObjectPtr<UStartScreenWidget> StartScreenWidget;
 
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()

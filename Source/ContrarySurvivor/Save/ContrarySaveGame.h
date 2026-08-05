@@ -4,7 +4,49 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
+#include "ContrarySurvivor/Components/QuestComponent.h" // FQuest — снимок журнала квестов (Б3)
+#include "AConsumableItem.h" // EConsumableType — расходник различается им, не только классом (Б3)
 #include "ContrarySaveGame.generated.h"
+
+/**
+ * Одна запись предмета рюкзака (Б3: полноценное восстановление инвентаря при «Продолжить»).
+ * Класс один на несколько предметов (AConsumableItem — еда/вода/аптечка, AQuestItem — шкура/
+ * ноутбук), поэтому одного пути класса недостаточно — служебный ключ (ItemName) и переводимая
+ * подпись (ItemDisplayText) заполняются НА ЭКЗЕМПЛЯРЕ при создании предмета (лут/покупка/выдача)
+ * и сохраняются вместе с классом, иначе восстановленный предмет потерял бы тип/название.
+ * bEquipped — тем же списком идёт и надетая броня (единый источник, дублирующих полей на слот
+ * Head/Torso/Legs больше нет): при восстановлении предмет с bEquipped=true надевается, а не
+ * просто кладётся в рюкзак.
+ */
+USTRUCT(BlueprintType)
+struct FSavedInventoryEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	FString ClassPath;
+
+	// Служебный ключ предмета (ADR-050, НЕ переводится) — по нему сходится логика квестов
+	// и для AConsumableItem/AQuestItem различаются предметы одного класса.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	FString ItemName;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	FText ItemDisplayText;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	int32 StackCount = 1;
+
+	// Экипирована ли броня (слот Head/Torso/Legs — берётся из класса при восстановлении).
+	// Не-броневые предметы всегда false.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	bool bEquipped = false;
+
+	// Тип расходника (для AConsumableItem — один класс обслуживает еду/воду/аптечку, тип
+	// выставляется НА ЭКЗЕМПЛЯРЕ и классом не определяется). У прочих предметов не используется.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	EConsumableType ConsumableType = EConsumableType::Food;
+};
 
 /**
  * Сейв игрока (GDD §7.8). Хранит статы выживания + позицию игрока (точка респауна).
@@ -44,24 +86,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Transform")
 	FRotator PlayerRotation = FRotator::ZeroRotator;
 
-	// --- Задел: инвентарь (GDD §7.8) ---
-	// Пути классов предметов рюкзака. ЗАДЕЛ: полноценная сериализация инвентаря —
-	// после доработки UInventoryComponent (см. эскалацию по категориям предметов).
+	// --- Рюкзак + экипированная броня (Б3, GDD §7.8) ---
+	// Единый список: содержит и обычные предметы рюкзака, и надетую броню (bEquipped=true) —
+	// у брони в рюкзаке (UInventoryComponent) и так один список на экипированное/неэкипированное
+	// (Фаза 4), отдельные поля-слоты Head/Torso/Legs только дублировали бы его и рисковали
+	// разойтись. Восстановление — APlayerCharacter::LoadGameForContinue.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
-	TArray<FString> InventoryItemClassPaths;
+	TArray<FSavedInventoryEntry> InventoryEntries;
 
-	// --- Задел: экипированная броня по слотам (Фаза 4) ---
-	// Пути классов экипированной брони (Head/Torso/Legs); пусто = слот свободен.
-	// ЗАДЕЛ: запись выполняется в APlayerCharacter::SaveGame. Авто-восстановление при
-	// загрузке — будущая волна (сейчас игрок экипирует дефолтную броню в BeginPlay).
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
-	FString EquippedHeadArmorClassPath;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
-	FString EquippedTorsoArmorClassPath;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Equipment")
-	FString EquippedLegsArmorClassPath;
+	// --- Журнал квестов (Б3) ---
+	// Полный снимок FQuest (не только id/состояние): OfferQuest добавляет квест в журнал, только
+	// если его там ещё нет, поэтому частичное восстановление («только состояние») оставило бы
+	// заголовок/описание/тексты кнопок пустыми до повторного разговора со старостой.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Quests")
+	TArray<FQuest> Quests;
 
 	// --- Этап F: удержание (ежедневная награда ADR-044 п.4 + одноразовые подсказки F1) ---
 	// Эти поля заполняет НЕ SaveGame() игрока, а UDailyRewardComponent/UOnboardingComponent

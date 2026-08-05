@@ -192,6 +192,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool TurnInQuest(FName QuestId);
 
+	// Б3 («Продолжить»): заменяет журнал целиком сохранённым снимком (полные FQuest, не только
+	// id/состояние — см. комментарий FSavedInventoryEntry/Quests в ContrarySaveGame.h) и
+	// оповещает подписчиков (HUD-трекер/маркеры) по каждому квесту, чтобы UI не ждал следующего
+	// offer/accept события старосты.
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	void RestoreQuests(const TArray<FQuest>& SavedQuests);
+
 	// --- Геттеры для UI/диалога ---
 
 	// Указатель на квест по id (const). null, если нет.

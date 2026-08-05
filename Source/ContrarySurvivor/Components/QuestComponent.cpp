@@ -327,3 +327,18 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 	}
 	return true;
 }
+
+void UQuestComponent::RestoreQuests(const TArray<FQuest>& SavedQuests)
+{
+	// Б3 («Продолжить»): журнал заменяется целиком сохранённым снимком — квесты, ещё не
+	// предложенные в ЭТОЙ сессии (игрок не успел снова подойти к старосте), уже показывают
+	// верный заголовок/прогресс/состояние, а не пустую заглушку до следующего OfferQuest.
+	Quests = SavedQuests;
+
+	for (const FQuest& Q : Quests)
+	{
+		OnQuestChanged.Broadcast(Q);
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: quest journal restored from save (%d quest(s))"), Quests.Num());
+}

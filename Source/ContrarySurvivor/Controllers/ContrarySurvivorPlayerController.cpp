@@ -38,6 +38,7 @@
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Build 1: отложенное окно ежедневки (после интро-диалога)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
+#include "ContrarySurvivor/UI/StartScreenWidget.h"          // Б3: стартовый экран «Продолжить»/«Новая игра»
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
@@ -349,6 +350,11 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 
 void AContrarySurvivorPlayerController::OnTogglePauseMenu()
 {
+	// Пока не решено «Продолжить»/«Новая игра» — меню паузы поверх стартового экрана не нужно.
+	if (bStartScreenOpen)
+	{
+		return;
+	}
 	// На экране смерти меню не открываем — там свой модальный флоу («Возродиться»).
 	if (bDeathScreen)
 	{
@@ -450,6 +456,111 @@ void AContrarySurvivorPlayerController::HandlePauseQuit()
 {
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu QUIT pressed — quitting game"));
 	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, /*bIgnorePlatformRestrictions=*/false);
+}
+
+// ---------------------------------------------------------------------------
+// Стартовый экран (Б3, ТЗ издателя): «Продолжить» / «Новая игра» — показывается ТОЛЬКО когда
+// найден сейв с реальным прогрессом (MaybeStartIntro). Паттерн — точная копия меню паузы
+// (SetPause + барьер виджета), см. OpenPauseMenu/ClosePauseMenu выше.
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OpenStartScreen()
+{
+	if (bStartScreenOpen)
+	{
+		return;
+	}
+
+	if (!StartScreenWidget)
+	{
+		StartScreenWidget = CreateWidget<UStartScreenWidget>(this, UStartScreenWidget::StaticClass());
+		if (!StartScreenWidget)
+		{
+			// Виджет не создался — не блокируем игру навсегда, откатываемся к обычной новой игре.
+			UE_LOG(LogQA, Warning, TEXT("QA: start screen widget creation failed — falling back to new game"));
+			StartNewGameFlow();
+			return;
+		}
+		StartScreenWidget->ApplyStyle(StartScreenStyle); // стиль с контроллера (EditAnywhere) поверх дефолтов
+		StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenContinue);
+		StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenNewGame);
+	}
+	// Z=70: выше меню паузы (60) и интро (50) — при интро экран не появляется, запас на будущее.
+	StartScreenWidget->AddToViewport(/*ZOrder=*/70);
+
+	bStartScreenOpen = true;
+	bUIClickConsumed = false;
+
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(false);
+	}
+
+	// Пауза мира — как меню паузы: геймплейные Enhanced Input-экшены молчат (bTriggerWhenPaused
+	// по умолчанию false), кнопки виджета работают (Slate игровой паузой не останавливается).
+	SetPause(true);
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: start screen OPEN (save with real progress found, world paused)"));
+}
+
+void AContrarySurvivorPlayerController::CloseStartScreen()
+{
+	if (!bStartScreenOpen)
+	{
+		return;
+	}
+	bStartScreenOpen = false;
+	bUIClickConsumed = false;
+
+	if (StartScreenWidget)
+	{
+		StartScreenWidget->RemoveFromParent();
+	}
+
+	SetPause(false);
+
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(true);
+	}
+
+	if (!IsAnyModalUIOpen())
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: start screen CLOSED (world resumed)"));
+}
+
+void AContrarySurvivorPlayerController::HandleStartScreenContinue()
+{
+	CloseStartScreen();
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	const bool bLoaded = PlayerChar && PlayerChar->LoadGameForContinue();
+	UE_LOG(LogQA, Display, TEXT("QA: start screen -> CONTINUE (%s)"),
+		bLoaded ? TEXT("save loaded") : TEXT("load FAILED — stayed at spawn defaults"));
+
+	// Б3, замечание 9 ревизии: интро НЕ играет при «Продолжить» — IntroPhase остаётся None.
+}
+
+void AContrarySurvivorPlayerController::HandleStartScreenNewGame()
+{
+	CloseStartScreen();
+
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->ResetToNewGame();
+	}
+
+	StartNewGameFlow(); // полное интро — как у игрока без сейва вообще
 }
 
 // ---------------------------------------------------------------------------
@@ -1689,16 +1800,32 @@ void AContrarySurvivorPlayerController::MaybeStartIntro()
 	}
 	bIntroChecked = true; // решение принимаем ровно один раз
 
+	// Б3 (задача издателя): найден сейв с РЕАЛЬНЫМ прогрессом — решение «Продолжить»/«Новая
+	// игра» отдаётся стартовому экрану, а не автостарту. Интро (если будет) запустит
+	// HandleStartScreenNewGame через StartNewGameFlow. После смерти BeginPlay контроллера не
+	// вызывается повторно (пешка та же) — сюда попадаем ровно один раз за запуск игры.
+	if (PlayerChar->HasSaveGame())
+	{
+		OpenStartScreen();
+		return;
+	}
+
+	// Сейва с реальным прогрессом нет — как раньше, сразу обычная новая игра.
+	StartNewGameFlow();
+}
+
+void AContrarySurvivorPlayerController::StartNewGameFlow()
+{
 	if (!bEnableIntro)
 	{
 		return; // интро выключено (отладка команды) — сразу обычная игра
 	}
 
-	// Полное интро — только НОВАЯ игра (сейва ещё нет). Повторный заход (сейв есть) — интро с
-	// hold-to-skip. После смерти BeginPlay контроллера не вызывается повторно (пешка та же),
-	// поэтому «после смерти интро не показывать» выполняется само.
-	const bool bNewGame = !PlayerChar->HasSaveGame();
-	StartIntro(/*bSkippable=*/!bNewGame);
+	// Б3, замечание 9 ревизии: интро играет ТОЛЬКО при новой игре (при «Продолжить» — не
+	// запускается вовсе). Прежнего варианта «повторный заход = интро с hold-to-skip» больше нет —
+	// повторный показ каждого запуска и был жалобой издателя; теперь новая игра тут ровно одна
+	// (сейва не было, либо игрок сам стёр его на стартовом экране), интро всегда полное.
+	StartIntro(/*bSkippable=*/false);
 }
 
 void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
@@ -2006,8 +2133,8 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	CurrentInteractActor = nullptr;
 	CurrentInteractKind = EInteractKind::None;
 
-	// Пока открыт модальный экран (вкл. экран смерти) — подсказку не предлагаем.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen)
+	// Пока открыт модальный экран (вкл. экран смерти и стартовый экран Б3) — подсказку не предлагаем.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bStartScreenOpen)
 	{
 		return;
 	}
@@ -2166,10 +2293,10 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 
 void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 {
-	// Пока открыт инвентарь/магазин/диалог/обыск трупа/экран смерти/меню паузы ИЛИ идёт
-	// авто-подход интро — движение игрока подавлено. Гейт общий для WASD и тач-стика
+	// Пока открыт инвентарь/магазин/диалог/обыск трупа/экран смерти/меню паузы/стартовый экран
+	// Б3 ИЛИ идёт авто-подход интро — движение игрока подавлено. Гейт общий для WASD и тач-стика
 	// (инжекция стика идёт тем же MoveAction). Во время интро персонажа ведёт авто-подход.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bIntroInputLocked)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bIntroInputLocked)
 	{
 		return;
 	}
@@ -2225,9 +2352,9 @@ void AContrarySurvivorPlayerController::Sprint(const FInputActionValue& Value)
 
 void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 {
-	// Меню паузы: клики обрабатывают кнопки виджета, не стрельба. При паузе Enhanced Input
-	// и так молчит (bTriggerWhenPaused=false) — гейт на случай кадров до/после SetPause.
-	if (bPauseMenuOpen)
+	// Меню паузы/стартовый экран Б3: клики обрабатывают кнопки виджета, не стрельба. При паузе
+	// Enhanced Input и так молчит (bTriggerWhenPaused=false) — гейт на случай кадров до/после SetPause.
+	if (bPauseMenuOpen || bStartScreenOpen)
 	{
 		return;
 	}
