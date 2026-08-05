@@ -329,12 +329,24 @@ void UShopScreenWidget::ArmBuyTransaction(int32 CatalogIndex)
 	UpdateTransactionTexts();
 }
 
+int32 UShopScreenWidget::GetSellQtyMax(const AMasterInventoryItem* Item)
+{
+	if (!Item)
+	{
+		return 1;
+	}
+	// Стопкой торгуем по её размеру, нестакающейся вещью — ровно одной штукой. Счётчик
+	// стопки живёт в базе AMasterInventoryItem, поэтому патроны здесь ничем не особенные:
+	// у них тот же StackCount, что у воды, тушёнки, аптечек и шкур.
+	return Item->IsStackable() ? FMath::Max(1, Item->GetStackCount()) : 1;
+}
+
 void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 {
 	// Build 1.2 (ТЗ №2 раздел 3): окно итога с двумя кнопками нужно ЛЮБОЙ продаже —
-	// теперь и нестакающийся предмет открывает панель подтверждения (количество жёстко 1),
-	// а не продаётся мгновенно кликом строки: в панели живут обычная кнопка продажи и
-	// золотая «Продать дороже». Отказ (обычная продажа) ничем не блокируется.
+	// и нестакающийся предмет открывает панель подтверждения, а не продаётся мгновенно
+	// кликом плитки: в панели живут обычная кнопка продажи и золотая «Продать дороже».
+	// Отказ (обычная продажа) ничем не блокируется.
 	AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
 
 	bTransactionActive = true;
@@ -343,18 +355,18 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 	TransactionItem = Item;
 	TransactionUnitAmmo = 0;
 	TransactionTitle = Item->GetItemDisplayText();
-	if (Ammo)
-	{
-		TransactionUnitPrice = Trader->GetAmmoSellPerRound();
-		TransactionQtyMax = FMath::Max(1, Ammo->StackCount);
-		TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
-	}
-	else
-	{
-		TransactionUnitPrice = Trader->GetSellValue(Item);
-		TransactionQtyMax = 1;
-		TransactionQty = 1;
-	}
+
+	// Цена единицы: у патронов — спец-тариф за штуку, у прочих — цена выкупа предмета
+	// (тариф категории и есть цена ОДНОЙ штуки). Ровно та же развилка, что в Canvas-пути.
+	TransactionUnitPrice = Ammo ? Trader->GetAmmoSellPerRound() : Trader->GetSellValue(Item);
+
+	// Предел количества — размер стопки для ЛЮБОГО стакающегося предмета (Build 1.2.2,
+	// приёмка Рината 05-08). До этой правки стопку видели только патроны, из-за чего «Вода
+	// х3» продавалась по одной штуке, а ползунок и кнопки плюс/минус стояли намертво.
+	// Улучшение уже жило в Canvas-пути (AContrarySurvivorHUD::ArmSellSlider, ТЗ Г волны
+	// 1.2.1) и просто не было перенесено сюда вместе с переходом на UMG.
+	TransactionQtyMax = GetSellQtyMax(Item);
+	TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
 
 	// Снимок лимита/кулдауна точки рекламы на момент открытия сделки (см. заголовок).
 	bAdLimitOk = Player && Player->GetShopAdUsesToday() < SellAdDailyLimit;

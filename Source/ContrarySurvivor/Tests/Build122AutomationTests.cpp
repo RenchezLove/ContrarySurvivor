@@ -14,7 +14,9 @@
 //   - обыск мешка-пикапа (ТЗ Рината про BP_Picup): содержимое лежит в общем контейнере
 //     UCorpseLootComponent, по умолчанию открывается окно (а не мгновенный забор), забор
 //     ИДЁТ ПОШТУЧНО, опустевший мешок исчезает, в реестр обыскиваемых трупов он не встаёт;
-//   - переключатель «забирать всё сразу» возвращает прежнее поведение Collect.
+//   - переключатель «забирать всё сразу» возвращает прежнее поведение Collect;
+//   - доводка 05-08: предел количества в сделке ПРОДАЖИ равен размеру стопки предмета
+//     (баг «Вода х3 продаётся по одной штуке»).
 // НЕ покрывается headless (нужен PIE): фактическая поза оружия в ладони на анимируемом
 //   персонаже (скелетные меши в тест-мире не грузятся), клики по плиткам самого окна
 //   обыска (Slate) — за живым осмотром Рината/лида.
@@ -24,8 +26,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AMeleeWeapon.h"
+#include "AAmmoItem.h"
+#include "AArmorTiers.h"
 #include "AConsumableItem.h"
 #include "AMasterInventoryItem.h"
+#include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "Animation/Skeleton.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
@@ -413,6 +418,58 @@ bool FBuild122PickupInstantCollectTest::RunTest(const FString& Parameters)
 			{
 				bOk = false;
 			}
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 6. Предел количества в сделке ПРОДАЖИ = размер стопки (баг Рината 05-08: стопка
+//    «Вода х3» открывалась окном «Количество 1 из 1», кнопки плюс/минус упирались в кламп).
+//    Правило проверяется на чистой функции UShopScreenWidget::GetSellQtyMax — сам виджет
+//    без окна и контроллера headless не создать, а правило целиком лежит в ней.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122ShopSellQtyMaxTest,
+	"ContrarySurvivor.Build122.Shop.SellQtyMaxFromStack", Build122TestFlags)
+
+bool FBuild122ShopSellQtyMaxTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		// Стопка расходника — то, на чём баг и поймали.
+		AConsumableItem* Water = Build122TestWorld::SpawnConsumable(World, EConsumableType::Water, /*Stack=*/3);
+		// Патроны — прежнее поведение не должно измениться.
+		AAmmoItem* Ammo = Build122TestWorld::Spawn<AAmmoItem>(World);
+		// Броня — нестакающийся предмет, продаётся ровно одной штукой.
+		AHeadArmorT1* Helmet = Build122TestWorld::Spawn<AHeadArmorT1>(World);
+
+		if (Water && Ammo && Helmet)
+		{
+			TestTrue(TEXT("Вода стакается"), Water->IsStackable());
+			TestEqual(TEXT("Стопка воды из 3 продаётся по 3"), UShopScreenWidget::GetSellQtyMax(Water), 3);
+
+			Water->StackCount = 1;
+			TestEqual(TEXT("Одна бутылка воды — предел 1"), UShopScreenWidget::GetSellQtyMax(Water), 1);
+
+			Ammo->StackCount = 7;
+			TestEqual(TEXT("Пачка патронов из 7 продаётся по 7"), UShopScreenWidget::GetSellQtyMax(Ammo), 7);
+
+			TestFalse(TEXT("Броня не стакается"), Helmet->IsStackable());
+			TestEqual(TEXT("Нестакающийся предмет — предел 1"), UShopScreenWidget::GetSellQtyMax(Helmet), 1);
+
+			// Пустой предмет не должен ронять окно.
+			TestEqual(TEXT("Без предмета предел 1"), UShopScreenWidget::GetSellQtyMax(nullptr), 1);
 		}
 		else
 		{
