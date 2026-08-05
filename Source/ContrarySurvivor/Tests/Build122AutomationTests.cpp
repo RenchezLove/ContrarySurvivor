@@ -30,6 +30,7 @@
 #include "AArmorTiers.h"
 #include "AConsumableItem.h"
 #include "AMasterInventoryItem.h"
+#include "AQuestItem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Actors/ShopTypes.h"
 #include "ContrarySurvivor/Characters/MasterTrader.h"
@@ -558,6 +559,27 @@ bool FBuild122ShopBuybackTest::RunTest(const FString& Parameters)
 					TestTrue(TEXT("Патрон выкупается дешевле, чем продаётся"),
 						Trader->GetAmmoSellPerRound() < PricePerRound);
 				}
+			}
+
+			// Шкура волка — особая цена 15 монет (решение лида 05-08 по РИ-28). Ключ предмета
+			// служебный, дословно как у дропа волка (WolfCharacter::QuestLootItemName).
+			AQuestItem* Pelt = Build122TestWorld::Spawn<AQuestItem>(World);
+			AQuestItem* Laptop = Build122TestWorld::Spawn<AQuestItem>(World);
+			if (Pelt && Laptop)
+			{
+				Pelt->ItemName = TEXT("Шкура волка");
+				TestEqual(TEXT("Шкура волка выкупается за 15"), Trader->GetSellValue(Pelt), 15.0f);
+				TestTrue(TEXT("Шкура осталась квестовым предметом"),
+					Pelt->GetItemCategory() == EItemCategory::Quest);
+
+				// Прочие квестовые вещи особой цены не получили — идут по категории, как раньше.
+				Laptop->ItemName = TEXT("Ноутбук");
+				TestEqual(TEXT("Ноутбук по-прежнему по цене категории"),
+					Trader->GetSellValue(Laptop), 2.0f);
+			}
+			else
+			{
+				bOk = false;
 			}
 		}
 		else
