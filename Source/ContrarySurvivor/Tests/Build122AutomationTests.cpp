@@ -30,6 +30,7 @@
 #include "AArmorTiers.h"
 #include "AConsumableItem.h"
 #include "AMasterInventoryItem.h"
+#include "APistol.h"
 #include "AQuestItem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Actors/ShopTypes.h"
@@ -576,6 +577,95 @@ bool FBuild122ShopBuybackTest::RunTest(const FString& Parameters)
 				Laptop->ItemName = TEXT("Ноутбук");
 				TestEqual(TEXT("Ноутбук по-прежнему по цене категории"),
 					Trader->GetSellValue(Laptop), 2.0f);
+			}
+			else
+			{
+				bOk = false;
+			}
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 8. Старт без огнестрела (решение Рината 05-08): у нового игрока только нож, пистолет
+//    покупается у торговца за 150. Проверяем, что игра при этом не остаётся безоружной
+//    (нож сразу в руках) и что купленный огнестрел занимает пустой слот оружия, а не
+//    лежит в рюкзаке мёртвым грузом.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122StartWithoutFirearmTest,
+	"ContrarySurvivor.Build122.Player.StartWithoutFirearm", Build122TestFlags)
+
+bool FBuild122StartWithoutFirearmTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		APlayerCharacter* Player = Build122TestWorld::Spawn<APlayerCharacter>(World);
+		UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
+		if (Player && Inv)
+		{
+			// 1) Новый игрок: огнестрела нет, но руки не пустые — в них нож.
+			TestNull(TEXT("Слот огнестрела на старте пуст"), Player->GetRangedWeaponInstance());
+			TestNotNull(TEXT("В руках есть оружие"), Player->GetCurrentWeapon());
+			TestTrue(TEXT("В руках именно нож (ближний бой)"),
+				Cast<ARangedWeapon>(Player->GetCurrentWeapon()) == nullptr);
+			// Перезарядка без огнестрела не должна ничего ломать.
+			Player->ReloadCurrentWeapon();
+			TestNull(TEXT("Перезарядка не выдала огнестрел"), Player->GetRangedWeaponInstance());
+			// Кнопка «Оружие» без второго ствола просто ничего не делает.
+			AMasterWeapon* BeforeSwitch = Player->GetCurrentWeapon();
+			Player->SwitchWeapon();
+			TestEqual(TEXT("Переключать не на что — оружие в руках прежнее"),
+				Player->GetCurrentWeapon(), BeforeSwitch);
+
+			// 2) Купленный пистолет занимает пустой слот оружия и уходит из рюкзака.
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			APistol* Bought = World->SpawnActor<APistol>(APistol::StaticClass(),
+				FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator, Params);
+			if (Bought)
+			{
+				Bought->SetActorHiddenInGame(true);
+				Bought->SetActorEnableCollision(false);
+				Inv->AddItem(Bought);
+				TestTrue(TEXT("Пистолет забран из рюкзака в слот оружия"),
+					Player->TryAdoptRangedWeapon(Bought));
+				TestEqual(TEXT("Слот огнестрела занял купленный пистолет"),
+					Player->GetRangedWeaponInstance(), static_cast<AMasterWeapon*>(Bought));
+				TestFalse(TEXT("В рюкзаке пистолета больше нет"),
+					Inv->GetInventoryItems().Contains(Bought));
+
+				// Теперь кнопка «Оружие» переключает на огнестрел и обратно.
+				Player->SwitchWeapon();
+				TestEqual(TEXT("После переключения в руках пистолет"),
+					Player->GetCurrentWeapon(), static_cast<AMasterWeapon*>(Bought));
+
+				// 3) Второй ствол слот не отбирает — остаётся в рюкзаке.
+				APistol* Second = World->SpawnActor<APistol>(APistol::StaticClass(),
+					FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator, Params);
+				if (Second)
+				{
+					Inv->AddItem(Second);
+					TestFalse(TEXT("Второй пистолет слот не занимает"),
+						Player->TryAdoptRangedWeapon(Second));
+					TestTrue(TEXT("Второй пистолет остался в рюкзаке"),
+						Inv->GetInventoryItems().Contains(Second));
+				}
+				else
+				{
+					bOk = false;
+				}
 			}
 			else
 			{

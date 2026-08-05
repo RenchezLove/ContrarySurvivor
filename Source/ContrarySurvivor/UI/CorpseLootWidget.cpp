@@ -290,6 +290,10 @@ bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem)
 		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: предмет не лёг в рюкзак — уничтожен, чтобы не висел в мире"));
 		return false;
 	}
+
+	// Найденный огнестрел занимает пустой слот оружия — тем же путём, что покупка у
+	// торговца (Build 1.2.2: на старте огнестрела нет, в рюкзаке он был бы мёртвым грузом).
+	Player->TryAdoptRangedWeapon(TakenItem);
 	return true;
 }
 

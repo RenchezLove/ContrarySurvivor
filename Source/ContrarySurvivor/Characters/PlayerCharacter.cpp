@@ -274,11 +274,27 @@ void APlayerCharacter::BeginPlay()
         UpdateLimpState(Stats->GetHealth(), Stats->GetMaxHealth());
     }
 
-    // Стартовое оружие (Фаза 1: автоэкипировка пистолета вместо подбора с земли).
-    EquipDefaultWeapon();
+    // Стартовый огнестрел. Build 1.2.2 (решение Рината 05-08): по умолчанию НЕ выдаётся —
+    // игрок начинает с одним ножом, а пистолет копит и покупает у торговца за 150 монет.
+    // Патроны отдельной выдачи не имели никогда: они приходили внутри самого пистолета
+    // (обойма 12 + резерв 48), поэтому вместе с ним исчезают и они.
+    if (bStartWithRangedWeapon)
+    {
+        EquipDefaultWeapon();
+    }
 
     // Нож держим «в кобуре» (скрыт), переключение по SwitchWeapon (Фаза 3).
     SpawnMeleeWeapon();
+
+    // Без огнестрела в руках не оказалось бы вообще ничего (нож спавнится скрытым и
+    // неэкипированным), а безоружный игрок не может ни ударить, ни защититься. Поэтому
+    // при пустых руках сразу берём нож — он и есть стартовое оружие новой игры.
+    if (!GetCurrentWeapon() && MeleeWeaponInstance)
+    {
+        EquipWeapon(MeleeWeaponInstance);
+        MeleeWeaponInstance->SetActorHiddenInGame(false);
+        UE_LOG(LogQA, Display, TEXT("QA: старт без огнестрела — в руках нож"));
+    }
 
     // ADR-042: стартовой брони НЕТ — игрок начинает с нулевой защитой (полный урон),
     // первая цель — накопить на первый комплект. Визуально одет в одежду Т0
@@ -814,6 +830,34 @@ void APlayerCharacter::EquipDefaultWeapon()
     }
 }
 
+bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
+{
+    ARangedWeapon* Ranged = Cast<ARangedWeapon>(Item);
+    if (!Ranged || RangedWeaponInstance)
+    {
+        return false; // не огнестрел либо слот уже занят — вещь остаётся в рюкзаке
+    }
+
+    // Оружие в слоте — это не содержимое рюкзака: нож и прежний стартовый пистолет тоже
+    // живут отдельно от него. Иначе один и тот же ствол показывался бы и слотом оружия,
+    // и плиткой рюкзака, и его можно было бы продать прямо из рук.
+    if (Inventory)
+    {
+        Inventory->RemoveItem(Ranged);
+    }
+
+    RangedWeaponInstance = Ranged;
+    Ranged->SetOwner(this);
+    Ranged->SetInstigator(this);
+    // «В кобуре», как нож: в руки берёт сам игрок кнопкой «Оружие» (SwitchWeapon).
+    Ranged->SetActorHiddenInGame(true);
+    Ranged->SetActorEnableCollision(false);
+
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия (в кобуре)"),
+        *Ranged->GetItemDisplayText().ToString());
+    return true;
+}
+
 void APlayerCharacter::SpawnMeleeWeapon()
 {
     if (!DefaultMeleeWeaponClass)
@@ -1207,6 +1251,11 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             Bought->SetActorHiddenInGame(true);
             Bought->SetActorEnableCollision(false);
             Inventory->AddItem(Bought);
+
+            // Купленный огнестрел занимает пустой слот оружия — иначе он лежал бы в рюкзаке
+            // мёртвым грузом (Build 1.2.2: на старте огнестрела нет, торговец — единственный
+            // источник). Слот занят — вещь просто остаётся в рюкзаке.
+            TryAdoptRangedWeapon(Bought);
         }
     }
 
