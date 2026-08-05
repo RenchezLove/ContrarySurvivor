@@ -32,6 +32,7 @@
 #include "AMasterInventoryItem.h"
 #include "APistol.h"
 #include "AQuestItem.h"
+#include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Actors/ShopTypes.h"
 #include "ContrarySurvivor/Characters/MasterTrader.h"
@@ -671,6 +672,71 @@ bool FBuild122StartWithoutFirearmTest::RunTest(const FString& Parameters)
 			{
 				bOk = false;
 			}
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 9. Вступление старосты после добавления реплики про пистолет (05-08): порядок событий
+//    не поехал (сперва подарок-аптечка, потом старт квеста, крючок — последней репликой),
+//    у каждой реплики есть текст и подпись кнопки. Слова не проверяем: формулировки
+//    утверждает Ринат, а тест не должен падать от правки текста.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122ElderIntroOrderTest,
+	"ContrarySurvivor.Build122.Dialog.ElderIntroOrder", Build122TestFlags)
+
+bool FBuild122ElderIntroOrderTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		AElderNPC* Elder = Build122TestWorld::Spawn<AElderNPC>(World);
+		if (Elder)
+		{
+			const TArray<FElderIntroLine>& Lines = Elder->GetIntroLines();
+			TestTrue(TEXT("Вступление не пустое"), Lines.Num() > 0);
+
+			int32 GiftIndex = INDEX_NONE;
+			int32 QuestIndex = INDEX_NONE;
+			int32 GiftCount = 0;
+			int32 QuestCount = 0;
+			for (int32 i = 0; i < Lines.Num(); ++i)
+			{
+				TestFalse(*FString::Printf(TEXT("Реплика %d не пустая"), i), Lines[i].NPCText.IsEmpty());
+				TestFalse(*FString::Printf(TEXT("У реплики %d есть подпись кнопки"), i),
+					Lines[i].ButtonLabel.IsEmpty());
+
+				if (Lines[i].Action == EElderIntroAction::GiveGift)
+				{
+					GiftIndex = (GiftIndex == INDEX_NONE) ? i : GiftIndex;
+					++GiftCount;
+				}
+				else if (Lines[i].Action == EElderIntroAction::StartQuest)
+				{
+					QuestIndex = (QuestIndex == INDEX_NONE) ? i : QuestIndex;
+					++QuestCount;
+				}
+			}
+
+			TestEqual(TEXT("Аптечка выдаётся ровно один раз"), GiftCount, 1);
+			TestEqual(TEXT("Квест стартует ровно один раз"), QuestCount, 1);
+			TestTrue(TEXT("Сперва аптечка, потом квест"),
+				GiftIndex != INDEX_NONE && QuestIndex != INDEX_NONE && GiftIndex < QuestIndex);
+			TestTrue(TEXT("После старта квеста есть ещё реплики (намёк и крючок)"),
+				QuestIndex < Lines.Num() - 1);
+			TestTrue(TEXT("Последняя реплика-крючок ничего не запускает"),
+				Lines.Last().Action == EElderIntroAction::None);
 		}
 		else
 		{
