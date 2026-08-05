@@ -296,6 +296,14 @@ void APlayerCharacter::BeginPlay()
         UE_LOG(LogQA, Display, TEXT("QA: старт без огнестрела — в руках нож"));
     }
 
+    // Итоговое состояние оружия игрока — ОДНОЙ строкой, БЕЗУСЛОВНО (не только в ветке выше),
+    // чтобы расследование расхождений между кодом и живой игрой не требовало собирать картину
+    // по разрозненным строкам EquipWeapon (те теперь помечены владельцем — MasterHumanoidCharacter.cpp).
+    UE_LOG(LogQA, Display,
+        TEXT("QA: PLAYER WEAPON STATE at BeginPlay end — ranged slot %s, in hands %s"),
+        RangedWeaponInstance ? *RangedWeaponInstance->GetName() : TEXT("empty"),
+        GetCurrentWeapon() ? *GetCurrentWeapon()->GetName() : TEXT("nothing"));
+
     // ADR-042: стартовой брони НЕТ — игрок начинает с нулевой защитой (полный урон),
     // первая цель — накопить на первый комплект. Визуально одет в одежду Т0
     // (ApplyStartClothing в PostInitializeComponents), она не предмет и защиты не даёт.

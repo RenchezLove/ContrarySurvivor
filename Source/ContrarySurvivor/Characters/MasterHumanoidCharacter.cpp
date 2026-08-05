@@ -368,8 +368,12 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
         }
 
         const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();
+        // Владелец — ЯВНО в лог (запрос лида 08-05: строки «EquipWeapon: Equipped BP_Pistol_C»
+        // у игрока/врага/торговца были неотличимы — расследование регрессии заняло полчаса
+        // именно из-за этого). Владелец — ЭТОТ гуманоид (this), не путать с CurrentWeapon.
         UE_LOG(LogTemp, Log,
-            TEXT("EquipWeapon: attached %s to %s '%s' on %s mesh '%s' (component '%s')"),
+            TEXT("EquipWeapon[%s]: attached %s to %s '%s' on %s mesh '%s' (component '%s')"),
+            *GetName(),
             *CurrentWeapon->GetName(),
             bUseGripSocket ? TEXT("SOCKET") : TEXT("bone"),
             *AttachName.ToString(),
@@ -397,7 +401,7 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     // (vel=0, floorDist отрицательный). Парно коллизия возвращается в UnequipWeapon.
     CurrentWeapon->SetActorEnableCollision(false);
 
-    UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: Equipped %s"), *CurrentWeapon->GetName());
+    UE_LOG(LogTemp, Warning, TEXT("EquipWeapon[%s]: Equipped %s"), *GetName(), *CurrentWeapon->GetName());
 }
 
 void AMasterHumanoidCharacter::UnequipWeapon()
@@ -408,10 +412,12 @@ void AMasterHumanoidCharacter::UnequipWeapon()
     // оружие снова должно сталкиваться с миром и подбираться.
     CurrentWeapon->SetActorEnableCollision(true);
 
+    const FString UnequippedName = CurrentWeapon->GetName();
     CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
     CurrentWeapon = nullptr;
 
-    UE_LOG(LogTemp, Warning, TEXT("UnequipWeapon: Weapon removed"));
+    // Владелец — ЯВНО в лог (тот же запрос лида 08-05, что и у EquipWeapon).
+    UE_LOG(LogTemp, Warning, TEXT("UnequipWeapon[%s]: %s removed"), *GetName(), *UnequippedName);
 }
 
 void AMasterHumanoidCharacter::EquipArmor(AArmor* Armor)
