@@ -215,7 +215,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint",
 		meta = (DisplayPriority = "2", MultiLine = "true", DisplayName = "Реплика при повторных разговорах"))
 	FText NotebookHintRepeatText = NSLOCTEXT("Dialog", "ElderNotebookHintRepeat",
-		"Копаюсь в ноутбуке, дай срок. А волки к югу никуда не делись — и торговец за шкуры платит исправно.");
+		"Копаюсь в ноутбуке, дай мне время. А волки к югу никуда не делись — и торговец за шкуры платит исправно.");
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
