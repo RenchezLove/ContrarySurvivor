@@ -16,7 +16,9 @@ public class ContrarySurvivor : ModuleRules
 		// GameplayTasks — транзитивная зависимость AIModule (path following / move tasks).
 		// NavigationSystem — UNavigationSystemV1::ProjectPointToNavigation (спавн волков на навмеше).
 		// Slate/SlateCore — стили текста UMG-виджетов (FCoreStyle) этапа F.
-		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore" });
+		// RenderCore — счётчики GGameThreadTime/GRenderThreadTime (RenderTimer.h), RHI — GGPUFrameTime
+		// (RHIGlobals.h). Нужны замеру времён кадра в ContrarySurvivorStatics; без них падает компоновка.
+		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore", "RenderCore", "RHI" });
 
 		// Этап F3 (ADR-038): аналитика GameAnalytics. Подключаем ТОЛЬКО если плагин лежит в
 		// Plugins/ проекта — иначе код собирается с WITH_GAMEANALYTICS=0 и аналитика тихо

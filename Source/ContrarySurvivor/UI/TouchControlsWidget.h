@@ -140,6 +140,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "5"))
 	FVector2D FpsMargin = FVector2D(120.0f, 40.0f);
 
+	// --- Времена кадра под числом кадров (Build 1.2.2, задача лида 05-08: понять, во что
+	// упирается телефон — в процессор или в видеочип). Показываются ТОЛЬКО вместе со счётчиком
+	// кадров: выключили счётчик — пропали и они. В публикационной сборке не появляются вовсе,
+	// даже если галочки включены (требование издателя убрать счётчик с экрана релиза). ---
+
+	// Показывать ли времена кадра. Работает, только когда включён сам счётчик кадров.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (DisplayPriority = "6",
+		DisplayName = "Показывать времена кадра (мс)"))
+	bool bShowFrameTimings = true;
+
+	// Кегль строки времён. Мельче числа кадров: строка длинная, на телефоне должна помещаться.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (ClampMin = "6", DisplayPriority = "7",
+		DisplayName = "Кегль строки времён"))
+	int32 FrameTimeFontSize = 14;
+
+	// Как часто перерисовывать строку времён, сек. Сам замер идёт каждый кадр (он копеечный),
+	// а вот сборка текста раз в кадр — лишняя работа на ровном месте. 0.25 с читается глазами
+	// и не мельтешит.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|FPS", meta = (ClampMin = "0.05", DisplayPriority = "8",
+		DisplayName = "Период обновления строки времён, сек"))
+	float FrameTimeUpdateInterval = 0.25f;
+
 	// --- Подсветка кнопки БЕГ при активном беге (Build 1, Блок D; уточнено в Build 1.1):
 	// кнопка горит синим и плавно пульсирует, пока включён режим бега. Все четыре настройки —
 	// обычный цвет, активный цвет, период и глубина пульсации — правятся здесь (директива Рината). ---
@@ -257,6 +279,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> FpsText;
 
+	// Строка времён кадра под числом кадров (замер «во что упираемся»). Живёт по тем же
+	// правилам: есть кубик в WBP — обновляем его, нет — создаём кодом.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> FrameTimeText;
+
 private:
 	// Угол экрана, к которому прижата кнопка (Margin отсчитывается от него).
 	enum class ETouchCorner : uint8
@@ -318,6 +345,15 @@ private:
 	// Создаёт кубик FpsText кодом в канву Canvas (кодовое дерево или fallback для WBP без кубика):
 	// верх-лево, рядом с ПАУЗА, стиль из FpsFontSize/FpsTextColor.
 	void CreateFpsTextInCanvas(UCanvasPanel* Canvas);
+
+	// Создаёт кубик FrameTimeText кодом — строкой ниже числа кадров, тем же способом.
+	void CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas);
+
+	// Обновляет строку времён кадра (замер идёт каждый кадр, текст — раз в интервал).
+	void UpdateFrameTimeText(float DeltaTime);
+
+	// Накопитель времени до следующей перерисовки строки времён, сек.
+	float FrameTimeAccumulator = 0.0f;
 
 	// Обновляет число кадров из GetCurrentFPS (зовётся каждый кадр, до гейта модалки — ПАУЗА видна).
 	void UpdateFpsText();

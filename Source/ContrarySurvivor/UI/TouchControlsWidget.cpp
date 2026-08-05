@@ -85,6 +85,11 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 		{
 			CreateFpsTextInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
 		}
+		// Строка времён кадра — по тому же правилу.
+		if (!FrameTimeText)
+		{
+			CreateFrameTimeTextInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
+		}
 	}
 	else
 	{
@@ -178,6 +183,8 @@ void UTouchControlsWidget::NativeOnInitialized()
 
 	// Число кадров рядом с ПАУЗА (Блок E): создаём кубик в кодовом дереве (позиция/стиль из полей).
 	CreateFpsTextInCanvas(RootCanvas);
+	// Под ним — строка времён кадра (замер «во что упираемся», задача лида 05-08).
+	CreateFrameTimeTextInCanvas(RootCanvas);
 }
 
 void UTouchControlsWidget::BuildButtons()
@@ -453,12 +460,85 @@ void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
 	}
 }
 
+void UTouchControlsWidget::CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas)
+{
+	if (!Canvas || !WidgetTree || FrameTimeText)
+	{
+		return; // нет канвы / уже есть (в т.ч. кубик из WBP)
+	}
+	FrameTimeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FrameTimeText"));
+	FrameTimeText->SetVisibility(ESlateVisibility::Collapsed); // до первого замера показывать нечего
+	FrameTimeText->SetColorAndOpacity(FSlateColor(FpsTextColor));
+	{
+		FSlateFontInfo Font = FrameTimeText->GetFont();
+		Font.Size = FrameTimeFontSize;
+		FrameTimeText->SetFont(Font);
+	}
+	if (UCanvasPanelSlot* CanvasSlot = Canvas->AddChildToCanvas(FrameTimeText))
+	{
+		CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f)); // тот же угол, что у числа кадров
+		CanvasSlot->SetAlignment(FVector2D(0.0f, 0.0f));
+		CanvasSlot->SetAutoSize(true);
+		// Строкой ниже числа кадров: отступ по высоте кегля числа с небольшим зазором.
+		CanvasSlot->SetPosition(FpsMargin + FVector2D(0.0f, static_cast<float>(FpsFontSize) + 6.0f));
+	}
+}
+
+void UTouchControlsWidget::UpdateFrameTimeText(float DeltaTime)
+{
+	if (!FrameTimeText)
+	{
+		return; // кубика нет — нечего обновлять
+	}
+
+	// Требование издателя: в публикационной сборке никакой отладочной телеметрии на экране.
+	// Гейт компиляционный, а не по галочке: так строку нельзя включить в релизе даже по ошибке
+	// в настройках ассета.
+#if UE_BUILD_SHIPPING
+	FrameTimeText->SetVisibility(ESlateVisibility::Collapsed);
+#else
+	// Живём по тому же выключателю, что счётчик кадров (плюс собственная галочка).
+	if (!bShowFps || !bShowFrameTimings)
+	{
+		FrameTimeText->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	// Замер снимаем КАЖДЫЙ кадр: сглаживание в движке накопительное, пропуск кадров исказил бы
+	// числа. Стоит это чтения трёх счётчиков и нескольких умножений.
+	float FrameMs = 0.0f, GameMs = 0.0f, DrawMs = 0.0f, GpuMs = 0.0f;
+	UContrarySurvivorStatics::GetFrameTimingsMs(FrameMs, GameMs, DrawMs, GpuMs);
+
+	// А вот текст пересобираем редко: сборка строки каждый кадр — лишняя работа в том самом
+	// кадре, который мы и меряем.
+	FrameTimeAccumulator += DeltaTime;
+	if (FrameTimeAccumulator < FMath::Max(0.05f, FrameTimeUpdateInterval)
+		&& FrameTimeText->GetVisibility() != ESlateVisibility::Collapsed)
+	{
+		return;
+	}
+	FrameTimeAccumulator = 0.0f;
+
+	FrameTimeText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	// Culture-invariant строка: это отладочные числа, перевода не требуют.
+	FrameTimeText->SetText(FText::FromString(FString::Printf(
+		TEXT("кадр %.1f  логика %.1f  отрисовка %.1f  видео %.1f мс"),
+		FrameMs, GameMs, DrawMs, GpuMs)));
+#endif
+}
+
 void UTouchControlsWidget::UpdateFpsText()
 {
 	if (!FpsText)
 	{
 		return; // кубика нет (WBP без него и не кодовое дерево) — нечего обновлять
 	}
+	// Счётчик кадров с экрана релиза убран по требованию издателя — тем же компиляционным
+	// гейтом, что и строка времён под ним.
+#if UE_BUILD_SHIPPING
+	FpsText->SetVisibility(ESlateVisibility::Collapsed);
+	return;
+#else
 	if (!bShowFps)
 	{
 		FpsText->SetVisibility(ESlateVisibility::Collapsed);
@@ -474,6 +554,7 @@ void UTouchControlsWidget::UpdateFpsText()
 		Line += FpsSuffix.ToString();
 	}
 	FpsText->SetText(FText::FromString(Line));
+#endif
 }
 
 void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
@@ -551,6 +632,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	// Число кадров рядом с ПАУЗА (Блок E): обновляем ДО гейта модалки — кнопка ПАУЗА видна и
 	// на модальных экранах, значит и счётчик рядом с ней должен продолжать тикать.
 	UpdateFpsText();
+	// Времена кадра — там же и по тем же правилам (замер идёт и на модальных экранах: нам как
+	// раз интересно, дорого ли обходится открытый магазин или инвентарь).
+	UpdateFrameTimeText(InDeltaTime);
 
 	// Модальное окно открыто -> боевая группа прячется, инжекция глушится (см. класс-коммент).
 	// СУМКА/ПАУЗА остаются: их обработчики модалкам не вредят (тогл инвентаря / гейт паузы).
