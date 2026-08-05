@@ -2306,7 +2306,14 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 	// Показываем «в магазине / резерв» ТОЛЬКО для дальнобоя (ARangedWeapon). Холодное
 	// оружие (нож, AMeleeWeapon) и пустые руки — патроны не рисуем. Геттеры базы
 	// AMasterWeapon: GetCurrentAmmoInClip()/GetCurrentAmmoReserve() (подтв. AMasterWeapon.h).
-	if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon()))
+	ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon());
+	// Тот же защитный гейт, что в PlayerStatsWidget/TouchControlsWidget (находка лида 08-05):
+	// «в руках» обязано быть ИМЕННО отслеживаемым стволом слота, не любым ARangedWeapon.
+	if (Ranged && Ranged != Player->GetRangedWeaponInstance())
+	{
+		Ranged = nullptr;
+	}
+	if (Ranged)
 	{
 		// Обойма / резерв оружия + (в рюкзаке) — патроны как стак-предмет (Фаза 5).
 		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d  (bag %d)"),

@@ -59,6 +59,22 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 
 	// Патроны — только с дальнобоем в руках (нож/пустые руки — строка прячется).
 	ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon());
+
+	// Находка лида 08-05: на устройстве патроны/иконка держались показанными при пустом слоте
+	// огнестрела в рюкзаке (RangedWeaponInstance == nullptr). Причину в коде не нашли (оба
+	// признака выводятся из одного CurrentWeapon и обязаны совпадать), но раз на устройстве они
+	// разошлись — гейт делаем по ОБОИМ сразу: «в руках» обязано быть ИМЕННО тем стволом, что
+	// отслеживается в слоте, а не просто любым ARangedWeapon. Несовпадение — громкий Warning,
+	// чтобы следующий такой случай был виден в логе сразу, а не искался полчаса.
+	if (Ranged && Ranged != Player->GetRangedWeaponInstance())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("PlayerStatsWidget: CurrentWeapon '%s' is ARangedWeapon, but != RangedWeaponInstance ('%s') — ammo hidden defensively"),
+			*Ranged->GetName(),
+			Player->GetRangedWeaponInstance() ? *Player->GetRangedWeaponInstance()->GetName() : TEXT("null"));
+		Ranged = nullptr;
+	}
+
 	const ESlateVisibility AmmoVisibility =
 		Ranged ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed;
 

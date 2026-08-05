@@ -16,6 +16,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // GetCurrentWeapon (иконка оружия)
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // GetRangedWeaponInstance (защитный гейт иконки)
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
 #include "ContrarySurvivor/Utils/ContrarySurvivorStatics.h" // GetCurrentFPS (Блок E)
@@ -248,7 +249,27 @@ void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
 		{
 			if (AMasterWeapon* Weapon = Humanoid->GetCurrentWeapon())
 			{
-				NewState = Cast<ARangedWeapon>(Weapon) ? EWeaponIconState::Pistol : EWeaponIconState::Knife;
+				ARangedWeapon* Ranged = Cast<ARangedWeapon>(Weapon);
+
+				// Находка лида 08-05: на устройстве иконка держала «пистолет» при пустом слоте
+				// огнестрела в рюкзаке. Причину в коде не нашли (см. PlayerStatsWidget.cpp) — тот
+				// же защитный гейт: «в руках» обязано быть ИМЕННО отслеживаемым стволом слота,
+				// иначе показываем нож (Weapon в этой ветке точно не null).
+				if (Ranged)
+				{
+					if (const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(Humanoid))
+					{
+						if (Ranged != PlayerChar->GetRangedWeaponInstance())
+						{
+							UE_LOG(LogQA, Warning,
+								TEXT("TouchControlsWidget: CurrentWeapon '%s' is ARangedWeapon, but != RangedWeaponInstance ('%s') — showing knife defensively"),
+								*Ranged->GetName(),
+								PlayerChar->GetRangedWeaponInstance() ? *PlayerChar->GetRangedWeaponInstance()->GetName() : TEXT("null"));
+							Ranged = nullptr;
+						}
+					}
+				}
+				NewState = Ranged ? EWeaponIconState::Pistol : EWeaponIconState::Knife;
 			}
 		}
 	}
