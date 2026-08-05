@@ -30,6 +30,9 @@
 #include "AArmorTiers.h"
 #include "AConsumableItem.h"
 #include "AMasterInventoryItem.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Actors/ShopTypes.h"
+#include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "Animation/Skeleton.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
@@ -470,6 +473,92 @@ bool FBuild122ShopSellQtyMaxTest::RunTest(const FString& Parameters)
 
 			// Пустой предмет не должен ронять окно.
 			TestEqual(TEXT("Без предмета предел 1"), UShopScreenWidget::GetSellQtyMax(nullptr), 1);
+		}
+		else
+		{
+			bOk = false;
+		}
+	}
+	Build122TestWorld::Destroy(World);
+	return bOk;
+}
+
+// ===========================================================================
+// 7. Дыра в экономике (проверка Рината на телефоне 05-08: вода покупалась за 5 и
+//    продавалась за 6). Правило: цена выкупа СТРОГО ниже цены покупки того же предмета —
+//    и так для КАЖДОЙ позиции прайс-листа, а не только для воды. Тест перебирает весь
+//    прайс-лист живого торговца, поэтому новая позиция с перекосом уронит его сама.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122ShopBuybackTest,
+	"ContrarySurvivor.Build122.Shop.BuybackBelowPrice", Build122TestFlags)
+
+bool FBuild122ShopBuybackTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = Build122TestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	bool bOk = true;
+	{
+		AMasterTrader* Trader = Build122TestWorld::Spawn<AMasterTrader>(World);
+		if (Trader)
+		{
+			const TArray<FShopEntry>& Catalog = Trader->GetCatalog();
+			TestTrue(TEXT("Прайс-лист не пуст"), Catalog.Num() > 0);
+
+			int32 Checked = 0;
+			for (const FShopEntry& Entry : Catalog)
+			{
+				if (Entry.Kind != EShopEntryKind::Item || !Entry.ItemClass)
+				{
+					continue; // патроны идут по своей цене за штуку, их проверяем отдельно
+				}
+
+				FActorSpawnParameters Params;
+				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
+					Entry.ItemClass, FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator, Params);
+				if (!Item)
+				{
+					bOk = false;
+					continue;
+				}
+				// Тип расходника задаёт позиция каталога — как это делает покупка.
+				if (Entry.bApplyConsumableType)
+				{
+					if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+					{
+						Cons->ConsumableType = Entry.ConsumableType;
+					}
+				}
+
+				const float Buyback = Trader->GetSellValue(Item);
+				// Печатаем весь прайс-лист в лог теста: по нему лид и Ринат сверяют числа
+				// глазами, не собирая игру.
+				UE_LOG(LogQA, Display, TEXT("QA: ПРАЙС '%s': покупка %.0f, выкуп %.0f"),
+					*Entry.DisplayName, Entry.Price, Buyback);
+				TestTrue(*FString::Printf(TEXT("'%s': выкуп %.0f строго ниже цены покупки %.0f"),
+					*Entry.DisplayName, Buyback, Entry.Price), Buyback < Entry.Price);
+				TestTrue(*FString::Printf(TEXT("'%s': выкуп больше нуля"), *Entry.DisplayName),
+					Buyback > 0.0f);
+				++Checked;
+
+				Item->Destroy();
+			}
+			TestTrue(TEXT("Проверена хотя бы одна позиция прайс-листа"), Checked > 0);
+
+			// Патроны: покупка за штуку дороже выкупа за штуку.
+			for (const FShopEntry& Entry : Catalog)
+			{
+				if (Entry.Kind == EShopEntryKind::Ammo && Entry.AmmoAmount > 0)
+				{
+					const float PricePerRound = Entry.Price / static_cast<float>(Entry.AmmoAmount);
+					TestTrue(TEXT("Патрон выкупается дешевле, чем продаётся"),
+						Trader->GetAmmoSellPerRound() < PricePerRound);
+				}
+			}
 		}
 		else
 		{

@@ -151,6 +151,49 @@ void AMasterTrader::OnInteractEndOverlap(UPrimitiveComponent* OverlappedComp, AA
 	}
 }
 
+const FShopEntry* AMasterTrader::FindCatalogEntryForItem(const AMasterInventoryItem* Item) const
+{
+	if (!Item)
+	{
+		return nullptr;
+	}
+
+	const UClass* ItemClass = Item->GetClass();
+	const AConsumableItem* Consumable = Cast<AConsumableItem>(Item);
+	const FShopEntry* BestChildMatch = nullptr;
+
+	for (const FShopEntry& Entry : Catalog)
+	{
+		// Патроны в прайс-листе — не предмет, а пополнение резерва: у них своя цена выкупа
+		// за штуку (SellValueAmmoPerRound), поэтому позиции такого вида здесь пропускаем.
+		if (Entry.Kind != EShopEntryKind::Item || !Entry.ItemClass)
+		{
+			continue;
+		}
+		if (!ItemClass->IsChildOf(Entry.ItemClass))
+		{
+			continue;
+		}
+		// Вода, консервы и бинт стоят в прайс-листе ОДНИМ классом AConsumableItem и
+		// различаются только типом — без этой проверки бинт выкупался бы по цене воды.
+		if (Entry.bApplyConsumableType
+			&& (!Consumable || Consumable->ConsumableType != Entry.ConsumableType))
+		{
+			continue;
+		}
+
+		if (ItemClass == Entry.ItemClass)
+		{
+			return &Entry; // точное совпадение класса — лучший возможный ответ
+		}
+		if (!BestChildMatch || Entry.Price < BestChildMatch->Price)
+		{
+			BestChildMatch = &Entry; // наследник (BP-класс): берём самую дешёвую подходящую позицию
+		}
+	}
+	return BestChildMatch;
+}
+
 float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const
 {
 	if (!Item)
@@ -158,6 +201,23 @@ float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const
 		return 0.0f;
 	}
 
+	// Товар из прайс-листа выкупаем ОТ ЕГО ЖЕ цены покупки: так цена выкупа гарантированно
+	// ниже цены покупки того же предмета и «купил дешевле — продал дороже» невозможно
+	// (Build 1.2.2, 05-08: вода 5/6 и нож 40/70 позволяли печатать деньги).
+	if (const FShopEntry* Entry = FindCatalogEntryForItem(Item))
+	{
+		const float Fraction = FMath::Clamp(BuybackPriceFraction, 0.0f, 0.9f);
+		const float Buyback = FMath::FloorToFloat(Entry->Price * Fraction);
+		// Округление вниз может дать ноль на копеечном товаре — тогда платим одну монету,
+		// но только если цена покупки строго больше монеты (иначе вернули бы дыру).
+		if (Buyback < 1.0f && Entry->Price > 1.0f)
+		{
+			return 1.0f;
+		}
+		return FMath::Max(0.0f, Buyback);
+	}
+
+	// Вещи вне прайс-листа (лут бандитов, квестовые предметы) — прежние цены по категории.
 	switch (Item->GetItemCategory())
 	{
 		case EItemCategory::Consumable: return SellValueConsumable;

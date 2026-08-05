@@ -51,7 +51,9 @@ public:
 	// Каталог товаров (для отрисовки магазина и покупки).
 	virtual const TArray<FShopEntry>& GetCatalog() const override { return Catalog; }
 
-	// Цена выкупа предмета у игрока (DRAFT ~50% от цены покупки, по категории).
+	// Цена выкупа предмета у игрока. Товар прайс-листа выкупается за долю СВОЕЙ цены покупки
+	// (BuybackPriceFraction, по умолчанию половина) — поэтому продать дороже, чем купил,
+	// нельзя ни на одном товаре. Вещи вне прайс-листа (лут, квестовые) идут по категории.
 	virtual float GetSellValue(const AMasterInventoryItem* Item) const override;
 
 	// Цена выкупа ОДНОГО патрона (для слайдера продажи стака патронов).
@@ -121,6 +123,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "5", ClampMin = "0.0"))
 	float PriceArmorT3 = 250.0f;
 
+	// ДОЛЯ цены прайс-листа, по которой торговец ВЫКУПАЕТ у игрока предмет, стоящий в этом
+	// же прайс-листе (Build 1.2.2, 05-08: закрытие дыры в экономике). Раньше цена выкупа
+	// бралась только по категории и с ценой покупки никак не сходилась: вода покупалась за
+	// 5, а выкупалась за 6, нож покупался за 40 и выкупался за 70 — деньги печатались
+	// покупкой и мгновенной продажей. Теперь цена выкупа считается от цены покупки ТОГО ЖЕ
+	// предмета и потому всегда строго ниже неё. Потолок 0.9 намеренный: доля 1.0 вернула бы
+	// дыру. Итог округляется ВНИЗ, чтобы число в окне совпадало с начисленным.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell",
+		meta = (ClampMin = "0.0", ClampMax = "0.9", DisplayPriority = "1"))
+	float BuybackPriceFraction = 0.5f;
+
+	// Цены выкупа ПО КАТЕГОРИИ — запасной путь для вещей, которых в прайс-листе нет
+	// (лут бандитов, квестовые предметы). Для товаров прайс-листа они больше не работают:
+	// там цену задаёт BuybackPriceFraction от цены покупки.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
 	float SellValueConsumable = 6.0f;
 
@@ -135,6 +151,13 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell")
 	float SellValueAmmoPerRound = 1.0f;
+
+	// Позиция прайс-листа, которой соответствует предмет игрока (по классу, а у расходников
+	// ещё и по типу: вода/консервы/бинт стоят в каталоге одним классом). Наследник класса
+	// позиции (например BP_Pistol от APistol) тоже считается совпадением — из подходящих
+	// берётся САМАЯ ДЕШЁВАЯ позиция, чтобы выкуп не оказался выгоднее покупки. Нет
+	// совпадения (лут, квестовые вещи) — nullptr, и цена берётся по категории.
+	const FShopEntry* FindCatalogEntryForItem(const AMasterInventoryItem* Item) const;
 
 	UFUNCTION()
 	void OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
