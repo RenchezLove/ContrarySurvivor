@@ -349,6 +349,15 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float RespawnSurvivalFraction = 1.0f;
 
+    // Радиус (см), в котором точка смертельного возрождения считается «у костра» (решение
+    // лида 08-06, вариант 1+3 против петли смерти в поле). Дальше от ближайшего костра —
+    // значит, сейва не было (фолбэк на стартовое поле) или в слоте закреплена точка вне
+    // костра (пере-сейв смерти прошлых версий) — игрок ставится к костру деревни.
+    // Умолчание — от размера зоны костра: автосейв срабатывает на её краю (радиус зоны 300),
+    // берём тройной запас. Только death-путь, «Продолжить» позицию сейва не проверяет.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "100.0", DisplayPriority = "6"))
+    float RespawnNearCampfireRadius = 1000.0f;
+
     // --- Потери при смерти (Build 1.2, переопределение Рината поверх ТЗ издателя №1):
     // без рекламы теряется DeathConsumableLossFraction расходников и DeathMoneyLossFraction
     // денег; со «Спасти рюкзак» (просмотр ролика) — DeathRescuedLossFraction и того и
@@ -848,6 +857,13 @@ protected:
     // (MoneyAtDeath - Plan.LostMoney) ПОСЛЕ загрузки сейва (иначе LoadGame перетёр бы
     // баланс) + пере-сохранение (анти-reload-эксплойт, как раньше).
     void ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan);
+
+    // Смертельное возрождение обязано заканчиваться у костра, как обещает экран смерти
+    // (решение лида 08-06, вариант 1+3): если точка после LoadGame (или стартовый фолбэк
+    // без сейва) дальше RespawnNearCampfireRadius от ближайшего костра — переставляет
+    // игрока к костру (в стороне от огня, лицом к нему, Z по полу). Костёр ищется по
+    // классу ACampfire (не по имени экземпляра). Мир без костра — точка не меняется.
+    void RelocateDeathRespawnNearCampfire();
 
     // Сброс накопленного игрового времени сессии в сейв (таймер PlaytimeFlushInterval).
     void FlushPlayTime();

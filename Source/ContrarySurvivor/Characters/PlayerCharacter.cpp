@@ -35,6 +35,8 @@
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry, EShopEntryKind (A2)
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
+#include "ContrarySurvivor/Actors/Campfire.h"  // смертельное возрождение — всегда у костра (вариант 1+3)
+#include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
 #include "ContrarySurvivor/Characters/WolfCharacter.h"  // #26: читаемое имя «от кого погиб»
@@ -2007,6 +2009,58 @@ void APlayerCharacter::ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan)
         MoneyAtDeath, Plan.LostMoney, Plan.DroppedMoney, Stats->GetMoney());
 }
 
+void APlayerCharacter::RelocateDeathRespawnNearCampfire()
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    // Ближайший костёр — по классу: имя экземпляра в уровне может уехать при пересохранении.
+    ACampfire* NearestCampfire = nullptr;
+    float BestDistSq = TNumericLimits<float>::Max();
+    const FVector CurrentLoc = GetActorLocation();
+    for (TActorIterator<ACampfire> It(World); It; ++It)
+    {
+        const float DistSq = FVector::DistSquared2D(It->GetActorLocation(), CurrentLoc);
+        if (DistSq < BestDistSq)
+        {
+            BestDistSq = DistSq;
+            NearestCampfire = *It;
+        }
+    }
+
+    if (!NearestCampfire)
+    {
+        // Мир без костра (служебный/тестовый) — переставлять некуда, точка остаётся прежней.
+        UE_LOG(LogTemp, Warning, TEXT("Respawn: no ACampfire in world - death respawn point left as is."));
+        return;
+    }
+
+    if (BestDistSq <= FMath::Square(RespawnNearCampfireRadius))
+    {
+        return; // точка настоящего сейва у костра — валидна, не трогаем
+    }
+
+    // Точка «у костра, но не в огне»: полрадиуса зоны вперёд от костра, лицом к огню, Z по полу.
+    const FVector FireLoc = NearestCampfire->GetActorLocation();
+    FVector Target = FireLoc + NearestCampfire->GetActorForwardVector() * (NearestCampfire->GetSafeZoneRadius() * 0.5f);
+    const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
+    Target.Z = SpawnPlacement::ResolveSpawnZ(World, Target.X, Target.Y, HalfHeight + 10.0f,
+        TEXT("Player-death-respawn"), this);
+
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->StopMovementImmediately();
+    }
+    const FRotator FaceFire = (FireLoc - Target).GetSafeNormal2D().Rotation();
+    SetActorLocationAndRotation(Target, FaceFire, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+
+    UE_LOG(LogQA, Display, TEXT("QA: DEATH RESPAWN moved to campfire '%s' (saved point was %.0f cm away, limit %.0f)"),
+        *NearestCampfire->GetName(), FMath::Sqrt(BestDistSq), RespawnNearCampfireRadius);
+}
+
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
@@ -2199,6 +2253,13 @@ void APlayerCharacter::Respawn(bool bBackpackRescued)
         SetActorTransform(InitialSpawnTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
         UE_LOG(LogTemp, Warning, TEXT("Respawn: no save found, used initial spawn transform."));
     }
+
+    // 2а) Смертельное возрождение всегда заканчивается у костра (решение лида 08-06, вариант
+    //     1+3, петля смерти дистрибуционной сборки): и когда сейва не было (фолбэк выше
+    //     поставил на стартовое поле, где мог дежурить волк-убийца), и когда в слоте
+    //     закреплена точка вне костра (пере-сейв смерти прошлых версий). Стоит ДО шага 2b:
+    //     пере-сохранение там пишет уже точку у костра — петля не закрепляется в сейве.
+    RelocateDeathRespawnNearCampfire();
 
     // 2b) Часть 2: деньги = (на момент смерти − потеря по плану) ПОСЛЕ загрузки (LoadGame
     //     перезаписал баланс из сейва) + пере-сохранение (анти-эксплойт quit/reload).
