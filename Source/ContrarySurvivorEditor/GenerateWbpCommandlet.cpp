@@ -1589,6 +1589,69 @@ namespace
 		return Overlay;
 	}
 
+	// Б9 (издатель, вторая половина пункта): «отодвинуть полосы статов от выреза камеры».
+	//
+	// Штатный механизм движка — виджет безопасной зоны экрана (USafeZone). Он оборачивает
+	// содержимое и сам отступает от краёв ровно настолько, сколько закрыто вырезом ИМЕННО
+	// на этом устройстве; своё число подбирать не нужно, и на экране без выреза (ПК)
+	// отступ равен нулю, то есть вид не меняется.
+	//
+	// Почему это работает на телефоне (сверено по исходникам UE 5.5, не по памяти):
+	//   - GameActivity.java.template:3316-3341 — Android отдаёт движку реальные отступы
+	//     выреза (DisplayCutout.getSafeInsetLeft/Top/Right/Bottom), вызывая
+	//     nativeSetSafezoneInfo; это происходит, потому что мы разрешили рисовать в область
+	//     выреза (bUseDisplayCutout=True в Config/DefaultEngine.ini);
+	//   - AndroidWindow.cpp:183-186 — числа ложатся в GAndroidLandscapeSafezone;
+	//   - AndroidApplication.cpp:186-210 — оттуда в TitleSafePaddingSize метрик экрана;
+	//   - SlateApplicationBase.cpp:75-99 — оттуда в размер безопасной зоны;
+	//   - SSafeZone.cpp:92-140, 186-206 — виджет берёт этот размер, делит на масштаб
+	//     интерфейса (то есть отступ верен при любом DPI) и отступает от края.
+	// Отступ пересчитывается на лету: Android шлёт событие смены безопасной зоны
+	// (AndroidWindow.cpp:188-190), Slate по нему обновляет отступ.
+	//
+	// Ручку владельцу это НЕ отнимает: у слота безопасной зоны есть собственное поле
+	// «Padding» в «Деталях» дизайнера — если конкретный телефон почему-то не сообщает
+	// вырез, туда вписывается запасной отступ руками, а весь остальной вид не трогается.
+	void WrapRootInSafeZone(UWidgetTree* Tree, const TCHAR* AssetName, bool& bChanged)
+	{
+		if (!Tree || !Tree->RootWidget)
+		{
+			return;
+		}
+		if (Cast<USafeZone>(Tree->RootWidget))
+		{
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("SAFEZONE %s: корень уже безопасная зона — ничего не меняю."), AssetName);
+			return; // идемпотентность: повторный прогон ничего не делает
+		}
+
+		UWidget* OldRoot = Tree->RootWidget;
+		USafeZone* Zone = Tree->ConstructWidget<USafeZone>(USafeZone::StaticClass(), TEXT("SafeZone"));
+		Tree->RootWidget = Zone;
+
+		if (USafeZoneSlot* ZoneSlot = Cast<USafeZoneSlot>(Zone->AddChild(OldRoot)))
+		{
+			// Растяжка: прежний корень получает всю площадь за вычетом безопасной зоны,
+			// поэтому вся расстановка владельца внутри него остаётся прежней — просто
+			// съезжает с выреза целиком.
+			ZoneSlot->SetHorizontalAlignment(HAlign_Fill);
+			ZoneSlot->SetVerticalAlignment(VAlign_Fill);
+		}
+		else
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("SAFEZONE %s: прежний корень '%s' не встал в безопасную зону."),
+				AssetName, *OldRoot->GetName());
+			Tree->RootWidget = OldRoot; // откат: ассет остаётся прежним, а не полупустым
+			return;
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("SAFEZONE %s: '%s' завёрнут в безопасную зону экрана (вырез камеры больше не перекрывает панель)."),
+			AssetName, *OldRoot->GetName());
+	}
+
 	// Панель статов: столбец верх-лево (HP -> голод -> жажда -> патроны -> деньги).
 	// Build 1.2.1 (Д1, просьба Рината): полоски здоровья/еды/воды — КАЖДАЯ в СВОЁМ
 	// канвас-слоте с ЯВНЫМ размером (ручки ресайза в дизайнере реально меняют размер
@@ -1717,6 +1780,13 @@ namespace
 		MoneyPlate->SetContent(MoneyRow);
 		PlaceTopLevel(MoneyPlate, 146.0f);
 		LockSubtreeInDesigner(MoneyRow); // вся начинка плашки; сама плашка свободна
+
+		// Б9: весь столб статов — внутри безопасной зоны экрана, иначе на телефоне с вырезом
+		// под камеру полоски начинались бы прямо под глазком (мы разрешили рисовать в эту
+		// область ради соотношения сторон). Делается последним: обёртка не должна мешать
+		// расстановке выше.
+		bool bWrapped = false;
+		WrapRootInSafeZone(Tree, TEXT("WBP_PlayerStats"), bWrapped);
 		return true;
 	}
 
@@ -2444,6 +2514,20 @@ namespace
 				AmmoRow->bIsVariable = true;
 			}
 		}
+	}
+
+	// WBP_PlayerStats, Б9 (вторая половина пункта издателя): полосы здоровья, голода и
+	// жажды начинались вплотную к левому краю, а после разрешения рисовать в область выреза
+	// (Config/DefaultEngine.ini, bUseDisplayCutout) окно приложения выросло с 1440x720 до
+	// 1600x720 — левый край ушёл под глазок камеры.
+	//
+	// Правка отдельным дополнением, а НЕ внутри AugmentPlayerStats: то дополнение первым
+	// делом выходит на живом ассете (там уже раскладка Д1 с полосками в канвас-слотах), и
+	// до безопасной зоны дело бы не дошло. Здесь же меняется только КОРЕНЬ дерева —
+	// расстановка владельца внутри не трогается ни на единицу.
+	void AugmentPlayerStatsSafeZone(UWidgetTree* Tree, bool& bChanged)
+	{
+		WrapRootInSafeZone(Tree, TEXT("WBP_PlayerStats"), bChanged);
 	}
 
 	// WBP_Shop, пункт 6: строка пересчёта пачек в патроны. Показывается только при покупке
@@ -3211,7 +3295,17 @@ namespace
 			if (const UCanvasPanelSlot* OldSlot = Cast<UCanvasPanelSlot>((*OldColumn)->Slot))
 			{
 				const FVector2D Delta = OldSlot->GetPosition() - FVector2D(24.0f, 24.0f);
+				// Корнем панели статов теперь может быть безопасная зона экрана (Б9), а канва
+				// лежать внутри неё — ищем канву и там тоже, иначе перенос сдвига молча пропал бы.
 				UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget);
+				if (!Root)
+				{
+					if (const UPanelWidget* Wrapper = Cast<UPanelWidget>(Tree->RootWidget))
+					{
+						Root = Wrapper->GetChildrenCount() > 0
+							? Cast<UCanvasPanel>(Wrapper->GetChildAt(0)) : nullptr;
+					}
+				}
 				if (!Delta.IsNearlyZero() && Root)
 				{
 					for (int32 Index = 0; Index < Root->GetChildrenCount(); ++Index)
@@ -3691,6 +3785,7 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShop },
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventory },
 		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStats },
+		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStatsSafeZone },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopAmmoRow },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopSellAdButton },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopTouchTargets },
