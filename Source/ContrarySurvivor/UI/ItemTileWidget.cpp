@@ -49,7 +49,9 @@ void UItemTileWidget::BuildFallbackTree()
 	TileSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileSizeBox"));
 	WidgetTree->RootWidget = TileSizeBox;
 	TileSizeBox->SetWidthOverride(110.0f);
-	TileSizeBox->SetHeightOverride(150.0f);
+	// Минимум, не потолок — см. комментарий в SetTileSize (Б8). Реальный экран-владелец
+	// сразу же перезадаёт оба значения своим SetTileSize, это только начальный дефолт.
+	TileSizeBox->SetMinDesiredHeight(150.0f);
 
 	UOverlay* TileOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileOverlay"));
 	TileSizeBox->SetContent(TileOverlay);
@@ -240,7 +242,25 @@ void UItemTileWidget::SetTileSize(const FVector2D& InTileSize, float InIconSize)
 	if (TileSizeBox)
 	{
 		TileSizeBox->SetWidthOverride(InTileSize.X);
-		TileSizeBox->SetHeightOverride(InTileSize.Y);
+
+		// Б8 (издатель 08-05, п.1-3): высота — МИНИМУМ, а не жёсткий потолок. Жёсткий
+		// HeightOverride заставлял SizeBox ОТЧИТЫВАТЬСЯ перед сеткой заданной высотой,
+		// даже когда реальное содержимое (перенесённое на несколько строк название брони +
+		// строка «Не хватает монет») выше него — Slate при этом контент НЕ обрезает, а
+		// просто рисует поверх границы, из-за чего текст наезжал на плитку строкой ниже,
+		// а сама прокрутка списка недосчитывала лишнюю высоту (нижний ряд обрезался).
+		// SetMinDesiredHeight держит прежнюю компактную высоту у коротких плиток (как раньше)
+		// и ДАЁТ вырасти длинным — UUniformGridPanel потом сам равняет ВСЕ ячейки сетки по
+		// самой высокой (SUniformGridPanel.cpp:86-91 — ячейка равна самой большой плитке),
+		// поэтому наезда на соседей больше нет ни в одном ряду.
+		//
+		// Жёсткий потолок надо СНЯТЬ ЯВНО, иначе правка ничего не даёт на живом экране:
+		// в ассете WBP_ItemTile у этой коробки записан HeightOverride (так её генерирует
+		// коммандлет, BuildItemTile), а SBox при заданном HeightOverride на минимум вообще
+		// не смотрит — потолок возвращается первым (SBox.cpp:133-136). Без сброса высота
+		// оставалась бы жёсткой везде, где плитка берётся из ассета, то есть в самой игре.
+		TileSizeBox->ClearHeightOverride();
+		TileSizeBox->SetMinDesiredHeight(InTileSize.Y);
 	}
 	if (TileIconBox)
 	{

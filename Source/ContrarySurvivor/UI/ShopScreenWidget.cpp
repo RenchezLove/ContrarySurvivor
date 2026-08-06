@@ -75,6 +75,72 @@ void UShopScreenWidget::NativeOnInitialized()
 	{
 		SliderPanel->SetVisibility(ESlateVisibility::Collapsed);
 	}
+
+	// Б8, п.5: снимок авторской раскладки половин окна — ДО того, как код что-то растянул
+	// или спрятал. Возврат к двум половинам идёт только отсюда.
+	if (const UCanvasPanelSlot* BuySlot = BuyList ? Cast<UCanvasPanelSlot>(BuyList->Slot) : nullptr)
+	{
+		BuyListLayout = BuySlot->GetLayout();
+		bBuyListLayoutCaptured = true;
+	}
+	if (SellList)
+	{
+		SellListVisibility = SellList->GetVisibility();
+	}
+	if (SellHeaderText)
+	{
+		SellHeaderVisibility = SellHeaderText->GetVisibility();
+	}
+
+	// Б8, п.4: кнопки мельче предела под палец подрастают (крупнее — не трогаются).
+	ApplyMinTouchSize();
+}
+
+void UShopScreenWidget::ApplyMinTouchSize()
+{
+	if (MinTouchSize <= 0.0f)
+	{
+		return;
+	}
+
+	auto RaiseButton = [this](UWidget* Button, const TCHAR* DebugName)
+	{
+		UCanvasPanelSlot* Slot = Button ? Cast<UCanvasPanelSlot>(Button->Slot) : nullptr;
+		if (!Slot)
+		{
+			return; // кнопка лежит не на канвасе — размер задаёт её контейнер, не мы
+		}
+
+		// У слота-РАСТЯЖКИ (края привязаны к разным долям панели) поля Right/Bottom значат
+		// отступы, а не размер: трогать их как размер нельзя — раскладка уедет.
+		const FAnchorData Layout = Slot->GetLayout();
+		if (!Layout.Anchors.Minimum.Equals(Layout.Anchors.Maximum))
+		{
+			return;
+		}
+
+		const FVector2D Size = Slot->GetSize();
+		const FVector2D Raised(FMath::Max(Size.X, MinTouchSize), FMath::Max(Size.Y, MinTouchSize));
+		if (!Raised.Equals(Size))
+		{
+			Slot->SetSize(Raised);
+			UE_LOG(LogQA, Warning,
+				TEXT("ShopScreenWidget: кнопка %s была %.0fx%.0f — увеличена до %.0fx%.0f (предел под палец %.0f)"),
+				DebugName, Size.X, Size.Y, Raised.X, Raised.Y, MinTouchSize);
+		}
+		else
+		{
+			UE_LOG(LogQA, Log, TEXT("ShopScreenWidget: кнопка %s уже %.0fx%.0f — предел под палец соблюдён"),
+				DebugName, Size.X, Size.Y);
+		}
+	};
+
+	RaiseButton(CloseButton, TEXT("CloseButton"));
+	RaiseButton(QtyMinusButton, TEXT("QtyMinusButton"));
+	RaiseButton(QtyPlusButton, TEXT("QtyPlusButton"));
+	RaiseButton(SliderConfirmButton, TEXT("SliderConfirmButton"));
+	RaiseButton(SliderCancelButton, TEXT("SliderCancelButton"));
+	RaiseButton(SellAdButton, TEXT("SellAdButton"));
 }
 
 void UShopScreenWidget::InitShop(TScriptInterface<IShopVendor> InTrader, APlayerCharacter* InPlayer)
@@ -106,18 +172,72 @@ float UShopScreenWidget::GetPlayerMoney() const
 
 void UShopScreenWidget::RefreshAll()
 {
-	RebuildList(/*bBuyList=*/true);
-	RebuildList(/*bBuyList=*/false);
+	// Порядок важен: сперва рюкзак — по числу его плиток видно, пуста ли правая половина
+	// окна; затем раскладка половин; и только потом товары, уже с нужным числом колонок.
+	const int32 SellTiles = RebuildList(/*bBuyList=*/false, FMath::Max(1, TileColumns));
+	const int32 BuyColumns = UpdateListsLayout(/*bBackpackEmpty=*/SellTiles == 0);
+	RebuildList(/*bBuyList=*/true, BuyColumns);
 }
 
-void UShopScreenWidget::RebuildList(bool bBuyList)
+int32 UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
+{
+	const int32 NarrowColumns = FMath::Max(1, TileColumns);
+	const int32 WideColumns = FMath::Max(1, TileColumnsWide);
+
+	bool bExpand = bExpandBuyListWhenBackpackEmpty && bBackpackEmpty;
+
+	UCanvasPanelSlot* BuySlot = BuyList ? Cast<UCanvasPanelSlot>(BuyList->Slot) : nullptr;
+	if (bExpand && !bBuyListLayoutCaptured)
+	{
+		bExpand = false; // список товаров лежит не на канвасе — растягивать нечего
+	}
+	if (bExpand && BuySlot)
+	{
+		// Растяжка правого края возможна, только если левый и правый края списка уже
+		// привязаны к РАЗНЫМ долям панели (слот-растяжка). У слота с одной точкой привязки
+		// поле Right значит ширину, и подмена доли сломала бы раскладку.
+		if (BuyListLayout.Anchors.Minimum.X >= BuyListLayout.Anchors.Maximum.X)
+		{
+			UE_LOG(LogQA, Warning,
+				TEXT("ShopScreenWidget: список товаров стоит одной точкой привязки — на пустой рюкзак не растягиваю"));
+			bExpand = false;
+		}
+	}
+
+	if (BuySlot)
+	{
+		FAnchorData Layout = BuyListLayout;
+		if (bExpand)
+		{
+			// Правый край товаров — до правого края панели. Левый край, верх, низ и все
+			// отступы остаются авторскими.
+			Layout.Anchors.Maximum.X = 1.0f;
+		}
+		BuySlot->SetLayout(Layout);
+	}
+
+	// Половина рюкзака вместе со своим заголовком уходит с экрана целиком: пустая
+	// подписанная половина и была тем самым «пустующим правым краем» из замечания издателя.
+	if (SellList)
+	{
+		SellList->SetVisibility(bExpand ? ESlateVisibility::Collapsed : SellListVisibility);
+	}
+	if (SellHeaderText)
+	{
+		SellHeaderText->SetVisibility(bExpand ? ESlateVisibility::Collapsed : SellHeaderVisibility);
+	}
+
+	return bExpand ? WideColumns : NarrowColumns;
+}
+
+int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 {
 	UScrollBox* List = bBuyList ? BuyList.Get() : SellList.Get();
 	if (!List)
 	{
 		UE_LOG(LogQA, Warning, TEXT("ShopScreenWidget: кубик %s не найден в WBP_Shop — список не построен"),
 			bBuyList ? TEXT("BuyList") : TEXT("SellList"));
-		return;
+		return 0;
 	}
 
 	List->ClearChildren();
@@ -126,11 +246,11 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 	{
 		UE_LOG(LogQA, Warning,
 			TEXT("ShopScreenWidget: TileWidgetClass пуст — списки пустые (дефолт ставится в NativeOnInitialized)"));
-		return;
+		return 0;
 	}
 	if (!Trader || !Player || !WidgetTree)
 	{
-		return;
+		return 0;
 	}
 
 	// Build 1.2.2 (Ринат: «иконки в сетке, как в сталкере или LDoE»): внутри прежнего
@@ -145,13 +265,13 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 
 	APlayerController* PC = GetOwningPlayer();
 	const float Money = GetPlayerMoney();
-	const int32 Columns = FMath::Max(1, TileColumns);
+	const int32 GridColumns = FMath::Max(1, Columns);
 	int32 TileIndex = 0;
 
 	auto AddTileToGrid = [&](UItemTileWidget* Tile)
 	{
 		if (UUniformGridSlot* GridSlot = Grid->AddChildToUniformGrid(
-			Tile, TileIndex / Columns, TileIndex % Columns))
+			Tile, TileIndex / GridColumns, TileIndex % GridColumns))
 		{
 			GridSlot->SetHorizontalAlignment(HAlign_Center);
 			GridSlot->SetVerticalAlignment(VAlign_Top);
@@ -220,7 +340,7 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 		UInventoryComponent* Inv = Player->GetInventory();
 		if (!Inv)
 		{
-			return;
+			return 0;
 		}
 		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
 		{
@@ -247,6 +367,8 @@ void UShopScreenWidget::RebuildList(bool bBuyList)
 			}
 		}
 	}
+
+	return TileIndex; // сколько плиток реально построено (у рюкзака 0 = продавать нечего)
 }
 
 // ---------------------------------------------------------------------------

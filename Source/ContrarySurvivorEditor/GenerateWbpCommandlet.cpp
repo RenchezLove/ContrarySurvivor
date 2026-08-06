@@ -20,6 +20,8 @@
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
+#include "Components/SafeZone.h"     // Б9: безопасная зона экрана (вырез камеры на телефоне)
+#include "Components/SafeZoneSlot.h" // её слот — там лежит запасной отступ
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
 #include "Components/Slider.h"
@@ -490,7 +492,10 @@ namespace
 
 		USizeBox* TileSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileSizeBox"));
 		TileSize->SetWidthOverride(110.0f);
-		TileSize->SetHeightOverride(150.0f);
+		// Б8 (издатель 08-05): высота плитки — МИНИМУМ, а не жёсткий потолок, иначе длинное
+		// название брони вылезает за границу и наезжает на плитку строкой ниже. Живые
+		// габариты всё равно ставит код окна (UItemTileWidget::SetTileSize), здесь дефолт.
+		TileSize->SetMinDesiredHeight(150.0f);
 		Tree->RootWidget = TileSize;
 
 		UOverlay* TileOverlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileOverlay"));
@@ -1212,7 +1217,8 @@ namespace
 			CloseSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
 			CloseSlot->SetAlignment(FVector2D(1.0f, 0.0f));
 			CloseSlot->SetPosition(FVector2D::ZeroVector);
-			CloseSlot->SetSize(FVector2D(90.0f, 28.0f)); // ShopCloseButtonWidth/Height
+			// Б8 п.4: высота была 28 — мельче предела под палец (48). Ширина заодно ровнее.
+			CloseSlot->SetSize(FVector2D(96.0f, 48.0f));
 		}
 
 		// Деньги игрока: статичная подпись «Монеты» (код её НЕ трогает) + значение, которое
@@ -1298,7 +1304,9 @@ namespace
 		CanvasStretch(SliderCanvas, Qty, FAnchors(0.0f, 0.0f, 1.0f, 0.0f),
 			FMargin(0.0f, 86.0f, 0.0f, 16.0f));
 
-		// [-] [+] (48x30 — SliderSmallButtonWidth/Height) и живой итог справа.
+		// [-] [+] и живой итог справа. Б8 п.4 (дословно «кнопки ±48 точек»): было 48x30 —
+		// по высоте мельче предела под палец, теперь 56x56 с запасом; шаг по горизонтали
+		// увеличен под новую ширину, иначе кнопки налезли бы друг на друга.
 		auto AddSmallButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName,
 			const TCHAR* Caption, float X)
 		{
@@ -1307,18 +1315,19 @@ namespace
 				FLinearColor(0.25f, 0.27f, 0.33f, 1.0f)); // InvSlotColor + подсветки
 			SetButtonContent(Small, MakeText(Tree, Roboto, FName(LabelName), Caption,
 				FLinearColor::White, 15, TEXT("Bold")));
-			CanvasAt(SliderCanvas, Small, FVector2D(X, 114.0f), FVector2D(48.0f, 30.0f));
+			CanvasAt(SliderCanvas, Small, FVector2D(X, 114.0f), FVector2D(56.0f, 56.0f));
 		};
 		AddSmallButton(TEXT("QtyMinusButton"), TEXT("QtyMinusLabel"), TEXT("-"), 0.0f);
-		AddSmallButton(TEXT("QtyPlusButton"), TEXT("QtyPlusLabel"), TEXT("+"), 56.0f);
+		AddSmallButton(TEXT("QtyPlusButton"), TEXT("QtyPlusLabel"), TEXT("+"), 64.0f);
 
 		UTextBlock* SliderTotal = MakeText(Tree, Roboto, TEXT("SliderTotalText"), TEXT("Итого: 0"),
 			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 19, TEXT("Regular")); // UIMoneyColor
 		SliderTotal->bIsVariable = true;
 		CanvasAuto(SliderCanvas, SliderTotal, FVector2D(128.0f, 119.0f));
 
-		// Подтверждение (Отмена красная, Подтвердить зелёная, 120x34) — якоря низ-право:
-		// при ресайзе панели мышкой кнопки остаются в углу.
+		// Подтверждение (Отмена красная, Подтвердить зелёная, 132x48 — Б8 п.4, высота была
+		// 34 и не дотягивала до предела под палец) — якоря низ-право: при ресайзе панели
+		// мышкой кнопки остаются в углу.
 		auto AddBigButton = [&](const TCHAR* ButtonName, const TCHAR* LabelName, const TCHAR* Caption,
 			const FLinearColor& Normal, const FLinearColor& Hovered, const FLinearColor& Pressed, float RightX)
 		{
@@ -1330,12 +1339,12 @@ namespace
 				BigSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
 				BigSlot->SetAlignment(FVector2D(1.0f, 1.0f));
 				BigSlot->SetPosition(FVector2D(RightX, -32.0f));
-				BigSlot->SetSize(FVector2D(120.0f, 34.0f)); // SliderBigButtonWidth/Height
+				BigSlot->SetSize(FVector2D(132.0f, 48.0f)); // SliderBigButtonWidth/Height
 			}
 		};
 		AddBigButton(TEXT("SliderCancelButton"), TEXT("SliderCancelLabel"), TEXT("Отмена"),
 			FLinearColor(0.5f, 0.12f, 0.12f, 1.0f), FLinearColor(0.62f, 0.17f, 0.16f, 1.0f),
-			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), -130.0f);
+			FLinearColor(0.7f, 0.25f, 0.2f, 1.0f), -142.0f);
 		AddBigButton(TEXT("SliderConfirmButton"), TEXT("SliderConfirmLabel"), TEXT("Подтвердить"),
 			FLinearColor(0.2f, 0.3f, 0.22f, 1.0f), FLinearColor(0.26f, 0.4f, 0.29f, 1.0f),
 			FLinearColor(0.32f, 0.5f, 0.36f, 1.0f), 0.0f);
@@ -2542,6 +2551,74 @@ namespace
 		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: добавлена золотая кнопка SellAdButton."), Name);
 	}
 
+	// WBP_Shop, Б8 п.4 (издатель после ревизии 08-05, дословно «кнопки ±48 точек»): ни одна
+	// нажимаемая кнопка магазина не должна быть мельче предела по любой стороне.
+	//
+	// Правило только ПОДНИМАЕТ размер и никогда не опускает: расстановка в ассете сделана
+	// Ринатом мышкой, и уменьшать её код права не имеет. Поэтому кнопка, которую он уже
+	// сделал крупной, остаётся как есть, а мелкая дорастает до предела. Прогон на текущем
+	// ассете обязан ничего не менять — все шесть кнопок там уже крупнее (проверено срезом
+	// геометрии от 08-05: закрытие 238x71, минус 98x76, плюс 104x76, отмена 192x66,
+	// подтверждение 290x66, золотая 305x70). Правка нужна на будущее: свежая генерация
+	// -rebuild ставит кнопки по дефолтам, и вот они как раз были мельче предела.
+	//
+	// То же правило работает и в самой игре при открытии окна (UShopScreenWidget,
+	// параметр «Наименьший размер кнопки под палец») — здесь оно закрывает ассет, там живой
+	// экран, случайно уменьшенная в дизайнере кнопка ловится в обоих местах.
+	void AugmentShopTouchTargets(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Shop");
+		constexpr float MinTouchSize = 48.0f;
+
+		auto RaiseButton = [&](const TCHAR* WidgetName)
+		{
+			UWidget* Found = AugFind(Tree, Name, WidgetName);
+			UCanvasPanelSlot* Slot = Found ? Cast<UCanvasPanelSlot>(Found->Slot) : nullptr;
+			if (!Slot)
+			{
+				if (Found)
+				{
+					UE_LOG(LogGenerateWbp, Warning,
+						TEXT("AUGMENT %s: слот '%s' не CanvasPanelSlot (%s) — размер не тронут."),
+						Name, WidgetName, *Found->GetClass()->GetName());
+				}
+				return;
+			}
+
+			// У слота-растяжки поля Right/Bottom — это отступы, а не размер: их нельзя
+			// править как размер (раскладка уехала бы).
+			const FAnchorData Layout = Slot->GetLayout();
+			if (!Layout.Anchors.Minimum.Equals(Layout.Anchors.Maximum))
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: '%s' стоит растяжкой — размер задаёт панель, предел не применяю."),
+					Name, WidgetName);
+				return;
+			}
+
+			const FVector2D OldSize = Slot->GetSize();
+			const FVector2D NewSize(FMath::Max(OldSize.X, MinTouchSize), FMath::Max(OldSize.Y, MinTouchSize));
+			if (NewSize.Equals(OldSize))
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: '%s' %.0fx%.0f — предел под палец %.0f соблюдён, не трогаю."),
+					Name, WidgetName, OldSize.X, OldSize.Y, MinTouchSize);
+				return; // идемпотентность: повторный прогон ничего не меняет
+			}
+			Slot->SetSize(NewSize);
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: '%s' %.0fx%.0f -> %.0fx%.0f (предел под палец)."),
+				Name, WidgetName, OldSize.X, OldSize.Y, NewSize.X, NewSize.Y);
+		};
+
+		RaiseButton(TEXT("CloseButton"));
+		RaiseButton(TEXT("QtyMinusButton"));
+		RaiseButton(TEXT("QtyPlusButton"));
+		RaiseButton(TEXT("SliderConfirmButton"));
+		RaiseButton(TEXT("SliderCancelButton"));
+		RaiseButton(TEXT("SellAdButton"));
+	}
+
 	// Правка AugmentShopRow УДАЛЕНА (Build 1.2.2): строкового WBP_ShopRow больше нет,
 	// «Не хватает монет» живёт в плитке (TileStatusText, ставит код магазина).
 
@@ -3616,6 +3693,7 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_PlayerStats"),   TEXT("WBP_PlayerStats"),   &AugmentPlayerStats },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopAmmoRow },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopSellAdButton },
+		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopTouchTargets },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTracker },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
 	};

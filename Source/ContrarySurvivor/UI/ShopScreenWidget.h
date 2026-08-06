@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/CanvasPanelSlot.h"        // FAnchorData: снимок авторской геометрии списка
 #include "ContrarySurvivor/Actors/ShopVendor.h" // IShopVendor/TScriptInterface (источник каталога/цен)
 #include "ShopScreenWidget.generated.h"
 
@@ -69,25 +70,56 @@ public:
 		DisplayName = "Колонок в сетке списков"))
 	int32 TileColumns = 3;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "3",
-		DisplayName = "Размер плитки"))
-	FVector2D TileSize = FVector2D(110.0f, 165.0f);
+	// Б8 (издатель 08-05, п.5): сколько колонок у товаров, когда они занимают окно ЦЕЛИКОМ
+	// (в рюкзаке нечего продать — его половина окна стояла пустой, см. флаг ниже). Больше
+	// колонок нужно именно потому, что места вдвое больше: при трёх колонках на всю ширину
+	// плитки разъехались бы редкими пятнами.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "1", DisplayPriority = "3",
+		DisplayName = "Колонок у товаров на всё окно"))
+	int32 TileColumnsWide = 6;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "16.0", DisplayPriority = "4",
+	// Б8 (издатель 08-05, п.5, дословно «растянуть сетку на пустующую правую половину»):
+	// пока продавать нечего, список товаров занимает и половину рюкзака, а сама половина
+	// рюкзака вместе с её заголовком прячется; появился первый предмет на продажу — окно
+	// возвращается к двум половинам. Авторская расстановка в ассете при этом НЕ переписывается:
+	// код берёт снимок геометрии слота при запуске и возвращает её число в число.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "4",
+		DisplayName = "Растягивать товары, когда рюкзак пуст"))
+	bool bExpandBuyListWhenBackpackEmpty = true;
+
+	// Б8 (издатель 08-05, п.5): было 110 — три узкие колонки при пустующей половине окна под
+	// рюкзак. Ширина увеличена (даёт названию брони меньше строк переноса — п.1 заодно) и
+	// использует место, которое раньше пустовало и в каталоге, и в списке рюкзака (у обоих
+	// список — своя половина панели, оба уже вмещают три плитки такой ширины с запасом).
+	// Высота — MIN, не потолок (см. UItemTileWidget::SetTileSize) — контенту разрешено расти.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "5",
+		DisplayName = "Размер плитки"))
+	FVector2D TileSize = FVector2D(180.0f, 165.0f);
+
+	// Б8, п.5: иконка пропорционально крупнее под расширенную плитку.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "16.0", DisplayPriority = "6",
 		DisplayName = "Размер иконки в плитке"))
-	float TileIconSize = 72.0f;
+	float TileIconSize = 84.0f;
 
 	// Зазоры между плитками — как в инвентаре (приёмка Рината: ряды слипались по вертикали).
 	// Сетку строит код при каждом обновлении, поэтому в дизайнере эти отступы не поменять:
 	// они параметры окна. Значение — расстояние между СОСЕДНИМИ плитками, по краям сетки
 	// остаётся половина.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "0.0", DisplayPriority = "5",
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "0.0", DisplayPriority = "7",
 		DisplayName = "Зазор между плитками по горизонтали"))
 	float TileSpacingX = 8.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "0.0", DisplayPriority = "6",
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "0.0", DisplayPriority = "8",
 		DisplayName = "Зазор между плитками по вертикали"))
 	float TileSpacingY = 8.0f;
+
+	// Б8 (издатель 08-05, п.4): нижний предел размера нажимаемой кнопки магазина по каждой
+	// стороне. Кнопка мельче — код увеличивает её при открытии окна; кнопка крупнее —
+	// НЕ трогает (уменьшать расстановку Рината код не имеет права). Ноль выключает проверку.
+	// Значение задано в единицах раскладки интерфейса, не в пикселях устройства.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (ClampMin = "0.0", DisplayPriority = "9",
+		DisplayName = "Наименьший размер кнопки под палец"))
+	float MinTouchSize = 48.0f;
 
 	// Тексты магазина. Подстановки в фигурных скобках подставляет код, остальное — твой
 	// текст. Статичные подписи («Монеты», «Количество») — отдельные кубики в дизайнере,
@@ -220,7 +252,18 @@ protected:
 	void SetTransactionQty(int32 NewQty);
 
 	// Пересобрать один список; bBuyList: каталог вендора / продаваемое из рюкзака.
-	void RebuildList(bool bBuyList);
+	// Columns — колонок в сетке этого списка. Возвращает число построенных плиток
+	// (по нему решается, пуст ли рюкзак — Б8, п.5).
+	int32 RebuildList(bool bBuyList, int32 Columns);
+
+	// Б8, п.5. Разложить половины окна под наполнение рюкзака: продавать нечего — товары
+	// занимают окно целиком, есть что продать — прежние две половины. Возвращает число
+	// колонок, с которым дальше строится сетка товаров.
+	int32 UpdateListsLayout(bool bBackpackEmpty);
+
+	// Б8, п.4. Поднять до MinTouchSize кнопки окна, которые мельче предела. Уменьшать
+	// ничего не может — только увеличивает.
+	void ApplyMinTouchSize();
 
 	// Текущие деньги игрока (0 при отсутствии статов).
 	float GetPlayerMoney() const;
@@ -237,6 +280,12 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UScrollBox> SellList;
+
+	// Заголовок половины рюкзака («Рюкзак»). Слово принадлежит Ринату — код его НЕ пишет,
+	// а только прячет вместе с самим списком, когда товары растянуты на всё окно (иначе
+	// заголовок висел бы над чужими плитками). Нет кубика с таким именем — просто не прячем.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> SellHeaderText;
 
 	// Кнопка закрытия магазина.
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -328,6 +377,15 @@ private:
 
 	// Защита от рекурсии: SetValue ползунка триггерит OnValueChanged — игнорируем свой же вызов.
 	bool bUpdatingSliderFromCode = false;
+
+	// --- Б8, п.5: снимок авторской раскладки половин окна (снимается один раз при
+	// инициализации, ДО первой растяжки). Возврат к двум половинам идёт только из него,
+	// поэтому расстановка Рината в ассете остаётся единственным источником правды. ---
+
+	FAnchorData BuyListLayout;
+	bool bBuyListLayoutCaptured = false;
+	ESlateVisibility SellListVisibility = ESlateVisibility::Visible;
+	ESlateVisibility SellHeaderVisibility = ESlateVisibility::Visible;
 
 	// --- Build 1.2: состояние точки «Продать дороже» ---
 
