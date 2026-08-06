@@ -250,6 +250,13 @@ void AContrarySurvivorHUD::DrawHUD()
 	DrawQADebugOverlay();
 }
 
+bool AContrarySurvivorHUD::IsTouchLayerShown() const
+{
+	const AContrarySurvivorPlayerController* CSPC =
+		Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController());
+	return CSPC && CSPC->HasTouchLayer();
+}
+
 void AContrarySurvivorHUD::DrawQADebugOverlay()
 {
 	if (!Canvas || !FQADebug::bOverlayVisible)
@@ -516,7 +523,9 @@ void AContrarySurvivorHUD::DrawInventory(APlayerCharacter* Player)
 	const float Pad = UIPanelPadding;
 	const float HeaderY = PY + Pad;
 	// #18: крупный заголовок с обводкой. Русские подписи — ADR-041/ADR-043.
-	DrawShadowedText(InvHeaderText, UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
+	// На телефоне заголовок без приписки про клавиши Tab/I (Б5 задания издателя).
+	DrawShadowedText(IsTouchLayerShown() ? InvHeaderTextTouch : InvHeaderText,
+		UIHeaderColor, PX + Pad, HeaderY, Font, UIHeaderTextScale);
 
 	// Деньги / голод / жажда (GDD §7.7) — крупно, золотой, на плашке (#18).
 	// Литералы: подписи переехали в UInventoryScreenWidget (ADR-048).
@@ -1432,8 +1441,14 @@ void AContrarySurvivorHUD::DrawShopSlider(APlayerCharacter* Player, const FVecto
 		R.Action = EShopAction::SliderConfirm; ShopHitRegions.Add(R);
 	}
 
-	// Подсказка по клавишам (стрелки/колесо ±1, Shift ±10).
-	DrawShadowedText(SliderKeysHintText, SliderKeysHintColor, PXc + Pad, BtnY + 8.0f, Font);
+	// Подсказка по клавишам (стрелки/колесо ±1, Shift ±10). На телефоне клавиатуры нет:
+	// берём тач-вариант, и если он пуст (так по умолчанию) — не рисуем строку вовсе
+	// (Б5 задания издателя).
+	const FString& KeysHint = IsTouchLayerShown() ? SliderKeysHintTextTouch : SliderKeysHintText;
+	if (!KeysHint.IsEmpty())
+	{
+		DrawShadowedText(KeysHint, SliderKeysHintColor, PXc + Pad, BtnY + 8.0f, Font);
+	}
 }
 
 // ===========================================================================
@@ -2129,15 +2144,19 @@ void AContrarySurvivorHUD::DrawDeathScreen(APlayerCharacter* Player)
 	DeathRespawnBtnMin = FVector2D(BtnX, BtnY);
 	DeathRespawnBtnMax = FVector2D(BtnX + BtnW, BtnY + BtnH);
 
-	// Подсказка-клавиша (дублирование, т.к. клик мышью по HUD ненадёжен).
-	const FString& Hint = DeathKeyHintText;
-	float HW = 0.0f, HH = 0.0f;
-	if (Font)
+	// Подсказка-клавиша (дублирование, т.к. клик мышью по HUD ненадёжен). На телефоне
+	// клавиш нет — тач-вариант по умолчанию пуст, и строка не рисуется (Б5 задания издателя).
+	const FString& Hint = IsTouchLayerShown() ? DeathKeyHintTextTouch : DeathKeyHintText;
+	if (!Hint.IsEmpty())
 	{
-		GetTextSize(Hint, HW, HH, Font);
+		float HW = 0.0f, HH = 0.0f;
+		if (Font)
+		{
+			GetTextSize(Hint, HW, HH, Font);
+		}
+		DrawShadowedText(Hint, DeathKeyHintColor,
+			(SX - HW) * 0.5f, BtnY + BtnH + 16.0f, Font, 1.0f);
 	}
-	DrawShadowedText(Hint, DeathKeyHintColor,
-		(SX - HW) * 0.5f, BtnY + BtnH + 16.0f, Font, 1.0f);
 }
 
 void AContrarySurvivorHUD::DrawShadowedText(const FString& Text, const FLinearColor& Color, float X, float Y,

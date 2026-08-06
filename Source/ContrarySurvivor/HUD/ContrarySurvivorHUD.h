@@ -733,6 +733,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts", meta = (DisplayPriority = "8"))
 	FString SliderKeysHintText = TEXT("[<-/->] +-1   [Shift] +-10   [Enter] confirm");
 
+	// Тот же ряд подсказок, когда показан тач-слой: клавиатуры у игрока нет, поэтому по
+	// умолчанию строка ПУСТАЯ и не рисуется вовсе (Б5 задания издателя — «убрать подписи
+	// клавиш ПК»). Хочется что-то написать пальцу — впишите сюда, строка появится.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Shop Slider Texts",
+		meta = (DisplayName = "Подсказка слайдера на телефоне (пусто — не рисовать)", DisplayPriority = "9"))
+	FString SliderKeysHintTextTouch = TEXT("");
+
 	// --- Инвентарь: геометрия ---
 
 	// Доля ширины панели под левую колонку «СНАРЯЖЕНИЕ» (paper-doll).
@@ -757,6 +764,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "1"))
 	FString InvHeaderText = TEXT("ИНВЕНТАРЬ  (Tab / I — закрыть)");
+
+	// Тот же заголовок, когда показан тач-слой: без приписки про клавиши, закрывают
+	// экранной кнопкой СУМКА (Б5 задания издателя).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts",
+		meta = (DisplayName = "Заголовок инвентаря на телефоне", DisplayPriority = "2"))
+	FString InvHeaderTextTouch = TEXT("ИНВЕНТАРЬ");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Inventory Texts", meta = (DisplayPriority = "2"))
 	FString InvEquipmentHeaderText = TEXT("СНАРЯЖЕНИЕ");
@@ -895,6 +908,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts", meta = (DisplayPriority = "13"))
 	FString DeathKeyHintText = TEXT("Enter / Пробел — возродиться");
+
+	// Та же подсказка, когда показан тач-слой: клавиш нет, возрождаются кнопкой на экране,
+	// поэтому по умолчанию строка ПУСТАЯ и не рисуется (Б5 задания издателя).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Death Texts",
+		meta = (DisplayName = "Подсказка возрождения на телефоне (пусто — не рисовать)", DisplayPriority = "14"))
+	FString DeathKeyHintTextTouch = TEXT("");
 
 	// --- Трекер квеста (Canvas-путь; «Квест:»/«Квест выполнен…» переехали
 	// в UQuestTrackerWidget — ADR-048; метка «Сдать:» — мировая, остаётся) ---
@@ -1072,6 +1091,11 @@ private:
 
 	// Рисует и старит цифры урона: подъём вверх + плавное затухание.
 	void DrawDamageNumbers();
+
+	// Показан ли сейчас экранный тач-слой (кнопки под пальцем). По этому признаку Canvas-путь
+	// выбирает подписи: на телефоне подписи клавиш компьютера не показываем (Б5 задания
+	// издателя). Тот же признак, что у подсказки взаимодействия и подсказки прокрутки магазина.
+	bool IsTouchLayerShown() const;
 
 	// --- Экран инвентаря (immediate-mode) ---
 
