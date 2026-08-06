@@ -124,6 +124,40 @@ bool FAnalyticsTutorialStepNamesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// --- 3а. Правило «обучение пройдено» (решение лида 08-06) -------------------------------
+// Завершение обучения считается по всем шагам, КРОМЕ подсказки смерти: иначе метрика
+// издателя «доля прошедших обучение» требовала бы первой гибели и меряла смертность.
+// Событие самого шага у подсказки смерти остаётся — правило касается только завершения.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnalyticsTutorialCompletionRuleTest,
+	"ContrarySurvivor.Analytics.TutorialCompletionSkipsDeathHint", AnalyticsTestFlags)
+
+bool FAnalyticsTutorialCompletionRuleTest::RunTest(const FString& Parameters)
+{
+	TestFalse(TEXT("Подсказка смерти в условие завершения НЕ входит"),
+		UOnboardingComponent::CountsTowardTutorialCompletion(EOnboardingHint::Death));
+
+	int32 Counted = 0;
+	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
+	{
+		const EOnboardingHint Hint = static_cast<EOnboardingHint>(i);
+		if (Hint != EOnboardingHint::Death)
+		{
+			TestTrue(FString::Printf(TEXT("Шаг %d входит в условие завершения"), i + 1),
+				UOnboardingComponent::CountsTowardTutorialCompletion(Hint));
+		}
+		Counted += UOnboardingComponent::CountsTowardTutorialCompletion(Hint) ? 1 : 0;
+	}
+
+	// Число шагов в событии «обучение пройдено» считается тем же правилом, а не руками.
+	TestEqual(TEXT("Число шагов завершения = все шаги минус подсказка смерти"),
+		UOnboardingComponent::GetTutorialCompletionStepCount(), Counted);
+	TestEqual(TEXT("Сейчас это четыре шага из пяти"),
+		UOnboardingComponent::GetTutorialCompletionStepCount(),
+		static_cast<int32>(EOnboardingHint::Count) - 1);
+	return true;
+}
+
 // --- 4. Защита от повторной отправки за установку --------------------------------------
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnalyticsProfileSaveDedupeTest,

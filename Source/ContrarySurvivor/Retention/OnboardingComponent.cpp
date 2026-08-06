@@ -64,9 +64,13 @@ void UOnboardingComponent::TryShowHint(EOnboardingHint Hint)
 	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
 	{
 		Analytics->RecordTutorialStep(GetHintAnalyticsId(Hint), Index + 1);
-		if (AreAllHintsShown())
+		// «Обучение пройдено» — когда показаны все ЗАЧИТЫВАЕМЫЕ шаги (без подсказки смерти,
+		// см. CountsTowardTutorialCompletion). Сторож по текущему шагу нужен, чтобы поздняя
+		// подсказка смерти не дёргала событие повторно (в UAnalyticsSubsystem есть своя
+		// защита от повторов, но полагаться на один рубеж не будем).
+		if (CountsTowardTutorialCompletion(Hint) && AreTutorialCompletionHintsShown())
 		{
-			Analytics->RecordTutorialCompleted(static_cast<int32>(EOnboardingHint::Count));
+			Analytics->RecordTutorialCompleted(GetTutorialCompletionStepCount());
 		}
 	}
 
@@ -86,11 +90,31 @@ const TCHAR* UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint Hint)
 	}
 }
 
-bool UOnboardingComponent::AreAllHintsShown() const
+bool UOnboardingComponent::CountsTowardTutorialCompletion(EOnboardingHint Hint)
+{
+	// Все реальные шаги, кроме подсказки смерти: завершение обучения не должно требовать
+	// первой гибели игрока (иначе метрика издателя меряет смертность, а не обучение).
+	return Hint < EOnboardingHint::Count && Hint != EOnboardingHint::Death;
+}
+
+int32 UOnboardingComponent::GetTutorialCompletionStepCount()
+{
+	int32 StepCount = 0;
+	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
+	{
+		if (CountsTowardTutorialCompletion(static_cast<EOnboardingHint>(i)))
+		{
+			++StepCount;
+		}
+	}
+	return StepCount;
+}
+
+bool UOnboardingComponent::AreTutorialCompletionHintsShown() const
 {
 	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
 	{
-		if (!bShown[i])
+		if (CountsTowardTutorialCompletion(static_cast<EOnboardingHint>(i)) && !bShown[i])
 		{
 			return false;
 		}
