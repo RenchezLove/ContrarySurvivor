@@ -2226,29 +2226,54 @@ bool AContrarySurvivorPlayerController::HasInteractPrompt() const
 	return CurrentInteractKind != EInteractKind::None && IsValid(CurrentInteractActor);
 }
 
-FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
+FText AContrarySurvivorPlayerController::GetInteractActionText(EInteractKind Kind, bool bPickupUsesSearchWindow) const
 {
-	// Тексты — EditAnywhere-поля (директива Рината 07-18). Вариант зависит от управления:
-	// с клавишей на ПК, без клавиши при показанном тач-слое (см. комментарий к полям).
-	const bool bTouch = HasTouchLayer();
-	switch (CurrentInteractKind)
+	// Тексты — EditAnywhere-поля (директива Рината 07-18); здесь только выбор нужного.
+	switch (Kind)
 	{
-		case EInteractKind::Pickup:
-		{
-			// Build 1.2.2: мешок с окном обыска подписывается как труп — «обыскать», потому
-			// что действие теперь одно и то же. Мгновенный подбор остаётся «подобрать».
-			const APickup* NearPickup = Cast<APickup>(CurrentInteractActor);
-			if (NearPickup && NearPickup->UsesSearchWindow())
-			{
-				return bTouch ? InteractPromptCorpseTouch : InteractPromptCorpse;
-			}
-			return bTouch ? InteractPromptPickupTouch : InteractPromptPickup;
-		}
-		case EInteractKind::Trader: return bTouch ? InteractPromptTraderTouch : InteractPromptTrader;
-		case EInteractKind::Elder:  return bTouch ? InteractPromptElderTouch : InteractPromptElder;
-		case EInteractKind::Corpse: return bTouch ? InteractPromptCorpseTouch : InteractPromptCorpse;
+		// Build 1.2.2: мешок с окном обыска подписывается как труп — «Обыскать», потому что
+		// действие теперь одно и то же. Мгновенный подбор остаётся «Подобрать».
+		case EInteractKind::Pickup: return bPickupUsesSearchWindow ? InteractPromptCorpseAction : InteractPromptPickupAction;
+		case EInteractKind::Trader: return InteractPromptTraderAction;
+		case EInteractKind::Elder:  return InteractPromptElderAction;
+		case EInteractKind::Corpse: return InteractPromptCorpseAction;
 		default:                    return FText::GetEmpty();
 	}
+}
+
+FText AContrarySurvivorPlayerController::GetInteractHowText() const
+{
+	// Тач-слой показан — называем экранную кнопку, иначе клавишу компьютера.
+	return HasTouchLayer() ? GetInteractTouchButtonName() : GetInteractKeyName();
+}
+
+FText AContrarySurvivorPlayerController::FormatInteractPrompt(const FText& Format, const FText& ActionText, const FText& HowText)
+{
+	// Действия нет — подсказки нет вовсе (иначе на экран уехало бы одинокое тире).
+	if (ActionText.IsEmpty())
+	{
+		return FText::GetEmpty();
+	}
+	// Способ не задан — остаётся голое действие, как было до 08-06 (не тупик, а откат).
+	if (HowText.IsEmpty())
+	{
+		return ActionText;
+	}
+
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("Action"), ActionText);
+	Args.Add(TEXT("How"), HowText);
+	return FText::Format(Format, Args);
+}
+
+FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
+{
+	const APickup* NearPickup = (CurrentInteractKind == EInteractKind::Pickup)
+		? Cast<APickup>(CurrentInteractActor) : nullptr;
+	const bool bSearchWindow = NearPickup && NearPickup->UsesSearchWindow();
+
+	return FormatInteractPrompt(InteractPromptFormat,
+		GetInteractActionText(CurrentInteractKind, bSearchWindow), GetInteractHowText());
 }
 
 FString AContrarySurvivorPlayerController::GetInteractPromptText() const

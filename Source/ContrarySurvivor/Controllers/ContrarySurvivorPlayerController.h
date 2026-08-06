@@ -111,13 +111,40 @@ public:
 	// Есть ли рядом интерактив (пикап/торговец), по которому E что-то сделает.
 	bool HasInteractPrompt() const;
 
-	// Переводимый текст подсказки («E — подобрать» на ПК, «Подобрать» на телефоне) —
-	// его показывает UMG-панель UInteractPromptWidget. Вариант выбирается по HasTouchLayer.
+	// Переводимый текст подсказки целиком: «Обыскать — E» на компьютере, «Обыскать —
+	// ДЕЙСТВИЕ» на телефоне. Показывает UMG-панель UInteractPromptWidget.
 	FText GetInteractPromptDisplayText() const;
 
 	// Тот же текст для СТАРОГО Canvas-пути рисования (AContrarySurvivorHUD::DrawInteractPrompt,
 	// по ADR-048 выпиливается вместе с остальным Canvas-кодом). Новый код зовёт версию выше.
 	FString GetInteractPromptText() const;
+
+	// Текст ДЕЙСТВИЯ для вида интерактива, без способа выполнения («Обыскать»). Вид передаётся
+	// параметром, чтобы подсказку можно было собрать и проверить без живой сцены (автотесты).
+	// bPickupUsesSearchWindow: мешок-пикап с окном обыска подписывается как труп («Обыскать»),
+	// мгновенный подбор остаётся «Подобрать».
+	FText GetInteractActionText(EInteractKind Kind, bool bPickupUsesSearchWindow = false) const;
+
+	// Текст СПОСОБА выполнить действие: имя клавиши на компьютере, подпись экранной кнопки
+	// при показанном тач-слое.
+	FText GetInteractHowText() const;
+
+	// Способ по отдельности — публично, потому что автотесты собирают обе подсказки (для
+	// компьютера и для телефона) из РЕАЛЬНЫХ настроек, а тач-слой headless не поднимается.
+	FText GetInteractKeyName() const { return InteractPromptKeyName; }
+
+	// Подпись экранной кнопки; пустое поле — берётся у самой кнопки, чтобы подсказка с ней
+	// не разошлась (см. комментарий к полю InteractPromptTouchButtonName).
+	FText GetInteractTouchButtonName() const
+	{
+		return InteractPromptTouchButtonName.IsEmpty() ? TouchInteractButton.Label : InteractPromptTouchButtonName;
+	}
+
+	FText GetInteractPromptFormat() const { return InteractPromptFormat; }
+
+	// Склейка «действие — способ» по шаблону. Статическая и без состояния: та же математика
+	// проверяется автотестами для обоих способов управления.
+	static FText FormatInteractPrompt(const FText& Format, const FText& ActionText, const FText& HowText);
 
 	// --- Этап F: онбординг/окно ежедневки ---
 
@@ -333,38 +360,60 @@ protected:
 	// Локализация (ADR-050): FText, дефолты через NSLOCTEXT (LOCTEXT в значении по
 	// умолчанию UHT запрещает — UhtTextProperty.cs:104).
 	//
-	// ДВА ВАРИАНТА НА КАЖДУЮ ПОДСКАЗКУ: ДЕЙСТВИЕ И СПОСОБ РАЗДЕЛЕНЫ. На ПК подсказка
-	// называет клавишу («E — подобрать»), на телефоне клавиш нет и остаётся одно действие
-	// («Подобрать») — экранная кнопка ДЕЙСТВИЕ и так под пальцем. Какой вариант показать,
-	// решает HasTouchLayer: тот же признак, по которому HUD выбирает подсказку прокрутки
-	// магазина. Признак отвечает «показан ли тач-слой», а не «телефон ли это» — это
-	// намеренно: подсказка должна называть то управление, которое игрок видит.
+	// ПОДСКАЗКА ВСЕГДА СОСТОИТ ИЗ ДВУХ ЧАСТЕЙ (задача Рината 08-06): сначала ДЕЙСТВИЕ
+	// («Обыскать»), затем СПОСОБ его выполнить («E» на компьютере, «ДЕЙСТВИЕ» — имя
+	// экранной кнопки — на телефоне). Склеивает их шаблон InteractPromptFormat, получается
+	// «Обыскать — E» или «Обыскать — ДЕЙСТВИЕ». Раньше на телефоне печаталось одно голое
+	// действие, и игрок не понимал, чем его выполнить.
+	//
+	// Какой способ назвать, решает HasTouchLayer: тот же признак, по которому HUD выбирает
+	// подсказку прокрутки магазина. Признак отвечает «показан ли тач-слой», а не «телефон ли
+	// это» — намеренно: подсказка обязана называть то управление, которое игрок видит.
+	//
+	// Блок ПУБЛИЧНЫЙ: автотесты подменяют текст действия и шаблон, проверяя, что подсказка
+	// собирается из настроек, а не из зашитых строк.
+public:
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "1"))
-	FText InteractPromptPickup = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptPickup", "E — подобрать");
+	// Шаблон склейки: {Action} — что произойдёт, {How} — чем это сделать.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Подсказка: шаблон «действие — способ»", DisplayPriority = "1"))
+	FText InteractPromptFormat = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptFormat", "{Action} — {How}");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "2"))
-	FText InteractPromptPickupTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptPickupTouch", "Подобрать");
+	// Способ на компьютере — имя клавиши. Реальная привязка «Interact» = E
+	// (Config/DefaultInput.ini; там же дубль на кнопку геймпада, её подсказка не называет).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Подсказка: клавиша на компьютере", DisplayPriority = "2"))
+	FText InteractPromptKeyName = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptKeyName", "E");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "3"))
-	FText InteractPromptTrader = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTrader", "E — торговать");
+	// Способ на телефоне — подпись экранной кнопки. Должна совпадать с подписью самой кнопки
+	// (TouchInteractButton.Label, по умолчанию «ДЕЙСТВИЕ»); оставить поле ПУСТЫМ — подсказка
+	// возьмёт подпись прямо у кнопки и никогда с ней не разойдётся.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Подсказка: название экранной кнопки (пусто — взять у кнопки)", DisplayPriority = "3"))
+	FText InteractPromptTouchButtonName = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTouchButtonName", "ДЕЙСТВИЕ");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "4"))
-	FText InteractPromptTraderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTraderTouch", "Торговать");
+	// --- Тексты самих действий (без способа; способ подставит шаблон выше) ---
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "5"))
-	FText InteractPromptElder = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElder", "E — поговорить");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: предмет на земле", DisplayPriority = "4"))
+	FText InteractPromptPickupAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptPickupAction", "Подобрать");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "6"))
-	FText InteractPromptElderTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderTouch", "Поговорить");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: торговец", DisplayPriority = "5"))
+	FText InteractPromptTraderAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptTraderAction", "Торговать");
 
-	// Build 1.2.1 (ТЗ А1): подсказка у трупа врага с лутом — «Обыскать [E]». Build 1.2.2:
-	// та же подсказка у мешка-пикапа, который открывает окно обыска (действие одно и то же).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "7"))
-	FText InteractPromptCorpse = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpse", "E — обыскать");
+	// Дословная формулировка Рината (08-06): у старосты подсказка называет собеседника.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: староста", DisplayPriority = "6"))
+	FText InteractPromptElderAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptElderAction", "Поговорить со старостой");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact", meta = (DisplayPriority = "8"))
-	FText InteractPromptCorpseTouch = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseTouch", "Обыскать");
+	// Build 1.2.1 (ТЗ А1): труп врага с лутом. Build 1.2.2: тот же текст у мешка-пикапа,
+	// который открывает окно обыска (действие одно и то же).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: труп или мешок с вещами", DisplayPriority = "7"))
+	FText InteractPromptCorpseAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseAction", "Обыскать");
+
+protected:
 
 	// --- Интро (Build 1, ТЗ издателя раздел 2). Тексты дословно из ТЗ; тюнинг длительностей —
 	// Ринату. Тексты видит игрок → FText/NSLOCTEXT (ADR-050). ---
