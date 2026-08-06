@@ -41,6 +41,8 @@ repositories {
     <androidManifestUpdates>
         <addPermission android:name="android.permission.INTERNET"/>
         <addPermission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-        <addPermission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+        <!-- READ_EXTERNAL_STORAGE убрано (Б5/Б6): аналитике не нужно — свои данные она держит
+             в личной папке приложения, а наша политика конфиденциальности обещает пользователю
+             только интернет и состояние сети. -->
     </androidManifestUpdates>
 </root>
