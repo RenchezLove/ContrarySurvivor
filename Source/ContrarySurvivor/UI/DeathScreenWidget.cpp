@@ -7,6 +7,7 @@
 #include "ContrarySurvivor/Ads/AdService.h"
 #include "ContrarySurvivor/Ads/AdGatingLogic.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // HasTouchLayer
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AMasterInventoryItem.h"
 #include "Blueprint/WidgetTree.h"
@@ -44,7 +45,82 @@ void UDeathScreenWidget::InitDeath(APlayerCharacter* InPlayer)
 {
 	Player = InPlayer;
 	bAdInProgress = false;
+
+	// Строки, которые экран больше не показывает (замечания издателя, ADR-059): статичная
+	// подпись «Убийца» (фраза теперь целая), процент потери денег и повтор суммы внутри
+	// блока потерь. Кубики остаются в раскладке Рината — прячем их кодом, а не удалением.
+	for (UWidget* Retired : { static_cast<UWidget*>(KillerLabel), static_cast<UWidget*>(MoneyLossText),
+		static_cast<UWidget*>(LossMoneyText) })
+	{
+		if (Retired)
+		{
+			Retired->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	// Подсказка клавиш — только на компьютере (Б5 задания издателя). Признак тот же, что у
+	// подсказки взаимодействия: показан ли экранный тач-слой.
+	if (KeyHintText)
+	{
+		const AContrarySurvivorPlayerController* CSPC =
+			Cast<AContrarySurvivorPlayerController>(GetOwningPlayer());
+		const bool bTouch = CSPC && CSPC->HasTouchLayer();
+		KeyHintText->SetVisibility(bTouch ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
+
 	RefreshLossPreview();
+}
+
+FText UDeathScreenWidget::BuildLossPhrase(const FText& Format, int32 Items, int32 Money) const
+{
+	TArray<FText> Parts;
+	if (Money > 0)
+	{
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Money"), FText::AsNumber(Money));
+		Parts.Add(FText::Format(LossMoneyPartFormat, Args));
+	}
+	if (Items > 0)
+	{
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Items"), FText::AsNumber(Items));
+		Parts.Add(FText::Format(LossItemsPartFormat, Args));
+	}
+	if (Parts.Num() == 0)
+	{
+		return FText::GetEmpty(); // терять нечего — подстроку прячет вызывающий
+	}
+
+	FFormatNamedArguments PhraseArgs;
+	PhraseArgs.Add(TEXT("Loss"), FText::Join(LossPartsSeparator, Parts));
+	return FText::Format(Format, PhraseArgs);
+}
+
+FText UDeathScreenWidget::BuildDeathCauseText(const FText& DamagerName, float Thirst, float Hunger) const
+{
+	// «Неизвестно» кладёт сам игрок, когда источник урона не опознан (PlayerCharacter.cpp).
+	// Сверяемся с ТЕМ ЖЕ пространством имён и ключом — после перевода оба текста меняются
+	// одинаково, и сравнение остаётся верным.
+	static const FText UnknownDamager = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+
+	if (!DamagerName.IsEmpty() && !DamagerName.EqualTo(UnknownDamager))
+	{
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Killer"), bLowercaseKillerName ? DamagerName.ToLower() : DamagerName);
+		return FText::Format(KillerPhraseFormat, Args);
+	}
+
+	// Врага не было: смотрим, что опустело. Жажда убивает быстрее голода (интервалы урона
+	// StatsComponent), поэтому при обоих нулях называем жажду.
+	if (Thirst <= 0.0f)
+	{
+		return ThirstDeathText;
+	}
+	if (Hunger <= 0.0f)
+	{
+		return HungerDeathText;
+	}
+	return UnknownDeathText;
 }
 
 void UDeathScreenWidget::RefreshLossPreview()
@@ -173,30 +249,23 @@ void UDeathScreenWidget::RefreshLossPreview()
 	}
 
 	const int32 LostMoneyInt = FMath::RoundToInt32(NormalPlan.LostMoney);
-	if (LossMoneyText)
-	{
-		FFormatNamedArguments MoneyArgs;
-		MoneyArgs.Add(TEXT("Amount"), FText::AsNumber(LostMoneyInt));
-		LossMoneyText->SetText(FText::Format(LossMoneyFormat, MoneyArgs));
-		LossMoneyText->SetVisibility(LostMoneyInt > 0
-			? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
-	}
 
-	// Блок целиком прячется, когда терять нечего (ни предметов, ни денег).
-	const bool bAnythingToLose = (LostCount > 0) || (LostMoneyInt > 0);
+	// Блок «Будет потеряно» показывает ВЕЩИ. Деньги из него убраны (ADR-059): их называет
+	// подстрока под кнопкой, где игрок и делает выбор. Нет вещей — блока нет.
 	if (LossPanel)
 	{
-		LossPanel->SetVisibility(bAnythingToLose
+		LossPanel->SetVisibility(LostCount > 0
 			? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
-	// Подстрока «Возродиться»: конкретные потери числами.
+	// Подстрока «Возродиться»: что теряется прямо сейчас. Нулевая часть во фразу не попадает,
+	// а если терять нечего вовсе — подстроки нет (замечание издателя про «0 предм.»).
 	if (RespawnSubText)
 	{
-		FFormatNamedArguments SubArgs;
-		SubArgs.Add(TEXT("Items"), FText::AsNumber(LostCount));
-		SubArgs.Add(TEXT("Money"), FText::AsNumber(LostMoneyInt));
-		RespawnSubText->SetText(FText::Format(RespawnSubFormat, SubArgs));
+		const FText Phrase = BuildLossPhrase(RespawnSubFormat, LostCount, LostMoneyInt);
+		RespawnSubText->SetText(Phrase);
+		RespawnSubText->SetVisibility(Phrase.IsEmpty()
+			? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	}
 
 	// --- Условия показа «Спасти рюкзак» (ТЗ №1 п.3): ВСЕ обязаны выполниться, иначе
@@ -235,11 +304,12 @@ void UDeathScreenWidget::RefreshLossPreview()
 	}
 	if (SaveBackpackSubText && bShowAdButton)
 	{
-		// Конкретная выгода числами (ТЗ раздел 0 п.3), не «посмотреть рекламу».
-		FFormatNamedArguments SubArgs;
-		SubArgs.Add(TEXT("Items"), FText::AsNumber(SavedItems));
-		SubArgs.Add(TEXT("Money"), FText::AsNumber(SavedMoney));
-		SaveBackpackSubText->SetText(FText::Format(SaveBackpackSubFormat, SubArgs));
+		// Конкретная выгода числами (ТЗ раздел 0 п.3), не «посмотреть рекламу». Собирается
+		// теми же частями, что и потеря — числа под двумя кнопками читаются как одна пара.
+		const FText Phrase = BuildLossPhrase(SaveBackpackSubFormat, SavedItems, SavedMoney);
+		SaveBackpackSubText->SetText(Phrase);
+		SaveBackpackSubText->SetVisibility(Phrase.IsEmpty()
+			? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	}
 
 	if (Analytics)
@@ -289,9 +359,12 @@ void UDeathScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	}
 	if (KillerText)
 	{
-		FFormatNamedArguments Args;
-		Args.Add(TEXT("Name"), Player->GetLastDamagerName());
-		KillerText->SetText(FText::Format(KillerFormat, Args));
+		// Цельная фраза вместо пары «подпись + имя» (ADR-059): «Тебя убил волк». Голод и
+		// жажда бьют в статы напрямую, минуя TakeDamage, и имени убийцы после себя не
+		// оставляют — поэтому причину такой смерти называем по опустевшим шкалам.
+		const UStatsComponent* Stats = Player->GetStats();
+		KillerText->SetText(BuildDeathCauseText(Player->GetLastDamagerName(),
+			Stats ? Stats->GetThirst() : 1.0f, Stats ? Stats->GetHunger() : 1.0f));
 	}
 	if (MoneyText)
 	{
@@ -313,14 +386,8 @@ void UDeathScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 		Args.Add(TEXT("Count"), FText::AsNumber(Player->GetEnemyKillCount()));
 		KillsText->SetText(FText::Format(KillsFormat, Args));
 	}
-	if (MoneyLossText)
-	{
-		// Процент — живой из игрока (DeathMoneyLossFraction), текст не разойдётся с BP-настройкой.
-		FFormatNamedArguments Args;
-		Args.Add(TEXT("Percent"),
-			FText::AsNumber(FMath::RoundToInt32(Player->GetDeathMoneyLossFraction() * 100.0f)));
-		MoneyLossText->SetText(FText::Format(MoneyLossFormat, Args));
-	}
+	// Строка процента (MoneyLossText) и повтор суммы в блоке потерь (LossMoneyText) больше
+	// не пишутся и не показываются — спрятаны в InitDeath (ADR-059, «оставить одну мысль»).
 }
 
 void UDeathScreenWidget::HandleRespawnClicked()

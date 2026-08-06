@@ -26,6 +26,12 @@ class APlayerCharacter;
  * выполнении ВСЕХ условий ТЗ (15 минут игрового времени, есть что спасать, ролик готов,
  * лимит 3/сутки); иначе — прячется целиком, без серых заглушек. Таймера обратного
  * отсчёта нет (ТЗ №1 раздел 2, прямой запрет).
+ *
+ * Разгрузка экрана (замечания издателя, ADR-059): про деньги на экране осталась ОДНА мысль —
+ * сколько теряешь сейчас (под серой кнопкой) и сколько сохранит ролик (под золотой);
+ * процент и повтор денег внутри блока потерь код прячет. Вместо «Убийца: Волк» — цельная
+ * фраза «Тебя убил волк», смерть без врага называется своими словами («Ты умер от жажды»).
+ * Нулевые числа в фразу не попадают вовсе, поэтому «0 предм.» на экране не бывает.
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UDeathScreenWidget : public UUserWidget
@@ -46,9 +52,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "1"))
 	FText LifetimeFormat = NSLOCTEXT("Death", "LifetimeFormat", "{Minutes}:{Seconds}");
 
-	// Кто убил: {Name} — имя убийцы.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "2"))
-	FText KillerFormat = NSLOCTEXT("Death", "KillerFormat", "{Name}");
+	// --- Причина смерти одной человеческой фразой (замечание издателя, ADR-059) ---
+	// Было «Убийца: Волк» подписью и значением, стало цельное «Тебя убил волк». Статичную
+	// подпись «Убийца» код прячет сам (кубик KillerLabel), фраза занимает её место.
+
+	// Погиб от чужой руки: {Killer} — кто это был.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayName = "Фраза: убил враг", DisplayPriority = "2"))
+	FText KillerPhraseFormat = NSLOCTEXT("Death", "KillerPhraseFormat", "Тебя убил {Killer}");
+
+	// Имена врагов приходят с заглавной буквы («Волк»), а внутри фразы нужна строчная.
+	// Появится враг с именем собственным — снимите галку, и имя встанет как записано.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayName = "Имя врага писать со строчной буквы", DisplayPriority = "3"))
+	bool bLowercaseKillerName = true;
+
+	// Смерть без врага: жажда, голод и всё остальное. Причину код определяет по живым
+	// статам на момент смерти (ADR-058 п.9: раньше здесь стояло «Убийца Неизвестно»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayName = "Фраза: смерть от жажды", DisplayPriority = "4"))
+	FText ThirstDeathText = NSLOCTEXT("Death", "ThirstDeathText", "Ты умер от жажды");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayName = "Фраза: смерть от голода", DisplayPriority = "5"))
+	FText HungerDeathText = NSLOCTEXT("Death", "HungerDeathText", "Ты умер от голода");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayName = "Фраза: причина неизвестна", DisplayPriority = "6"))
+	FText UnknownDeathText = NSLOCTEXT("Death", "UnknownDeathText", "Ты не пережил эту вылазку");
 
 	// Монеты: {Amount} — сколько осталось.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "3"))
@@ -62,13 +88,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "5"))
 	FText KillsFormat = NSLOCTEXT("Death", "KillsFormat", "{Count}");
 
-	// Строка штрафа — цельная фраза, в подпись и значение не делится. {Percent} — живой
-	// процент из настроек игрока, чтобы текст не расходился с фактической потерей.
-	// Build 1.2: потеря применяется только при возрождении БЕЗ просмотра ролика.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Texts", meta = (DisplayPriority = "6", MultiLine = "true"))
-	FText MoneyLossFormat = NSLOCTEXT("Death", "MoneyLossFormat",
-		"−{Percent}% монет — если возродиться без просмотра ролика.");
-
 	// --- Build 1.2: блок «Будет потеряно» + кнопка «Спасти рюкзак» ---
 
 	// Количество у позиции превью: {Count} — сколько штук этого предмета теряется.
@@ -79,33 +98,62 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "2"))
 	FText LossMoreFormat = NSLOCTEXT("Death", "LossMoreFormat", "и ещё {Count} предметов");
 
-	// Строка потери денег в блоке: {Amount} — сколько монет теряется без ролика.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "3"))
-	FText LossMoneyFormat = NSLOCTEXT("Death", "LossMoneyFormat", "−{Amount} монет");
+	// --- ОДНА мысль про деньги (замечание издателя, ADR-059) ---
+	// Раньше на одном экране спорили четыре числа: «−50% монет», «−25 монет» в блоке потерь,
+	// «Потеряешь 25» на серой кнопке и «Сохранить 20» на золотой. Осталась одна связка:
+	// сколько теряешь прямо сейчас (под кнопкой «Возродиться») и сколько сохранит ролик
+	// (под золотой кнопкой). Процент и строка денег внутри блока потерь убраны — код прячет
+	// их кубики. Ноль в счёте не печатается вовсе: часть фразы просто не собирается
+	// («0 предм.» на экране больше не появится).
+
+	// Денежная часть фразы. Слово склоняется по числу: 1 монету, 2 монеты, 5 монет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayName = "Часть фразы: монеты", DisplayPriority = "3"))
+	FText LossMoneyPartFormat = NSLOCTEXT("Death", "LossMoneyPartFormat",
+		"{Money} {Money}|plural(one=монету,few=монеты,many=монет,other=монет)");
+
+	// Предметная часть фразы. Слово склоняется по числу: 1 предмет, 2 предмета, 5 предметов.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayName = "Часть фразы: предметы", DisplayPriority = "4"))
+	FText LossItemsPartFormat = NSLOCTEXT("Death", "LossItemsPartFormat",
+		"{Items} {Items}|plural(one=предмет,few=предмета,many=предметов,other=предметов)");
+
+	// Чем соединяются части, когда теряются и деньги, и вещи.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayName = "Соединитель частей фразы", DisplayPriority = "5"))
+	FText LossPartsSeparator = NSLOCTEXT("Death", "LossPartsSeparator", " и ");
 
 	// Живая подстрока золотой кнопки: конкретная выгода числами (ТЗ раздел 0 п.3).
-	// {Items} — сколько предметов сохранит просмотр, {Money} — сколько монет.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "4"))
-	FText SaveBackpackSubFormat = NSLOCTEXT("Death", "SaveBackpackSubFormat",
-		"Сохранить {Items} предм. и {Money} монет — за просмотр ролика");
+	// {Loss} — собранная фраза из частей выше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayName = "Подстрока золотой кнопки", DisplayPriority = "6"))
+	FText SaveBackpackSubFormat = NSLOCTEXT("Death", "SaveBackpackSubFormat", "Сохранишь {Loss}");
 
-	// Живая подстрока кнопки «Возродиться»: {Items} — предметов теряется, {Money} — монет.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "5"))
-	FText RespawnSubFormat = NSLOCTEXT("Death", "RespawnSubFormat",
-		"Потеряешь {Items} предм. и {Money} монет");
+	// Живая подстрока кнопки «Возродиться»: что теряется прямо сейчас.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayName = "Подстрока кнопки «Возродиться»", DisplayPriority = "7"))
+	FText RespawnSubFormat = NSLOCTEXT("Death", "RespawnSubFormat", "Потеряешь {Loss}");
 
 	// Строка после досрочного закрытия ролика (ТЗ №1 п.4; у заглушки не случается).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "6"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (DisplayPriority = "8"))
 	FText AdNotFinishedText = NSLOCTEXT("Death", "AdNotFinishedText",
 		"Награда даётся за полный просмотр");
 
 	// Сколько позиций превью помещается в сетку (ТЗ №1 раздел 2: до 8, остальное — «и ещё N»).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (ClampMin = "1", ClampMax = "16", DisplayPriority = "7"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (ClampMin = "1", ClampMax = "16", DisplayPriority = "9"))
 	int32 MaxLossPreviewEntries = 8;
 
 	// Размер иконки позиции превью (px).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (ClampMin = "16.0", DisplayPriority = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Death|Loss", meta = (ClampMin = "16.0", DisplayPriority = "10"))
 	float LossIconSize = 44.0f;
+
+	// --- Сборка текстов: чистые функции без состояния экрана (публичны, чтобы автотесты
+	// проверяли формулировки без живого Slate; сам виджет headless не поднимается) ---
+
+	// Одна фраза о том, отчего игрок погиб: «Тебя убил волк» / «Ты умер от жажды».
+	// DamagerName — имя источника урона от игрока; «Неизвестно» означает «врага не было»,
+	// и тогда причину называют опустевшие статы (жажда бьёт чаще голода — её проверяем первой).
+	FText BuildDeathCauseText(const FText& DamagerName, float Thirst, float Hunger) const;
+
+	// Фраза «Потеряешь …» / «Сохранишь …» из непустых частей. Нулевое число часть НЕ создаёт:
+	// так «0 предм.» на экране и не появляется (замечание издателя). Обе части нулевые —
+	// возвращается пустой текст, и вызывающий прячет подстроку целиком.
+	FText BuildLossPhrase(const FText& Format, int32 Items, int32 Money) const;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -129,8 +177,14 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> LifetimeText;   // «Прожито:  02:31»
 
+	// Фраза о причине смерти: «Тебя убил волк». Раньше сюда шло одно имя убийцы.
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> KillerText;     // «Убийца:  Волк»
+	TObjectPtr<UTextBlock> KillerText;
+
+	// Статичная подпись «Убийца» слева от фразы: код её ПРЯЧЕТ — фраза теперь целая и
+	// подписи не требует (иначе на экране вышло бы «Убийца: Тебя убил волк»).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> KillerLabel;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MoneyText;      // «Монеты:  120»
@@ -141,8 +195,15 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> KillsText;      // «Врагов убито:  7»
 
+	// Бывшая строка «−50% монет — если возродиться без просмотра ролика»: код её ПРЯЧЕТ.
+	// Процент дублировал живое число под кнопкой «Возродиться» и путал игрока (ADR-059).
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> MoneyLossText;  // «−50% монет — если возродиться без просмотра ролика.»
+	TObjectPtr<UWidget> MoneyLossText;
+
+	// Подпись «Enter / Пробел — возродиться»: на телефоне клавиатуры нет, код её прячет
+	// (Б5 задания издателя — «убрать подписи клавиш ПК»). На компьютере остаётся.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> KeyHintText;
 
 	// Кнопка возрождения; подпись («ВОЗРОДИТЬСЯ») Ринат пишет внутри сам.
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -166,8 +227,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> LossMoreText;   // «и ещё 3 предметов»
 
+	// Бывшая строка «−120 монет» внутри блока потерь: код её ПРЯЧЕТ. Деньги теперь названы
+	// один раз — подстрокой под кнопкой, где игрок и делает выбор (ADR-059).
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> LossMoneyText;  // «−120 монет»
+	TObjectPtr<UWidget> LossMoneyText;
 
 	// Золотая кнопка «Спасти рюкзак» (иконка видео и заголовок — в ассете).
 	UPROPERTY(meta = (BindWidgetOptional))

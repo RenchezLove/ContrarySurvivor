@@ -16,7 +16,11 @@
 //     ИДЁТ ПОШТУЧНО, опустевший мешок исчезает, в реестр обыскиваемых трупов он не встаёт;
 //   - переключатель «забирать всё сразу» возвращает прежнее поведение Collect;
 //   - доводка 05-08: предел количества в сделке ПРОДАЖИ равен размеру стопки предмета
-//     (баг «Вода х3 продаётся по одной штуке»).
+//     (баг «Вода х3 продаётся по одной штуке»);
+//   - подсказка взаимодействия 08-06: склейка «действие — способ» для компьютера и для
+//     тач-слоя, тексты действий и шаблон берутся из настроек контроллера;
+//   - экран смерти после замечаний издателя (ADR-059): причина смерти одной фразой
+//     («Тебя убил волк» / «Ты умер от жажды») и фраза потерь без нулевых частей.
 // НЕ покрывается headless (нужен PIE): фактическая поза оружия в ладони на анимируемом
 //   персонаже (скелетные меши в тест-мире не грузятся), клики по плиткам самого окна
 //   обыска (Slate) — за живым осмотром Рината/лида.
@@ -42,6 +46,10 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/UI/DeathScreenWidget.h"
+#include "Internationalization/Culture.h"           // FCulture::GetName — запомнить культуру теста
+#include "Internationalization/Internationalization.h"
 #include "UInventoryComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/SkeletalMeshSocket.h"
@@ -745,6 +753,242 @@ bool FBuild122ElderIntroOrderTest::RunTest(const FString& Parameters)
 	}
 	Build122TestWorld::Destroy(World);
 	return bOk;
+}
+
+// ===========================================================================
+// 10. Подсказка взаимодействия (задача Рината 08-06): подсказка ВСЕГДА называет и
+//     действие, и способ его выполнить. На компьютере способ — клавиша («Обыскать — E»),
+//     при показанном тач-слое — подпись экранной кнопки («Обыскать — ДЕЙСТВИЕ»).
+//     Тач-слой headless не поднимается (нужен Slate), поэтому обе подсказки собираются
+//     той же статической склейкой, что и в живой игре, из РЕАЛЬНЫХ настроек контроллера.
+//     Контроллер создаётся NewObject (не Spawn): BeginPlay поднимает виджеты и ввод,
+//     тесту нужны только поля и чистая склейка.
+// ===========================================================================
+namespace Build122Prompt
+{
+	static AContrarySurvivorPlayerController* MakeController()
+	{
+		return NewObject<AContrarySurvivorPlayerController>(GetTransientPackage());
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122InteractPromptTouchTest,
+	"ContrarySurvivor.Build122.InteractPrompt.TouchLayerNamesScreenButton", Build122TestFlags)
+
+bool FBuild122InteractPromptTouchTest::RunTest(const FString& Parameters)
+{
+	AContrarySurvivorPlayerController* PC = Build122Prompt::MakeController();
+	if (!TestNotNull(TEXT("Контроллер создан"), PC))
+	{
+		return false;
+	}
+
+	// Подпись способа на телефоне = подпись экранной кнопки ДЕЙСТВИЕ.
+	const FText How = PC->GetInteractTouchButtonName();
+	TestEqual(TEXT("Способ на телефоне — подпись экранной кнопки"), How.ToString(), TEXT("ДЕЙСТВИЕ"));
+
+	const FText Prompt = AContrarySurvivorPlayerController::FormatInteractPrompt(
+		PC->GetInteractPromptFormat(),
+		PC->GetInteractActionText(EInteractKind::Corpse), How);
+	TestEqual(TEXT("Подсказка у трупа на телефоне"), Prompt.ToString(), TEXT("Обыскать — ДЕЙСТВИЕ"));
+
+	// Пустое поле подписи — способ берётся у самой кнопки (страховка от расхождения).
+	PC->InteractPromptTouchButtonName = FText::GetEmpty();
+	TestEqual(TEXT("Пустое поле — подпись приходит от кнопки"),
+		PC->GetInteractTouchButtonName().ToString(), TEXT("ДЕЙСТВИЕ"));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122InteractPromptKeyTest,
+	"ContrarySurvivor.Build122.InteractPrompt.DesktopNamesKey", Build122TestFlags)
+
+bool FBuild122InteractPromptKeyTest::RunTest(const FString& Parameters)
+{
+	AContrarySurvivorPlayerController* PC = Build122Prompt::MakeController();
+	if (!TestNotNull(TEXT("Контроллер создан"), PC))
+	{
+		return false;
+	}
+
+	// Клавиша по умолчанию = реальная привязка «Interact» из Config/DefaultInput.ini.
+	const FText How = PC->GetInteractKeyName();
+	TestEqual(TEXT("Способ на компьютере — клавиша E"), How.ToString(), TEXT("E"));
+
+	const FText Format = PC->GetInteractPromptFormat();
+	TestEqual(TEXT("Подсказка у трупа на компьютере"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			Format, PC->GetInteractActionText(EInteractKind::Corpse), How).ToString(),
+		TEXT("Обыскать — E"));
+	TestEqual(TEXT("Подсказка у старосты называет собеседника"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			Format, PC->GetInteractActionText(EInteractKind::Elder), How).ToString(),
+		TEXT("Поговорить со старостой — E"));
+	TestEqual(TEXT("Подсказка у торговца"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			Format, PC->GetInteractActionText(EInteractKind::Trader), How).ToString(),
+		TEXT("Торговать — E"));
+
+	// Нечего делать — подсказки нет вовсе (одинокое тире на экран не уезжает).
+	TestTrue(TEXT("Без действия подсказка пустая"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			Format, PC->GetInteractActionText(EInteractKind::None), How).IsEmpty());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122InteractPromptActionFieldsTest,
+	"ContrarySurvivor.Build122.InteractPrompt.ActionTextIsEditable", Build122TestFlags)
+
+bool FBuild122InteractPromptActionFieldsTest::RunTest(const FString& Parameters)
+{
+	AContrarySurvivorPlayerController* PC = Build122Prompt::MakeController();
+	if (!TestNotNull(TEXT("Контроллер создан"), PC))
+	{
+		return false;
+	}
+
+	// Мешок с окном обыска подписывается как труп, мгновенный подбор — как подбор.
+	TestEqual(TEXT("Мгновенный подбор"),
+		PC->GetInteractActionText(EInteractKind::Pickup, /*bPickupUsesSearchWindow=*/false).ToString(),
+		TEXT("Подобрать"));
+	TestEqual(TEXT("Мешок с окном обыска"),
+		PC->GetInteractActionText(EInteractKind::Pickup, /*bPickupUsesSearchWindow=*/true).ToString(),
+		TEXT("Обыскать"));
+
+	// Подмена текста действия через настройку доходит до собранной подсказки.
+	PC->InteractPromptPickupAction = FText::FromString(TEXT("Забрать"));
+	TestEqual(TEXT("Подсказка после подмены текста действия"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			PC->GetInteractPromptFormat(),
+			PC->GetInteractActionText(EInteractKind::Pickup), PC->GetInteractKeyName()).ToString(),
+		TEXT("Забрать — E"));
+
+	// Подмена шаблона склейки — тоже настройка, а не зашитая строка.
+	PC->InteractPromptFormat = FText::FromString(TEXT("[{How}] {Action}"));
+	TestEqual(TEXT("Подсказка после подмены шаблона"),
+		AContrarySurvivorPlayerController::FormatInteractPrompt(
+			PC->GetInteractPromptFormat(),
+			PC->GetInteractActionText(EInteractKind::Trader), PC->GetInteractKeyName()).ToString(),
+		TEXT("[E] Торговать"));
+
+	return true;
+}
+
+// ===========================================================================
+// 11. Экран смерти после замечаний издателя (ADR-059): причина смерти — цельная фраза,
+//     нулевые числа во фразу потерь не попадают. Сам виджет headless не поднимается
+//     (нужен Slate), поэтому проверяем ЧИСТЫЕ функции сборки текста на объекте,
+//     созданном NewObject, — те же, что зовёт живой экран.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122DeathCauseTextTest,
+	"ContrarySurvivor.Build122.DeathScreen.CauseIsWholePhrase", Build122TestFlags)
+
+bool FBuild122DeathCauseTextTest::RunTest(const FString& Parameters)
+{
+	UDeathScreenWidget* Screen = NewObject<UDeathScreenWidget>(GetTransientPackage());
+	if (!TestNotNull(TEXT("Экран смерти создан"), Screen))
+	{
+		return false;
+	}
+
+	// Полные шкалы = смерть точно не от голода и не от жажды.
+	const float Full = 100.0f;
+
+	TestEqual(TEXT("Убил волк"),
+		Screen->BuildDeathCauseText(NSLOCTEXT("Death", "KillerWolf", "Волк"), Full, Full).ToString(),
+		TEXT("Тебя убил волк"));
+	TestEqual(TEXT("Убил бандит"),
+		Screen->BuildDeathCauseText(NSLOCTEXT("Death", "KillerBandit", "Бандит"), Full, Full).ToString(),
+		TEXT("Тебя убил бандит"));
+
+	// Врага не было: причину называют опустевшие шкалы (раньше здесь стояло
+	// «Убийца Неизвестно» — замечание 9 ревизии, ADR-058).
+	const FText Unknown = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+	TestEqual(TEXT("Смерть от жажды"),
+		Screen->BuildDeathCauseText(Unknown, 0.0f, Full).ToString(), TEXT("Ты умер от жажды"));
+	TestEqual(TEXT("Смерть от голода"),
+		Screen->BuildDeathCauseText(Unknown, Full, 0.0f).ToString(), TEXT("Ты умер от голода"));
+	TestEqual(TEXT("Пустые обе шкалы — называем жажду (она бьёт чаще)"),
+		Screen->BuildDeathCauseText(Unknown, 0.0f, 0.0f).ToString(), TEXT("Ты умер от жажды"));
+	TestEqual(TEXT("Ни врага, ни пустых шкал — общая фраза"),
+		Screen->BuildDeathCauseText(Unknown, Full, Full).ToString(), TEXT("Ты не пережил эту вылазку"));
+
+	// Имя собственное можно оставить с заглавной буквы, сняв галку.
+	Screen->bLowercaseKillerName = false;
+	TestEqual(TEXT("Без приведения к строчной имя идёт как записано"),
+		Screen->BuildDeathCauseText(FText::FromString(TEXT("Кузьмич")), Full, Full).ToString(),
+		TEXT("Тебя убил Кузьмич"));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122DeathLossPhraseTest,
+	"ContrarySurvivor.Build122.DeathScreen.LossPhraseHidesZero", Build122TestFlags)
+
+bool FBuild122DeathLossPhraseTest::RunTest(const FString& Parameters)
+{
+	UDeathScreenWidget* Screen = NewObject<UDeathScreenWidget>(GetTransientPackage());
+	if (!TestNotNull(TEXT("Экран смерти создан"), Screen))
+	{
+		return false;
+	}
+
+	const FText RespawnFormat = Screen->RespawnSubFormat;
+
+	// Терять нечего — фразы нет вовсе, подстроку экран прячет.
+	TestTrue(TEXT("Ноль и ноль — пустая фраза"),
+		Screen->BuildLossPhrase(RespawnFormat, /*Items=*/0, /*Money=*/0).IsEmpty());
+
+	// Предметов нет — про предметы во фразе НИ СЛОВА («0 предм.» больше не бывает).
+	const FString MoneyOnly = Screen->BuildLossPhrase(RespawnFormat, /*Items=*/0, /*Money=*/25).ToString();
+	TestTrue(TEXT("Фраза без предметов начинается с «Потеряешь»"), MoneyOnly.StartsWith(TEXT("Потеряешь ")));
+	TestTrue(TEXT("Фраза без предметов называет сумму"), MoneyOnly.Contains(TEXT("25")));
+	TestFalse(TEXT("Фраза без предметов о предметах молчит"), MoneyOnly.Contains(TEXT("предм")));
+	TestFalse(TEXT("Ноль во фразу не попал"), MoneyOnly.Contains(TEXT("0")));
+
+	// Денег нет — молчим про деньги.
+	const FString ItemsOnly = Screen->BuildLossPhrase(RespawnFormat, /*Items=*/3, /*Money=*/0).ToString();
+	TestTrue(TEXT("Фраза без денег называет число предметов"), ItemsOnly.Contains(TEXT("3")));
+	TestFalse(TEXT("Фраза без денег о монетах молчит"), ItemsOnly.Contains(TEXT("монет")));
+
+	// Есть и то и другое — обе части и соединитель.
+	const FString Both = Screen->BuildLossPhrase(RespawnFormat, /*Items=*/3, /*Money=*/25).ToString();
+	TestTrue(TEXT("Полная фраза называет сумму"), Both.Contains(TEXT("25")));
+	TestTrue(TEXT("Полная фраза называет число предметов"), Both.Contains(TEXT("3")));
+	TestTrue(TEXT("Полная фраза соединяет части словом «и»"), Both.Contains(TEXT(" и ")));
+
+	// Золотая кнопка собирается тем же механизмом — числа под кнопками читаются парой.
+	const FString Saved = Screen->BuildLossPhrase(Screen->SaveBackpackSubFormat, /*Items=*/3, /*Money=*/20).ToString();
+	TestTrue(TEXT("Подстрока золотой кнопки начинается с «Сохранишь»"), Saved.StartsWith(TEXT("Сохранишь ")));
+	TestTrue(TEXT("Подстрока золотой кнопки называет сумму"), Saved.Contains(TEXT("20")));
+
+	// Склонение слова по числу (русская культура). Если культура недоступна, проверку
+	// пропускаем — она про язык, а не про логику экрана.
+	FInternationalization& I18N = FInternationalization::Get();
+	const FString PrevCulture = I18N.GetCurrentCulture()->GetName();
+	if (I18N.SetCurrentCulture(TEXT("ru")))
+	{
+		TestEqual(TEXT("Одна монета"),
+			Screen->BuildLossPhrase(RespawnFormat, 0, 1).ToString(), TEXT("Потеряешь 1 монету"));
+		TestEqual(TEXT("Две монеты"),
+			Screen->BuildLossPhrase(RespawnFormat, 0, 2).ToString(), TEXT("Потеряешь 2 монеты"));
+		TestEqual(TEXT("Пять монет"),
+			Screen->BuildLossPhrase(RespawnFormat, 0, 5).ToString(), TEXT("Потеряешь 5 монет"));
+		TestEqual(TEXT("Один предмет"),
+			Screen->BuildLossPhrase(RespawnFormat, 1, 0).ToString(), TEXT("Потеряешь 1 предмет"));
+		TestEqual(TEXT("Три предмета"),
+			Screen->BuildLossPhrase(RespawnFormat, 3, 0).ToString(), TEXT("Потеряешь 3 предмета"));
+		TestEqual(TEXT("Семь предметов"),
+			Screen->BuildLossPhrase(RespawnFormat, 7, 0).ToString(), TEXT("Потеряешь 7 предметов"));
+		I18N.SetCurrentCulture(PrevCulture);
+	}
+	else
+	{
+		AddInfo(TEXT("Русская культура в этой сборке недоступна — проверку склонений пропустили."));
+	}
+
+	return true;
 }
 
 #endif // WITH_DEV_AUTOMATION_TESTS
