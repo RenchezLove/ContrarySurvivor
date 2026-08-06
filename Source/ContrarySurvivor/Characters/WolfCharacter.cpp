@@ -20,9 +20,8 @@
 #include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 
-// Базовая скорость бандита (дефолт CharacterMovementComponent::MaxWalkSpeed UE = 600).
-// Используется как опорная для множителя скорости волка.
-static constexpr float BanditBaseWalkSpeed = 600.0f;
+// Опорная скорость бандита переехала в заголовок (AWolfCharacter::BanditBaseWalkSpeed):
+// её читает автотест контракта баланса.
 
 AWolfCharacter::AWolfCharacter()
 {
@@ -97,10 +96,11 @@ AWolfCharacter::AWolfCharacter()
 	static ConstructorHelpers::FObjectFinder<USoundBase> Growl3(TEXT("/Game/Audio/Demo/wolf_growl_wolfman.wolf_growl_wolfman"));
 	if (Growl3.Succeeded()) { AttackGrowlSounds.Add(Growl3.Object); }
 
-	// Скорость ~1.3× бандита (draft).
+	// Скорость погони — одна формула с GetChaseSpeed (контракт: чуть быстрее спринта игрока,
+	// решение Рината 08-06; закреплено автотестом Balance.WolfCatchesSprintingPlayer).
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
-		Move->MaxWalkSpeed = BanditBaseWalkSpeed * SpeedMultiplierVsBandit;
+		Move->MaxWalkSpeed = GetChaseSpeed();
 	}
 }
 

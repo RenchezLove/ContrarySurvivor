@@ -153,4 +153,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	UStatsComponent* GetStats() const { return Stats; }
+
+	// Скорость погони бандита (см/с) — значение, применяемое в BeginPlay. Открыта для
+	// автотеста контракта баланса (догоняет шагающего, отстаёт от спринта).
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	float GetChaseSpeed() const { return BanditWalkSpeed; }
 };

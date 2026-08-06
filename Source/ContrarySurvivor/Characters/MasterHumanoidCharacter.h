@@ -181,6 +181,15 @@ protected:
 public:
 	virtual void Tick(float DeltaTime) override;
 
+	// Скорость спринта (см/с) по текущим настройкам: та же формула, что в SetSprint (без хромоты).
+	// Открыта для автотеста контракта баланса «волк быстрее спринта игрока» (Ринат 08-06).
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	float GetSprintSpeed() const { return BaseWalkSpeed * SprintMultiplier; }
+
+	// Скорость обычной ходьбы (см/с), без спринта и хромоты. Для того же теста баланса.
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	float GetWalkSpeed() const { return BaseWalkSpeed; }
+
 	// --- Функции оружия ---
 
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
@@ -322,8 +331,11 @@ protected:
     float BaseWalkSpeed = 600.0f;   // дефолт, чтобы SetSprint никогда не выставил MaxWalkSpeed=0 (фикс «поворачивается, но не идёт»)
 
     // Множитель скорости при спринте (Shift): MaxWalkSpeed = BaseWalkSpeed * SprintMultiplier. Тюнинг из BP.
+    // Было 2.0 — решение Рината 08-06 («игрок бегает чуть медленнее, волки чуть быстрее»):
+    // спринт 1020 против волчьих 1050 (см. AWolfCharacter::SpeedMultiplierVsBandit) — от волка
+    // в чистом поле больше не оторваться, спасение — выйти из зоны его «поводка» (ADR-036).
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "1.0"))
-    float SprintMultiplier = 2.0f;
+    float SprintMultiplier = 1.7f;
 
     // Общий множитель скорости ходьбы поверх базовой/спринтовой (Build 1: хромота игрока при низком
     // HP). 1 = обычная скорость. Меняется через SetWalkSpeedMultiplier; у врагов/NPC остаётся 1.

@@ -92,9 +92,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
 	float WolfMaxHealth = 40.0f;
 
-	// Множитель скорости относительно базовой скорости бандита (~600). ЧЕРНОВОЕ (draft).
+	// Опорная скорость бандита (дефолт CharacterMovementComponent::MaxWalkSpeed UE = 600).
+	// В заголовке (а не static в .cpp), чтобы контракт скоростей могли проверять автотесты.
+	static constexpr float BanditBaseWalkSpeed = 600.0f;
+
+	// Множитель скорости относительно базовой скорости бандита (600). Было 1.3 (778) — решение
+	// Рината 08-06: волк должен быть чуть быстрее спринта игрока (1020, см. SprintMultiplier
+	// гуманоида), итого 1050 — в чистом поле от волка не убежать, спасает «поводок» базы (ADR-036).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "4"))
-	float SpeedMultiplierVsBandit = 1.3f;
+	float SpeedMultiplierVsBandit = 1.75f;
 
 	// Через сколько секунд после смерти убрать тело. Build 1.2.1 (ТЗ А1): труп теперь
 	// ОБЫСКИВАЕТСЯ (шкура/деньги внутри), поэтому лежит дольше — дефолт 60 с (было 5).
@@ -164,6 +170,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	UStatsComponent* GetStats() const { return Stats; }
+
+	// Действующая скорость погони (см/с) — ровно та формула, что применяется в BeginPlay.
+	// Открыта, чтобы автотест закреплял контракт баланса «волк быстрее спринта игрока» (Ринат 08-06).
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	float GetChaseSpeed() const { return BanditBaseWalkSpeed * SpeedMultiplierVsBandit; }
 
 private:
 	// Текущий проигрываемый локомоторный клип (чтобы не рестартить PlayAnimation каждый кадр).
