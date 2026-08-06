@@ -17,6 +17,14 @@
 #include "HAL/PlatformProcess.h" // FPlatformProcess::LaunchURL (кнопка «Написать мне»)
 #include "Styling/CoreStyle.h"
 
+FString UEndOfStorySettings::GetChannelUrl()
+{
+	// Значение из Config/DefaultGame.ini (раздел [/Script/ContrarySurvivor.EndOfStorySettings]).
+	// GetDefault отдаёт объект-по-умолчанию класса, в который движок уже загрузил конфиг.
+	const UEndOfStorySettings* Settings = GetDefault<UEndOfStorySettings>();
+	return Settings ? Settings->ChannelUrl.TrimStartAndEnd() : FString();
+}
+
 void UEndOfStoryWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();

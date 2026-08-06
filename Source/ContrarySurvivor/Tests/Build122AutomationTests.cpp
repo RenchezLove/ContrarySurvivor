@@ -20,7 +20,9 @@
 //   - подсказка взаимодействия 08-06: склейка «действие — способ» для компьютера и для
 //     тач-слоя, тексты действий и шаблон берутся из настроек контроллера;
 //   - экран смерти после замечаний издателя (ADR-059): причина смерти одной фразой
-//     («Тебя убил волк» / «Ты умер от жажды») и фраза потерь без нулевых частей.
+//     («Тебя убил волк» / «Ты умер от жажды») и фраза потерь без нулевых частей;
+//   - подготовка к публикационной сборке (Б5): договор выключателя отладочного харнесса
+//     и адрес канала кнопки «Написать мне», приходящий из конфига.
 // НЕ покрывается headless (нужен PIE): фактическая поза оружия в ладони на анимируемом
 //   персонаже (скелетные меши в тест-мире не грузятся), клики по плиткам самого окна
 //   обыска (Slate) — за живым осмотром Рината/лида.
@@ -48,6 +50,8 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/UI/DeathScreenWidget.h"
+#include "ContrarySurvivor/UI/EndOfStoryWidget.h"   // UEndOfStorySettings: адрес канала из конфига
+#include "ContrarySurvivor/Debug/QADebug.h"         // CONTRARY_WITH_QA_CHEATS: договор выключателя
 #include "Internationalization/Culture.h"           // FCulture::GetName — запомнить культуру теста
 #include "Internationalization/Internationalization.h"
 #include "UInventoryComponent.h"
@@ -988,6 +992,61 @@ bool FBuild122DeathLossPhraseTest::RunTest(const FString& Parameters)
 		AddInfo(TEXT("Русская культура в этой сборке недоступна — проверку склонений пропустили."));
 	}
 
+	return true;
+}
+
+// ===========================================================================
+// 12. Подготовка к публикационной сборке (Б5 задания издателя).
+//     Сами тесты живут только в отладочных сборках, поэтому «отсутствие клавиш в Shipping»
+//     проверяется не здесь, а сборкой с выключенным CONTRARY_WITH_QA_CHEATS. Здесь
+//     закрепляем ДОГОВОР выключателя: он объявлен, в обычной сборке включён, и завязан
+//     именно на признак публикационной сборки. Если кто-то случайно оторвёт одно от
+//     другого, тест это покажет.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122ShippingSwitchTest,
+	"ContrarySurvivor.Build122.Shipping.DebugSwitchContract", Build122TestFlags)
+
+bool FBuild122ShippingSwitchTest::RunTest(const FString& Parameters)
+{
+#ifndef CONTRARY_WITH_QA_CHEATS
+	AddError(TEXT("Выключатель отладочного харнесса CONTRARY_WITH_QA_CHEATS не объявлен"));
+#else
+	// Тест исполняется только в отладочной сборке, значит харнесс обязан быть включён.
+	TestTrue(TEXT("В отладочной сборке отладочные клавиши на месте"), CONTRARY_WITH_QA_CHEATS != 0);
+	// И обязан гаснуть ровно в публикационной: договор «ноль тогда и только тогда, когда Shipping».
+	TestEqual(TEXT("Выключатель завязан на признак публикационной сборки"),
+		static_cast<bool>(CONTRARY_WITH_QA_CHEATS), static_cast<bool>(!UE_BUILD_SHIPPING));
+#endif
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBuild122ChannelUrlFromConfigTest,
+	"ContrarySurvivor.Build122.EndOfStory.ChannelUrlComesFromConfig", Build122TestFlags)
+
+bool FBuild122ChannelUrlFromConfigTest::RunTest(const FString& Parameters)
+{
+	UEndOfStorySettings* Settings = GetMutableDefault<UEndOfStorySettings>();
+	if (!TestNotNull(TEXT("Настройки карточки конца сюжета доступны"), Settings))
+	{
+		return false;
+	}
+
+	const FString Saved = Settings->ChannelUrl;
+
+	// Пусто (так в конфиге сейчас) — кнопка «Написать мне» остаётся с прежним поведением.
+	Settings->ChannelUrl = FString();
+	TestTrue(TEXT("Пустой адрес отдаётся пустым"), UEndOfStorySettings::GetChannelUrl().IsEmpty());
+
+	// Адрес вписали — тот же адрес и приходит к кнопке, лишние пробелы срезаются.
+	Settings->ChannelUrl = TEXT("  https://t.me/contrary_survivor  ");
+	TestEqual(TEXT("Адрес из настройки доходит до кнопки без пробелов"),
+		UEndOfStorySettings::GetChannelUrl(), TEXT("https://t.me/contrary_survivor"));
+
+	// Строка из одних пробелов адресом не считается.
+	Settings->ChannelUrl = TEXT("   ");
+	TestTrue(TEXT("Пробелы адресом не считаются"), UEndOfStorySettings::GetChannelUrl().IsEmpty());
+
+	Settings->ChannelUrl = Saved; // не оставлять след другим тестам
 	return true;
 }
 

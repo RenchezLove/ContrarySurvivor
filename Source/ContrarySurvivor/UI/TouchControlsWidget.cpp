@@ -20,6 +20,7 @@
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
 #include "ContrarySurvivor/Utils/ContrarySurvivorStatics.h" // GetCurrentFPS (Блок E)
+#include "ContrarySurvivor/Debug/QADebug.h" // CONTRARY_WITH_QA_CHEATS: экранной отладки нет в Shipping
 
 namespace
 {
@@ -460,6 +461,12 @@ void UTouchControlsWidget::ResetHeldButtons()
 
 void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
 {
+	// В публикационной сборке счётчик кадров не только не показывается — он и не создаётся
+	// (Б5 задания издателя). Прятать созданный кубик недостаточно: надёжнее, когда его нет.
+	if (!CONTRARY_WITH_QA_CHEATS)
+	{
+		return;
+	}
 	if (!Canvas || !WidgetTree || FpsText)
 	{
 		return; // нет канвы / уже есть (в т.ч. кубик из WBP)
@@ -483,6 +490,11 @@ void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
 
 void UTouchControlsWidget::CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas)
 {
+	// Как и счётчик кадров: в публикационной сборке строка времён не создаётся вовсе (Б5).
+	if (!CONTRARY_WITH_QA_CHEATS)
+	{
+		return;
+	}
 	if (!Canvas || !WidgetTree || FrameTimeText)
 	{
 		return; // нет канвы / уже есть (в т.ч. кубик из WBP)
@@ -514,8 +526,10 @@ void UTouchControlsWidget::UpdateFrameTimeText(float DeltaTime)
 
 	// Требование издателя: в публикационной сборке никакой отладочной телеметрии на экране.
 	// Гейт компиляционный, а не по галочке: так строку нельзя включить в релизе даже по ошибке
-	// в настройках ассета.
-#if UE_BUILD_SHIPPING
+	// в настройках ассета. Выключатель общий для всего экранного отладочного слоя —
+	// CONTRARY_WITH_QA_CHEATS (Debug/QADebug.h), в режиме Shipping он ноль.
+	// Страховка на случай, если кубик пришёл из ассета WBP, а не создан кодом.
+#if !CONTRARY_WITH_QA_CHEATS
 	FrameTimeText->SetVisibility(ESlateVisibility::Collapsed);
 #else
 	// Живём по тому же выключателю, что счётчик кадров (плюс собственная галочка).
@@ -555,8 +569,9 @@ void UTouchControlsWidget::UpdateFpsText()
 		return; // кубика нет (WBP без него и не кодовое дерево) — нечего обновлять
 	}
 	// Счётчик кадров с экрана релиза убран по требованию издателя — тем же компиляционным
-	// гейтом, что и строка времён под ним.
-#if UE_BUILD_SHIPPING
+	// гейтом, что и строка времён под ним (CONTRARY_WITH_QA_CHEATS, Debug/QADebug.h).
+	// Страховка на случай, если кубик пришёл из ассета WBP, а не создан кодом.
+#if !CONTRARY_WITH_QA_CHEATS
 	FpsText->SetVisibility(ESlateVisibility::Collapsed);
 	return;
 #else

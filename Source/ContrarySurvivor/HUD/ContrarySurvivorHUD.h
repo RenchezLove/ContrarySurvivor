@@ -419,11 +419,9 @@ protected:
 		meta = (DisplayPriority = "6", DisplayName = "Текст при пустой ссылке"))
 	FText EndOfStoryChannelPendingText = NSLOCTEXT("EndOfStory", "ChannelPending", "Канал скоро появится");
 
-	// Ссылка на канал (телеграм). ПУСТО, пока Ринат не дал адрес; появится — [Написать мне]
-	// откроет её в браузере.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",
-		meta = (DisplayPriority = "7", DisplayName = "Ссылка на канал"))
-	FString EndOfStoryChannelUrl;
+	// Ссылки на канал ЗДЕСЬ БОЛЬШЕ НЕТ. Адрес переехал в конфиг — UEndOfStorySettings::ChannelUrl,
+	// раздел [/Script/ContrarySurvivor.EndOfStorySettings] в Config/DefaultGame.ini. Так его
+	// можно вписать текстовым редактором, не пересобирая код и не трогая контент.
 
 	// Стиль плашки (цвета/шрифты/позиция/ширина).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|EndOfStory",

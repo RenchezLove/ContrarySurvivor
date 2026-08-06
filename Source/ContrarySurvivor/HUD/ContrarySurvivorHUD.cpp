@@ -259,6 +259,12 @@ bool AContrarySurvivorHUD::IsTouchLayerShown() const
 
 void AContrarySurvivorHUD::DrawQADebugOverlay()
 {
+	// Служебный слой поверх экрана в публикационной сборке не рисуется НИКОГДА: тела нет,
+	// компилятор выкидывает функцию целиком (Б5 задания издателя — «убрать с экрана
+	// счётчик кадров и подписи клавиш ПК», сюда же относится и эта отладочная лента).
+#if !CONTRARY_WITH_QA_CHEATS
+	return;
+#else
 	if (!Canvas || !FQADebug::bOverlayVisible)
 	{
 		return;
@@ -305,6 +311,7 @@ void AContrarySurvivorHUD::DrawQADebugOverlay()
 		DrawShadowedText(Line, QAOverlayColor, X, Y, Font, Scale);
 		Y += LineH;
 	}
+#endif // CONTRARY_WITH_QA_CHEATS
 }
 
 void AContrarySurvivorHUD::DrawInteractPrompt(const FString& Text)
@@ -1867,8 +1874,10 @@ void AContrarySurvivorHUD::ShowEndOfStoryMessage()
 		return;
 	}
 	EndOfStoryWidgetInstance->ApplyStyle(EndOfStoryStyle);
+	// Адрес канала берём из конфига (UEndOfStorySettings), а не с HUD: его вписывают позже
+	// текстовым редактором, без пересборки кода и без переделки контента.
 	EndOfStoryWidgetInstance->InitContent(EndOfStoryMessageText, EndOfStoryWriteButtonText,
-		EndOfStoryPlayButtonText, EndOfStoryChannelPendingText, EndOfStoryChannelUrl);
+		EndOfStoryPlayButtonText, EndOfStoryChannelPendingText, UEndOfStorySettings::GetChannelUrl());
 	if (!EndOfStoryWidgetInstance->IsInViewport())
 	{
 		// Над модальными окнами (30), под экраном смерти (35) и интро (50); при открытой

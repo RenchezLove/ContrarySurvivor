@@ -13,6 +13,7 @@
 #include "ContrarySurvivor/UI/TouchControlsTypes.h" // FTouchButtonSettings (настройки тач-кнопок, этап G)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle (стиль меню паузы — поле контроллера)
 #include "ContrarySurvivor/UI/StartScreenWidget.h"  // FStartScreenStyle (Б3: стиль стартового экрана)
+#include "ContrarySurvivor/Debug/QADebug.h"         // CONTRARY_WITH_QA_CHEATS: отладочных клавиш нет в Shipping
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
@@ -555,36 +556,41 @@ protected:
 	// (OfferQuest), включает HUD-окно диалога и режим ввода UI.
 	void OpenDialog(AElderNPC* Elder);
 
+	// ======================================================================
+	// ОТЛАДОЧНЫЕ КЛАВИШИ. Всё, что ниже до закрывающего #endif, В ПУБЛИКАЦИОННОЙ СБОРКЕ
+	// НЕ СУЩЕСТВУЕТ: выключатель CONTRARY_WITH_QA_CHEATS (Debug/QADebug.h) в режиме Shipping
+	// равен нулю, и эти объявления не компилируются вовсе (Б5 задания издателя).
+	// Макроса UFUNCTION здесь намеренно НЕТ: привязка идёт обычным указателем на метод
+	// (InputComponent->BindAction), отражение не требуется, а UFUNCTION внутри условной
+	// компиляции сгенерировал бы код на несуществующие функции. Тем же приёмом закрыт
+	// движковый UCheatManager.
+	// ======================================================================
+#if CONTRARY_WITH_QA_CHEATS
+
 	// --- QA-харнесс (Фаза 4 раунд 2): тест-действия на функциональные клавиши ---
 	// Привязаны через LEGACY ActionMapping (Config/DefaultInput.ini), без нового IA/.uasset.
 	// Нужны автотестеру (Computer Use), который не может открыть `~`-консоль (русская раскладка).
 	// Дублируют существующие exec-команды — оба пути остаются.
 
 	// F1: свободная/детач debug-камера (console-exec "ToggleDebugCamera", UCheatManager 5.5).
-	UFUNCTION()
 	void OnToggleDebugCamera();
 
 	// F2: наполнить рюкзак тестовыми предметами (= APlayerCharacter::GiveTestItems).
-	UFUNCTION()
 	void OnTestGiveItems();
 
 	// F3: надеть тест-комплект брони, по умолчанию полный Т3 (= APlayerCharacter::EquipTestArmor).
-	UFUNCTION()
 	void OnTestEquipArmor();
 
 	// F4: снять броню всех слотов (= APlayerCharacter::UnequipTestArmor).
-	UFUNCTION()
 	void OnTestUnequipArmor();
 
 	// M (бывш. F5, перевешено из-за конфликта с вьюмодом Shader Complexity): +TestMoneyGrant
 	// денег (для теста покупки у торговца).
-	UFUNCTION()
 	void OnTestGiveMoney();
 
 	// T: тест-телепорт игрока вплотную к ближайшему торговцу (ATraderNPC) в радиус его
 	// InteractTrigger — чтобы сработал NearbyTrader и заработали F9/F10/E. Волки не дают
 	// подойти к прилавку сверху, поэтому нужен телепорт для верификации купли/продажи.
-	UFUNCTION()
 	void OnQATeleportToTrader();
 
 	// --- QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами ---
@@ -593,50 +599,39 @@ protected:
 	// Клики оставлены как есть (их проверяет Ринат). Привязка — legacy ActionMapping (DefaultInput.ini).
 
 	// F6: использовать ПЕРВЫЙ расходник рюкзака (= клик «использовать»).
-	UFUNCTION()
 	void OnQAUseFirstConsumable();
 
 	// F7: выбросить ПЕРВЫЙ предмет рюкзака (= клик [X]).
-	UFUNCTION()
 	void OnQADropFirstItem();
 
 	// F9: купить самый дешёвый товар у ближайшего торговца (иначе пропуск с логом).
-	UFUNCTION()
 	void OnQABuyCheapest();
 
 	// F10: продать первый предмет рюкзака ближайшему торговцу (иначе пропуск с логом).
-	UFUNCTION()
 	void OnQASellFirstItem();
 
 	// F12: очистить слот сейва 'ContrarySave' (UGameplayStatics::DeleteGameInSlot).
-	UFUNCTION()
 	void OnQAClearSave();
 
 	// --- QA-харнесс (Фаза 5): дублёры квестов/диалога клавишами (тестер не кликает HUD/`~`) ---
 	// Свободные буквенные клавиши (НЕ F5/F8/F11). Биндятся через legacy ActionMapping.
 
 	// Y: телепорт игрока вплотную к ближайшему старосте (как T к торговцу).
-	UFUNCTION()
 	void OnQATeleportToElder();
 
 	// G: предложить+принять квест у ближайшего старосты (= открыть диалог и нажать [Принять]).
-	UFUNCTION()
 	void OnQAAcceptQuest();
 
 	// H: сдать выполненный квест ближайшему старосте (= [Сдать]).
-	UFUNCTION()
 	void OnQATurnInQuest();
 
 	// K: зачесть одно убийство волка в квест (прогресс +1) без поиска живого волка.
-	UFUNCTION()
 	void OnQACreditWolfKill();
 
 	// C: выдать игроку 5 «Шкур волка» в рюкзак (тест сдачи кв.1 без фарма волков).
-	UFUNCTION()
 	void OnQAGiveWolfHides();
 
 	// X: выдать игроку «Ноутбук» в рюкзак (тест сдачи кв.2).
-	UFUNCTION()
 	void OnQAGiveNotebook();
 
 	// Общий хелпер C/X: спавнит Count квест-предметов (AQuestItem) с заданным ItemName и кладёт в рюкзак.
@@ -646,36 +641,33 @@ protected:
 	// Глобальные флаги в FQADebug, читаются в точках урона/деградации/дропа.
 
 	// J: тумблер god-mode (неуязвимость игрока + заморозка убыли голода/жажды). Авто-вкл оверлей.
-	UFUNCTION()
 	void OnQAToggleGodMode();
 
 	// U: тумблер force-drop (все враги роняют лут со 100% шансом).
-	UFUNCTION()
 	void OnQAToggleForceDrop();
 
 	// B: заспавнить одного тест-волка рядом с игроком (быстро проверить лут).
-	UFUNCTION()
 	void OnQASpawnTestWolf();
 
 	// O: тумблер показа экранного QA-оверлея.
-	UFUNCTION()
 	void OnQAToggleOverlay();
 
 	// N: мгновенно убить БЛИЖАЙШЕГО врага (волк/бандит) штатным путём урона (TakeDamage),
 	// чтобы сработали смерть + дроп лута + квест-счётчик. С активным force-drop (U) выпадет
 	// предмет — тестер проверяет цепочку лута без прицеливания.
-	UFUNCTION()
 	void OnQAForceKillNearest();
-
-	// Возрождение по клавише (Enter / Пробел) на экране смерти (#26): дубль кнопки «Возродиться»
-	// (CU-мышь по HUD ненадёжна). Если экран смерти открыт — запускает APlayerCharacter::Respawn.
-	UFUNCTION()
-	void OnRespawnPressed();
 
 	// P (QA, #26): мгновенно убить ИГРОКА штатным летальным уроном (для теста экрана смерти).
 	// Учитывает god-mode (J): при god-mode не убивает (лог-skip).
-	UFUNCTION()
 	void OnQAKillPlayer();
+
+#endif // CONTRARY_WITH_QA_CHEATS
+
+	// Возрождение по клавише (Enter / Пробел) на экране смерти (#26): дубль кнопки «Возродиться»
+	// (CU-мышь по HUD ненадёжна). Если экран смерти открыт — запускает APlayerCharacter::Respawn.
+	// ЭТО ИГРОВАЯ клавиша, а не отладочная — остаётся в публикационной сборке.
+	UFUNCTION()
+	void OnRespawnPressed();
 
 	// Слайдер количества в магазине (Фаза 5): ±количество. Стрелки/колесо = ±1, с Shift = ±10.
 	// Действуют только когда открыт магазин и активен слайдер транзакции.

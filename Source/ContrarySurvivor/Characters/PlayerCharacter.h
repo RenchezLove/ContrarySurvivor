@@ -14,6 +14,7 @@
 #include "AMasterWeapon.h"
 #include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // FLimpIndicatorStyle + FLimpFirstHintState (индикатор хромоты, Build 1)
 #include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
+#include "ContrarySurvivor/Debug/QADebug.h"      // CONTRARY_WITH_QA_CHEATS: отладочной клавиши нет в Shipping
 #include "PlayerCharacter.generated.h"
 
 class UStatsComponent;
@@ -851,9 +852,12 @@ protected:
     // Сброс накопленного игрового времени сессии в сейв (таймер PlaytimeFlushInterval).
     void FlushPlayTime();
 
-    // Build 1.2.1 (ТЗ В2): обработчик клавиши F — добивает накопитель игрового времени до
+#if CONTRARY_WITH_QA_CHEATS
+    // Build 1.2.1 (ТЗ В2): ОТЛАДОЧНАЯ клавиша F — добивает накопитель игрового времени до
     // порога AdMinPlaytimeSeconds, немедленно пишет его в сейв и печатает LogQA-строку.
+    // В публикационной сборке не компилируется (Б5 задания издателя).
     void OnQAUnlockAds();
+#endif
 
     // Применяет загруженный сейв к игроку (статы + телепорт в точку респауна).
     void ApplySaveData(const UContrarySaveGame* Save);

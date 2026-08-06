@@ -204,6 +204,14 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// Взаимодействие (E) — legacy ActionMapping "Interact" (Фаза 4, экономика: магазин).
 		InputComponent->BindAction(TEXT("Interact"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnInteract);
 
+		// ==================================================================
+		// ОТЛАДОЧНЫЕ КЛАВИШИ — ТОЛЬКО ВНЕ ПУБЛИКАЦИОННОЙ СБОРКИ (Б5 задания издателя).
+		// В режиме Shipping выключатель CONTRARY_WITH_QA_CHEATS равен нулю, и весь блок
+		// привязок не компилируется: клавиши не «молчат», их просто нет в сборке. Сами
+		// строки привязок остаются в Config/DefaultInput.ini — без обработчика они не
+		// делают ничего, и удалять их незачем (в разработке они нужны).
+		// ==================================================================
+#if CONTRARY_WITH_QA_CHEATS
 		// QA-харнесс (Фаза 4 раунд 2): тест-действия F1-F4 + M (деньги; перевешено с F5 из-за
 		// вьюмода Shader Complexity) + T (телепорт к торговцу). Legacy ActionMapping,
 		// Config/DefaultInput.ini. Дают автотестеру (Computer Use) проверять без `~`-консоли.
@@ -242,6 +250,10 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// QA debug-инструмент (Фаза 5, доп.): N — force-kill ближайшего врага.
 		InputComponent->BindAction(TEXT("QAForceKill"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAForceKillNearest);
 
+		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
+		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
+#endif // CONTRARY_WITH_QA_CHEATS
+
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
 		InputComponent->BindAction(TEXT("Respawn"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnRespawnPressed);
 
@@ -265,9 +277,6 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindTouch(IE_Pressed,  this, &AContrarySurvivorPlayerController::OnShopTouchPressed);
 		InputComponent->BindTouch(IE_Repeat,   this, &AContrarySurvivorPlayerController::OnShopTouchMoved);
 		InputComponent->BindTouch(IE_Released, this, &AContrarySurvivorPlayerController::OnShopTouchReleased);
-
-		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
-		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
 
 		// Фаза 5: слайдер количества в магазине — ±количество (стрелки/колесо, Shift=±10).
 		InputComponent->BindAction(TEXT("ShopQtyDec"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnShopQtyDec);
@@ -751,6 +760,13 @@ void AContrarySurvivorPlayerController::OnShopQtyInc()
 		}
 	}
 }
+
+// ===========================================================================
+// ОТЛАДОЧНЫЕ КЛАВИШИ: тела обработчиков. Весь блок до парного #endif ниже в
+// публикационной сборке не компилируется (Б5 задания издателя) — объявления в заголовке
+// закрыты тем же выключателем CONTRARY_WITH_QA_CHEATS.
+// ===========================================================================
+#if CONTRARY_WITH_QA_CHEATS
 
 void AContrarySurvivorPlayerController::OnQAKillPlayer()
 {
@@ -1369,6 +1385,8 @@ void AContrarySurvivorPlayerController::GiveQuestItems(const FString& ItemName, 
 	FQADebug::QA(this, FString::Printf(TEXT("QA: gave %d x '%s' (quest item) to backpack"), Given, *ItemName),
 		/*bScreen=*/true);
 }
+
+#endif // CONTRARY_WITH_QA_CHEATS — конец блока отладочных клавиш
 
 void AContrarySurvivorPlayerController::SetNearbyTrader(TScriptInterface<IShopVendor> Trader)
 {
