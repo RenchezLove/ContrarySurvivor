@@ -171,7 +171,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	UStatsComponent* GetStats() const { return Stats; }
 
-	// Действующая скорость погони (см/с) — ровно та формула, что применяется в BeginPlay.
+	// Действующая скорость погони (см/с) — ровно та формула, что применяется в конструкторе
+	// (замечание qa 08-06: скорость ставится в конструкторе, BeginPlay её не трогает).
 	// Открыта, чтобы автотест закреплял контракт баланса «волк быстрее спринта игрока» (Ринат 08-06).
 	UFUNCTION(BlueprintPure, Category = "Movement")
 	float GetChaseSpeed() const { return BanditBaseWalkSpeed * SpeedMultiplierVsBandit; }
