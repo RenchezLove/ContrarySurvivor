@@ -1,6 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
+#include "ContrarySurvivor/Analytics/AnalyticsProfileSave.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Engine/World.h"
@@ -10,26 +12,49 @@
 #include "GameAnalytics.h" // официальный плагин GameAnalytics (Plugins/GameAnalytics, ADR-038)
 #endif
 
+// Служебная память аналитики лежит в пользовательском слоте 0 — как и игровой сейв.
+static constexpr int32 AnalyticsSaveUserIndex = 0;
+
 void UAnalyticsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
 #if WITH_GAMEANALYTICS
-	// Ключи — ТОЛЬКО из локальных файлов (репо публичный, ADR-013). Нет файлов — тихо выкл.
-	FString GameKey, SecretKey;
-	const FString GameKeyPath = FPaths::Combine(KeysFolder, TEXT("GameKey.txt"));
-	const FString SecretKeyPath = FPaths::Combine(KeysFolder, TEXT("SecretKey.txt"));
-	FFileHelper::LoadFileToString(GameKey, *GameKeyPath);
-	FFileHelper::LoadFileToString(SecretKey, *SecretKeyPath);
-	GameKey.TrimStartAndEndInline();
-	SecretKey.TrimStartAndEndInline();
+	// Ключи (ADR-013: репо публичный, значений в исходниках нет). Сначала вшитые компилятором —
+	// это единственный источник, который доезжает до собранной игры на телефоне (Б4); если
+	// сборка делалась без папки ключей, откатываемся на прежнее чтение файлов с диска.
+	FString GameKey;
+	FString SecretKey;
+	FString KeySource;
+
+#if CONTRARY_GA_KEYS_COMPILED_IN
+	GameKey = TEXT(CONTRARY_GA_GAME_KEY);
+	SecretKey = TEXT(CONTRARY_GA_SECRET_KEY);
+	KeySource = TEXT("вшиты в сборку на этапе компиляции");
+#endif
 
 	if (GameKey.IsEmpty() || SecretKey.IsEmpty())
 	{
-		UE_LOG(LogTemp, Display,
-			TEXT("Analytics: keys not found in '%s' - analytics silently disabled"), *KeysFolder);
+		const FString GameKeyPath = FPaths::Combine(KeysFolder, TEXT("GameKey.txt"));
+		const FString SecretKeyPath = FPaths::Combine(KeysFolder, TEXT("SecretKey.txt"));
+		FFileHelper::LoadFileToString(GameKey, *GameKeyPath);
+		FFileHelper::LoadFileToString(SecretKey, *SecretKeyPath);
+		GameKey.TrimStartAndEndInline();
+		SecretKey.TrimStartAndEndInline();
+		KeySource = FString::Printf(TEXT("прочитаны из файлов папки '%s'"), *KeysFolder);
+	}
+
+	if (GameKey.IsEmpty() || SecretKey.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("Analytics: КЛЮЧИ НЕ НАЙДЕНЫ - в сборку не вшиты (CONTRARY_GA_KEYS_COMPILED_IN=%d) и файлов GameKey.txt/SecretKey.txt нет в '%s'. Аналитика выключена, события не отправляются."),
+			static_cast<int32>(CONTRARY_GA_KEYS_COMPILED_IN), *KeysFolder);
 		return;
 	}
+
+	// Значения ключей в журнал НЕ выводим никогда — только источник и длины (диагностика формата).
+	UE_LOG(LogTemp, Display, TEXT("Analytics: ключи найдены (%s), длины %d/%d символов."),
+		*KeySource, GameKey.Len(), SecretKey.Len());
 
 	// GA-синглтон живёт на процесс: повторный Initialize (второй PIE-запуск в той же сессии
 	// редактора) SDK не нужен — просто включаем отправку у уже настроенного инстанса.
@@ -38,14 +63,15 @@ void UAnalyticsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		if (!bSDKInitializedThisProcess)
 		{
-			// Значения ключей в лог НЕ выводим — только длины (диагностика формата).
-			UE_LOG(LogTemp, Display, TEXT("Analytics: initializing GameAnalytics (key lens %d/%d)"),
-				GameKey.Len(), SecretKey.Len());
+			UE_LOG(LogTemp, Display, TEXT("Analytics: initializing GameAnalytics"));
 			GA->ConfigureAutoDetectAppVersion(true);
 			GA->Initialize(GameKey, SecretKey); // старт сессии SDK делает сам
 			bSDKInitializedThisProcess = true;
 		}
 		bEnabled = true;
+
+		// Б4: самый первый запуск игры на устройстве — ровно один раз за установку.
+		RecordFirstLaunchIfNeeded();
 	}
 #else
 	UE_LOG(LogTemp, Display, TEXT("Analytics: built without GameAnalytics plugin - disabled"));
@@ -112,6 +138,134 @@ void UAnalyticsSubsystem::RecordDailyRewardClaimed(int32 StreakDay)
 {
 	SendDesignEvent(TEXT("retention:daily_reward_claimed"),
 		static_cast<float>(StreakDay), /*bWithValue=*/true);
+}
+
+void UAnalyticsSubsystem::RecordTutorialStep(const FString& StepId, int32 StepIndex)
+{
+	if (!bEnabled)
+	{
+		return; // без ключей/плагина ни события, ни записи служебного слота
+	}
+
+	const FString SafeStepId = SanitizeEventPart(StepId);
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (!Save || !Save->MarkTutorialStepReported(SafeStepId))
+	{
+		return; // этот шаг за текущую установку игры уже отправляли
+	}
+
+	SendDesignEvent(MakeTutorialStepEventId(SafeStepId), static_cast<float>(StepIndex), /*bWithValue=*/true);
+	WriteProfileSave(Save);
+	UE_LOG(LogTemp, Log, TEXT("Analytics: шаг обучения '%s' (номер %d) отправлен впервые за установку"),
+		*SafeStepId, StepIndex);
+}
+
+void UAnalyticsSubsystem::RecordTutorialCompleted(int32 TotalSteps)
+{
+	if (!bEnabled)
+	{
+		return;
+	}
+
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (!Save || !Save->MarkTutorialCompletedReported())
+	{
+		return; // завершение обучения за эту установку уже отправляли
+	}
+
+	SendDesignEvent(MakeTutorialCompletedEventId(), static_cast<float>(TotalSteps), /*bWithValue=*/true);
+	WriteProfileSave(Save);
+	UE_LOG(LogTemp, Log, TEXT("Analytics: обучение пройдено целиком (%d шагов) - событие отправлено"),
+		TotalSteps);
+}
+
+void UAnalyticsSubsystem::RecordFirstLaunchIfNeeded()
+{
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (!Save || !Save->MarkFirstLaunchReported())
+	{
+		return; // игра на этом устройстве уже запускалась
+	}
+
+	SendDesignEvent(MakeFirstLaunchEventId());
+	WriteProfileSave(Save);
+	UE_LOG(LogTemp, Display, TEXT("Analytics: первый запуск игры на устройстве - отправлено '%s'"),
+		*MakeFirstLaunchEventId());
+}
+
+FString UAnalyticsSubsystem::MakeFirstLaunchEventId()
+{
+	return TEXT("app:first_launch");
+}
+
+FString UAnalyticsSubsystem::MakeTutorialStepEventId(const FString& StepId)
+{
+	return FString::Printf(TEXT("tutorial:step:%s"), *SanitizeEventPart(StepId));
+}
+
+FString UAnalyticsSubsystem::MakeTutorialCompletedEventId()
+{
+	return TEXT("tutorial:completed");
+}
+
+bool UAnalyticsSubsystem::AreKeysCompiledIn()
+{
+#if CONTRARY_GA_KEYS_COMPILED_IN
+	return true;
+#else
+	return false;
+#endif
+}
+
+int32 UAnalyticsSubsystem::GetCompiledGameKeyLength()
+{
+#if CONTRARY_GA_KEYS_COMPILED_IN
+	return FCString::Strlen(TEXT(CONTRARY_GA_GAME_KEY));
+#else
+	return 0;
+#endif
+}
+
+int32 UAnalyticsSubsystem::GetCompiledSecretKeyLength()
+{
+#if CONTRARY_GA_KEYS_COMPILED_IN
+	return FCString::Strlen(TEXT(CONTRARY_GA_SECRET_KEY));
+#else
+	return 0;
+#endif
+}
+
+UAnalyticsProfileSave* UAnalyticsSubsystem::LoadOrCreateProfileSave()
+{
+	if (ProfileSave)
+	{
+		return ProfileSave;
+	}
+
+	if (UGameplayStatics::DoesSaveGameExist(ProfileSaveSlotName, AnalyticsSaveUserIndex))
+	{
+		ProfileSave = Cast<UAnalyticsProfileSave>(
+			UGameplayStatics::LoadGameFromSlot(ProfileSaveSlotName, AnalyticsSaveUserIndex));
+	}
+	if (!ProfileSave)
+	{
+		ProfileSave = Cast<UAnalyticsProfileSave>(
+			UGameplayStatics::CreateSaveGameObject(UAnalyticsProfileSave::StaticClass()));
+	}
+	return ProfileSave;
+}
+
+void UAnalyticsSubsystem::WriteProfileSave(UAnalyticsProfileSave* Save)
+{
+	if (!Save)
+	{
+		return;
+	}
+	if (!UGameplayStatics::SaveGameToSlot(Save, ProfileSaveSlotName, AnalyticsSaveUserIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Analytics: не удалось записать служебный слот '%s'"),
+			*ProfileSaveSlotName);
+	}
 }
 
 void UAnalyticsSubsystem::SendDesignEvent(const FString& EventId, float Value, bool bWithValue)

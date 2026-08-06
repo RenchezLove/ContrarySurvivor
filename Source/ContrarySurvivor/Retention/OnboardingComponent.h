@@ -51,6 +51,11 @@ public:
 	// на чёрном экране/во время авто-подхода и была бы потрачена — подсказка одноразовая).
 	void CancelPendingMovementHint();
 
+	// Латинское имя шага обучения для аналитики издателя (Б4): movement/pickup/elder/
+	// inventory/death. Отдельно от EOnboardingHint, чтобы имя события не менялось от
+	// перестановки значений перечисления.
+	static const TCHAR* GetHintAnalyticsId(EOnboardingHint Hint);
+
 	// Показать разовую всплывашку с готовым текстом — тем же тостом, что и подсказки
 	// онбординга. В отличие от TryShowHint НЕ ведёт признак «показано»: одноразовость
 	// обеспечивает тот, кто зовёт (например староста — по флагу в сейве). Нужно для
@@ -128,6 +133,9 @@ private:
 
 	// Записать флаг «показано» в слот сейва (load-or-create, правит только свой флаг).
 	void PersistShownFlag(EOnboardingHint Hint);
+
+	// Показаны ли уже ВСЕ подсказки обучения (признак «обучение пройдено целиком», Б4).
+	bool AreAllHintsShown() const;
 
 	void ShowWidget(const FText& Text);
 	void HideActiveWidget();

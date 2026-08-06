@@ -6,19 +6,27 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "AnalyticsSubsystem.generated.h"
 
+class UAnalyticsProfileSave;
+
 /**
  * Аналитика GameAnalytics (Этап F3, ADR-038). Обёртка над официальным плагином:
  * весь игровой код зовёт только этот сабсистем — про SDK он не знает.
  *
  * ⚠️ СЕКРЕТЫ (ADR-013: гейм-репо публичный): значения Game Key / Secret Key НЕ хранятся
- * ни в коде, ни в конфиге репозитория. Они читаются В РАНТАЙМЕ из локальных файлов
- * GameKey.txt / SecretKey.txt в папке KeysFolder (дефолт E:/game-dev-team/keys; папка в
- * .gitignore командного репо). Нет файлов / нет плагина (WITH_GAMEANALYTICS=0) —
- * аналитика ТИХО выключена: события no-op, ошибок в лог не спамим (одна строка при старте).
+ * ни в коде, ни в конфиге репозитория.
+ *
+ * ОТКУДА БЕРУТСЯ КЛЮЧИ (Б4, задание издателя ADR-059) — два источника по порядку:
+ *   1) вшитые в двоичный файл на этапе компиляции. ContrarySurvivor.Build.cs читает файлы
+ *      GameKey.txt / SecretKey.txt из локальной папки вне репозитория (по умолчанию
+ *      E:/game-dev-team/keys, переопределяется переменной окружения
+ *      CONTRARY_ANALYTICS_KEYS_DIR) и передаёт значения определениями компилятора. Именно
+ *      этот путь работает в собранной игре на телефоне, где никакой папки с ключами нет;
+ *   2) если ключи не вшивались (сборка на машине без папки ключей) — прежний поиск тех же
+ *      файлов на диске в рантайме, по пути KeysFolder. Нужен только разработчику локально.
+ * Нет ни того, ни другого / нет плагина (WITH_GAMEANALYTICS=0) — аналитика ТИХО выключена:
+ * события no-op, ошибок в лог не спамим (одна понятная строка при старте, без значений ключей).
  *
  * Старт сессии SDK шлёт сам после Initialize (автоматический session handling).
- * Заметка для этапа G: при пакетовании Android ключи нужно будет внести в конфиг локально
- * перед сборкой пакета (на устройстве папки E:/ нет) — решается на этапе G.
  */
 UCLASS(Config = Game)
 class CONTRARYSURVIVOR_API UAnalyticsSubsystem : public UGameInstanceSubsystem
@@ -83,6 +91,10 @@ public:
 	//   ad_daily_not_shown         -> ad:daily:not_shown:{first_day|under_15min|no_ad}
 	//   shop_sell_completed        -> shop:sell_completed        [сумма продажи]
 	//   daily_reward_claimed       -> retention:daily_reward_claimed [день серии]
+	// --- Б4 (задание издателя ADR-059): первый запуск и обучение ---
+	//   first_launch               -> app:first_launch           [номер шага не нужен]
+	//   tutorial_step              -> tutorial:step:{movement|pickup|elder|inventory|death} [номер шага]
+	//   tutorial_completed         -> tutorial:completed         [сколько шагов всего]
 	// Параметры ТЗ сверх одного числа (номер смерти за сессию, базовая сумма при
 	// удвоении и т.п.) в GA не влезают — они пишутся в QA-лог рядом с отправкой.
 
@@ -103,18 +115,59 @@ public:
 	// издатель считает возврат игроков на 2/3/7 день (ТЗ №3 п.6).
 	void RecordDailyRewardClaimed(int32 StreakDay);
 
-	// Папка с файлами ключей GameKey.txt / SecretKey.txt. Переопределяется в
+	// --- Б4: обучение. Шаги — контекстные подсказки UOnboardingComponent (по факту их пять:
+	// движение, подбор, староста, инвентарь, смерть); каждая показывается один раз за профиль.
+	// Событие на шаг уходит не более одного раза ЗА УСТАНОВКУ игры (память —
+	// UAnalyticsProfileSave в отдельном слоте), поэтому «Новая игра» воронку не задваивает.
+	// StepId — латинское имя шага, StepIndex — его номер начиная с 1 (едет в value). ---
+	void RecordTutorialStep(const FString& StepId, int32 StepIndex);
+
+	// Обучение пройдено целиком (показан последний из шагов). Тоже не более одного раза
+	// за установку. TotalSteps — сколько шагов в обучении всего (едет в value).
+	void RecordTutorialCompleted(int32 TotalSteps);
+
+	// --- Имена событий одним местом: тем же кодом строит отправка и проверяют автотесты. ---
+	static FString MakeFirstLaunchEventId();
+	static FString MakeTutorialStepEventId(const FString& StepId);
+	static FString MakeTutorialCompletedEventId();
+
+	// GA разрешает в id событий только латиницу/цифры/немного знаков — русские имена
+	// предметов транслитерировать не пытаемся, просто заменяем недопустимое на '_'.
+	static FString SanitizeEventPart(const FString& Raw);
+
+	// Вшиты ли ключи в этот двоичный файл на этапе компиляции (Б4). Для автотеста-доказательства
+	// и диагностики; сами ключи наружу не отдаются никогда.
+	static bool AreKeysCompiledIn();
+	static int32 GetCompiledGameKeyLength();
+	static int32 GetCompiledSecretKeyLength();
+
+	// Папка с файлами ключей GameKey.txt / SecretKey.txt — ЗАПАСНОЙ путь для разработчика,
+	// когда ключи в сборку не вшиты (см. комментарий к классу). Переопределяется в
 	// Config/DefaultGame.ini: [/Script/ContrarySurvivor.AnalyticsSubsystem] KeysFolder=...
 	UPROPERTY(Config)
 	FString KeysFolder = TEXT("E:/game-dev-team/keys");
+
+	// Слот сохранения со служебной памятью аналитики (первый запуск, отправленные шаги
+	// обучения). Отдельный от игрового 'ContrarySave' намеренно — см. UAnalyticsProfileSave.
+	UPROPERTY(Config)
+	FString ProfileSaveSlotName = TEXT("ContraryAnalytics");
 
 private:
 	// Отправка design-события GA ("part1:part2[:part3]"). bWithValue — вариант с числом.
 	void SendDesignEvent(const FString& EventId, float Value = 0.0f, bool bWithValue = false);
 
-	// GA разрешает в id событий только латиницу/цифры/немного знаков — русские имена
-	// предметов транслитерировать не пытаемся, просто заменяем недопустимое на '_'.
-	static FString SanitizeEventPart(const FString& Raw);
+	// Событие самого первого запуска игры на устройстве: ровно один раз за установку.
+	// Зовётся из Initialize, когда аналитика реально включена.
+	void RecordFirstLaunchIfNeeded();
+
+	// Служебная память аналитики: загрузить из слота (создать при отсутствии) / записать.
+	// Диска касаемся только при включённой аналитике — на машине без ключей файлов не плодим.
+	UAnalyticsProfileSave* LoadOrCreateProfileSave();
+	void WriteProfileSave(UAnalyticsProfileSave* Save);
+
+	// Кэш служебной памяти на время сессии (шаги обучения дёргаются из игрового кода).
+	UPROPERTY()
+	TObjectPtr<UAnalyticsProfileSave> ProfileSave;
 
 	bool bEnabled = false;
 };

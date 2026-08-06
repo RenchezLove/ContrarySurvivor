@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // Б4: события шагов обучения
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/UI/OnboardingHintWidget.h"
@@ -57,7 +58,44 @@ void UOnboardingComponent::TryShowHint(EOnboardingHint Hint)
 	PersistShownFlag(Hint);
 	ShowWidget(GetHintText(Hint));
 
+	// Б4 (задание издателя ADR-059): событие на каждый показанный шаг обучения и отдельное —
+	// когда показан последний из них. Защита от повторов «раз за установку игры» и запись
+	// служебной памяти живут внутри UAnalyticsSubsystem, здесь только факт показа.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordTutorialStep(GetHintAnalyticsId(Hint), Index + 1);
+		if (AreAllHintsShown())
+		{
+			Analytics->RecordTutorialCompleted(static_cast<int32>(EOnboardingHint::Count));
+		}
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("Onboarding: hint %d shown (once per profile)"), Index);
+}
+
+const TCHAR* UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint Hint)
+{
+	switch (Hint)
+	{
+		case EOnboardingHint::Movement:  return TEXT("movement");
+		case EOnboardingHint::Pickup:    return TEXT("pickup");
+		case EOnboardingHint::Elder:     return TEXT("elder");
+		case EOnboardingHint::Inventory: return TEXT("inventory");
+		case EOnboardingHint::Death:     return TEXT("death");
+		default:                         return TEXT("unknown");
+	}
+}
+
+bool UOnboardingComponent::AreAllHintsShown() const
+{
+	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
+	{
+		if (!bShown[i])
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 void UOnboardingComponent::CancelPendingMovementHint()

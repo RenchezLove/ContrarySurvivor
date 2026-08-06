@@ -2,6 +2,7 @@
 
 using UnrealBuildTool;
 using System.IO;
+using Microsoft.Extensions.Logging; // Logger.LogInformation/LogWarning — методы расширения
 
 public class ContrarySurvivor : ModuleRules
 {
@@ -39,9 +40,102 @@ public class ContrarySurvivor : ModuleRules
 		// Вне Android модуль собирается пустышкой, поэтому зависимость безусловная.
 		PrivateDependencyModuleNames.Add("YandexAds");
 
+		AddAnalyticsKeyDefinitions();
+
 		// Uncomment if you are using online features
 		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
 
 		// To include OnlineSubsystemSteam, add it to the plugins section in your uproject file with the Enabled attribute set to true
+	}
+
+	/// <summary>
+	/// Б4 (задание издателя, ADR-059): ключи GameAnalytics вшиваются в двоичный файл НА ЭТАПЕ
+	/// КОМПИЛЯЦИИ. До этого AnalyticsSubsystem искал файлы ключей на диске уже в игре, а в
+	/// собранном пакете (телефон) такой папки нет — аналитика молча выключалась, ни одно
+	/// событие не уходило (журнал живого телефона, ревизия ADR-058 п.5).
+	///
+	/// Сами значения ключей в репозиторий НЕ попадают (ADR-013, гейм-репо публичный): они
+	/// читаются здесь, из локальной папки ВНЕ репозитория, и уходят прямо в командную строку
+	/// компилятора. Папку задаёт переменная окружения CONTRARY_ANALYTICS_KEYS_DIR, по
+	/// умолчанию — E:/game-dev-team/keys (рабочая машина). Нет папки или файлов — модуль
+	/// собирается без вшитых ключей, и аналитика в игре откатывается на прежний поиск файлов
+	/// по диску (у разработчика локально ничего не ломается).
+	/// </summary>
+	private void AddAnalyticsKeyDefinitions()
+	{
+		string KeysFolder = System.Environment.GetEnvironmentVariable("CONTRARY_ANALYTICS_KEYS_DIR");
+		if (string.IsNullOrWhiteSpace(KeysFolder))
+		{
+			KeysFolder = "E:/game-dev-team/keys";
+		}
+
+		string GameKeyFile = Path.Combine(KeysFolder, "GameKey.txt");
+		string SecretKeyFile = Path.Combine(KeysFolder, "SecretKey.txt");
+		string GameKey = ReadAnalyticsKeyFile(GameKeyFile);
+		string SecretKey = ReadAnalyticsKeyFile(SecretKeyFile);
+
+		if (GameKey.Length == 0 || SecretKey.Length == 0)
+		{
+			PrivateDefinitions.Add("CONTRARY_GA_KEYS_COMPILED_IN=0");
+			Logger.LogInformation(
+				"ContrarySurvivor: ключи аналитики НЕ вшиты — нет пригодных GameKey.txt/SecretKey.txt в '{Folder}' (папку задаёт CONTRARY_ANALYTICS_KEYS_DIR). Аналитика будет искать файлы в рантайме.",
+				KeysFolder);
+			return;
+		}
+
+		// Правка файла ключей должна приводить к пересборке. Регистрируем зависимость ТОЛЬКО
+		// для существующих файлов: несуществующий файл в этом списке заставляет UBT считать
+		// makefile устаревшим при каждом запуске (TargetMakefile.cs: "{File} has been deleted").
+		ExternalDependencies.Add(GameKeyFile);
+		ExternalDependencies.Add(SecretKeyFile);
+
+		// PrivateDefinitions, а не Public: значения видит только этот модуль, в командные
+		// строки остальных модулей и целей ключи не расходятся.
+		PrivateDefinitions.Add("CONTRARY_GA_GAME_KEY=\"" + GameKey + "\"");
+		PrivateDefinitions.Add("CONTRARY_GA_SECRET_KEY=\"" + SecretKey + "\"");
+		PrivateDefinitions.Add("CONTRARY_GA_KEYS_COMPILED_IN=1");
+
+		// В журнал сборки — только длины ключей, сами значения не печатаем никогда.
+		Logger.LogInformation(
+			"ContrarySurvivor: ключи аналитики вшиты в сборку из '{Folder}' (длины {GameLen}/{SecretLen} символов).",
+			KeysFolder, GameKey.Length, SecretKey.Length);
+	}
+
+	/// <summary>
+	/// Читает файл ключа. Возвращает пустую строку, если файла нет, он пуст или содержит
+	/// символы, недопустимые внутри строкового литерала C++ (кавычка, обратный слэш, перевод
+	/// строки) — такой ключ вшивать нельзя, он сломал бы компиляцию.
+	/// </summary>
+	private string ReadAnalyticsKeyFile(string FilePath)
+	{
+		if (!File.Exists(FilePath))
+		{
+			return string.Empty;
+		}
+
+		string Key;
+		try
+		{
+			Key = File.ReadAllText(FilePath).Trim();
+		}
+		catch (System.Exception Ex)
+		{
+			Logger.LogWarning("ContrarySurvivor: не прочитать файл ключа '{File}': {Message}", FilePath, Ex.Message);
+			return string.Empty;
+		}
+
+		foreach (char C in Key)
+		{
+			bool bAllowed = (C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z')
+				|| (C >= '0' && C <= '9') || C == '-' || C == '_';
+			if (!bAllowed)
+			{
+				Logger.LogWarning(
+					"ContrarySurvivor: файл ключа '{File}' содержит недопустимый символ — ключ не вшивается.",
+					FilePath);
+				return string.Empty;
+			}
+		}
+		return Key;
 	}
 }
