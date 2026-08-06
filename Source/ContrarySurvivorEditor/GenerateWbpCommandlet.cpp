@@ -954,7 +954,20 @@ namespace
 			CanvasAuto(Root, Value, FVector2D(4.0f, Y), FAnchors(0.5f, 0.45f, 0.5f, 0.45f));
 		};
 		AddStatPair(TEXT("LifetimeLabel"), TEXT("Прожито"), TEXT("LifetimeText"), TEXT("00:00"), -164.0f);
-		AddStatPair(TEXT("KillerLabel"), TEXT("Убийца"), TEXT("KillerText"), TEXT("—"), -132.0f);
+		// ADR-059: KillerText — цельная фраза («Тебя убил волк»), а подпись KillerLabel экран
+		// прячет кодом. Как «значение» пары фраза начиналась от центральной оси и выглядела
+		// съехавшей вправо (кадр phone-dist-03-death.png) — поэтому центрируем её по оси, как
+		// остальные цельные строки. Скрытую подпись оставляем на прежнем месте (ручка Рината).
+		if (UCanvasPanelSlot* KillerLabelSlot = CanvasAuto(Root,
+			MakeText(Tree, Roboto, TEXT("KillerLabel"), TEXT("Убийца"), StatColor, 22, TEXT("Regular")),
+			FVector2D(-4.0f, -132.0f), FAnchors(0.5f, 0.45f, 0.5f, 0.45f)))
+		{
+			KillerLabelSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+		}
+		UTextBlock* KillerPhrase = MakeText(Tree, Roboto, TEXT("KillerText"), TEXT("—"),
+			StatColor, 22, TEXT("Regular"));
+		KillerPhrase->bIsVariable = true;
+		PlaceCentered(KillerPhrase, -132.0f);
 		AddStatPair(TEXT("MoneyLabel"), TEXT("Монеты"), TEXT("MoneyText"), TEXT("0"), -100.0f);
 		AddStatPair(TEXT("QuestsLabel"), TEXT("Квестов выполнено"), TEXT("QuestsText"), TEXT("0"), -68.0f);
 		AddStatPair(TEXT("KillsLabel"), TEXT("Врагов убито"), TEXT("KillsText"), TEXT("0"), -36.0f);
