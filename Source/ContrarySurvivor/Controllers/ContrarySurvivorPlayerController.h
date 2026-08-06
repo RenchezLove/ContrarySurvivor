@@ -19,6 +19,7 @@
 class UStatsComponent;
 class AElderNPC;
 class APickup;
+class APlayerCharacter;                    // цель-деревня интро ищется от позиции игрока
 class UOnboardingComponent;
 class UTouchControlsWidget;
 class UPauseMenuWidget;
@@ -147,6 +148,12 @@ public:
 	// проверяется автотестами для обоих способов управления.
 	static FText FormatInteractPrompt(const FText& Format, const FText& ActionText, const FText& HowText);
 
+	// Чистое правило «Продолжить посреди интро-этапа»: баннер задачи и стрелку-указатель
+	// восстанавливаем, только когда интро в принципе включено и журнал квестов после загрузки
+	// пуст (до старосты игрок не дошёл; с непустым журналом ориентиры даёт трекер квестов).
+	// Статическая и без состояния — покрыта автотестами (ContrarySurvivor.SaveLoad).
+	static bool ShouldResumeIntroObjectiveAfterContinue(bool bIntroEnabled, int32 RestoredQuestCount);
+
 	// --- Этап F: онбординг/окно ежедневки ---
 
 	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
@@ -226,6 +233,17 @@ protected:
 
 	// Завершить интро полностью (у околицы деревни): сменить задачу на «найти старосту», стоп.
 	void EndIntro();
+
+	// «Продолжить» посреди интро-этапа (журнал квестов после загрузки пуст — до старосты игрок
+	// ещё не дошёл): интро не переигрывается, но баннер задачи и стрелка-указатель обязаны
+	// вернуться. Ставит задачу/стрелку на деревню и переводит интро-машину в фазу HandOff —
+	// штатный переход «вошёл в деревню → найти старосту» (UpdateIntro/EndIntro) отработает сам,
+	// в том числе если сейв уже внутри деревни (EndIntro сработает на первом же кадре).
+	void ResumeIntroObjectiveAfterContinue();
+
+	// Найти цель-деревню интро: актор с тегом VillageMarkerTag, фолбэк — ближайший староста.
+	// Заполняет IntroVillageActor/IntroVillageLocation/bIntroHasVillage/IntroInitialDistance.
+	void FindIntroVillageTarget(const APlayerCharacter* PlayerChar);
 
 	// Держит ли игрок сейчас клавишу/палец пропуска (для hold-to-skip на повторных заходах).
 	bool IsIntroSkipHeld() const;

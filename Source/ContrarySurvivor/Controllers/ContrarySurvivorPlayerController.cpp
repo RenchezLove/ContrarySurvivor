@@ -558,6 +558,12 @@ void AContrarySurvivorPlayerController::HandleStartScreenContinue()
 		bLoaded ? TEXT("save loaded") : TEXT("load FAILED — stayed at spawn defaults"));
 
 	// Б3, замечание 9 ревизии: интро НЕ играет при «Продолжить» — IntroPhase остаётся None.
+	// Но если загрузились ПОСРЕДИ интро-этапа (журнал квестов пуст — до старосты не дошли),
+	// игрок обязан снова видеть задачу и стрелку, иначе после загрузки некуда идти.
+	if (bLoaded)
+	{
+		ResumeIntroObjectiveAfterContinue();
+	}
 }
 
 void AContrarySurvivorPlayerController::HandleStartScreenNewGame()
@@ -1861,41 +1867,7 @@ void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
 	IntroSkipHeld = 0.0f;
 	IntroPhase = EIntroPhase::Line1;
 
-	// Цель-деревня: актор с тегом VillageMarkerTag; фолбэк — ближайший староста (он в деревне).
-	IntroVillageActor = nullptr;
-	bIntroHasVillage = false;
-	if (UWorld* World = GetWorld())
-	{
-		if (!VillageMarkerTag.IsNone())
-		{
-			for (TActorIterator<AActor> It(World); It; ++It)
-			{
-				if (It->ActorHasTag(VillageMarkerTag))
-				{
-					IntroVillageActor = *It;
-					break;
-				}
-			}
-		}
-		if (!IntroVillageActor)
-		{
-			float BestSq = TNumericLimits<float>::Max();
-			const FVector Loc = PlayerChar->GetActorLocation();
-			for (TActorIterator<AElderNPC> It(World); It; ++It)
-			{
-				const float DSq = FVector::DistSquared(Loc, It->GetActorLocation());
-				if (DSq < BestSq) { BestSq = DSq; IntroVillageActor = *It; }
-			}
-		}
-	}
-	if (IntroVillageActor)
-	{
-		IntroVillageLocation = IntroVillageActor->GetActorLocation();
-		bIntroHasVillage = true;
-		FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
-		ToV.Z = 0.0f;
-		IntroInitialDistance = FMath::Max(1.0f, ToV.Size());
-	}
+	FindIntroVillageTarget(PlayerChar);
 
 	// Чёрный экран + тёмный грейд + блок ввода движения. Курсор прячем — чистый кадр кинематографа.
 	bIntroInputLocked = true;
@@ -1926,6 +1898,86 @@ void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
 	}
 
 	UE_LOG(LogQA, Display, TEXT("QA: intro started (%s)"), bIntroSkippable ? TEXT("repeat/skippable") : TEXT("new game"));
+}
+
+void AContrarySurvivorPlayerController::FindIntroVillageTarget(const APlayerCharacter* PlayerChar)
+{
+	// Цель-деревня: актор с тегом VillageMarkerTag; фолбэк — ближайший староста (он в деревне).
+	IntroVillageActor = nullptr;
+	bIntroHasVillage = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (!VillageMarkerTag.IsNone())
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->ActorHasTag(VillageMarkerTag))
+				{
+					IntroVillageActor = *It;
+					break;
+				}
+			}
+		}
+		if (!IntroVillageActor && PlayerChar)
+		{
+			float BestSq = TNumericLimits<float>::Max();
+			const FVector Loc = PlayerChar->GetActorLocation();
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
+			{
+				const float DSq = FVector::DistSquared(Loc, It->GetActorLocation());
+				if (DSq < BestSq) { BestSq = DSq; IntroVillageActor = *It; }
+			}
+		}
+	}
+	if (IntroVillageActor && PlayerChar)
+	{
+		IntroVillageLocation = IntroVillageActor->GetActorLocation();
+		bIntroHasVillage = true;
+		FVector ToV = IntroVillageLocation - PlayerChar->GetActorLocation();
+		ToV.Z = 0.0f;
+		IntroInitialDistance = FMath::Max(1.0f, ToV.Size());
+	}
+}
+
+bool AContrarySurvivorPlayerController::ShouldResumeIntroObjectiveAfterContinue(
+	bool bIntroEnabled, int32 RestoredQuestCount)
+{
+	// Интро-этап закончен ровно тогда, когда игрок дошёл до старосты и взял квест: журнал
+	// перестаёт быть пустым (и таким сохраняется — квесты из журнала не удаляются). Дальше
+	// ориентиры дают трекер квестов и метка цели квеста — они рисуются из восстановленного
+	// журнала сами, интро-баннер не нужен.
+	return bIntroEnabled && RestoredQuestCount == 0;
+}
+
+void AContrarySurvivorPlayerController::ResumeIntroObjectiveAfterContinue()
+{
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		return;
+	}
+
+	const UQuestComponent* PlayerQuests = PlayerChar->GetQuests();
+	const int32 RestoredQuestCount = PlayerQuests ? PlayerQuests->GetQuests().Num() : 0;
+	if (!ShouldResumeIntroObjectiveAfterContinue(bEnableIntro, RestoredQuestCount))
+	{
+		return;
+	}
+
+	FindIntroVillageTarget(PlayerChar);
+
+	// Фаза HandOff = «управление у игрока, ждём входа в деревню»: чёрный экран/блок ввода
+	// не включаются, а переход задачи на «найти старосту» у околицы сделает штатный UpdateIntro.
+	IntroPhase = EIntroPhase::HandOff;
+
+	if (AContrarySurvivorHUD* H = GetHUD<AContrarySurvivorHUD>())
+	{
+		H->SetIntroObjective(IntroObjectiveGoToVillage);
+		H->SetIntroDirectionTarget(IntroVillageActor);
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: CONTINUE mid-intro - objective banner and village arrow restored (village target %s)"),
+		IntroVillageActor ? *IntroVillageActor->GetName() : TEXT("none"));
 }
 
 void AContrarySurvivorPlayerController::UpdateIntro(float DeltaTime)
