@@ -3417,10 +3417,40 @@ namespace
 			if (OldCanvasSlot && NewCanvasSlot)
 			{
 				const FAnchorData OldLayout = OldCanvasSlot->GetLayout();
+
+				// Одноразовая миграция (08-06, кадр phone-dist-03-death.png): KillerText экрана
+				// смерти прежний генератор клал как «значение пары» — левым краем в +4 от оси
+				// (после ADR-059 там цельная фраза «Тебя убил волк», и она выглядела съехавшей
+				// вправо). Если в старом ассете кубик стоит РОВНО в этой генераторской точке —
+				// владелец его не трогал, это не ручная расстановка, и легаси НЕ переносится:
+				// остаётся новая центровка по оси. Любое другое положение — правка владельца,
+				// переезжает как обычно ниже (принцип «ручная расстановка выигрывает» цел).
+				bool bUntouchedLegacyKillerText = false;
+				if (FCString::Strcmp(AssetName, TEXT("WBP_Death")) == 0
+					&& NewWidget->GetFName() == FName(TEXT("KillerText"))
+					&& OldCanvasSlot->GetAutoSize())
+				{
+					FAnchorData LegacyValueLayout;
+					LegacyValueLayout.Anchors = FAnchors(0.5f, 0.45f, 0.5f, 0.45f);
+					LegacyValueLayout.Offsets = FMargin(4.0f, -132.0f, 100.0f, 30.0f);
+					LegacyValueLayout.Alignment = FVector2D::ZeroVector;
+					bUntouchedLegacyKillerText = (OldLayout == LegacyValueLayout);
+				}
+
 				const bool bSame = OldLayout == NewCanvasSlot->GetLayout()
 					&& OldCanvasSlot->GetAutoSize() == NewCanvasSlot->GetAutoSize()
 					&& OldCanvasSlot->GetZOrder() == NewCanvasSlot->GetZOrder();
-				if (!bSame)
+				if (bUntouchedLegacyKillerText)
+				{
+					if (!bSame)
+					{
+						UE_LOG(LogGenerateWbp, Display,
+							TEXT("REBUILD %s: 'KillerText' стоял в нетронутой легаси-точке «значения пары» (офсет 4.0,-132.0, вырав 0,0) — легаси не перенесено, оставлена новая центровка по оси (миграция 08-06)."),
+							AssetName);
+						++MovedCount;
+					}
+				}
+				else if (!bSame)
 				{
 					UE_LOG(LogGenerateWbp, Display,
 						TEXT("REBUILD %s: канвас-слот '%s': офсеты (%.1f,%.1f,%.1f,%.1f) -> (%.1f,%.1f,%.1f,%.1f) (расстановка владельца)."),
