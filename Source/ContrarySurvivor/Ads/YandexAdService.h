@@ -65,10 +65,16 @@ public:
 	UPROPERTY(Config)
 	FString AdUnitIdDailyDouble;
 
-	// Согласие пользователя на обработку данных в рекламных целях. Передаётся в SDK до
-	// его инициализации.
-	UPROPERTY(Config)
-	bool bUserConsent = true;
+	// --- Б6: согласие на обработку данных (задание издателя ADR-059, условие по РИ-30
+	// «согласие игрока НЕ ставить за игрока»). Прежнего поля-настройки bUserConsent со
+	// значением «да» больше НЕТ: ответ приходит от игрока с экрана согласия через
+	// UDataConsentSubsystem. Пока игрок не ответил, SDK рекламы не поднимается вовсе —
+	// у Яндекса согласие передаётся один раз, при инициализации (YandexAdBridge.java:94
+	// вызывает YandexAds.setUserConsent внутри initialize, отдельного метода смены нет). ---
+
+	// Передать решение игрока и, если SDK ещё не поднят, поднять его с этим значением.
+	// Смена решения после запуска применяется со следующего запуска игры (ограничение SDK).
+	void ApplyUserConsent(bool bGranted);
 
 	// Подробный журнал самого SDK в logcat. На боевой сборке выключать.
 	UPROPERTY(Config)
@@ -117,6 +123,10 @@ private:
 
 	FDelegateHandle AdEventHandle;
 	FDelegateHandle ForegroundHandle;
+
+	// Запрос на подъём SDK уже отправлен (повторно не шлём — согласие у Яндекса
+	// передаётся ровно один раз, при инициализации).
+	bool bInitializeRequested = false;
 
 	// --- состояние текущего показа ---
 	bool bShowInProgress = false;

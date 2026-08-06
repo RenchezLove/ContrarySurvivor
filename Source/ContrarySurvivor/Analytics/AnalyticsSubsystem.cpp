@@ -12,49 +12,79 @@
 #include "GameAnalytics.h" // официальный плагин GameAnalytics (Plugins/GameAnalytics, ADR-038)
 #endif
 
-// Служебная память аналитики лежит в пользовательском слоте 0 — как и игровой сейв.
-static constexpr int32 AnalyticsSaveUserIndex = 0;
-
 void UAnalyticsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
 #if WITH_GAMEANALYTICS
+	if (!ResolveKeys())
+	{
+		return; // без ключей отправлять некуда, причина уже написана в журнал
+	}
+
+	// Б6: до ответа игрока на экране согласия SDK не поднимаем и НИЧЕГО не отправляем —
+	// согласие за игрока не ставится (условие издателя по РИ-30). Ответ придёт от
+	// UDataConsentSubsystem вызовом SetDataConsent.
+	const EDataConsentState Consent = GetStoredConsentState();
+	if (Consent == EDataConsentState::Accepted)
+	{
+		StartSdkAndEnable();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Display, TEXT("Analytics: статистика ждёт согласия игрока (сохранённый ответ: %s)"),
+			Consent == EDataConsentState::Declined ? TEXT("отказ") : TEXT("ещё не спрашивали"));
+	}
+#else
+	UE_LOG(LogTemp, Display, TEXT("Analytics: built without GameAnalytics plugin - disabled"));
+#endif
+}
+
+bool UAnalyticsSubsystem::ResolveKeys()
+{
 	// Ключи (ADR-013: репо публичный, значений в исходниках нет). Сначала вшитые компилятором —
 	// это единственный источник, который доезжает до собранной игры на телефоне (Б4); если
 	// сборка делалась без папки ключей, откатываемся на прежнее чтение файлов с диска.
-	FString GameKey;
-	FString SecretKey;
 	FString KeySource;
 
 #if CONTRARY_GA_KEYS_COMPILED_IN
-	GameKey = TEXT(CONTRARY_GA_GAME_KEY);
-	SecretKey = TEXT(CONTRARY_GA_SECRET_KEY);
+	ResolvedGameKey = TEXT(CONTRARY_GA_GAME_KEY);
+	ResolvedSecretKey = TEXT(CONTRARY_GA_SECRET_KEY);
 	KeySource = TEXT("вшиты в сборку на этапе компиляции");
 #endif
 
-	if (GameKey.IsEmpty() || SecretKey.IsEmpty())
+	if (ResolvedGameKey.IsEmpty() || ResolvedSecretKey.IsEmpty())
 	{
 		const FString GameKeyPath = FPaths::Combine(KeysFolder, TEXT("GameKey.txt"));
 		const FString SecretKeyPath = FPaths::Combine(KeysFolder, TEXT("SecretKey.txt"));
-		FFileHelper::LoadFileToString(GameKey, *GameKeyPath);
-		FFileHelper::LoadFileToString(SecretKey, *SecretKeyPath);
-		GameKey.TrimStartAndEndInline();
-		SecretKey.TrimStartAndEndInline();
+		FFileHelper::LoadFileToString(ResolvedGameKey, *GameKeyPath);
+		FFileHelper::LoadFileToString(ResolvedSecretKey, *SecretKeyPath);
+		ResolvedGameKey.TrimStartAndEndInline();
+		ResolvedSecretKey.TrimStartAndEndInline();
 		KeySource = FString::Printf(TEXT("прочитаны из файлов папки '%s'"), *KeysFolder);
 	}
 
-	if (GameKey.IsEmpty() || SecretKey.IsEmpty())
+	if (ResolvedGameKey.IsEmpty() || ResolvedSecretKey.IsEmpty())
 	{
 		UE_LOG(LogTemp, Warning,
 			TEXT("Analytics: КЛЮЧИ НЕ НАЙДЕНЫ - в сборку не вшиты (CONTRARY_GA_KEYS_COMPILED_IN=%d) и файлов GameKey.txt/SecretKey.txt нет в '%s'. Аналитика выключена, события не отправляются."),
 			static_cast<int32>(CONTRARY_GA_KEYS_COMPILED_IN), *KeysFolder);
-		return;
+		return false;
 	}
 
 	// Значения ключей в журнал НЕ выводим никогда — только источник и длины (диагностика формата).
 	UE_LOG(LogTemp, Display, TEXT("Analytics: ключи найдены (%s), длины %d/%d символов."),
-		*KeySource, GameKey.Len(), SecretKey.Len());
+		*KeySource, ResolvedGameKey.Len(), ResolvedSecretKey.Len());
+	return true;
+}
+
+void UAnalyticsSubsystem::StartSdkAndEnable()
+{
+#if WITH_GAMEANALYTICS
+	if (ResolvedGameKey.IsEmpty() || ResolvedSecretKey.IsEmpty())
+	{
+		return;
+	}
 
 	// GA-синглтон живёт на процесс: повторный Initialize (второй PIE-запуск в той же сессии
 	// редактора) SDK не нужен — просто включаем отправку у уже настроенного инстанса.
@@ -65,17 +95,45 @@ void UAnalyticsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		{
 			UE_LOG(LogTemp, Display, TEXT("Analytics: initializing GameAnalytics"));
 			GA->ConfigureAutoDetectAppVersion(true);
-			GA->Initialize(GameKey, SecretKey); // старт сессии SDK делает сам
+			GA->Initialize(ResolvedGameKey, ResolvedSecretKey); // старт сессии SDK делает сам
 			bSDKInitializedThisProcess = true;
 		}
 		bEnabled = true;
 
-		// Б4: самый первый запуск игры на устройстве — ровно один раз за установку.
+		// Б4: самый первый запуск игры на устройстве — ровно один раз за установку. Если
+		// согласие дано не сразу, событие уходит именно сейчас, а не теряется.
 		RecordFirstLaunchIfNeeded();
 	}
-#else
-	UE_LOG(LogTemp, Display, TEXT("Analytics: built without GameAnalytics plugin - disabled"));
 #endif
+}
+
+EDataConsentState UAnalyticsSubsystem::GetStoredConsentState()
+{
+	const UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	return Save ? Save->ConsentState : EDataConsentState::Unknown;
+}
+
+void UAnalyticsSubsystem::SetDataConsent(bool bGranted)
+{
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (Save)
+	{
+		Save->ConsentState = bGranted ? EDataConsentState::Accepted : EDataConsentState::Declined;
+		WriteProfileSave(Save);
+	}
+
+	if (bGranted)
+	{
+		StartSdkAndEnable();
+		UE_LOG(LogTemp, Display, TEXT("Analytics: игрок дал согласие - статистика включена"));
+	}
+	else
+	{
+		// Уже поднятый SDK погасить нельзя, но отправку прекращаем немедленно: все события
+		// проходят через SendDesignEvent, а он смотрит на этот признак.
+		bEnabled = false;
+		UE_LOG(LogTemp, Display, TEXT("Analytics: игрок отказал - статистика ничего не отправляет"));
+	}
 }
 
 UAnalyticsSubsystem* UAnalyticsSubsystem::Get(const UObject* WorldContextObject)
@@ -237,34 +295,19 @@ int32 UAnalyticsSubsystem::GetCompiledSecretKeyLength()
 
 UAnalyticsProfileSave* UAnalyticsSubsystem::LoadOrCreateProfileSave()
 {
-	if (ProfileSave)
-	{
-		return ProfileSave;
-	}
-
-	if (UGameplayStatics::DoesSaveGameExist(ProfileSaveSlotName, AnalyticsSaveUserIndex))
-	{
-		ProfileSave = Cast<UAnalyticsProfileSave>(
-			UGameplayStatics::LoadGameFromSlot(ProfileSaveSlotName, AnalyticsSaveUserIndex));
-	}
 	if (!ProfileSave)
 	{
-		ProfileSave = Cast<UAnalyticsProfileSave>(
-			UGameplayStatics::CreateSaveGameObject(UAnalyticsProfileSave::StaticClass()));
+		ProfileSave = UAnalyticsProfileSave::LoadOrCreate();
 	}
 	return ProfileSave;
 }
 
 void UAnalyticsSubsystem::WriteProfileSave(UAnalyticsProfileSave* Save)
 {
-	if (!Save)
-	{
-		return;
-	}
-	if (!UGameplayStatics::SaveGameToSlot(Save, ProfileSaveSlotName, AnalyticsSaveUserIndex))
+	if (Save && !UAnalyticsProfileSave::Write(Save))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Analytics: не удалось записать служебный слот '%s'"),
-			*ProfileSaveSlotName);
+			UAnalyticsProfileSave::GetSlotName());
 	}
 }
 

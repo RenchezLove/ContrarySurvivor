@@ -44,10 +44,32 @@ void UYandexAdService::Initialize(FSubsystemCollectionBase& Collection)
 	ForegroundHandle = FCoreDelegates::ApplicationHasEnteredForegroundDelegate.AddUObject(
 		this, &UYandexAdService::HandleApplicationForeground);
 
-	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD init requested (consent=%s, sdk log=%s)"),
-		bUserConsent ? TEXT("yes") : TEXT("no"), bEnableSdkLogging ? TEXT("on") : TEXT("off"));
+	// Б6: SDK здесь НЕ поднимаем. Согласие передаётся в SDK ровно один раз, при его
+	// инициализации, поэтому ждём ответа игрока — его пришлёт UDataConsentSubsystem
+	// вызовом ApplyUserConsent (сразу при старте, если игрок отвечал в прошлые запуски,
+	// либо после экрана согласия при самом первом запуске).
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD waiting for user consent before SDK init (sdk log=%s)"),
+		bEnableSdkLogging ? TEXT("on") : TEXT("off"));
+}
 
-	FYandexAdsBridge::Initialize(bUserConsent, bEnableSdkLogging);
+void UYandexAdService::ApplyUserConsent(bool bGranted)
+{
+	if (bInitializeRequested)
+	{
+		// Игрок передумал уже после запуска. У Яндекса согласие меняется только новой
+		// инициализацией SDK, а второй раз её звать нельзя — новое значение вступит в силу
+		// со следующего запуска игры. Сохранённое решение к тому моменту уже лежит на диске.
+		UE_LOG(LogQA, Display,
+			TEXT("QA: YANDEX-AD consent changed to '%s' - applies on next game launch (SDK already initialized)"),
+			bGranted ? TEXT("yes") : TEXT("no"));
+		return;
+	}
+
+	bInitializeRequested = true;
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD init requested (consent=%s, sdk log=%s)"),
+		bGranted ? TEXT("yes") : TEXT("no"), bEnableSdkLogging ? TEXT("on") : TEXT("off"));
+
+	FYandexAdsBridge::Initialize(bGranted, bEnableSdkLogging);
 }
 
 void UYandexAdService::Deinitialize()

@@ -1,6 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"
+#include "ContrarySurvivor/Analytics/DataConsentSettings.h"   // Б6: подписи строк паузы
+#include "ContrarySurvivor/Analytics/DataConsentSubsystem.h"  // Б6: согласие, политика, версия
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -60,10 +62,32 @@ void UPauseMenuWidget::NativeOnInitialized()
 		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
 		ResumeLabel = Cast<UTextBlock>(ResumeButton->GetContent());
 	}
+
+	// Б6 (ADR-059 + правило 5 источника истины): переключатель согласия и строка политики.
+	// Подписи берутся из настроек проекта (UDataConsentSettings) при каждом открытии паузы.
+	if (UButton* ConsentButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PauseConsent")))
+	{
+		ConsentButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleConsentClicked);
+		ConsentLabel = Cast<UTextBlock>(ConsentButton->GetContent());
+	}
+	if (UButton* PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PausePolicy")))
+	{
+		PolicyButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandlePolicyClicked);
+		PolicyLabel = Cast<UTextBlock>(PolicyButton->GetContent());
+	}
+
 	if (UButton* QuitButton = MakeMenuButton(Column, Defaults.QuitText, TEXT("PauseQuit")))
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleQuitClicked);
 		QuitLabel = Cast<UTextBlock>(QuitButton->GetContent());
+	}
+
+	// Б6 (ADR-059): мелко номер версии сборки внизу панели.
+	VersionBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PauseVersion"));
+	if (UVerticalBoxSlot* VersionSlot = Column->AddChildToVerticalBox(VersionBlock))
+	{
+		VersionSlot->SetHorizontalAlignment(HAlign_Center);
+		VersionSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
 	}
 
 	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
@@ -101,6 +125,23 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	StyleButtonLabel(ResumeLabel, Style.ResumeText);
 	StyleButtonLabel(QuitLabel, Style.QuitText);
 
+	// Б6: подписи переключателя согласия и политики приходят не из стиля, а из настроек
+	// проекта (одно место правды на весь текст согласия) — здесь только шрифт и цвет.
+	for (UTextBlock* Label : { ConsentLabel.Get(), PolicyLabel.Get() })
+	{
+		if (Label)
+		{
+			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+		}
+	}
+	if (VersionBlock)
+	{
+		VersionBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(6, Style.VersionFontSize)));
+		VersionBlock->SetColorAndOpacity(FSlateColor(Style.VersionColor));
+	}
+	RefreshConsentAndVersion();
+
 	for (USizeBox* Box : ButtonBoxes)
 	{
 		if (Box)
@@ -135,6 +176,36 @@ UButton* UPauseMenuWidget::MakeMenuButton(UVerticalBox* Column, const FText& Lab
 	return Button;
 }
 
+void UPauseMenuWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	// Пауза открывается много раз за игру, а решение по согласию могло смениться — подпись
+	// переключателя и строку версии освежаем при каждом появлении меню на экране.
+	RefreshConsentAndVersion();
+}
+
+void UPauseMenuWidget::RefreshConsentAndVersion()
+{
+	const UDataConsentSettings* Settings = UDataConsentSettings::Get();
+	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
+
+	if (ConsentLabel && Settings)
+	{
+		// Пока игрок не отвечал, ничего не собирается — так и пишем «выключен».
+		const bool bGranted = Consent && Consent->IsConsentGranted();
+		ConsentLabel->SetText(bGranted ? Settings->PauseMenuConsentOnText : Settings->PauseMenuConsentOffText);
+	}
+	if (PolicyLabel && Settings)
+	{
+		PolicyLabel->SetText(Settings->PauseMenuPolicyText);
+	}
+	if (VersionBlock)
+	{
+		VersionBlock->SetText(Consent ? Consent->GetBuildVersionText() : FText::GetEmpty());
+	}
+}
+
 void UPauseMenuWidget::HandleResumeClicked()
 {
 	OnResumeRequested.Broadcast();
@@ -143,6 +214,24 @@ void UPauseMenuWidget::HandleResumeClicked()
 void UPauseMenuWidget::HandleQuitClicked()
 {
 	OnQuitRequested.Broadcast();
+}
+
+void UPauseMenuWidget::HandleConsentClicked()
+{
+	if (UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this))
+	{
+		Consent->SetConsent(!Consent->IsConsentGranted());
+	}
+	RefreshConsentAndVersion();
+}
+
+void UPauseMenuWidget::HandlePolicyClicked()
+{
+	if (const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this))
+	{
+		// Адреса нет — метод сам тихо ничего не делает, пустую страницу не показываем.
+		Consent->OpenPrivacyPolicy();
+	}
 }
 
 // --- Модальный барьер: события мимо кнопок не идут дальше в мир ---

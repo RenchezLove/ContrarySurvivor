@@ -4,9 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "ContrarySurvivor/Analytics/AnalyticsProfileSave.h" // EDataConsentState (Б6)
 #include "AnalyticsSubsystem.generated.h"
-
-class UAnalyticsProfileSave;
 
 /**
  * Аналитика GameAnalytics (Этап F3, ADR-038). Обёртка над официальным плагином:
@@ -141,29 +140,49 @@ public:
 	static int32 GetCompiledGameKeyLength();
 	static int32 GetCompiledSecretKeyLength();
 
+	// --- Б6: согласие игрока на обработку данных (задание издателя ADR-059). Пока игрок не
+	// ответил, статистика МОЛЧИТ и SDK не поднимается: согласие за игрока не ставится
+	// (условие издателя по РИ-30). Решение хранится в той же памяти на установку игры,
+	// поэтому переживает перезапуск и не сбрасывается кнопкой «Новая игра». Экран согласия
+	// показывает UDataConsentSubsystem, он же зовёт SetDataConsent. ---
+
+	EDataConsentState GetStoredConsentState();
+
+	// Записать решение игрока и применить его к статистике: согласие поднимает SDK и
+	// включает отправку (в том числе отложенное событие первого запуска), отказ выключает.
+	void SetDataConsent(bool bGranted);
+
+	// Служебная память на установку игры (первый запуск, шаги обучения, ответ по согласию).
+	// Единственный на игру снимок слота — им пользуется и подсистема согласия, чтобы два
+	// снимка не затирали друг друга.
+	UAnalyticsProfileSave* LoadOrCreateProfileSave();
+	void WriteProfileSave(UAnalyticsProfileSave* Save);
+
 	// Папка с файлами ключей GameKey.txt / SecretKey.txt — ЗАПАСНОЙ путь для разработчика,
 	// когда ключи в сборку не вшиты (см. комментарий к классу). Переопределяется в
 	// Config/DefaultGame.ini: [/Script/ContrarySurvivor.AnalyticsSubsystem] KeysFolder=...
 	UPROPERTY(Config)
 	FString KeysFolder = TEXT("E:/game-dev-team/keys");
 
-	// Слот сохранения со служебной памятью аналитики (первый запуск, отправленные шаги
-	// обучения). Отдельный от игрового 'ContrarySave' намеренно — см. UAnalyticsProfileSave.
-	UPROPERTY(Config)
-	FString ProfileSaveSlotName = TEXT("ContraryAnalytics");
-
 private:
 	// Отправка design-события GA ("part1:part2[:part3]"). bWithValue — вариант с числом.
 	void SendDesignEvent(const FString& EventId, float Value = 0.0f, bool bWithValue = false);
 
 	// Событие самого первого запуска игры на устройстве: ровно один раз за установку.
-	// Зовётся из Initialize, когда аналитика реально включена.
+	// Зовётся, когда аналитика реально включена (то есть уже после согласия).
 	void RecordFirstLaunchIfNeeded();
 
-	// Служебная память аналитики: загрузить из слота (создать при отсутствии) / записать.
-	// Диска касаемся только при включённой аналитике — на машине без ключей файлов не плодим.
-	UAnalyticsProfileSave* LoadOrCreateProfileSave();
-	void WriteProfileSave(UAnalyticsProfileSave* Save);
+	// Достать ключи (сначала вшитые, потом файлы с диска) и написать в журнал одну понятную
+	// строку про источник и длины. Возвращает false, если ключей нет вовсе.
+	bool ResolveKeys();
+
+	// Поднять SDK на найденных ключах и включить отправку. Зовётся только при согласии игрока.
+	void StartSdkAndEnable();
+
+	// Ключи, найденные при старте. Держим до решения игрока: согласие может прийти позже
+	// (экран согласия), и тогда SDK поднимается тем же значением, без повторного поиска.
+	FString ResolvedGameKey;
+	FString ResolvedSecretKey;
 
 	// Кэш служебной памяти на время сессии (шаги обучения дёргаются из игрового кода).
 	UPROPERTY()

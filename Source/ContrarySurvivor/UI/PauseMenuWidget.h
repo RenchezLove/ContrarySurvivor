@@ -61,6 +61,17 @@ struct FPauseMenuStyle
 	// Габарит кнопки под палец (SizeBox: у UButton 5.5 нет SetPadding).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
 	FVector2D ButtonSize = FVector2D(280.0f, 58.0f);
+
+	// --- Б6: номер версии сборки мелкой строкой внизу панели (ADR-059). Сам текст версии
+	// собирается кодом из настроек магазина, здесь только его вид. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu",
+		meta = (DisplayName = "Размер шрифта строки версии", ClampMin = "6"))
+	int32 VersionFontSize = 12;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu",
+		meta = (DisplayName = "Цвет строки версии"))
+	FLinearColor VersionColor = FLinearColor(0.6f, 0.6f, 0.6f, 1.0f);
 };
 
 /**
@@ -90,6 +101,10 @@ public:
 protected:
 	virtual void NativeOnInitialized() override;
 
+	// Виджет создаётся один раз и добавляется на экран при каждом открытии паузы, поэтому
+	// подпись переключателя согласия и строку версии освежаем именно здесь (Б6).
+	virtual void NativeConstruct() override;
+
 	// Модальный барьер: клик/тап мимо кнопок гасится здесь и в мир не проходит
 	// (затемнение-подложка Visible ловит хит-тест, событие всплывает сюда).
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -103,7 +118,20 @@ protected:
 	UFUNCTION()
 	void HandleQuitClicked();
 
+	// Б6: игрок вправе передумать — переключатель согласия прямо в паузе (источник истины
+	// `docs/contrary-survivor/soglasie-i-politika.md`, раздел 2, правило 5).
+	UFUNCTION()
+	void HandleConsentClicked();
+
+	// Б6: строка «Политика конфиденциальности». Адрес живёт в настройке проекта; пока он
+	// пуст, нажатие ничего не делает и пустую страницу не открывает.
+	UFUNCTION()
+	void HandlePolicyClicked();
+
 private:
+	// Подпись переключателя согласия и строка версии сборки по текущему состоянию.
+	void RefreshConsentAndVersion();
+
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера (мин. высота под палец),
 	// добавленная в колонку. Возвращает кнопку для подписки OnClicked.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
@@ -126,6 +154,16 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> QuitLabel;
+
+	// Б6: переключатель согласия, строка политики и мелкий номер версии сборки.
+	UPROPERTY()
+	TObjectPtr<UTextBlock> ConsentLabel;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> PolicyLabel;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> VersionBlock;
 
 	UPROPERTY()
 	TArray<TObjectPtr<class USizeBox>> ButtonBoxes;
