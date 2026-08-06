@@ -91,6 +91,15 @@ void UShopScreenWidget::NativeOnInitialized()
 	{
 		SellHeaderVisibility = SellHeaderText->GetVisibility();
 	}
+	else if (SellList && bExpandBuyListWhenBackpackEmpty)
+	{
+		// Заголовок половины рюкзака ищется по имени SellHeaderText. Нет такого кубика —
+		// список спрячется, а подпись над ним останется висеть уже над чужими плитками
+		// (та самая «ловушка скрытия», ADR-050). Предупреждаем, а не падаем.
+		UE_LOG(LogQA, Warning,
+			TEXT("ShopScreenWidget: кубик SellHeaderText не найден в WBP_Shop — при растяжке товаров ")
+			TEXT("подпись над рюкзаком останется на экране. Переименуй подпись в SellHeaderText."));
+	}
 
 	// Б8, п.4: кнопки мельче предела под палец подрастают (крупнее — не трогаются).
 	ApplyMinTouchSize();
@@ -162,6 +171,67 @@ void UShopScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 		Args.Add(TEXT("Amount"), FText::AsNumber(FMath::RoundToInt32(GetPlayerMoney())));
 		MoneyText->SetText(FText::Format(MoneyFormat, Args));
 	}
+
+	// Б8, п.5. Число колонок считается по ЖИВОЙ ширине списка, а она известна только после
+	// первого нарисованного кадра и меняется, когда товары растягиваются на всё окно.
+	// Поэтому каждый кадр сверяем «сколько помещается сейчас» с «сколько построено» и при
+	// расхождении пересобираем ОДИН раз: следующая сверка уже сходится. Ширина сама по себе
+	// от числа плиток не зависит (её задаёт слот списка), так что качелей между двумя
+	// значениями быть не может.
+	if (Trader && Player)
+	{
+		// Нулевая ширина (список спрятан или ещё не рисовался) в сверке НЕ участвует —
+		// иначе спрятанный список требовал бы пересборки каждый кадр.
+		const float BuyWidth = GetListInnerWidth(BuyList);
+		const float SellWidth = GetListInnerWidth(SellList);
+		const bool bBuyChanged = BuyWidth > 0.0f && ComputeColumns(BuyWidth) != LastBuyColumns;
+		const bool bSellChanged = SellWidth > 0.0f && ComputeColumns(SellWidth) != LastSellColumns;
+		if (bBuyChanged || bSellChanged)
+		{
+			RefreshAll();
+		}
+	}
+}
+
+float UShopScreenWidget::GetListInnerWidth(const UScrollBox* List) const
+{
+	if (!List)
+	{
+		return 0.0f;
+	}
+
+	const float Width = static_cast<float>(List->GetCachedGeometry().GetLocalSize().X);
+	if (Width <= 0.0f)
+	{
+		return 0.0f; // список ещё ни разу не рисовался — живой ширины нет
+	}
+
+	// Полоса прокрутки стоит В ОДНОМ РЯДУ с содержимым (SScrollBox), то есть отъедает
+	// ширину, когда видна. Держим её запас всегда: иначе в списке, который прокручивается,
+	// последняя колонка вылезала бы за край.
+	const float ScrollBarWidth = static_cast<float>(List->GetScrollbarThickness().X);
+	return FMath::Max(0.0f, Width - ScrollBarWidth);
+}
+
+int32 UShopScreenWidget::ComputeColumnsForWidth(float InnerWidth, float TileWidth, float Spacing,
+	int32 FallbackColumns)
+{
+	if (InnerWidth <= 0.0f)
+	{
+		return FMath::Max(1, FallbackColumns); // ширина ещё не измерена — настройка-откат
+	}
+
+	// Ряд из N плиток занимает N*ширину плитки и (N-1) зазоров:
+	// N*W + (N-1)*S <= InnerWidth  ->  N <= (InnerWidth + S) / (W + S).
+	const float SafeTileWidth = FMath::Max(1.0f, TileWidth);
+	const float SafeSpacing = FMath::Max(0.0f, Spacing);
+	const int32 Fits = FMath::FloorToInt((InnerWidth + SafeSpacing) / (SafeTileWidth + SafeSpacing));
+	return FMath::Max(1, Fits); // одна плитка помещается всегда, даже в узкое окно
+}
+
+int32 UShopScreenWidget::ComputeColumns(float InnerWidth) const
+{
+	return ComputeColumnsForWidth(InnerWidth, static_cast<float>(TileSize.X), TileSpacingX, TileColumns);
 }
 
 float UShopScreenWidget::GetPlayerMoney() const
@@ -173,17 +243,24 @@ float UShopScreenWidget::GetPlayerMoney() const
 void UShopScreenWidget::RefreshAll()
 {
 	// Порядок важен: сперва рюкзак — по числу его плиток видно, пуста ли правая половина
-	// окна; затем раскладка половин; и только потом товары, уже с нужным числом колонок.
-	const int32 SellTiles = RebuildList(/*bBuyList=*/false, FMath::Max(1, TileColumns));
-	const int32 BuyColumns = UpdateListsLayout(/*bBackpackEmpty=*/SellTiles == 0);
+	// окна; затем раскладка половин; и только потом товары.
+	const int32 SellColumns = ComputeColumns(GetListInnerWidth(SellList));
+	const int32 SellTiles = RebuildList(/*bBuyList=*/false, SellColumns);
+
+	UpdateListsLayout(/*bBackpackEmpty=*/SellTiles == 0);
+
+	// Ширину товаров берём ПОСЛЕ раскладки половин, но в кадре растяжки она ещё старая:
+	// живая геометрия обновляется только к следующему кадру. Ничего страшного — тик увидит
+	// расхождение и пересоберёт сетку с новым числом колонок (см. NativeTick).
+	const int32 BuyColumns = ComputeColumns(GetListInnerWidth(BuyList));
 	RebuildList(/*bBuyList=*/true, BuyColumns);
+
+	LastBuyColumns = BuyColumns;
+	LastSellColumns = SellColumns;
 }
 
-int32 UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
+void UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
 {
-	const int32 NarrowColumns = FMath::Max(1, TileColumns);
-	const int32 WideColumns = FMath::Max(1, TileColumnsWide);
-
 	bool bExpand = bExpandBuyListWhenBackpackEmpty && bBackpackEmpty;
 
 	UCanvasPanelSlot* BuySlot = BuyList ? Cast<UCanvasPanelSlot>(BuyList->Slot) : nullptr;
@@ -226,8 +303,6 @@ int32 UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
 	{
 		SellHeaderText->SetVisibility(bExpand ? ESlateVisibility::Collapsed : SellHeaderVisibility);
 	}
-
-	return bExpand ? WideColumns : NarrowColumns;
 }
 
 int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
