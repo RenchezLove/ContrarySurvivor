@@ -17,6 +17,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // GetCurrentWeapon (иконка оружия)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // GetRangedWeaponInstance (защитный гейт иконки)
+#include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
 #include "ContrarySurvivor/Utils/ContrarySurvivorStatics.h" // GetCurrentFPS (Блок E)
@@ -253,21 +254,26 @@ void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
 				ARangedWeapon* Ranged = Cast<ARangedWeapon>(Weapon);
 
 				// Находка лида 08-05: на устройстве иконка держала «пистолет» при пустом слоте
-				// огнестрела в рюкзаке. Причину в коде не нашли (см. PlayerStatsWidget.cpp) — тот
-				// же защитный гейт: «в руках» обязано быть ИМЕННО отслеживаемым стволом слота,
-				// иначе показываем нож (Weapon в этой ветке точно не null).
-				if (Ranged)
+				// огнестрела в рюкзаке. Корень найден 07-08: легаси-граф BP_PlayerCharacter
+				// экипировал пистолет мимо слота (лечится в APlayerCharacter::
+				// ReconcileOutOfSlotRangedWeapon). Гейт остаётся защитой в глубину: «в руках»
+				// обязано быть ИМЕННО отслеживаемым стволом слота, иначе показываем нож
+				// (Weapon в этой ветке точно не null). Warning — один раз при ВХОДЕ в
+				// рассинхрон (раньше писался каждый вызов из NativeTick и заспамливал лог:
+				// гейт «состояние не изменилось» стоит НИЖЕ этой проверки).
+				if (const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(Humanoid))
 				{
-					if (const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(Humanoid))
+					const bool bDesync = (Ranged && Ranged != PlayerChar->GetRangedWeaponInstance());
+					if (WeaponUiSyncLog::ShouldLogDesyncOnce(bDesync, bWeaponDesyncLogged))
 					{
-						if (Ranged != PlayerChar->GetRangedWeaponInstance())
-						{
-							UE_LOG(LogQA, Warning,
-								TEXT("TouchControlsWidget: CurrentWeapon '%s' is ARangedWeapon, but != RangedWeaponInstance ('%s') — showing knife defensively"),
-								*Ranged->GetName(),
-								PlayerChar->GetRangedWeaponInstance() ? *PlayerChar->GetRangedWeaponInstance()->GetName() : TEXT("null"));
-							Ranged = nullptr;
-						}
+						UE_LOG(LogQA, Warning,
+							TEXT("TouchControlsWidget: CurrentWeapon '%s' is ARangedWeapon, but != RangedWeaponInstance ('%s') — showing knife defensively"),
+							*Ranged->GetName(),
+							PlayerChar->GetRangedWeaponInstance() ? *PlayerChar->GetRangedWeaponInstance()->GetName() : TEXT("null"));
+					}
+					if (bDesync)
+					{
+						Ranged = nullptr;
 					}
 				}
 				NewState = Ranged ? EWeaponIconState::Pistol : EWeaponIconState::Knife;
@@ -656,6 +662,56 @@ UEnhancedInputLocalPlayerSubsystem* UTouchControlsWidget::GetInputSubsystem() co
 	return nullptr;
 }
 
+void UTouchControlsWidget::ApplyStickCornerLock(const FGeometry& MyGeometry)
+{
+	// Только WBP-дерево: в кодовом дереве позицию ведёт Config.StickMargin, а слот «шляпки»
+	// двигается при жесте (UpdateStickFromPointer) — замок конфликтовал бы с ним. В WBP-режиме
+	// «шляпка» ходит Render Translation'ом, слоты свободны.
+	if (!bLockStickCorner || !bDesignerTree || !StickBase || bStickLockSlotWarned)
+	{
+		return;
+	}
+
+	const FVector2D LocalSize = MyGeometry.GetLocalSize(); // весь экран в слейт-единицах
+	if (LocalSize.Y <= KINDA_SMALL_NUMBER || LocalSize.Equals(LastStickLockSize, 0.5f))
+	{
+		return; // раскладки ещё нет / размер не менялся — слоты уже стоят
+	}
+
+	if (!Cast<UCanvasPanelSlot>(StickBase->Slot))
+	{
+		// Стик переложили из корневой канвы в другой контейнер — замок неприменим,
+		// позицию целиком ведёт дизайнер. Говорим об этом один раз, не каждый кадр.
+		bStickLockSlotWarned = true;
+		UE_LOG(LogQA, Warning,
+			TEXT("TouchControlsWidget: StickBase лежит не в канвас-слоте — фиксированный отступ стика от угла отключён, позиция из дизайнера"));
+		return;
+	}
+	LastStickLockSize = LocalSize;
+
+	// Отступ задан в пикселях эталонного экрана высотой 1080; на фактическом холсте
+	// пересчитывается от его высоты — доля экрана (то есть видимый отступ от угла)
+	// одинакова при любом разрешении и масштабе DPI, включая зону клампа кривой (<480 px).
+	const float UnitsPerRef = static_cast<float>(LocalSize.Y) / 1080.0f;
+	const FVector2D Pos(StickCornerOffsetRef.X * UnitsPerRef, -StickCornerOffsetRef.Y * UnitsPerRef);
+
+	auto PlaceSlot = [&Pos](UWidget* W)
+	{
+		if (UCanvasPanelSlot* CanvasSlot = W ? Cast<UCanvasPanelSlot>(W->Slot) : nullptr)
+		{
+			CanvasSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f)); // левый-нижний угол
+			CanvasSlot->SetAlignment(FVector2D(0.5f, 0.5f));          // позиция = центр круга
+			CanvasSlot->SetPosition(Pos);
+		}
+	};
+	PlaceSlot(StickBase);
+	PlaceSlot(StickThumb);
+
+	UE_LOG(LogQA, Display,
+		TEXT("QA: стик поставлен на фиксированный отступ (%.0f, %.0f) от левого-нижнего угла (холст %.0fx%.0f, эталон %.0f/1080)"),
+		Pos.X, -Pos.Y, LocalSize.X, LocalSize.Y, StickCornerOffsetRef.X);
+}
+
 void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
@@ -664,6 +720,10 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	{
 		return;
 	}
+
+	// Позиция стика — до всех гейтов: отступ от угла держится и под модалками (стик там
+	// просто скрыт, но при закрытии обязан оказаться на месте без кадра «прыжка»).
+	ApplyStickCornerLock(MyGeometry);
 
 	// Число кадров рядом с ПАУЗА (Блок E): обновляем ДО гейта модалки — кнопка ПАУЗА видна и
 	// на модальных экранах, значит и счётчик рядом с ней должен продолжать тикать.

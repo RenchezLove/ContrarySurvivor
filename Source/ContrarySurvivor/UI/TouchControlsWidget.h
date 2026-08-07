@@ -119,6 +119,25 @@ public:
 	TSoftObjectPtr<UTexture2D> KnifeIconTexture =
 		TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/UI/Icons/Items/T_Item_Knife.T_Item_Knife")));
 
+	// --- Позиция стика (правка 07-08 по жалобе Рината: «стик уехал в угол... будет меняться
+	// разрешение экрана (в настройках игры) и возможно стик будет уезжать»). Код держит центр
+	// стика на ФИКСИРОВАННОМ ВИЗУАЛЬНОМ отступе от левого-нижнего угла: отступ задан в
+	// пикселях эталонного экрана высотой 1080 и на любом холсте пересчитывается от фактической
+	// высоты. Это закрывает и зону клампа кривой DPI движка (ниже 480 px высоты кривая
+	// UIScaleCurve перестаёт быть пропорциональной — BaseEngine.ini:1369), и любые будущие
+	// настройки разрешения. Работает только для дерева из WBP; выключить — галочкой ниже,
+	// тогда стик стоит ровно там, куда его поставили в дизайнере. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Stick", meta = (DisplayPriority = "1",
+		DisplayName = "Держать стик на фиксированном отступе от угла"))
+	bool bLockStickCorner = true;
+
+	// Отступ ЦЕНТРА стика от левого-нижнего угла, px эталонного экрана высотой 1080.
+	// Дефолт — позиция, которую Ринат выставил в WBP_TouchControls 07-08 (коммит 3e2ae8c).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Stick", meta = (DisplayPriority = "2",
+		DisplayName = "Отступ центра стика от угла (эталон 1080p)", EditCondition = "bLockStickCorner"))
+	FVector2D StickCornerOffsetRef = FVector2D(240.0f, 160.0f);
+
 	// --- Число кадров рядом с кнопкой ПАУЗА (Build 1, Блок E). Настраивается прямо здесь, в том
 	// же виджете, где кнопка паузы (директива Рината). Значение берётся из GetCurrentFPS. ---
 
@@ -354,6 +373,22 @@ private:
 
 	// Накопитель времени до следующей перерисовки строки времён, сек.
 	float FrameTimeAccumulator = 0.0f;
+
+	// Держит центр стика на фиксированном визуальном отступе от левого-нижнего угла
+	// (bLockStickCorner, только WBP-дерево). Зовётся каждый кадр, пересчёт — только при
+	// смене размера холста (смена разрешения/масштаба DPI).
+	void ApplyStickCornerLock(const FGeometry& MyGeometry);
+
+	// Размер холста, под который слоты стика уже выставлены (гейт пересчёта ApplyStickCornerLock).
+	FVector2D LastStickLockSize = FVector2D::ZeroVector;
+
+	// Слот стика оказался не канвас-слотом (стик переложили в другой контейнер) — предупредить
+	// один раз и больше не пытаться.
+	bool bStickLockSlotWarned = false;
+
+	// Флаг «Warning рассинхрона оружия уже написан» (WeaponUiSyncLog::ShouldLogDesyncOnce):
+	// одна строка на эпизод рассинхрона вместо спама каждый вызов UpdateWeaponIcon.
+	bool bWeaponDesyncLogged = false;
 
 	// Обновляет число кадров из GetCurrentFPS (зовётся каждый кадр, до гейта модалки — ПАУЗА видна).
 	void UpdateFpsText();
