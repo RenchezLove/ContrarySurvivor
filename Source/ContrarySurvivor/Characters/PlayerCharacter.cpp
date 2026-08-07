@@ -288,6 +288,11 @@ void APlayerCharacter::BeginPlay()
     // Нож держим «в кобуре» (скрыт), переключение по SwitchWeapon (Фаза 3).
     SpawnMeleeWeapon();
 
+    // Снять «огнестрел мимо слота», если его успел экипировать легаси-граф BP на
+    // ReceiveBeginPlay (тот отрабатывает в Super::BeginPlay выше). Идёт ПОСЛЕ SpawnMeleeWeapon,
+    // чтобы страховке было чем заменить снятый пистолет (нож уже заспавнен).
+    ReconcileOutOfSlotRangedWeapon();
+
     // Без огнестрела в руках не оказалось бы вообще ничего (нож спавнится скрытым и
     // неэкипированным), а безоружный игрок не может ни ударить, ни защититься. Поэтому
     // при пустых руках сразу берём нож — он и есть стартовое оружие новой игры.
@@ -837,6 +842,33 @@ void APlayerCharacter::EquipDefaultWeapon()
     else
     {
         UE_LOG(LogTemp, Warning, TEXT("EquipDefaultWeapon: failed to spawn DefaultWeaponClass"));
+    }
+}
+
+void APlayerCharacter::ReconcileOutOfSlotRangedWeapon()
+{
+    // Дальнобой в руках обязан быть ИМЕННО стволом слота: все штатные пути (EquipDefaultWeapon,
+    // TryAdoptRangedWeapon -> SwitchWeapon) ставят RangedWeaponInstance ДО экипировки.
+    // Несовпадение — артефакт обхода слота (см. комментарий в заголовке).
+    ARangedWeapon* Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
+    if (!Ranged || Ranged == RangedWeaponInstance)
+    {
+        return;
+    }
+
+    UE_LOG(LogQA, Warning,
+        TEXT("QA: огнестрел '%s' экипирован МИМО слота (слот: '%s') — снят и уничтожен, это артефакт обхода RangedWeaponInstance"),
+        *Ranged->GetName(),
+        RangedWeaponInstance ? *RangedWeaponInstance->GetName() : TEXT("пусто"));
+
+    UnequipWeapon(); // CurrentWeapon -> null, мировая коллизия оружию возвращена
+    Ranged->Destroy();
+
+    // Руки не оставляем пустыми: нож — стартовое оружие (тот же ход, что фолбэк BeginPlay).
+    if (!GetCurrentWeapon() && MeleeWeaponInstance)
+    {
+        EquipWeapon(MeleeWeaponInstance);
+        MeleeWeaponInstance->SetActorHiddenInGame(false);
     }
 }
 

@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/UI/PlayerStatsWidget.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
 #include "ARangedWeapon.h" // патроны только у дальнобоя (#5, как Canvas DrawPlayerStats)
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
@@ -61,17 +62,21 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	ARangedWeapon* Ranged = Cast<ARangedWeapon>(Player->GetCurrentWeapon());
 
 	// Находка лида 08-05: на устройстве патроны/иконка держались показанными при пустом слоте
-	// огнестрела в рюкзаке (RangedWeaponInstance == nullptr). Причину в коде не нашли (оба
-	// признака выводятся из одного CurrentWeapon и обязаны совпадать), но раз на устройстве они
-	// разошлись — гейт делаем по ОБОИМ сразу: «в руках» обязано быть ИМЕННО тем стволом, что
-	// отслеживается в слоте, а не просто любым ARangedWeapon. Несовпадение — громкий Warning,
-	// чтобы следующий такой случай был виден в логе сразу, а не искался полчаса.
-	if (Ranged && Ranged != Player->GetRangedWeaponInstance())
+	// огнестрела в рюкзаке (RangedWeaponInstance == nullptr). Корень найден 07-08: легаси-граф
+	// BP_PlayerCharacter экипировал пистолет мимо слота (лечится в
+	// APlayerCharacter::ReconcileOutOfSlotRangedWeapon). Гейт остаётся защитой в глубину:
+	// «в руках» обязано быть ИМЕННО тем стволом, что отслеживается в слоте. Warning пишется
+	// один раз при ВХОДЕ в рассинхрон (раньше — каждый кадр из NativeTick, спамил лог).
+	const bool bDesync = (Ranged && Ranged != Player->GetRangedWeaponInstance());
+	if (WeaponUiSyncLog::ShouldLogDesyncOnce(bDesync, bWeaponDesyncLogged))
 	{
 		UE_LOG(LogTemp, Warning,
 			TEXT("PlayerStatsWidget: CurrentWeapon '%s' is ARangedWeapon, but != RangedWeaponInstance ('%s') — ammo hidden defensively"),
 			*Ranged->GetName(),
 			Player->GetRangedWeaponInstance() ? *Player->GetRangedWeaponInstance()->GetName() : TEXT("null"));
+	}
+	if (bDesync)
+	{
 		Ranged = nullptr;
 	}
 

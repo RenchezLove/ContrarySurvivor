@@ -549,6 +549,16 @@ public:
     // Возвращает true, если предмет забран из рюкзака в слот.
     bool TryAdoptRangedWeapon(AMasterInventoryItem* Item);
 
+    // Страховка от «огнестрела мимо слота» (корень спама 07-08: легаси-граф BP_PlayerCharacter
+    // на ReceiveBeginPlay спавнит BP_Pistol и зовёт EquipWeapon НАПРЯМУЮ — CurrentWeapon
+    // становится пистолетом, а RangedWeaponInstance остаётся null; отсюда рассинхрон
+    // «CurrentWeapon is ARangedWeapon, but != RangedWeaponInstance» в виджетах). Все штатные
+    // C++-пути ставят слот ДО экипировки, поэтому дальнобой в руках без слота — всегда
+    // артефакт. По дизайну (Build 1.2.2, решение Рината 05-08) на старте огнестрела нет —
+    // артефакт снимается и уничтожается, в руки возвращается нож. Зовётся в конце BeginPlay
+    // (BP-событие успевает отработать в Super::BeginPlay); публичный — для автотеста.
+    void ReconcileOutOfSlotRangedWeapon();
+
 protected:
 
     // Грузит меши StartCloth*Mesh (одежда Т0) и ставит их в слоты Head/Torso/Legs.

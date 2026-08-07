@@ -102,4 +102,9 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MoneyText;     // значение «150»
+
+private:
+	// Флаг «Warning рассинхрона оружия уже написан» (WeaponUiSyncLog::ShouldLogDesyncOnce):
+	// одна строка на эпизод рассинхрона вместо спама каждый кадр.
+	bool bWeaponDesyncLogged = false;
 };
