@@ -12,6 +12,7 @@
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.2: общий контейнер обыска
 #include "AMasterInventoryItem.h"
 #include "AAmmoItem.h" // D8: пачка патронов размещаемого пикапа (PlacedAmmoAmount)
+#include "AConsumableItem.h" // фикс 08-07: штатные имена расходника по типу (лут лагеря)
 #include "UInventoryComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"    // QA-хелпер (оверлей/флаги/flush)
@@ -226,6 +227,23 @@ void APickup::SpawnPlacedLoot()
 					if (!PlacedItemDisplayText.IsEmpty())
 					{
 						Item->ItemDisplayText = PlacedItemDisplayText;
+					}
+					// Фикс 08-07 (Ринат: «тушёнка называется "Предмет"»): дизайнер не заполнил
+					// поля имени на пикапе, а голый класс расходника имён по умолчанию не несёт
+					// (один класс на воду/консервы/аптечку). Раньше ключ и название оставались
+					// ПУСТЫМИ: окно обыска показывало заглушку «Предмет», а стак не сливался с
+					// таким же купленным. Заполняем штатными именами типа — как это делают все
+					// остальные пути спавна (лут бандита, магазин, отладочная выдача).
+					if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+					{
+						if (Cons->ItemName.IsEmpty())
+						{
+							Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
+						}
+						if (Cons->ItemDisplayText.IsEmpty())
+						{
+							Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
+						}
 					}
 					++SpawnedCount;
 				}

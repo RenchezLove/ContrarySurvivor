@@ -1904,6 +1904,19 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
         {
             Cons->ConsumableType = Entry.ConsumableType;
+
+            // Лечение сейвов, записанных ДО фикса 08-07 (лут лагеря спавнился без имён и в
+            // таком виде уезжал в сейв): запись без ключа и названия получает штатные имена
+            // своего типа — иначе «Предмет» пережил бы фикс через старый сейв. Тип к этому
+            // моменту уже восстановлен строкой выше, имена выводятся по нему.
+            if (Cons->ItemName.IsEmpty())
+            {
+                Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
+            }
+            if (Cons->ItemDisplayText.IsEmpty())
+            {
+                Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
+            }
         }
 
         Inventory->AddItem(Item);

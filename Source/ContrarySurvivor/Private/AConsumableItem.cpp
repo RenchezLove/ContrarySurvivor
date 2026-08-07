@@ -99,3 +99,14 @@ TSoftObjectPtr<UTexture2D> AConsumableItem::GetItemIcon() const
 	// Явно заданная иконка (экземпляр/BP) главнее вычисленной по типу.
 	return ItemIcon.IsNull() ? GetDefaultIcon(ConsumableType) : ItemIcon;
 }
+
+FText AConsumableItem::GetItemDisplayText() const
+{
+	// Оба поля пусты (спавнер имён не заполнил) — имя выводимо из типа расходника,
+	// заглушка «Предмет» не нужна. Заполненные поля обслуживает Super (обычный откат).
+	if (ItemDisplayText.IsEmpty() && ItemName.IsEmpty())
+	{
+		return GetDefaultDisplayText(ConsumableType);
+	}
+	return Super::GetItemDisplayText();
+}
