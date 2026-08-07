@@ -28,6 +28,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Engine/Blueprint.h" // -hudslots: BP_ContrarySurvivorHUD — обычный Blueprint, не Widget
 #include "Engine/StaticMesh.h" // Build 1.2.1 (-pickupfix): материал слотов мешей лута
 #include "Engine/Texture2D.h" // LoadObject<UTexture2D> для иконок (в Image.h только объявление)
 #include "GameFramework/PlayerController.h"
@@ -45,6 +46,7 @@
 #include "WidgetBlueprint.h"
 
 // Геймплей-модуль (включение по конвенции проекта, путь Source/ добавлен в Build.cs).
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // -hudslots: слоты UMG-классов HUD (ADR-048)
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
@@ -189,9 +191,17 @@ namespace
 	// наследуется (IsLockedInDesigner читает только собственный флаг — Widget.h:474)
 	// — ставим рекурсивно на всё поддерево контента. Флаг редакторный
 	// (WITH_EDITORONLY_DATA, Widget.h:408-410): сериализуется в ассет, на рантайм не
-	// влияет никак. Цена для владельца: чтобы править текст подписи, надо один раз
-	// снять замок значком на её строке в панели «Иерархия» (панель «Детали» у
-	// замкнутого виджета заблокирована — SWidgetDetailsView.cpp:375-393).
+	// влияет никак.
+	//
+	// ПОПРАВКА 08-07 (ТЗ Рината, п.3: «Размер текста в кнопках не получается поменять…
+	// возможно я не нашел в WBP где это делается»): прежняя цена замка — «панель „Детали“
+	// у замкнутого виджета заблокирована (SWidgetDetailsView.cpp:375-393)» — оказалась
+	// неподъёмной: шрифт подписи кнопки было НЕГДЕ править, а снять замок значком в
+	// «Иерархии» владелец не обязан догадываться. Поэтому ТЕКСТЫ внутри кнопок теперь
+	// размыкаются обратно (UnlockTextBlocksInSubtree — та же волна, что ADR-056 для
+	// начинки слотов брони). Контейнеры и иконки остаются замкнутыми: клик мимо текста
+	// по-прежнему выделяет кнопку целиком, а сам текст берут кликом по нему или в
+	// «Иерархии» — и правят шрифт в «Деталях».
 
 	void LockSubtreeInDesigner(UWidget* Widget)
 	{
@@ -221,13 +231,48 @@ namespace
 		}
 	}
 
+	// Разомкнуть ТЕКСТЫ поддерева (подписи кнопок) — см. «ПОПРАВКА 08-07» выше. Правки
+	// владельца переживают -rebuild штатно: Font — в белом списке TransferOwnerStyle,
+	// а саму волну размыкания закрывает его правило «старый замкнут, новый свободен ->
+	// вид из новой генерации». AssetName и bChanged нужны только журналу прогона
+	// -unlockcaptions по существующим ассетам; из генерации зовётся с nullptr.
+	void UnlockTextBlocksInSubtree(UWidget* Widget, const TCHAR* AssetName, bool* bChanged)
+	{
+		if (!Widget)
+		{
+			return;
+		}
+		if (Widget->IsA<UTextBlock>() && Widget->IsLockedInDesigner())
+		{
+			Widget->SetLockedInDesigner(false);
+			if (bChanged)
+			{
+				*bChanged = true;
+			}
+			if (AssetName)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("UNLOCK %s: подпись '%s' разомкнута — выделяется в дизайнере, шрифт правится в панели «Детали»."),
+					AssetName, *Widget->GetName());
+			}
+		}
+		if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+		{
+			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
+			{
+				UnlockTextBlocksInSubtree(Panel->GetChildAt(Index), AssetName, bChanged);
+			}
+		}
+	}
+
 	// Контент в кнопки статичной раскладки класть ТОЛЬКО этим хелпером: SetContent +
-	// замок на всём поддереве. Звать ПОСЛЕ сборки поддерева контента (замок не
-	// наследуется — поздним детям он бы не достался).
+	// замок на всём поддереве, затем размыкание текстов (поправка 08-07). Звать ПОСЛЕ
+	// сборки поддерева контента (замок не наследуется — поздним детям он бы не достался).
 	void SetButtonContent(UButton* Button, UWidget* Content)
 	{
 		Button->SetContent(Content);
 		LockSubtreeInDesigner(Content);
+		UnlockTextBlocksInSubtree(Content, nullptr, nullptr);
 	}
 
 	// ======================================================================
@@ -2085,15 +2130,19 @@ namespace
 
 	const FLockContract GLockContracts[] =
 	{
+		// Поправка 08-07 (ТЗ Рината п.3) во ВСЕХ контрактах ниже: ТЕКСТЫ внутри кнопок
+		// разомкнуты (шрифт правится в «Деталях»), замкнутыми остаются только
+		// контейнеры-коробки и иконки начинки — клик мимо текста выделяет кнопку.
+		//
 		// Build 1.2.1: шесть кубиков строки статов — в своих канвас-слотах, свободны.
 		// Build 1.2.2 (ADR-056, решение Рината): начинка слотов брони — подпись, иконка и
 		// название надетого — тоже СВОБОДНА (он крутит их размеры сам). Замкнутыми в слотах
 		// остались только коробки-контейнеры: они не мешают, а клик по свободному краю
 		// слота по-прежнему выделяет кнопку.
 		{ TEXT("WBP_Inventory"),
-			{ TEXT("HeadSlotButtonBox"), TEXT("TorsoSlotButtonBox"), TEXT("LegsSlotButtonBox"),
-			  TEXT("CloseLabel") },
+			{ TEXT("HeadSlotButtonBox"), TEXT("TorsoSlotButtonBox"), TEXT("LegsSlotButtonBox") },
 			{ TEXT("HeadSlotButton"), TEXT("TorsoSlotButton"), TEXT("LegsSlotButton"), TEXT("CloseButton"),
+			  TEXT("CloseLabel"),
 			  TEXT("HeadSlotButtonCaption"), TEXT("HeadSlotIcon"), TEXT("HeadSlotText"),
 			  TEXT("TorsoSlotButtonCaption"), TEXT("TorsoSlotIcon"), TEXT("TorsoSlotText"),
 			  TEXT("LegsSlotButtonCaption"), TEXT("LegsSlotIcon"), TEXT("LegsSlotText"),
@@ -2101,22 +2150,24 @@ namespace
 			  TEXT("InvThirstIcon"), TEXT("InvThirstText"),
 			  TEXT("RangedSlotIcon"), TEXT("RangedSlotText"),
 			  TEXT("MeleeSlotIcon"), TEXT("MeleeSlotText") } },
-		// Build 1.2.1: начинка золотой кнопки замкнута (кнопка двигается целиком);
+		// Build 1.2.1: из начинки золотой кнопки замкнута осталась только иконка видео;
 		// текст пересчёта патронов — свободный канвас-слот.
 		{ TEXT("WBP_Shop"),
-			{ TEXT("CloseLabel"), TEXT("QtyMinusLabel"), TEXT("QtyPlusLabel"),
-			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel"),
-			  TEXT("SellAdIcon"), TEXT("SellAdText"), TEXT("SellAdSubText") },
+			{ TEXT("SellAdIcon") },
 			{ TEXT("CloseButton"), TEXT("QtyMinusButton"), TEXT("QtyPlusButton"),
 			  TEXT("SliderCancelButton"), TEXT("SliderConfirmButton"),
-			  TEXT("SellAdButton"), TEXT("SliderQtyAmmoText") } },
-		// Build 1.2.2: плитка предмета — вся начинка кнопки плитки замкнута (клик в
-		// дизайнере выделяет кнопку целиком), сами кнопки и коробка выброса свободны.
+			  TEXT("SellAdButton"), TEXT("SliderQtyAmmoText"),
+			  TEXT("CloseLabel"), TEXT("QtyMinusLabel"), TEXT("QtyPlusLabel"),
+			  TEXT("SliderCancelLabel"), TEXT("SliderConfirmLabel"),
+			  TEXT("SellAdText"), TEXT("SellAdSubText") } },
+		// Build 1.2.2: плитка предмета — контейнеры и иконка начинки замкнуты (клик по
+		// ним выделяет кнопку плитки), тексты плитки, кнопки и коробка выброса свободны.
 		{ TEXT("WBP_ItemTile"),
 			{ TEXT("TilePlate"), TEXT("TileStack"), TEXT("TileIconZone"), TEXT("TileIconBox"),
-			  TEXT("TileIcon"), TEXT("TileCountText"), TEXT("TileNameText"),
-			  TEXT("TilePriceText"), TEXT("TileStatusText"), TEXT("DropLabel") },
-			{ TEXT("TileButton"), TEXT("TileDropBox"), TEXT("DropButton") } },
+			  TEXT("TileIcon") },
+			{ TEXT("TileButton"), TEXT("TileDropBox"), TEXT("DropButton"),
+			  TEXT("TileCountText"), TEXT("TileNameText"),
+			  TEXT("TilePriceText"), TEXT("TileStatusText"), TEXT("DropLabel") } },
 		// Подписи-слова (HealthBarLabel и родня) в контракт НЕ входят: владелец удалил их
 		// из своего ассета, перенос стилизации при -rebuild убирает их и из новой раскладки
 		// (в свежесгенерированном ассете они есть и тоже замкнуты, но контракт проверяет
@@ -2133,27 +2184,33 @@ namespace
 			  TEXT("HungerIcon"), TEXT("HungerBarOverlay"),
 			  TEXT("ThirstIcon"), TEXT("ThirstBarOverlay"),
 			  TEXT("AmmoRow"), TEXT("MoneyPlate") } },
+		// 08-07: замкнутой начинки в диалоге не осталось — все подписи кнопок свободны
+		// (именно на WBP_Dialog Ринат и не смог поменять размер шрифта).
 		{ TEXT("WBP_Dialog"),
-			{ TEXT("AcceptText"), TEXT("DeclineText"), TEXT("TurnInText"), TEXT("CloseText") },
+			{ },
 			{ TEXT("PanelPlate"), TEXT("NPCNameText"), TEXT("ReplicaText"),
-			  TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton") } },
-		// Build 1.2.1 (Д2): подписи кнопок замкнуты, кнопки/подложка/тексты свободны (ручки).
+			  TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton"),
+			  TEXT("AcceptText"), TEXT("DeclineText"), TEXT("TurnInText"), TEXT("CloseText") } },
+		// Build 1.2.1 (Д2): всё свободно (ручки у кнопок/подложки, шрифты у подписей).
 		{ TEXT("WBP_EndOfStory"),
-			{ TEXT("WriteButtonText"), TEXT("PlayButtonText") },
+			{ },
 			{ TEXT("Plate"), TEXT("MessageText"), TEXT("StatusText"),
-			  TEXT("WriteButton"), TEXT("PlayButton") } },
-		// Build 1.2.1 (А1): окно обыска — подписи кнопок замкнуты, остальное с ручками.
+			  TEXT("WriteButton"), TEXT("PlayButton"),
+			  TEXT("WriteButtonText"), TEXT("PlayButtonText") } },
+		// Build 1.2.1 (А1): окно обыска — всё свободно (вторая панель из ТЗ Рината 08-07).
 		{ TEXT("WBP_CorpseLoot"),
-			{ TEXT("CloseText"), TEXT("TakeAllText") },
+			{ },
 			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("LootList"),
-			  TEXT("CloseButton"), TEXT("TakeAllButton") } },
+			  TEXT("CloseButton"), TEXT("TakeAllButton"),
+			  TEXT("CloseText"), TEXT("TakeAllText") } },
 		// Build 1.2.1 («двигать мышкой всё»): рядов-коробок статистики больше нет — каждая
 		// подпись и каждое значение в своём канвас-слоте, свободны; блок потерь — вложенный
-		// канвас, его тексты и сетка тоже свободны. Замкнута только начинка кнопок.
+		// канвас, его тексты и сетка тоже свободны. Замкнута только иконка в кнопке рюкзака.
 		{ TEXT("WBP_Death"),
+			{ TEXT("SaveBackpackIcon") },
 			{ TEXT("RespawnLabel"), TEXT("RespawnSubText"),
-			  TEXT("SaveBackpackIcon"), TEXT("SaveBackpackLabel"), TEXT("SaveBackpackSubText") },
-			{ TEXT("TitleText"),
+			  TEXT("SaveBackpackLabel"), TEXT("SaveBackpackSubText"),
+			  TEXT("TitleText"),
 			  TEXT("LifetimeLabel"), TEXT("LifetimeText"), TEXT("KillerLabel"), TEXT("KillerText"),
 			  TEXT("MoneyLabel"), TEXT("MoneyText"), TEXT("QuestsLabel"), TEXT("QuestsText"),
 			  TEXT("KillsLabel"), TEXT("KillsText"), TEXT("RespawnLineText"), TEXT("MoneyLossText"),
@@ -3666,6 +3723,14 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return FixPickupAssets();
 	}
+	if (Switches.Contains(TEXT("unlockcaptions")))
+	{
+		return UnlockButtonCaptions();
+	}
+	if (Switches.Contains(TEXT("hudslots")))
+	{
+		return FixHudWidgetSlots();
+	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
 }
 
@@ -3888,6 +3953,205 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 	return FailCount > 0 ? 1 : 0;
 }
 
+// ======================================================================
+// Поправка 08-07: тексты кнопок правятся владельцем + слот окна обыска на HUD
+// ======================================================================
+
+// Слоты UMG-классов на CDO BP_ContrarySurvivorHUD (ADR-048; имена — ContrarySurvivorHUD.h,
+// поля protected, поэтому доступ через reflection — как к дефолтам тач-слоя). Список нужен
+// печати-пруфу: какой класс стоит в каждом слоте.
+static const TCHAR* GHudWidgetSlotNames[] =
+{
+	TEXT("ShopWidgetClass"), TEXT("DialogWidgetClass"), TEXT("InventoryWidgetClass"),
+	TEXT("DeathWidgetClass"), TEXT("PlayerStatsWidgetClass"), TEXT("QuestTrackerWidgetClass"),
+	TEXT("InteractPromptWidgetClass"), TEXT("CorpseLootWidgetClass"),
+};
+
+static const TCHAR* GHudBlueprintPackage = TEXT("/Game/UI/BP_ContrarySurvivorHUD");
+static const TCHAR* GHudBlueprintPath = TEXT("/Game/UI/BP_ContrarySurvivorHUD.BP_ContrarySurvivorHUD");
+
+// Загрузить BP HUD и вернуть CDO его generated-класса (nullptr при любой беде, лог пишется).
+static UObject* LoadHudCdo(UBlueprint*& OutBP)
+{
+	OutBP = LoadObject<UBlueprint>(nullptr, GHudBlueprintPath);
+	if (!OutBP || !OutBP->GeneratedClass)
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: %s не загрузился (или без generated-класса)."),
+			GHudBlueprintPath);
+		return nullptr;
+	}
+	if (!OutBP->GeneratedClass->IsChildOf(AContrarySurvivorHUD::StaticClass()))
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: %s — родитель не AContrarySurvivorHUD (%s)."),
+			GHudBlueprintPath, *OutBP->GeneratedClass->GetSuperClass()->GetPathName());
+		return nullptr;
+	}
+	return OutBP->GeneratedClass->GetDefaultObject();
+}
+
+// Печать всех слотов UMG-классов HUD (стабильный формат — срезы «до/после» сравниваются глазами).
+static void DumpHudWidgetSlots(const TCHAR* Context, UObject* HudCdo)
+{
+	for (const TCHAR* SlotName : GHudWidgetSlotNames)
+	{
+		const FClassProperty* Prop = FindFProperty<FClassProperty>(HudCdo->GetClass(), SlotName);
+		if (!Prop)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("HUDSLOT %s: свойства '%s' в классе HUD нет — список слотов разошёлся с ContrarySurvivorHUD.h."),
+				Context, SlotName);
+			continue;
+		}
+		const UObject* Value = Prop->GetObjectPropertyValue_InContainer(HudCdo);
+		UE_LOG(LogGenerateWbp, Display, TEXT("HUDSLOT %s: %s = %s"),
+			Context, SlotName, Value ? *Value->GetPathName() : TEXT("(пусто)"));
+	}
+}
+
+int32 UGenerateWbpCommandlet::UnlockButtonCaptions()
+{
+	// ТЗ Рината 08-07 п.3 («Размер текста в кнопках не получается поменять. Проверял в
+	// WBP_Dialog и WBP_CorpseLoot… Проверь кнопки в других WBP. Сделай в них текст
+	// редактируемым тоже»): в СУЩЕСТВУЮЩИХ ассетах подписи кнопок замкнуты замком
+	// дизайнера, а замкнутому виджету редактор блокирует панель «Детали»
+	// (SWidgetDetailsView.cpp:375-393) — шрифт было негде править. Проход по всем ассетам
+	// таблицы: у каждого текста внутри кнопки снимается замок (см. UnlockTextBlocksInSubtree
+	// и поправку 08-07 в шапке раздела замков). Идемпотентно: разомкнутое не трогается,
+	// ассет сохраняется только при реальном изменении. Дерево и геометрия не меняются
+	// вовсе — пруф равенства раскладки даёт дифф -dumpslots до/после.
+	int32 FailCount = 0;
+	int32 SavedCount = 0;
+	for (const FWbpSpec& Spec : GAssets)
+	{
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPathOf(Spec));
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("UNLOCK: %s не загрузился."), *ObjectPathOf(Spec));
+			++FailCount;
+			continue;
+		}
+
+		bool bChanged = false;
+		TArray<UWidget*> AllWidgets;
+		WBP->WidgetTree->GetAllWidgets(AllWidgets);
+		for (UWidget* Widget : AllWidgets)
+		{
+			if (UButton* Button = Cast<UButton>(Widget))
+			{
+				for (int32 Index = 0; Index < Button->GetChildrenCount(); ++Index)
+				{
+					UnlockTextBlocksInSubtree(Button->GetChildAt(Index), Spec.AssetName, &bChanged);
+				}
+			}
+		}
+
+		if (!bChanged)
+		{
+			UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCK SKIP: %s — замкнутых подписей кнопок нет."),
+				Spec.AssetName);
+			continue;
+		}
+
+		WBP->Modify();
+		FKismetEditorUtilities::CompileBlueprint(WBP);
+		if (WBP->Status == BS_Error)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("UNLOCK: %s скомпилировался с ошибками — НЕ сохраняю (ассет на диске цел)."),
+				Spec.AssetName);
+			++FailCount;
+			continue;
+		}
+
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			Spec.PackageName, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("UNLOCK: SavePackage не сохранил %s."), *Filename);
+			++FailCount;
+			continue;
+		}
+		++SavedCount;
+		UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCK OK: %s сохранён."), Spec.AssetName);
+	}
+
+	UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCK ИТОГ: сохранено %d, ошибок %d, всего ассетов %d."),
+		SavedCount, FailCount, static_cast<int32>(UE_ARRAY_COUNT(GAssets)));
+	return FailCount > 0 ? 1 : 0;
+}
+
+int32 UGenerateWbpCommandlet::FixHudWidgetSlots()
+{
+	// ТЗ Рината 08-07 п.1 («WBP_CorpseLoot видимо не используется»): слот
+	// CorpseLootWidgetClass ассета BP_ContrarySurvivorHUD ПУСТ — единственный из восьми,
+	// который никогда не заполнялся (остальные Ринат назначил в редакторе руками, а для
+	// окна обыска пустой слот незаметен: по ContrarySurvivorHUD.h:604-608 обыск молча
+	// работает на кодовом запасном дереве со старой мелкой кнопкой — оно и уехало в
+	// сборку на телефон, правки Рината в WBP_CorpseLoot не видны). Заполняем слот классом
+	// WBP_CorpseLoot_C тем же путём, каким GenerateOne пишет класс плитки на CDO окна
+	// (правка CDO + SavePackage). Идемпотентно: непустой слот НЕ трогается (это выбор
+	// владельца), правка только «пусто -> WBP_CorpseLoot_C».
+	UBlueprint* BP = nullptr;
+	UObject* HudCdo = LoadHudCdo(BP);
+	if (!HudCdo)
+	{
+		return 1;
+	}
+	DumpHudWidgetSlots(TEXT("до"), HudCdo);
+
+	FClassProperty* SlotProp = FindFProperty<FClassProperty>(HudCdo->GetClass(),
+		TEXT("CorpseLootWidgetClass"));
+	if (!SlotProp)
+	{
+		UE_LOG(LogGenerateWbp, Error,
+			TEXT("HUDSLOT: свойства CorpseLootWidgetClass в классе HUD нет — сверить с ContrarySurvivorHUD.h."));
+		return 1;
+	}
+	if (SlotProp->GetObjectPropertyValue_InContainer(HudCdo))
+	{
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("HUDSLOT SKIP: CorpseLootWidgetClass уже заполнен — не трогаю (выбор владельца)."));
+		return 0;
+	}
+
+	UClass* CorpseClass = StaticLoadClass(UCorpseLootWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C"));
+	if (!CorpseClass)
+	{
+		UE_LOG(LogGenerateWbp, Error,
+			TEXT("HUDSLOT: класс /Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C не загрузился — слот не заполнен."));
+		return 1;
+	}
+	if (SlotProp->MetaClass && !CorpseClass->IsChildOf(SlotProp->MetaClass))
+	{
+		UE_LOG(LogGenerateWbp, Error,
+			TEXT("HUDSLOT: WBP_CorpseLoot_C не наследует %s — слот не заполнен."),
+			*SlotProp->MetaClass->GetPathName());
+		return 1;
+	}
+
+	BP->Modify();
+	SlotProp->SetObjectPropertyValue_InContainer(HudCdo, CorpseClass);
+
+	const FString Filename = FPackageName::LongPackageNameToFilename(
+		GHudBlueprintPackage, FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	if (!UPackage::SavePackage(BP->GetOutermost(), BP, *Filename, SaveArgs))
+	{
+		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: SavePackage не сохранил %s."), *Filename);
+		return 1;
+	}
+
+	DumpHudWidgetSlots(TEXT("после"), HudCdo);
+	UE_LOG(LogGenerateWbp, Display,
+		TEXT("HUDSLOT OK: CorpseLootWidgetClass = %s, ассет сохранён (%s)."),
+		*CorpseClass->GetPathName(), *Filename);
+	return 0;
+}
+
 int32 UGenerateWbpCommandlet::GenerateAll(bool bForce)
 {
 	int32 FailCount = 0;
@@ -4018,6 +4282,47 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			++FailCount;
 		}
 	}
+
+	// Контракт HUD (08-07): слот CorpseLootWidgetClass на BP_ContrarySurvivorHUD заполнен
+	// классом-наследником UCorpseLootWidget. Пустой слот у окна обыска НЕ безобиден:
+	// Canvas-пути у этого окна нет (ContrarySurvivorHUD.h:604-608) — везде, включая
+	// телефон, молча работает кодовое запасное дерево, и правки владельца в WBP не видны.
+	{
+		UBlueprint* HudBP = nullptr;
+		UObject* HudCdo = LoadHudCdo(HudBP);
+		if (!HudCdo)
+		{
+			++FailCount;
+		}
+		else
+		{
+			DumpHudWidgetSlots(TEXT("verify"), HudCdo);
+			const FClassProperty* SlotProp = FindFProperty<FClassProperty>(HudCdo->GetClass(),
+				TEXT("CorpseLootWidgetClass"));
+			const UClass* SlotValue = SlotProp
+				? Cast<UClass>(SlotProp->GetObjectPropertyValue_InContainer(HudCdo)) : nullptr;
+			if (!SlotValue)
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: BP_ContrarySurvivorHUD — слот CorpseLootWidgetClass пуст: окно обыска живёт на кодовом запасном дереве, WBP_CorpseLoot не используется (чинится -hudslots)."));
+				++FailCount;
+			}
+			else if (!SlotValue->IsChildOf(UCorpseLootWidget::StaticClass()))
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: BP_ContrarySurvivorHUD — в слоте CorpseLootWidgetClass чужой класс %s."),
+					*SlotValue->GetPathName());
+				++FailCount;
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("VERIFY OK: BP_ContrarySurvivorHUD — CorpseLootWidgetClass = %s."),
+					*SlotValue->GetPathName());
+			}
+		}
+	}
+
 	UE_LOG(LogGenerateWbp, Display, TEXT("Итог проверки: ошибок %d."), FailCount);
 	return FailCount == 0 ? 0 : 1;
 }
