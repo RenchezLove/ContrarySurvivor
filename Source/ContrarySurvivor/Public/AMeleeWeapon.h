@@ -78,6 +78,19 @@ public:
 	FORCEINLINE float GetMeleeRange() const { return MeleeRange; }
 
 protected:
+	// --- Прямая видимость удара (фикс 08-07: «сквозь стены бить нельзя — никому») ---
+	// Кандидат попал в сектор по дистанции и углу, но между носителем и ним стена/дерево
+	// (объект блокирует канал ниже) — удар по нему НЕ засчитывается. Дыра до фикса: сектор
+	// выбирался чистым overlap'ом, тонкая преграда в упор от ножа не спасала.
+
+	// Требовать прямую видимость до цели удара (выключатель для отладки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayPriority = "0"))
+	bool bRequireLineOfSight = true;
+
+	// Канал трассировки видимости удара (Visibility — тот же, что у выстрелов и сенсинга ИИ).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayPriority = "0"))
+	TEnumAsByte<ECollisionChannel> LineOfSightChannel = ECC_Visibility;
+
 	// Дальность атаки ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ капсул (см). Эффективная проверка
 	// центр-к-центру = MeleeRange + (радиус капсулы носителя + радиус капсулы цели).
 	// DRAFT. Директива Рината 06-25: тюнинг-параметры EditAnywhere + наверх Details.
@@ -143,6 +156,10 @@ protected:
 	float SwingSoundVolume = 0.5f;
 
 private:
+	// Свободна ли линия удара от носителя до цели (фикс 08-07, см. bRequireLineOfSight).
+	// Игнорирует носителя, само оружие, цель и прикреплённые к обоим акторы (оружие в руках).
+	bool HasLineOfSightToTarget(const APawn* Wielder, const AActor* Target) const;
+
 	// Дистанция ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ от носителя до цели (центр-к-центру минус радиусы
 	// капсул обоих). Одна формула на всё оружие: по ней же считает радиус подсветки сектора
 	// UMeleeSectorIndicatorComponent — «что видишь, то и бьёшь». Цель невалидна или это сам

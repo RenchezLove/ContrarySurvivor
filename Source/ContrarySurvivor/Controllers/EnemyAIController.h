@@ -87,6 +87,14 @@ public:
 		return AttackRange + GetCombinedCapsuleRadius(Target);
 	}
 
+	// --- QA-аксессоры фикса прямой видимости атаки (фикс 08-07: «убили сквозь здание») ---
+	// Тонкие обёртки над РЕАЛЬНЫМИ боевыми методами (анти-галлюцинация: автотест зовёт ту же
+	// логику, что бой, а не её копию). Гейт видимости стоит внутри самих Perform*Attack.
+
+	bool HasAttackLineOfSightForQA(APawn* Target) const { return HasAttackLineOfSight(Target); }
+	bool PerformAttackForQA(APawn* Target) { return PerformAttack(Target); }
+	bool PerformRangedAttackForQA(APawn* Target) { return PerformRangedAttack(Target); }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;
@@ -105,6 +113,29 @@ protected:
 	// Эффективная проверка центр-к-центру = AttackRange + (радиус капсулы врага + игрока).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
 	float AttackRange = 90.0f;
+
+	// --- Прямая видимость атаки (фикс 08-07, живой прогон Рината: «бандиты убили сквозь
+	// здание»). ЛЮБОЕ нанесение урона (выстрел И ближний удар) требует свободной линии от
+	// глаз атакующего до цели: линия перекрыта зданием/деревом (объект блокирует канал
+	// ниже) — атака не наносится и не начинается, враг остаётся в погоне и обходит преграду
+	// по навмешу. Дыра до фикса: LineOfSightTo гейтил только ВСТУПЛЕНИЕ в бой из Idle, а
+	// враг, уже ведущий бой, бил по чистой дистанции + «сам в кадре» (камера сверху видит
+	// его и поверх крыши). Директива Рината 06-25: тюнинг — EditAnywhere наверху Details. ---
+
+	// Требовать прямую видимость для атак (выключатель для отладки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Combat", meta = (DisplayPriority = "1"))
+	bool bRequireAttackLineOfSight = true;
+
+	// Канал трассировки линии атаки. Visibility — тот же канал, что у обнаружения игрока
+	// (LineOfSightTo) и у выстрела игрока (ARangedWeapon): стены/деревья с обычной коллизией
+	// его блокируют, капсулы пешек — нет (профиль Pawn игнорирует Visibility).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Combat", meta = (DisplayPriority = "2"))
+	TEnumAsByte<ECollisionChannel> AttackLineOfSightChannel = ECC_Visibility;
+
+	// Радиус сферы трассировки (см). 0 = тонкий луч (дефолт). Радиус > 0 дополнительно
+	// запрещает «прострел» сквозь щель, в которую луч проскочил бы, а пуля осмысленно нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Combat", meta = (ClampMin = "0.0", DisplayPriority = "3"))
+	float AttackLineOfSightRadius = 0.0f;
 
 	// Радиус приёмки для MoveToActor (см). Останавливаемся, не упираясь в игрока.
 	// Должен быть таким, чтобы дистанция остановки преследования была <= дальности атаки
@@ -336,6 +367,12 @@ private:
 
 	// Видит ли врага игрока: дистанция в пределах DetectionRange + LineOfSightTo.
 	bool CanSensePlayer(APawn* Player) const;
+
+	// Свободна ли линия атаки: трассировка канала AttackLineOfSightChannel от глаз пешки
+	// (GetPawnViewLocation) до центра цели, сферой радиуса AttackLineOfSightRadius (0 = луч).
+	// Игнорирует обе пешки и прикреплённые к ним акторы (оружие в руках). При выключенном
+	// bRequireAttackLineOfSight всегда true.
+	bool HasAttackLineOfSight(APawn* Target) const;
 
 	// Сумма радиусов капсул врага и игрока (см). Нужна, чтобы дистанции боя/остановки
 	// мерить поверхность-к-поверхности, а не центр-к-центру (GetDistanceTo даёт центры).

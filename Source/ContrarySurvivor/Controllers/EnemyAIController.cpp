@@ -10,6 +10,9 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h" // замедление у границы деревни
 #include "Components/CapsuleComponent.h"
+#include "Engine/World.h"      // фикс 08-07: трассировка линии атаки (LineTrace/Sweep)
+#include "Engine/HitResult.h"  // фикс 08-07: FHitResult трассировки линии атаки
+#include "CollisionShape.h"    // фикс 08-07: сфера трассировки (AttackLineOfSightRadius > 0)
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DamageEvents.h"
 #include "Navigation/PathFollowingComponent.h" // EPathFollowingStatus (GetMoveStatus в Chase), EPathFollowingRequestResult
@@ -108,6 +111,51 @@ bool AEnemyAIController::CanSensePlayer(APawn* Player) const
 	return LineOfSightTo(Player);
 }
 
+bool AEnemyAIController::HasAttackLineOfSight(APawn* Target) const
+{
+	if (!bRequireAttackLineOfSight)
+	{
+		return true;
+	}
+
+	APawn* Self = GetPawn();
+	UWorld* World = GetWorld();
+	if (!Self || !Target || !World)
+	{
+		return false;
+	}
+
+	// Игнорируем обе пешки (меш персонажа сам блокирует Visibility — иначе трасса упёрлась
+	// бы в цель и «видимости» не было бы никогда) и всё прикреплённое к ним (пистолет/нож
+	// в руке лежит прямо на линии).
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(EnemyAttackLOS), /*bTraceComplex=*/false, Self);
+	Params.AddIgnoredActor(Target);
+	TArray<AActor*> Attached;
+	Self->GetAttachedActors(Attached, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+	Params.AddIgnoredActors(Attached);
+	Target->GetAttachedActors(Attached, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+	Params.AddIgnoredActors(Attached);
+
+	// От глаз атакующего к центру цели — те же точки, между которыми фактически считается
+	// урон (баллистики нет: попадание — бросок вероятности, поэтому валидность выстрела
+	// решает именно эта линия).
+	const FVector Start = Self->GetPawnViewLocation();
+	const FVector End = Target->GetActorLocation();
+
+	FHitResult Hit;
+	bool bBlocked;
+	if (AttackLineOfSightRadius > KINDA_SMALL_NUMBER)
+	{
+		bBlocked = World->SweepSingleByChannel(Hit, Start, End, FQuat::Identity,
+			AttackLineOfSightChannel, FCollisionShape::MakeSphere(AttackLineOfSightRadius), Params);
+	}
+	else
+	{
+		bBlocked = World->LineTraceSingleByChannel(Hit, Start, End, AttackLineOfSightChannel, Params);
+	}
+	return !bBlocked;
+}
+
 float AEnemyAIController::GetCombinedCapsuleRadius(APawn* Player) const
 {
 	float Combined = 0.0f;
@@ -142,6 +190,13 @@ bool AEnemyAIController::PerformAttack(APawn* Player)
 	if (Now - LastAttackTime < AttackCooldown)
 	{
 		return false; // ещё на кулдауне
+	}
+
+	// Фикс 08-07: сквозь стену/дерево ближний удар не проходит. Гейт стоит ДО отметки
+	// времени — заблокированная попытка не тратит кулдаун, первый честный удар не задержится.
+	if (!HasAttackLineOfSight(Player))
+	{
+		return false;
 	}
 
 	LastAttackTime = Now;
@@ -185,6 +240,14 @@ bool AEnemyAIController::PerformRangedAttack(APawn* Player)
 	// «Правило честности» (ADR-035): вне кадра камеры игрока не стреляем. Основной гейт стоит
 	// в Tick (там враг вместо выстрела сближается); здесь — страховка от прямых вызовов.
 	if (bHonorCameraFairness && !IsSelfOnPlayerScreen())
+	{
+		return false;
+	}
+
+	// Фикс 08-07: линия выстрела перекрыта зданием/деревом — не стреляем (страховка от
+	// прямых вызовов; основной гейт в Tick вместо выстрела ведёт врага в обход). Кулдаун
+	// заблокированной попытки не тратится (гейт до отметки времени).
+	if (!HasAttackLineOfSight(Player))
 	{
 		return false;
 	}
@@ -532,7 +595,11 @@ void AEnemyAIController::Tick(float DeltaTime)
 	const float EffectiveAttackRange = AttackRange + CombinedRadius;
 	const float Dist = Self->GetDistanceTo(Player);
 
-	if (Dist <= EffectiveAttackRange)
+	// Фикс 08-07 («бандиты убили сквозь здание»): общий гейт видимости обеих веток атаки
+	// этого тика. Линия перекрыта — атак нет, враг проваливается в Chase и обходит преграду.
+	const bool bAttackLineClear = HasAttackLineOfSight(Player);
+
+	if (Dist <= EffectiveAttackRange && bAttackLineClear)
 	{
 		// В радиусе ближней атаки. Бьём и из Standoff — игрок сам подошёл вплотную
 		// (решение game-lead: standoff-враги защищаются при контакте).
@@ -564,7 +631,7 @@ void AEnemyAIController::Tick(float DeltaTime)
 	// --- Огнестрел (D6): в дальности и в кадре камеры игрока → стоит и стреляет (ADR-035).
 	// Вне кадра НЕ стреляет (правило честности) — вместо этого сближается (ветка Chase ниже),
 	// что естественно вводит его в кадр; HUD ведёт на него красную краевую стрелку.
-	if (bRangedAttacker && Dist <= RangedAttackRange
+	if (bRangedAttacker && Dist <= RangedAttackRange && bAttackLineClear
 		&& (!bHonorCameraFairness || IsSelfOnPlayerScreen()))
 	{
 		SetVillageSlowdown(false);

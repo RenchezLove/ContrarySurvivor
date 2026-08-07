@@ -1763,6 +1763,14 @@ bool APlayerCharacter::LoadGameForContinue()
     }
 
     ApplySaveData(Save);
+
+    // 08-07 (жалоба Рината «стартую хуй пойми где»): позицию в слот пишут только автосейв
+    // костра и пере-сейв смерти (после перестановки к костру), поэтому точка вдали от костров —
+    // всегда испорченный слот старой сборки (петля смерти ADR-061 закрепила точку поля).
+    // Смертельный путь лечится в Respawn(); «Продолжить» обязан лечиться так же, иначе
+    // игрок продолжает игру посреди поля рядом с врагами.
+    RelocateToCampfireIfSavedPointFar(TEXT("CONTINUE"));
+
     RestoreInventoryAndArmor(Save);
 
     if (Quests)
@@ -2041,7 +2049,7 @@ void APlayerCharacter::ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan)
         MoneyAtDeath, Plan.LostMoney, Plan.DroppedMoney, Stats->GetMoney());
 }
 
-void APlayerCharacter::RelocateDeathRespawnNearCampfire()
+void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag)
 {
     UWorld* World = GetWorld();
     if (!World)
@@ -2066,7 +2074,7 @@ void APlayerCharacter::RelocateDeathRespawnNearCampfire()
     if (!NearestCampfire)
     {
         // Мир без костра (служебный/тестовый) — переставлять некуда, точка остаётся прежней.
-        UE_LOG(LogTemp, Warning, TEXT("Respawn: no ACampfire in world - death respawn point left as is."));
+        UE_LOG(LogTemp, Warning, TEXT("%s: no ACampfire in world - loaded spawn point left as is."), ContextTag);
         return;
     }
 
@@ -2080,7 +2088,7 @@ void APlayerCharacter::RelocateDeathRespawnNearCampfire()
     FVector Target = FireLoc + NearestCampfire->GetActorForwardVector() * (NearestCampfire->GetSafeZoneRadius() * 0.5f);
     const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.0f;
     Target.Z = SpawnPlacement::ResolveSpawnZ(World, Target.X, Target.Y, HalfHeight + 10.0f,
-        TEXT("Player-death-respawn"), this);
+        TEXT("Player-load-relocate"), this);
 
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
@@ -2089,8 +2097,8 @@ void APlayerCharacter::RelocateDeathRespawnNearCampfire()
     const FRotator FaceFire = (FireLoc - Target).GetSafeNormal2D().Rotation();
     SetActorLocationAndRotation(Target, FaceFire, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 
-    UE_LOG(LogQA, Display, TEXT("QA: DEATH RESPAWN moved to campfire '%s' (saved point was %.0f cm away, limit %.0f)"),
-        *NearestCampfire->GetName(), FMath::Sqrt(BestDistSq), RespawnNearCampfireRadius);
+    UE_LOG(LogQA, Display, TEXT("QA: %s moved to campfire '%s' (saved point was %.0f cm away, limit %.0f)"),
+        ContextTag, *NearestCampfire->GetName(), FMath::Sqrt(BestDistSq), RespawnNearCampfireRadius);
 }
 
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -2291,7 +2299,7 @@ void APlayerCharacter::Respawn(bool bBackpackRescued)
     //     поставил на стартовое поле, где мог дежурить волк-убийца), и когда в слоте
     //     закреплена точка вне костра (пере-сейв смерти прошлых версий). Стоит ДО шага 2b:
     //     пере-сохранение там пишет уже точку у костра — петля не закрепляется в сейве.
-    RelocateDeathRespawnNearCampfire();
+    RelocateToCampfireIfSavedPointFar(TEXT("DEATH RESPAWN"));
 
     // 2b) Часть 2: деньги = (на момент смерти − потеря по плану) ПОСЛЕ загрузки (LoadGame
     //     перезаписал баланс из сейва) + пере-сохранение (анти-эксплойт quit/reload).

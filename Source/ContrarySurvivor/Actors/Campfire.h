@@ -83,8 +83,8 @@ protected:
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 public:
-	// Радиус безопасной зоны — для постановки игрока «у костра, но не в огне» при смертельном
-	// возрождении (APlayerCharacter::RelocateDeathRespawnNearCampfire).
+	// Радиус безопасной зоны — для постановки игрока «у костра, но не в огне» при применении
+	// сейва с испорченной точкой (APlayerCharacter::RelocateToCampfireIfSavedPointFar).
 	UFUNCTION(BlueprintPure, Category = "Campfire")
 	float GetSafeZoneRadius() const { return SafeZoneRadius; }
 

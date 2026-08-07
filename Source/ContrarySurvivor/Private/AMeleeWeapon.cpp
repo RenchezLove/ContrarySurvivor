@@ -259,6 +259,14 @@ void AMeleeWeapon::ApplyMeleeDamage()
 			continue; // вне переднего сектора — НЕ круговой удар (ADR-037)
 		}
 
+		// Фикс 08-07: сквозь стену/дерево нож не бьёт — линия удара должна быть свободна.
+		if (!HasLineOfSightToTarget(Wielder, HitActor))
+		{
+			UE_LOG(LogTemp, Log, TEXT("AMeleeWeapon: %s в секторе, но за преградой — удар не засчитан"),
+				*HitActor->GetName());
+			continue;
+		}
+
 		Candidates.Add({ HitActor, SurfaceDist });
 	}
 
@@ -291,6 +299,36 @@ void AMeleeWeapon::ApplyMeleeDamage()
 	{
 		ApplyHitStop();
 	}
+}
+
+bool AMeleeWeapon::HasLineOfSightToTarget(const APawn* Wielder, const AActor* Target) const
+{
+	if (!bRequireLineOfSight)
+	{
+		return true;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World || !Wielder || !Target)
+	{
+		return false;
+	}
+
+	// Игнорируем носителя, нож и цель (меш цели сам блокирует Visibility) + прикреплённое
+	// к обоим (оружие в руках лежит прямо на линии удара).
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MeleeLOS), /*bTraceComplex=*/false, Wielder);
+	Params.AddIgnoredActor(this);
+	Params.AddIgnoredActor(Target);
+	TArray<AActor*> Attached;
+	Wielder->GetAttachedActors(Attached, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+	Params.AddIgnoredActors(Attached);
+	Target->GetAttachedActors(Attached, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+	Params.AddIgnoredActors(Attached);
+
+	// Центр капсулы носителя -> центр цели: высота удара ножом, той же парой точек меряется
+	// дистанция сектора (GetSurfaceDistanceTo).
+	return !World->LineTraceTestByChannel(Wielder->GetActorLocation(), Target->GetActorLocation(),
+		LineOfSightChannel, Params);
 }
 
 void AMeleeWeapon::ApplyHitStop()
