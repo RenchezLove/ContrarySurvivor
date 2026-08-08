@@ -5,7 +5,13 @@
 # Настройки целей сбора переводов (ADR-050) лежат в подпапке Config/Localization
 !Config/Localization/*.ini
 *.log
-/Build/
+# Build/ в целом — продукты упаковки (генерируемые java и т.п.), НО брендинг-ресурсы
+# (иконка и сплэш Android перекрывают шаблон движка при упаковке) версионируем.
+/Build/*
+!/Build/Android/
+/Build/Android/*
+!/Build/Android/res/
+!/Build/BrandingSource/
 /Binaries/
 /Saved/
 /Intermediate/
