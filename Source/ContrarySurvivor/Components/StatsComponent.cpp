@@ -11,6 +11,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"     // QA god-mode (заморозка деградации) + MONEY-лог
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // #2: флаг спринта владельца
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // ADR-063: приглушение истощения (квест/наигрыш)
 
 UStatsComponent::UStatsComponent()
 {
@@ -418,7 +419,9 @@ void UStatsComponent::TickHungerHealthDrain()
 	// При критическом голоде HP падает. Суммирование с жаждой — за счёт двух
 	// независимых таймеров, каждый снимает HP отдельно (GDD §7.3).
 	// God-mode (J) замораживает и критический урон от голода.
-	if (!bIsDead && !FQADebug::bGodMode && Hunger <= CriticalThreshold)
+	// На обучении урон истощения приглушён (ADR-063: шкалы убывают, HP цел).
+	if (!bIsDead && !FQADebug::bGodMode && Hunger <= CriticalThreshold
+		&& !IsStarvationDamageSuppressed())
 	{
 		ApplyDamage(CriticalHealthDrainStep);
 	}
@@ -426,10 +429,43 @@ void UStatsComponent::TickHungerHealthDrain()
 
 void UStatsComponent::TickThirstHealthDrain()
 {
-	if (!bIsDead && !FQADebug::bGodMode && Thirst <= CriticalThreshold)
+	// На обучении урон истощения приглушён (ADR-063: шкалы убывают, HP цел).
+	if (!bIsDead && !FQADebug::bGodMode && Thirst <= CriticalThreshold
+		&& !IsStarvationDamageSuppressed())
 	{
 		ApplyDamage(CriticalHealthDrainStep);
 	}
+}
+
+bool UStatsComponent::IsStarvationDamageSuppressed() const
+{
+	if (!bStarvationGraceEnabled)
+	{
+		return false;
+	}
+	// Механика обучения ИГРОКА: на прочих владельцах приглушения нет (у врагов деградация
+	// и так выключена — это страховка на случай включения survival-статов кому-то ещё).
+	const APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
+	if (!Player)
+	{
+		return false;
+	}
+	if (Player->HasTurnedInFirstQuest())
+	{
+		return false; // первый квест сдан — обучение позади, истощение бьёт как обычно
+	}
+	if (Player->GetTotalPlayTimeSeconds() >= StarvationGraceMinutes * 60.0f)
+	{
+		return false; // страховка от вечного бессмертия: наигран порог — приглушение снято
+	}
+	if (!bStarvationGraceLogged)
+	{
+		bStarvationGraceLogged = true;
+		UE_LOG(LogQA, Display,
+			TEXT("QA: урон истощения приглушён (обучение, ADR-063) — до первого сданного квеста либо %.0f мин игры"),
+			StarvationGraceMinutes);
+	}
+	return true;
 }
 
 void UStatsComponent::TickHealthRegen()

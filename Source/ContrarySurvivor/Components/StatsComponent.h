@@ -107,15 +107,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival")
 	bool bEnableSurvivalDegradation = false;
 
-	// --- Тюнинг деградации (GDD §7.3, числа дословно) ---
+	// --- Тюнинг деградации (GDD §7.3; интервалы обновлены ADR-063) ---
 
-	// Жажда -1 / 8 c.
+	// Жажда -1 / 16 c (ADR-063 п.1: замедление вдвое, было 8 — новичок не должен умирать
+	// от нужды в первые 15 минут; до критики ~21 мин шагом, смерть ~25 мин).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
-	float ThirstDrainInterval = 8.0f;
+	float ThirstDrainInterval = 16.0f;
 
-	// Голод -1 / 12 c.
+	// Голод -1 / 24 c (ADR-063 п.1: замедление вдвое, было 12; до критики ~32 мин).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
-	float HungerDrainInterval = 12.0f;
+	float HungerDrainInterval = 24.0f;
 
 	// Шаг убыли голода/жажды за тик таймера.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
@@ -142,6 +143,20 @@ protected:
 	// Сколько HP снимается за один критический тик голода/жажды (суммируются, если оба критичны).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
 	float CriticalHealthDrainStep = 1.0f;
+
+	// --- Приглушение урона истощения на обучении (ADR-063 п.1). Шкалы голода/жажды убывают
+	// как обычно (игрок видит механику), но HP от истощения НЕ падает, пока игрок-новичок не
+	// сдал первый квест ИЛИ не наиграл StarvationGraceMinutes суммарно (страховка от вечного
+	// бессмертия). Действует ТОЛЬКО на владельце-игроке (см. IsStarvationDamageSuppressed);
+	// у врагов деградация выключена вовсе (bEnableSurvivalDegradation). ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Survival|Tuning",
+		meta = (DisplayName = "Приглушать урон истощения на обучении", DisplayPriority = "1"))
+	bool bStarvationGraceEnabled = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Survival|Tuning",
+		meta = (ClampMin = "0.0", DisplayName = "Приглушение: минут игры до начала урона", DisplayPriority = "2"))
+	float StarvationGraceMinutes = 15.0f;
 
 	// Восстановление едой (+Hunger) — GDD §7.3.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
@@ -209,6 +224,10 @@ protected:
 
 	// Мировое время старта последнего стона (анти-спам). Рантайм-состояние, не настройка.
 	float LastHurtSoundTime = -1.0f;
+
+	// Строка «урон истощения приглушён» уже писалась в журнал (один раз за компонент;
+	// mutable — ставится из const-запроса IsStarvationDamageSuppressed). Рантайм-состояние.
+	mutable bool bStarvationGraceLogged = false;
 
 	// Задел: список активных модификаторов статов (ADR-015). В Фазе 1 не применяется.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats|Modifier")
@@ -286,6 +305,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
 	FORCEINLINE float GetSurvivalMax() const { return SurvivalMax; }
+
+	// Урон от истощения сейчас приглушён (ADR-063 п.1: обучение)? Расчёт живой при каждом
+	// вызове, без кеша: «Новая игра» обнуляет наигранное время — приглушение честно
+	// возвращается новичку; сдача первого квеста и порог времени снимают его навсегда.
+	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
+	bool IsStarvationDamageSuppressed() const;
 
 	// Голод/жажда в критической зоне (<= порога) — для HUD-индикаторов и логики.
 	UFUNCTION(BlueprintPure, Category = "Stats|Survival")
