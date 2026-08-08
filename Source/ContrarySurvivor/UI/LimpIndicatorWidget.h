@@ -80,8 +80,12 @@ struct FLimpFirstHintState
  * Экранный индикатор хромоты (Build 1, приёмка Рината 07-27): компактная плашка «Ранен:
  * скорость снижена» под стеком статов, видна, пока игрок хромает; при первом входе в хромоту
  * на ней же разово показывается развёрнутое объяснение (текстами владеет APlayerCharacter).
- * Дерево целиком строится в C++ (WidgetTree), .uasset не нужен — создаётся напрямую
- * CreateWidget<ULimpIndicatorWidget>(PC, ULimpIndicatorWidget::StaticClass()).
+ *
+ * ТЗ Рината 08-07 — два пути, как у UEndOfStoryWidget (архитектура ADR-048):
+ *  - создан из WBP_LimpIndicator (слот LimpIndicatorWidgetClass на HUD) → дерево владельца
+ *    из дизайнера (плашка/шрифт/позиция правятся мышкой), стиль код не перекрашивает;
+ *    текст плашки ставит код (SetIndicatorText) — он зависит от состояния;
+ *  - ассета нет / слот пуст → прежний кодовый вид (BuildCodeTree + FLimpIndicatorStyle).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API ULimpIndicatorWidget : public USelfHidingWidget
@@ -95,6 +99,7 @@ public:
 
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт APlayerCharacter сразу после создания виджета.
+	// При дизайнер-дереве не делает ничего — вид целиком в ассете.
 	void ApplyStyle(const FLimpIndicatorStyle& Style);
 
 protected:
@@ -106,13 +111,22 @@ protected:
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_LimpIndicator.
+	void BuildCodeTree();
+
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
+
 	// Фиксирует ширину плашки; высота растёт за текстом (авто-перенос).
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<USizeBox> WidthBox;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> Plate;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> IndicatorText;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 };

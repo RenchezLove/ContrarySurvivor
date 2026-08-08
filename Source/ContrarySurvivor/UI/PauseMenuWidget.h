@@ -76,7 +76,13 @@ struct FPauseMenuStyle
 
 /**
  * Меню паузы (этап G, меню-минимум по решению game-lead: пауза + «Продолжить» + «Выход»).
- * Дерево целиком строится в C++ (WidgetTree), без BP-наследника — паттерн окон этапа F.
+ *
+ * ТЗ Рината 08-07 — два пути, как у UEndOfStoryWidget (архитектура ADR-048):
+ *  - создан из WBP_PauseMenu (слот PauseMenuWidgetClass на контроллере) → дерево владельца
+ *    из дизайнера, кубики по BindWidgetOptional-именам, цвета/шрифты код НЕ перекрашивает;
+ *    тексты переключателя согласия, строки политики и номера версии код ставит всегда —
+ *    они зависят от настроек и состояния (это данные, а не вид);
+ *  - ассета нет / слот пуст → прежний кодовый вид (BuildCodeTree + FPauseMenuStyle).
  *
  * Виджет ТОЛЬКО рисует и сообщает о нажатиях; паузу мира ставит/снимает владелец
  * (AContrarySurvivorPlayerController::OpenPauseMenu/ClosePauseMenu). Кнопки работают при
@@ -129,6 +135,10 @@ protected:
 	void HandlePolicyClicked();
 
 private:
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_PauseMenu.
+	void BuildCodeTree();
+
 	// Подпись переключателя согласия и строка версии сборки по текущему состоянию.
 	void RefreshConsentAndVersion();
 
@@ -136,10 +146,43 @@ private:
 	// добавленная в колонку. Возвращает кнопку для подписки OnClicked.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
 
-	// Элементы дерева, которые перекрашивает ApplyStyle.
-	UPROPERTY()
-	TObjectPtr<UBorder> DimmerBorder;
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> DimBorder;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TitleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ResumeButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ResumeText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> QuitButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> QuitText;
+
+	// Б6: переключатель согласия, строка политики и мелкий номер версии сборки.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ConsentButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ConsentText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PolicyButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PolicyText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> VersionText;
+
+	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()
 	TObjectPtr<UBorder> FrameBorder;
 
@@ -147,24 +190,8 @@ private:
 	TObjectPtr<UBorder> PanelBorder;
 
 	UPROPERTY()
-	TObjectPtr<UTextBlock> TitleBlock;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> ResumeLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> QuitLabel;
-
-	// Б6: переключатель согласия, строка политики и мелкий номер версии сборки.
-	UPROPERTY()
-	TObjectPtr<UTextBlock> ConsentLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> PolicyLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> VersionBlock;
-
-	UPROPERTY()
 	TArray<TObjectPtr<class USizeBox>> ButtonBoxes;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 };

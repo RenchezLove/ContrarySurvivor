@@ -125,7 +125,14 @@ struct FConsentScreenStyle
  * Показывается один раз за установку игры, ДО первого показа рекламы и ДО отправки первого
  * события статистики. Показом и последствиями выбора управляет UDataConsentSubsystem —
  * виджет ТОЛЬКО рисует и сообщает о нажатии (паттерн UPauseMenuWidget/UStartScreenWidget).
- * Дерево целиком строится в C++ (WidgetTree), без BP-наследника.
+ *
+ * ТЗ Рината 08-07 — два пути, как у UEndOfStoryWidget (архитектура ADR-048):
+ *  - создан из WBP_Consent (слот ConsentWidgetClass на HUD) → дерево владельца из
+ *    дизайнера, кубики по BindWidgetOptional-именам; цвета/шрифты код НЕ перекрашивает,
+ *    но ТЕКСТЫ (заголовок, абзацы, подписи кнопок) по-прежнему ставятся из настроек
+ *    проекта — они дословно из источника истины soglasie-i-politika.md, издатель
+ *    проверяет формулировки, и переопределять их правкой ассета нельзя;
+ *  - ассета нет / слот пуст → прежний кодовый вид (BuildCodeTree + FConsentScreenStyle).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UConsentScreenWidget : public UUserWidget
@@ -165,15 +172,53 @@ protected:
 	void HandlePolicyClicked();
 
 private:
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_Consent.
+	void BuildCodeTree();
+
 	// Кнопка с подписью, обёрнутая в SizeBox тач-размера, добавленная в колонку.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
 
 	// Абзац основного текста с переносом слов.
 	UTextBlock* MakeParagraph(UVerticalBox* Column, const FText& Text, const FName& Name);
 
-	UPROPERTY()
-	TObjectPtr<UBorder> DimmerBorder;
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> DimBorder;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TitleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Body1Text;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Body2Text;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Body3Text;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> AcceptButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AcceptText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> DeclineButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DeclineText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PolicyButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PolicyText;
+
+	// Двойная рамка и коробка ширины кодового фолбэка (в WBP их нет — там плашка PanelPlate,
+	// ширину колонки задаёт канвас-слот).
 	UPROPERTY()
 	TObjectPtr<UBorder> FrameBorder;
 
@@ -184,23 +229,8 @@ private:
 	TObjectPtr<USizeBox> ColumnBox;
 
 	UPROPERTY()
-	TObjectPtr<UTextBlock> TitleBlock;
-
-	UPROPERTY()
-	TArray<TObjectPtr<UTextBlock>> BodyBlocks;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> AcceptLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> DeclineLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> PolicyLabel;
-
-	UPROPERTY()
-	TObjectPtr<UButton> PolicyButton;
-
-	UPROPERTY()
 	TArray<TObjectPtr<USizeBox>> ButtonBoxes;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 };

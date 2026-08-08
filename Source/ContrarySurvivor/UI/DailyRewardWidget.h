@@ -15,11 +15,16 @@ class UBorder;
  * (виджет строится из C++-класса и в Details не виден — паттерн FTouchControlsConfig;
  * директива Рината 07-18). Дефолты дословно повторяют прежние зашитые значения.
  *
+ * ⚠ Стиль действует ТОЛЬКО для кодового дерева-фолбэка. Если окну назначен ассет
+ * WBP_DailyReward (слот DailyRewardWidgetClass на HUD, ТЗ Рината 08-07), шрифты/цвета/
+ * раскладку владелец правит мышкой в дизайнере, и код их не перекрашивает; из стиля
+ * продолжают действовать только ФОРМАТЫ строк с числами (StreakFormat/RewardFormat/
+ * DoubleSubFormat/DoubledRewardFormat/AdNotFinishedText) — это данные, а не вид.
+ *
  * Локализация (ADR-050): подписи — FText с дефолтами через NSLOCTEXT (LOCTEXT в значении
  * по умолчанию UHT запрещает — UhtTextProperty.cs:104). Строки с числами собираются
  * FText::Format с ИМЕНОВАННЫМИ подстановками: прежняя пара «приставка + окончание» на
- * другом языке дала бы неверный порядок слов. Дерево строится кодом, ассета в дизайнере
- * у окна нет, поэтому подпись и значение по кубикам не разделяются.
+ * другом языке дала бы неверный порядок слов.
  */
 USTRUCT(BlueprintType)
 struct FDailyRewardStyle
@@ -106,10 +111,16 @@ struct FDailyRewardStyle
 };
 
 /**
- * Окно «Ежедневная награда» (Этап F2, ADR-044 п.4). Лёгкий UMG-виджет: дерево целиком
- * строится в C++ (WidgetTree) — BP-наследник не обязателен, создаётся напрямую
- * CreateWidget<UDailyRewardWidget>(PC, UDailyRewardWidget::StaticClass()).
- * По плану v2 новые экраны — UMG (старый Canvas-HUD не растим).
+ * Окно «Ежедневная награда» (Этап F2, ADR-044 п.4).
+ *
+ * ТЗ Рината 08-07 («хочу редактировать окно ежедневной награды мышкой») — два пути,
+ * как у UEndOfStoryWidget/UTouchControlsWidget (архитектура ADR-048):
+ *  - создан из WBP_DailyReward (родитель этот класс; слот DailyRewardWidgetClass на HUD
+ *    заполняет режим генератора -hudslots) → дерево владельца из дизайнера, кубики приходят
+ *    по BindWidgetOptional-именам, код их НЕ перекрашивает — тексты, кнопки, картинки и
+ *    раскладку Ринат правит мышкой; замков дизайнера в ассете НЕТ вовсе;
+ *  - ассета нет / слот пуст → прежний кодовый вид: дерево строится в C++ (BuildCodeTree),
+ *    стиль — FDailyRewardStyle с компонента.
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UDailyRewardWidget : public UUserWidget
@@ -118,7 +129,8 @@ class CONTRARYSURVIVOR_API UDailyRewardWidget : public UUserWidget
 
 public:
 	// Применяет стиль к уже построенному дереву. Звать после CreateWidget, ДО SetupContent
-	// (строки серии/суммы собираются по форматам стиля).
+	// (строки серии/суммы собираются по форматам стиля). При дизайнер-дереве меняет только
+	// запомненные форматы строк — вид владельца из ассета не трогается.
 	void ApplyStyle(const FDailyRewardStyle& Style);
 
 	// Заполняет строки окна (день серии + сумма). Звать после CreateWidget, до AddToViewport.
@@ -144,7 +156,7 @@ public:
 	void ShowAdNotFinished();
 
 protected:
-	// Строит дерево виджета в C++ (панель по центру: заголовок, день серии, сумма, кнопка).
+	// Детект дизайнер-дерева (WBP) либо сборка кодового фолбэка + подписка кнопок.
 	virtual void NativeOnInitialized() override;
 
 	UFUNCTION()
@@ -154,34 +166,47 @@ protected:
 	void HandleDoubleClicked();
 
 private:
-	UPROPERTY()
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_DailyReward (BindWidgetOptional биндит по имени).
+	void BuildCodeTree();
+
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TitleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StreakText;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RewardText;
 
-	// Элементы, которые перекрашивает ApplyStyle, и текущий стиль (для SetupContent).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> TakeButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TakeText;
+
+	// --- Build 1.2: кубики золотой кнопки удвоения (ТЗ №3) ---
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> DoubleButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DoubleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DoubleSubText;
+
+	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()
 	TObjectPtr<UBorder> FrameBorder;
 
 	UPROPERTY()
 	TObjectPtr<UBorder> PanelBorder;
 
-	UPROPERTY()
-	TObjectPtr<UTextBlock> TitleBlock;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> TakeLabelBlock;
-
-	// --- Build 1.2: кубики золотой кнопки удвоения (ТЗ №3) ---
-	UPROPERTY()
-	TObjectPtr<UButton> DoubleButton;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> DoubleLabelBlock;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> DoubleSubBlock;
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 
 	UPROPERTY()
 	FDailyRewardStyle CurrentStyle;

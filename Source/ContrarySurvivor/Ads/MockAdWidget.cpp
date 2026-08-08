@@ -21,11 +21,48 @@ void UMockAdWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ PlacementText, TEXT("PlacementText") },
+			{ CountdownText, TEXT("CountdownText") },
+			{ CloseButton, TEXT("CloseButton") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("MockAdWidget: кубик %s не найден в WBP_MockAd — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики и стартовые состояния — в обоих путях (в ассете кнопка видима, чтобы владельцу
+	// было что редактировать; на живом экране её показывает конец отсчёта в NativeTick).
+	if (CloseButton)
+	{
+		CloseButton->OnClicked.AddDynamic(this, &UMockAdWidget::HandleCloseClicked);
+		CloseButton->SetVisibility(ESlateVisibility::Collapsed); // до конца отсчёта кнопки нет
+	}
+}
+
+void UMockAdWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MockAdRoot"));
 	WidgetTree->RootWidget = Root;
 
 	// Непрозрачный тёмный фон на весь экран: «ролик» перекрывает игру целиком.
-	UBorder* Dim = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MockAdDim"));
+	UBorder* Dim = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
 	Dim->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.03f, 0.97f));
 	if (UCanvasPanelSlot* DimSlot = Root->AddChildToCanvas(Dim))
 	{
@@ -42,7 +79,7 @@ void UMockAdWidget::NativeOnInitialized()
 		ColumnSlot->SetPosition(FVector2D::ZeroVector);
 	}
 
-	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MockAdTitle"));
+	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
 	Title->SetText(NSLOCTEXT("MockAd", "Title", "Здесь будет рекламный ролик"));
 	Title->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 30));
 	Title->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.96f, 1.0f, 1.0f)));
@@ -52,7 +89,7 @@ void UMockAdWidget::NativeOnInitialized()
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 	}
 
-	PlacementText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MockAdPlacement"));
+	PlacementText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PlacementText"));
 	PlacementText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 12));
 	PlacementText->SetColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.57f, 0.62f, 1.0f)));
 	if (UVerticalBoxSlot* PlacementSlot = Column->AddChildToVerticalBox(PlacementText))
@@ -61,7 +98,7 @@ void UMockAdWidget::NativeOnInitialized()
 		PlacementSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 26.0f));
 	}
 
-	CountdownText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MockAdCountdown"));
+	CountdownText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CountdownText"));
 	CountdownText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 18));
 	CountdownText->SetColorAndOpacity(FSlateColor(FLinearColor(0.8f, 0.8f, 0.85f, 1.0f)));
 	if (UVerticalBoxSlot* CountdownSlot = Column->AddChildToVerticalBox(CountdownText))
@@ -70,11 +107,9 @@ void UMockAdWidget::NativeOnInitialized()
 		CountdownSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
 	}
 
-	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("MockAdClose"));
-	CloseButton->OnClicked.AddDynamic(this, &UMockAdWidget::HandleCloseClicked);
-	CloseButton->SetVisibility(ESlateVisibility::Collapsed); // до конца отсчёта кнопки нет
+	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
 
-	UTextBlock* CloseLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MockAdCloseLabel"));
+	UTextBlock* CloseLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CloseText"));
 	CloseLabel->SetText(NSLOCTEXT("MockAd", "Close", "  Закрыть  "));
 	CloseLabel->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 18));
 	CloseLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.0f)));

@@ -14,8 +14,12 @@ class USizeBox;
 
 /**
  * Стиль стартового экрана (Б3: издатель убрал полноценное меню из первой выкладки, ADR-059 —
- * «делай минимум: два пункта, ничего лишнего»). Живёт EditAnywhere-полем на контроллере, дерево
- * строится из C++-класса без BP-наследника (паттерн FPauseMenuStyle/UPauseMenuWidget).
+ * «делай минимум: два пункта, ничего лишнего»). Живёт EditAnywhere-полем на контроллере.
+ *
+ * ⚠ Цвета/шрифты/размеры действуют ТОЛЬКО для кодового дерева-фолбэка. Если экрану назначен
+ * ассет WBP_StartScreen (слот StartScreenWidgetClass на контроллере, ТЗ Рината 08-07), вид
+ * правится мышкой в дизайнере; из стиля продолжают действовать ТЕКСТЫ — они переключаются
+ * кодом между обычным выбором и переспросом «Новая игра» (это данные, а не вид).
  *
  * Локализация (ADR-050): подписи — FText с дефолтами через NSLOCTEXT (LOCTEXT в значении по
  * умолчанию UHT запрещает — UhtTextProperty.cs:104).
@@ -97,7 +101,11 @@ struct FStartScreenStyle
  * пустой -> экран не создаётся вовсе, игра сразу начинает новую игру (издатель убрал
  * полноценное меню из объёма первой выкладки, ADR-059).
  *
- * Дерево целиком строится в C++ (WidgetTree), без BP-наследника — паттерн UPauseMenuWidget.
+ * ТЗ Рината 08-07 — два пути, как у UEndOfStoryWidget (архитектура ADR-048):
+ *  - создан из WBP_StartScreen (слот StartScreenWidgetClass на контроллере) → дерево
+ *    владельца из дизайнера, кубики по BindWidgetOptional-именам, код не перекрашивает
+ *    (тексты кнопок код ПЕРЕКЛЮЧАЕТ — режим переспроса «Новая игра», это данные);
+ *  - ассета нет / слот пуст → прежний кодовый вид (BuildCodeTree + FStartScreenStyle).
  * Виджет ТОЛЬКО рисует и сообщает о нажатиях; владелец (контроллер) решает, что грузить/стирать.
  */
 UCLASS()
@@ -115,6 +123,7 @@ public:
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenStartScreen). Запоминает
 	// стиль (CachedStyle) — переспрос «Новая игра» и отмена переключают подписи без пересоздания.
+	// При дизайнер-дереве меняет только тексты (см. FStartScreenStyle).
 	void ApplyStyle(const FStartScreenStyle& Style);
 
 protected:
@@ -137,11 +146,15 @@ protected:
 	void HandleNewGameClicked();
 
 private:
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_StartScreen.
+	void BuildCodeTree();
+
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера, добавленная в колонку.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
 
 	// Подписи панели/кнопок для текущего режима (обычный выбор либо переспрос «Новая игра»).
-	// Цвета/размеры не трогает — та же ApplyStyle с другим набором текстов.
+	// При кодовом дереве заодно ставит шрифт/цвет; при дизайнер-дереве — только тексты.
 	void ApplyChoiceLabels(const FStartScreenStyle& Style);
 	void ApplyConfirmLabels(const FStartScreenStyle& Style);
 
@@ -152,10 +165,30 @@ private:
 	// Идёт переспрос «Точно начать заново?» (кнопки временно переподписаны).
 	bool bConfirmingNewGame = false;
 
-	// Элементы дерева, которые перекрашивает ApplyStyle.
-	UPROPERTY()
-	TObjectPtr<UBorder> DimmerBorder;
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> DimBorder;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TitleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SubtitleText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ContinueButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ContinueText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> NewGameButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> NewGameText;
+
+	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()
 	TObjectPtr<UBorder> FrameBorder;
 
@@ -163,17 +196,8 @@ private:
 	TObjectPtr<UBorder> PanelBorder;
 
 	UPROPERTY()
-	TObjectPtr<UTextBlock> TitleBlock;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> SubtitleBlock;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> ContinueLabel;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> NewGameLabel;
-
-	UPROPERTY()
 	TArray<TObjectPtr<USizeBox>> ButtonBoxes;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 };

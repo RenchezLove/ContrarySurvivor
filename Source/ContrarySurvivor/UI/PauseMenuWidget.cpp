@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"
 #include "ContrarySurvivor/Analytics/DataConsentSettings.h"   // Б6: подписи строк паузы
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h"  // Б6: согласие, политика, версия
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -23,6 +24,66 @@ void UPauseMenuWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ TitleText, TEXT("TitleText") },
+			{ ResumeButton, TEXT("ResumeButton") }, { ResumeText, TEXT("ResumeText") },
+			{ ConsentButton, TEXT("ConsentButton") }, { ConsentText, TEXT("ConsentText") },
+			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
+			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
+			{ VersionText, TEXT("VersionText") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("PauseMenuWidget: кубик %s не найден в WBP_PauseMenu — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
+	if (ResumeButton)
+	{
+		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
+	}
+	if (ConsentButton)
+	{
+		ConsentButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleConsentClicked);
+	}
+	if (PolicyButton)
+	{
+		PolicyButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandlePolicyClicked);
+	}
+	if (QuitButton)
+	{
+		QuitButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleQuitClicked);
+	}
+
+	if (!bDesignerTree)
+	{
+		ApplyStyle(FPauseMenuStyle());
+	}
+	else
+	{
+		// Стили — владельца, но подписи согласия/политики/версии живут состоянием (Б6).
+		RefreshConsentAndVersion();
+	}
+}
+
+void UPauseMenuWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PauseRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -32,8 +93,8 @@ void UPauseMenuWidget::NativeOnInitialized()
 
 	// Затемнение на весь экран. Visible — ловит хит-тест, чтобы клик мимо кнопок не ушёл в мир
 	// (само событие гасится в NativeOnMouseButtonDown/NativeOnTouchStarted ниже).
-	DimmerBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseDimmer"));
-	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimmerBorder))
+	DimBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimBorder))
 	{
 		DimmerSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
 		DimmerSlot->SetOffsets(FMargin(0.0f));
@@ -50,41 +111,41 @@ void UPauseMenuWidget::NativeOnInitialized()
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PauseColumn"));
 	PanelBorder->SetContent(Column);
 
-	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PauseTitle"));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
+	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleText))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 20.0f));
 	}
 
-	if (UButton* ResumeButton = MakeMenuButton(Column, Defaults.ResumeText, TEXT("PauseResume")))
+	ResumeButton = MakeMenuButton(Column, Defaults.ResumeText, TEXT("ResumeButton"));
+	if (ResumeButton)
 	{
-		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
-		ResumeLabel = Cast<UTextBlock>(ResumeButton->GetContent());
+		ResumeText = Cast<UTextBlock>(ResumeButton->GetContent());
 	}
 
 	// Б6 (ADR-059 + правило 5 источника истины): переключатель согласия и строка политики.
 	// Подписи берутся из настроек проекта (UDataConsentSettings) при каждом открытии паузы.
-	if (UButton* ConsentButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PauseConsent")))
+	ConsentButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("ConsentButton"));
+	if (ConsentButton)
 	{
-		ConsentButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleConsentClicked);
-		ConsentLabel = Cast<UTextBlock>(ConsentButton->GetContent());
+		ConsentText = Cast<UTextBlock>(ConsentButton->GetContent());
 	}
-	if (UButton* PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PausePolicy")))
+	PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PolicyButton"));
+	if (PolicyButton)
 	{
-		PolicyButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandlePolicyClicked);
-		PolicyLabel = Cast<UTextBlock>(PolicyButton->GetContent());
+		PolicyText = Cast<UTextBlock>(PolicyButton->GetContent());
 	}
 
-	if (UButton* QuitButton = MakeMenuButton(Column, Defaults.QuitText, TEXT("PauseQuit")))
+	QuitButton = MakeMenuButton(Column, Defaults.QuitText, TEXT("QuitButton"));
+	if (QuitButton)
 	{
-		QuitButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleQuitClicked);
-		QuitLabel = Cast<UTextBlock>(QuitButton->GetContent());
+		QuitText = Cast<UTextBlock>(QuitButton->GetContent());
 	}
 
 	// Б6 (ADR-059): мелко номер версии сборки внизу панели.
-	VersionBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PauseVersion"));
-	if (UVerticalBoxSlot* VersionSlot = Column->AddChildToVerticalBox(VersionBlock))
+	VersionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("VersionText"));
+	if (UVerticalBoxSlot* VersionSlot = Column->AddChildToVerticalBox(VersionText))
 	{
 		VersionSlot->SetHorizontalAlignment(HAlign_Center);
 		VersionSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
@@ -97,20 +158,26 @@ void UPauseMenuWidget::NativeOnInitialized()
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
-
-	ApplyStyle(Defaults);
 }
 
 void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 {
-	if (DimmerBorder) { DimmerBorder->SetBrushColor(Style.DimColor); }
+	// Дерево владельца из WBP_PauseMenu: цвета/шрифты — его (ТЗ Рината 08-07); из кода
+	// живут только подписи согласия/политики/версии (RefreshConsentAndVersion ниже).
+	if (bDesignerTree)
+	{
+		RefreshConsentAndVersion();
+		return;
+	}
+
+	if (DimBorder)    { DimBorder->SetBrushColor(Style.DimColor); }
 	if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
 	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
-	if (TitleBlock)
+	if (TitleText)
 	{
-		TitleBlock->SetText(Style.TitleText);
-		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
-		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		TitleText->SetText(Style.TitleText);
+		TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+		TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
 
 	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
@@ -122,12 +189,12 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
 		}
 	};
-	StyleButtonLabel(ResumeLabel, Style.ResumeText);
-	StyleButtonLabel(QuitLabel, Style.QuitText);
+	StyleButtonLabel(ResumeText, Style.ResumeText);
+	StyleButtonLabel(QuitText, Style.QuitText);
 
 	// Б6: подписи переключателя согласия и политики приходят не из стиля, а из настроек
 	// проекта (одно место правды на весь текст согласия) — здесь только шрифт и цвет.
-	for (UTextBlock* Label : { ConsentLabel.Get(), PolicyLabel.Get() })
+	for (UTextBlock* Label : { ConsentText.Get(), PolicyText.Get() })
 	{
 		if (Label)
 		{
@@ -135,10 +202,10 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
 		}
 	}
-	if (VersionBlock)
+	if (VersionText)
 	{
-		VersionBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(6, Style.VersionFontSize)));
-		VersionBlock->SetColorAndOpacity(FSlateColor(Style.VersionColor));
+		VersionText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(6, Style.VersionFontSize)));
+		VersionText->SetColorAndOpacity(FSlateColor(Style.VersionColor));
 	}
 	RefreshConsentAndVersion();
 
@@ -190,19 +257,19 @@ void UPauseMenuWidget::RefreshConsentAndVersion()
 	const UDataConsentSettings* Settings = UDataConsentSettings::Get();
 	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
 
-	if (ConsentLabel && Settings)
+	if (ConsentText && Settings)
 	{
 		// Пока игрок не отвечал, ничего не собирается — так и пишем «выключен».
 		const bool bGranted = Consent && Consent->IsConsentGranted();
-		ConsentLabel->SetText(bGranted ? Settings->PauseMenuConsentOnText : Settings->PauseMenuConsentOffText);
+		ConsentText->SetText(bGranted ? Settings->PauseMenuConsentOnText : Settings->PauseMenuConsentOffText);
 	}
-	if (PolicyLabel && Settings)
+	if (PolicyText && Settings)
 	{
-		PolicyLabel->SetText(Settings->PauseMenuPolicyText);
+		PolicyText->SetText(Settings->PauseMenuPolicyText);
 	}
-	if (VersionBlock)
+	if (VersionText)
 	{
-		VersionBlock->SetText(Consent ? Consent->GetBuildVersionText() : FText::GetEmpty());
+		VersionText->SetText(Consent ? Consent->GetBuildVersionText() : FText::GetEmpty());
 	}
 }
 

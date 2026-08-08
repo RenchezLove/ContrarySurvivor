@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/DailyRewardWidget.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -40,6 +41,57 @@ void UDailyRewardWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: WBP-наследник приходит с деревом
+	// владельца, построенным из ассета ДО этого вызова, — кубики уже привязаны
+	// BindWidgetOptional, строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		// Недостающие имена — предупреждение (элемент не работает, остальное живёт).
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ TitleText, TEXT("TitleText") }, { StreakText, TEXT("StreakText") },
+			{ RewardText, TEXT("RewardText") },
+			{ TakeButton, TEXT("TakeButton") }, { TakeText, TEXT("TakeText") },
+			{ DoubleButton, TEXT("DoubleButton") },
+			{ DoubleText, TEXT("DoubleText") }, { DoubleSubText, TEXT("DoubleSubText") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("DailyRewardWidget: кубик %s не найден в WBP_DailyReward — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
+	if (TakeButton)
+	{
+		TakeButton->OnClicked.AddDynamic(this, &UDailyRewardWidget::HandleTakeClicked);
+	}
+	if (DoubleButton)
+	{
+		DoubleButton->OnClicked.AddDynamic(this, &UDailyRewardWidget::HandleDoubleClicked);
+		// В ассете кнопка видима (иначе владельцу нечего редактировать в дизайнере);
+		// на живом экране её показывает только SetupDoubleOffer.
+		DoubleButton->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (!bDesignerTree)
+	{
+		ApplyStyle(CurrentStyle);
+	}
+}
+
+void UDailyRewardWidget::BuildCodeTree()
+{
 	// Корень — канвас на весь экран; панель по центру, чуть выше середины (не спорит с HUD-статами).
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("DailyRoot"));
 	WidgetTree->RootWidget = Root;
@@ -57,32 +109,31 @@ void UDailyRewardWidget::NativeOnInitialized()
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DailyColumn"));
 	PanelBorder->SetContent(Column);
 
-	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTitle"));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
+	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleText))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 14.0f));
 	}
 
-	StreakText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyStreak"));
+	StreakText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StreakText"));
 	if (UVerticalBoxSlot* StreakSlot = Column->AddChildToVerticalBox(StreakText))
 	{
 		StreakSlot->SetHorizontalAlignment(HAlign_Center);
 		StreakSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 6.0f));
 	}
 
-	RewardText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyReward"));
+	RewardText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("RewardText"));
 	if (UVerticalBoxSlot* RewardSlot = Column->AddChildToVerticalBox(RewardText))
 	{
 		RewardSlot->SetHorizontalAlignment(HAlign_Center);
 		RewardSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 18.0f));
 	}
 
-	UButton* TakeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DailyTake"));
-	TakeButton->OnClicked.AddDynamic(this, &UDailyRewardWidget::HandleTakeClicked);
+	TakeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TakeButton"));
 
-	TakeLabelBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyTakeLabel"));
-	TakeButton->SetContent(TakeLabelBlock);
+	TakeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TakeText"));
+	TakeButton->SetContent(TakeText);
 
 	if (UVerticalBoxSlot* ButtonSlot = Column->AddChildToVerticalBox(TakeButton))
 	{
@@ -91,20 +142,18 @@ void UDailyRewardWidget::NativeOnInitialized()
 
 	// --- Build 1.2: золотая кнопка «Забрать вдвое больше» ПОД обычной (ТЗ №3 раздел 3:
 	// обычная кнопка ничем не блокируется и стоит первой). В дереве всегда есть, видимость
-	// решает владелец через SetupDoubleOffer; по умолчанию спрятана.
-	DoubleButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DailyDouble"));
-	DoubleButton->OnClicked.AddDynamic(this, &UDailyRewardWidget::HandleDoubleClicked);
-	DoubleButton->SetVisibility(ESlateVisibility::Collapsed);
+	// решает владелец через SetupDoubleOffer; по умолчанию спрятана (NativeOnInitialized).
+	DoubleButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DoubleButton"));
 
 	UHorizontalBox* DoubleRow = WidgetTree->ConstructWidget<UHorizontalBox>(
-		UHorizontalBox::StaticClass(), TEXT("DailyDoubleRow"));
+		UHorizontalBox::StaticClass(), TEXT("DoubleRow"));
 
 	// Единая иконка видео rewarded-кнопок (ТЗ раздел 0 п.8); текстуры может не быть
 	// (первый запуск до генерации ассета) — тогда кнопка без иконки, текст остаётся.
 	if (UTexture2D* AdIconTexture = LoadObject<UTexture2D>(nullptr,
 		TEXT("/Game/UI/Icons/T_Icon_AdVideo.T_Icon_AdVideo")))
 	{
-		UImage* AdIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("DailyDoubleIcon"));
+		UImage* AdIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("DoubleIcon"));
 		FSlateBrush IconBrush;
 		IconBrush.SetResourceObject(AdIconTexture);
 		IconBrush.SetImageSize(FVector2D(24.0f, 24.0f));
@@ -117,14 +166,14 @@ void UDailyRewardWidget::NativeOnInitialized()
 	}
 
 	UVerticalBox* DoubleLabels = WidgetTree->ConstructWidget<UVerticalBox>(
-		UVerticalBox::StaticClass(), TEXT("DailyDoubleLabels"));
-	DoubleLabelBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyDoubleLabel"));
-	if (UVerticalBoxSlot* DoubleLabelSlot = DoubleLabels->AddChildToVerticalBox(DoubleLabelBlock))
+		UVerticalBox::StaticClass(), TEXT("DoubleLabels"));
+	DoubleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DoubleText"));
+	if (UVerticalBoxSlot* DoubleLabelSlot = DoubleLabels->AddChildToVerticalBox(DoubleText))
 	{
 		DoubleLabelSlot->SetHorizontalAlignment(HAlign_Center);
 	}
-	DoubleSubBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DailyDoubleSub"));
-	if (UVerticalBoxSlot* DoubleSubSlot = DoubleLabels->AddChildToVerticalBox(DoubleSubBlock))
+	DoubleSubText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DoubleSubText"));
+	if (UVerticalBoxSlot* DoubleSubSlot = DoubleLabels->AddChildToVerticalBox(DoubleSubText))
 	{
 		DoubleSubSlot->SetHorizontalAlignment(HAlign_Center);
 	}
@@ -147,21 +196,27 @@ void UDailyRewardWidget::NativeOnInitialized()
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
-
-	ApplyStyle(CurrentStyle);
 }
 
 void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 {
 	CurrentStyle = Style; // SetupContent берёт отсюда форматы строк
 
+	// Дерево владельца из WBP_DailyReward: шрифты/цвета/тексты подписей — его, код не
+	// перекрашивает (ТЗ Рината 08-07: «всё можно редактировать мышкой»). Форматы строк
+	// с числами запомнены выше и продолжают действовать — это данные, а не вид.
+	if (bDesignerTree)
+	{
+		return;
+	}
+
 	if (FrameBorder) { FrameBorder->SetBrushColor(Style.FrameColor); }
 	if (PanelBorder) { PanelBorder->SetBrushColor(Style.PanelColor); }
-	if (TitleBlock)
+	if (TitleText)
 	{
-		TitleBlock->SetText(Style.TitleText);
-		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
-		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		TitleText->SetText(Style.TitleText);
+		TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+		TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
 	if (StreakText)
 	{
@@ -173,11 +228,11 @@ void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 		RewardText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.RewardFontSize)));
 		RewardText->SetColorAndOpacity(FSlateColor(Style.RewardColor));
 	}
-	if (TakeLabelBlock)
+	if (TakeText)
 	{
-		TakeLabelBlock->SetText(Style.TakeButtonText);
-		TakeLabelBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TakeButtonFontSize)));
-		TakeLabelBlock->SetColorAndOpacity(FSlateColor(Style.TakeButtonTextColor));
+		TakeText->SetText(Style.TakeButtonText);
+		TakeText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TakeButtonFontSize)));
+		TakeText->SetColorAndOpacity(FSlateColor(Style.TakeButtonTextColor));
 	}
 
 	// Build 1.2: золотая кнопка удвоения — сплошной стиль всех состояний в едином золоте
@@ -195,16 +250,16 @@ void UDailyRewardWidget::ApplyStyle(const FDailyRewardStyle& Style)
 		GoldStyle.PressedPadding = FMargin(14.0f, 6.0f);
 		DoubleButton->SetStyle(GoldStyle);
 	}
-	if (DoubleLabelBlock)
+	if (DoubleText)
 	{
-		DoubleLabelBlock->SetText(Style.DoubleButtonText);
-		DoubleLabelBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.DoubleButtonFontSize)));
-		DoubleLabelBlock->SetColorAndOpacity(FSlateColor(Style.DoubleButtonTextColor));
+		DoubleText->SetText(Style.DoubleButtonText);
+		DoubleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.DoubleButtonFontSize)));
+		DoubleText->SetColorAndOpacity(FSlateColor(Style.DoubleButtonTextColor));
 	}
-	if (DoubleSubBlock)
+	if (DoubleSubText)
 	{
-		DoubleSubBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 11));
-		DoubleSubBlock->SetColorAndOpacity(FSlateColor(Style.DoubleButtonTextColor));
+		DoubleSubText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 11));
+		DoubleSubText->SetColorAndOpacity(FSlateColor(Style.DoubleButtonTextColor));
 	}
 }
 
@@ -215,13 +270,13 @@ void UDailyRewardWidget::SetupDoubleOffer(float BaseReward, bool bVisible)
 		return;
 	}
 	DoubleButton->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-	if (bVisible && DoubleSubBlock)
+	if (bVisible && DoubleSubText)
 	{
 		// Конкретные числа, не «×2» (ТЗ №3 раздел 3): «100 монет вместо 50 …».
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Double"), FText::AsNumber(FMath::RoundToInt32(BaseReward * 2.0f)));
 		Args.Add(TEXT("Base"), FText::AsNumber(FMath::RoundToInt32(BaseReward)));
-		DoubleSubBlock->SetText(FText::Format(CurrentStyle.DoubleSubFormat, Args));
+		DoubleSubText->SetText(FText::Format(CurrentStyle.DoubleSubFormat, Args));
 	}
 }
 
@@ -244,9 +299,9 @@ void UDailyRewardWidget::ShowDoubledResult(float TotalAmount)
 void UDailyRewardWidget::ShowAdNotFinished()
 {
 	// Кнопка остаётся — повторная попытка разрешена (ТЗ №3 п.5).
-	if (DoubleSubBlock)
+	if (DoubleSubText)
 	{
-		DoubleSubBlock->SetText(CurrentStyle.AdNotFinishedText);
+		DoubleSubText->SetText(CurrentStyle.AdNotFinishedText);
 	}
 }
 

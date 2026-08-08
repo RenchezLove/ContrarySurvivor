@@ -4,6 +4,7 @@
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
 #include "ContrarySurvivor/Analytics/DataConsentSettings.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот ConsentWidgetClass (ТЗ 08-07)
 #include "ContrarySurvivor/UI/ConsentScreenWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Engine/GameInstance.h"
@@ -138,7 +139,18 @@ bool UDataConsentSubsystem::TryShowConsentScreen(float /*DeltaTime*/)
 		return true; // ещё не готовы — ждём следующий шаг
 	}
 
-	ConsentWidget = CreateWidget<UConsentScreenWidget>(PC, UConsentScreenWidget::StaticClass());
+	// ТЗ Рината 08-07: слот WBP-класса на HUD (ADR-048). Назначен — экран согласия живёт
+	// на дереве владельца из дизайнера; пуст — прежний кодовый вид. Тексты согласия в обоих
+	// путях идут из настроек проекта (дословно из источника истины, издатель проверяет).
+	UClass* ConsentClass = UConsentScreenWidget::StaticClass();
+	if (const AContrarySurvivorHUD* Hud = Cast<AContrarySurvivorHUD>(PC->GetHUD()))
+	{
+		if (Hud->ConsentWidgetClass)
+		{
+			ConsentClass = Hud->ConsentWidgetClass;
+		}
+	}
+	ConsentWidget = CreateWidget<UConsentScreenWidget>(PC, ConsentClass);
 	if (!ConsentWidget)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Consent: не удалось создать экран согласия"));

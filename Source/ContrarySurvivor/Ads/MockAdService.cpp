@@ -4,6 +4,7 @@
 #include "ContrarySurvivor/Ads/MockAdWidget.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот MockAdWidgetClass (ТЗ 08-07)
 #include "Blueprint/UserWidget.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -31,7 +32,17 @@ void UMockAdService::ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FS
 		return;
 	}
 
-	ActiveWidget = CreateWidget<UMockAdWidget>(PC, UMockAdWidget::StaticClass());
+	// ТЗ Рината 08-07: слот WBP-класса на HUD (ADR-048). Назначен — экран-заглушка живёт
+	// на дереве владельца из дизайнера; пуст — прежний кодовый вид.
+	UClass* AdWidgetClass = UMockAdWidget::StaticClass();
+	if (const AContrarySurvivorHUD* Hud = Cast<AContrarySurvivorHUD>(PC->GetHUD()))
+	{
+		if (Hud->MockAdWidgetClass)
+		{
+			AdWidgetClass = Hud->MockAdWidgetClass;
+		}
+	}
+	ActiveWidget = CreateWidget<UMockAdWidget>(PC, AdWidgetClass);
 	if (!ActiveWidget)
 	{
 		UE_LOG(LogQA, Warning, TEXT("QA: MOCK-AD '%s' rejected - widget creation failed"),

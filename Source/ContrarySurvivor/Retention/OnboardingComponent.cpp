@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // Б4: события шагов обучения
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот OnboardingHintWidgetClass (ТЗ 08-07)
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/UI/OnboardingHintWidget.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // HasTouchLayer: клавиши или экранные кнопки в тексте подсказки
@@ -209,7 +210,17 @@ void UOnboardingComponent::ShowWidget(const FText& Text)
 	// Один переиспользуемый тост: следующая подсказка замещает предыдущую.
 	if (!ActiveWidget)
 	{
-		ActiveWidget = CreateWidget<UOnboardingHintWidget>(PC, UOnboardingHintWidget::StaticClass());
+		// ТЗ Рината 08-07: слот WBP-класса на HUD (ADR-048). Назначен — тост живёт на
+		// дереве владельца из дизайнера; пуст — прежний кодовый вид.
+		UClass* HintClass = UOnboardingHintWidget::StaticClass();
+		if (const AContrarySurvivorHUD* Hud = Cast<AContrarySurvivorHUD>(PC->GetHUD()))
+		{
+			if (Hud->OnboardingHintWidgetClass)
+			{
+				HintClass = Hud->OnboardingHintWidgetClass;
+			}
+		}
+		ActiveWidget = CreateWidget<UOnboardingHintWidget>(PC, HintClass);
 		if (!ActiveWidget)
 		{
 			return;

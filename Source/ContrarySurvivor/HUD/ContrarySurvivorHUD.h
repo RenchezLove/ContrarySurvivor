@@ -608,6 +608,37 @@ protected:
 	TSubclassOf<class UCorpseLootWidget> CorpseLootWidgetClass;
 
 	// ======================================================================
+	// Слоты окон, которые создаёт НЕ сам HUD (ТЗ Рината 08-07: «все интерфейсы —
+	// редактируемыми WBP»). Владельцы окон (компоненты удержания, подсистема согласия,
+	// заглушка рекламы, индикатор хромоты на игроке) читают классы отсюда через
+	// Cast<AContrarySurvivorHUD>(PC->GetHUD()) — поэтому слоты ПУБЛИЧНЫЕ. Canvas-пути
+	// ни у одного из этих окон нет: пустой слот = кодовое дерево-фолбэк C++-класса,
+	// окно работает и без ассета; заполняет пустые слоты режим генератора -hudslots.
+	// ======================================================================
+public:
+	// Окно «Ежедневная награда» (WBP_DailyReward; создаёт UDailyRewardComponent).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "9"))
+	TSubclassOf<class UDailyRewardWidget> DailyRewardWidgetClass;
+
+	// Экран согласия на обработку данных (WBP_Consent; создаёт UDataConsentSubsystem, Б6).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "10"))
+	TSubclassOf<class UConsentScreenWidget> ConsentWidgetClass;
+
+	// Тост-подсказка онбординга (WBP_OnboardingHint; создаёт UOnboardingComponent, F1).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "11"))
+	TSubclassOf<class UOnboardingHintWidget> OnboardingHintWidgetClass;
+
+	// Плашка «Ранен: скорость снижена» (WBP_LimpIndicator; создаёт APlayerCharacter).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "12"))
+	TSubclassOf<class ULimpIndicatorWidget> LimpIndicatorWidgetClass;
+
+	// Экран-заглушка рекламного ролика (WBP_MockAd; создаёт UMockAdService, Build 1.2).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "13"))
+	TSubclassOf<class UMockAdWidget> MockAdWidgetClass;
+
+protected:
+
+	// ======================================================================
 	// Настраиваемость из BP (директива Рината 07-18): геометрия панелей и ВСЕ тексты
 	// вынесены в EditAnywhere-поля. Дефолты дословно повторяют прежние зашитые значения.
 	// Формат-строки с параметрами вынесены полями Prefix/Suffix (решение game-lead:

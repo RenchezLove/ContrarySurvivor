@@ -17,14 +17,31 @@ void UOnboardingHintWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		if (!HintText)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("OnboardingHintWidget: в WBP_OnboardingHint нет кубика HintText — подсказки останутся без текста"));
+		}
+		return;
+	}
+
+	BuildCodeTree();
+	ApplyStyle(FOnboardingHintStyle());
+}
+
+void UOnboardingHintWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HintRoot"));
 	WidgetTree->RootWidget = Root;
 
 	// Плашка в палитре подсказки взаимодействия Canvas-HUD (тёмный фон, тёплый жёлтый текст).
 	// Значения — дефолты FOnboardingHintStyle; фактический стиль перекрывает ApplyStyle
 	// (EditAnywhere-настройка на UOnboardingComponent).
-	const FOnboardingHintStyle Defaults;
-
 	HintPlate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintPlate"));
 	HintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HintText"));
 	HintText->SetAutoWrapText(true);
@@ -39,12 +56,17 @@ void UOnboardingHintWidget::NativeOnInitialized()
 		PlateSlot->SetAutoSize(false);
 		PlateSlot->SetPosition(FVector2D::ZeroVector);
 	}
-
-	ApplyStyle(Defaults);
 }
 
 void UOnboardingHintWidget::ApplyStyle(const FOnboardingHintStyle& Style)
 {
+	// Дерево владельца из WBP_OnboardingHint: плашка/шрифт/позиция — его, код не трогает
+	// (ТЗ Рината 08-07). Текст подсказки ставит SetHintText в обоих путях.
+	if (bDesignerTree)
+	{
+		return;
+	}
+
 	if (HintPlate)
 	{
 		HintPlate->SetBrushColor(Style.PlateColor);

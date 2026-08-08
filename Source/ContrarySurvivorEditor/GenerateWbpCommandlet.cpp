@@ -47,6 +47,7 @@
 
 // Геймплей-модуль (включение по конвенции проекта, путь Source/ добавлен в Build.cs).
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // -hudslots: слоты UMG-классов HUD (ADR-048)
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // -hudslots 08-07: слоты окон контроллера
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
@@ -2020,6 +2021,527 @@ namespace
 	}
 
 	// ======================================================================
+	// Волна 08-07 (ТЗ Рината: «все интерфейсы — редактируемыми WBP, всё двигается
+	// мышкой, без дурацкой пунктирной сетки»): восемь окон, живших только кодовыми
+	// деревьями, получают ассеты. Правила этой волны:
+	//  - замков дизайнера НЕТ ВООБЩЕ (ни на подписях, ни на иконках, ни на коробках):
+	//    клик по любому элементу выделяет именно его, панель «Детали» доступна везде;
+	//    кнопку целиком берут кликом по её краю или в «Иерархии»;
+	//  - контент кнопок кладётся ПРЯМЫМ SetContent (не SetButtonContent — тот ставит замки);
+	//  - раскладка канвас-первая (ADR-051 п.1): плашка в канвас-слоте, внутри вложенный
+	//    канвас, каждый элемент в своём слоте с ручками;
+	//  - дефолтный вид повторяет кодовые деревья виджетов (те же тексты/цвета/шрифты).
+	// ======================================================================
+
+	// Затемнение под модалкой на весь экран (кубик DimBorder; Visible — ловит клик мимо кнопок).
+	UBorder* MakeDimLayer(UWidgetTree* Tree, UCanvasPanel* Root, const FLinearColor& Color)
+	{
+		UBorder* Dim = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+		Dim->SetBrushColor(Color);
+		Dim->SetVisibility(ESlateVisibility::Visible);
+		Dim->bIsVariable = true;
+		if (UCanvasPanelSlot* DimSlot = Root->AddChildToCanvas(Dim))
+		{
+			DimSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+			DimSlot->SetOffsets(FMargin(0.0f));
+		}
+		return Dim;
+	}
+
+	// Плашка модалки (кубик PanelPlate): тёмная заливка + золотой кант, СРАЗУ в канвас-слоте
+	// (ручки перетаскивания/ресайза), внутри вложенный канвас PanelCanvas для содержимого —
+	// сдвиг плашки мышкой тянет всё содержимое следом (паттерн BuildDialog/BuildCorpseLoot).
+	UCanvasPanel* MakeModalPlate(UWidgetTree* Tree, UCanvasPanel* Root,
+		const FAnchors& Anchors, const FVector2D& Alignment, const FVector2D& Pos,
+		const FVector2D& Size, float PanelAlpha)
+	{
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, PanelAlpha), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Plate->SetPadding(FMargin(0.0f));
+		Plate->bIsVariable = true;
+		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+		{
+			PlateSlot->SetAnchors(Anchors);
+			PlateSlot->SetAlignment(Alignment);
+			PlateSlot->SetPosition(Pos);
+			PlateSlot->SetSize(Size);
+		}
+		UCanvasPanel* PanelCanvas = Tree->ConstructWidget<UCanvasPanel>(
+			UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
+		Plate->SetContent(PanelCanvas);
+		return PanelCanvas;
+	}
+
+	// Текст, отцентрованный по горизонтали панели: якорь (0.5, AnchorY), авторазмер.
+	UCanvasPanelSlot* CanvasCentered(UCanvasPanel* Canvas, UWidget* Widget,
+		float AnchorY, const FVector2D& Alignment, const FVector2D& Pos)
+	{
+		UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget);
+		if (Slot)
+		{
+			Slot->SetAnchors(FAnchors(0.5f, AnchorY, 0.5f, AnchorY));
+			Slot->SetAlignment(Alignment);
+			Slot->SetPosition(Pos);
+			Slot->SetAutoSize(true);
+		}
+		return Slot;
+	}
+
+	// Кнопка в канвас-слоте с явным прямоугольником, центрированная по X панели.
+	void PlaceCenteredButton(UCanvasPanel* Canvas, UButton* Button,
+		float AnchorY, const FVector2D& Alignment, const FVector2D& Pos, const FVector2D& Size)
+	{
+		if (UCanvasPanelSlot* ButtonSlot = Canvas->AddChildToCanvas(Button))
+		{
+			ButtonSlot->SetAnchors(FAnchors(0.5f, AnchorY, 0.5f, AnchorY));
+			ButtonSlot->SetAlignment(Alignment);
+			ButtonSlot->SetPosition(Pos);
+			ButtonSlot->SetSize(Size);
+		}
+	}
+
+	// Светло-серая кнопка (вид штатной UButton кодовых деревьев этих окон).
+	UButton* MakeGreyButton(UWidgetTree* Tree, const FName& Name)
+	{
+		return MakeStyledButton(Tree, Name,
+			FLinearColor(0.78f, 0.78f, 0.80f, 1.0f), FLinearColor(0.90f, 0.90f, 0.92f, 1.0f),
+			FLinearColor(0.62f, 0.62f, 0.66f, 1.0f));
+	}
+
+	// Подпись кнопки БЕЗ замка (волна 08-07): прямой SetContent, текст свободен в дизайнере.
+	UTextBlock* SetUnlockedCaption(UWidgetTree* Tree, UObject* Roboto, UButton* Button,
+		const FName& Name, const FText& Caption, const FLinearColor& Color, int32 Size)
+	{
+		UTextBlock* Label = MakeText(Tree, Roboto, Name, Caption, Color, Size, TEXT("Bold"));
+		Label->SetJustification(ETextJustify::Center);
+		Label->bIsVariable = true;
+		Button->SetContent(Label);
+		return Label;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_DailyReward — окно «Ежедневная награда» (вид = UDailyRewardWidget::BuildCodeTree)
+	// ----------------------------------------------------------------------
+	bool BuildDailyReward(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Панель чуть выше середины (не спорит со статами), 440x320.
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.42f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(440.0f, 320.0f), 0.95f);
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("DailyRewardWidget", "TitleText", "ЕЖЕДНЕВНАЯ НАГРАДА"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 22, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 18.0f));
+
+		// Образцы значений — код переписывает их форматами стиля (SetupContent).
+		UTextBlock* Streak = MakeText(Tree, Roboto, TEXT("StreakText"), TEXT("День серии: 1"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 17, TEXT("Regular"));
+		Streak->bIsVariable = true;
+		CanvasCentered(Panel, Streak, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 64.0f));
+
+		UTextBlock* Reward = MakeText(Tree, Roboto, TEXT("RewardText"), TEXT("+25 монет"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 26, TEXT("Bold"));
+		Reward->bIsVariable = true;
+		CanvasCentered(Panel, Reward, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 96.0f));
+
+		// «Забрать» — светлая кнопка, подпись свободна (без замка).
+		UButton* Take = MakeGreyButton(Tree, TEXT("TakeButton"));
+		SetUnlockedCaption(Tree, Roboto, Take, TEXT("TakeText"),
+			NSLOCTEXT("DailyRewardWidget", "TakeButtonText", "Забрать"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 18);
+		PlaceCenteredButton(Panel, Take, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -88.0f), FVector2D(200.0f, 46.0f));
+
+		// Золотая кнопка удвоения (ТЗ №3): иконка видео + две строки. В ассете видима,
+		// чтобы владельцу было что редактировать; на живом экране её ведёт SetupDoubleOffer.
+		const FLinearColor Gold(0.85f, 0.62f, 0.14f, 1.0f);
+		UButton* Double = MakeStyledButton(Tree, TEXT("DoubleButton"),
+			Gold, Gold * 1.15f, Gold * 1.3f);
+
+		UHorizontalBox* DoubleRow = Tree->ConstructWidget<UHorizontalBox>(
+			UHorizontalBox::StaticClass(), TEXT("DoubleRow"));
+		UImage* DoubleIcon = MakeIcon(Tree, TEXT("WBP_DailyReward"), TEXT("DoubleIcon"),
+			TEXT("/Game/UI/Icons/T_Icon_AdVideo.T_Icon_AdVideo"), 24.0f);
+		if (UHorizontalBoxSlot* IconSlot = DoubleRow->AddChildToHorizontalBox(DoubleIcon))
+		{
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(10.0f, 0.0f, 8.0f, 0.0f));
+		}
+		UVerticalBox* DoubleLabels = Tree->ConstructWidget<UVerticalBox>(
+			UVerticalBox::StaticClass(), TEXT("DoubleLabels"));
+		const FLinearColor GoldText(0.1f, 0.08f, 0.03f, 1.0f);
+		UTextBlock* DoubleCaption = MakeText(Tree, Roboto, TEXT("DoubleText"),
+			NSLOCTEXT("DailyRewardWidget", "DoubleButtonText", "Забрать вдвое больше"),
+			GoldText, 17, TEXT("Bold"));
+		DoubleCaption->bIsVariable = true;
+		if (UVerticalBoxSlot* CaptionSlot = DoubleLabels->AddChildToVerticalBox(DoubleCaption))
+		{
+			CaptionSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		// Образец подстроки — код переписывает конкретными числами (SetupDoubleOffer).
+		UTextBlock* DoubleSub = MakeText(Tree, Roboto, TEXT("DoubleSubText"),
+			TEXT("50 монет вместо 25 за просмотр ролика"), GoldText, 11, TEXT("Regular"));
+		DoubleSub->bIsVariable = true;
+		if (UVerticalBoxSlot* SubSlot = DoubleLabels->AddChildToVerticalBox(DoubleSub))
+		{
+			SubSlot->SetHorizontalAlignment(HAlign_Center);
+		}
+		if (UHorizontalBoxSlot* LabelsSlot = DoubleRow->AddChildToHorizontalBox(DoubleLabels))
+		{
+			LabelsSlot->SetVerticalAlignment(VAlign_Center);
+			LabelsSlot->SetPadding(FMargin(0.0f, 0.0f, 10.0f, 0.0f));
+		}
+		Double->SetContent(DoubleRow); // прямой SetContent — без замков (волна 08-07)
+		PlaceCenteredButton(Panel, Double, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -16.0f), FVector2D(340.0f, 60.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_StartScreen — «Продолжить»/«Новая игра» (вид = UStartScreenWidget::BuildCodeTree)
+	// ----------------------------------------------------------------------
+	bool BuildStartScreen(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
+
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(480.0f, 320.0f), 0.97f);
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("StartScreenWidget", "TitleText", "С ВОЗВРАЩЕНИЕМ"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 24, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 26.0f));
+
+		UTextBlock* Subtitle = MakeText(Tree, Roboto, TEXT("SubtitleText"),
+			NSLOCTEXT("StartScreenWidget", "SubtitleText", "Найдено сохранение прошлой игры."),
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 15, TEXT("Regular"));
+		Subtitle->SetAutoWrapText(true);
+		Subtitle->SetJustification(ETextJustify::Center);
+		Subtitle->bIsVariable = true;
+		if (UCanvasPanelSlot* SubtitleSlot = Panel->AddChildToCanvas(Subtitle))
+		{
+			SubtitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+			SubtitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			SubtitleSlot->SetPosition(FVector2D(0.0f, 72.0f));
+			SubtitleSlot->SetSize(FVector2D(400.0f, 44.0f));
+		}
+
+		// Подписи кнопок — образцы: код переключает их между обычным выбором и переспросом
+		// «Новая игра» (ApplyChoiceLabels/ApplyConfirmLabels), тексты живут в стиле контроллера.
+		UButton* Continue = MakeGreyButton(Tree, TEXT("ContinueButton"));
+		SetUnlockedCaption(Tree, Roboto, Continue, TEXT("ContinueText"),
+			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+		PlaceCenteredButton(Panel, Continue, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -100.0f), FVector2D(280.0f, 58.0f));
+
+		UButton* NewGame = MakeGreyButton(Tree, TEXT("NewGameButton"));
+		SetUnlockedCaption(Tree, Roboto, NewGame, TEXT("NewGameText"),
+			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+		PlaceCenteredButton(Panel, NewGame, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -30.0f), FVector2D(280.0f, 58.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_Consent — экран согласия Б6 (вид = UConsentScreenWidget::BuildCodeTree).
+	// Тексты в ассете — образцы: живые всегда ставит код из настроек проекта (дословно из
+	// источника истины soglasie-i-politika.md — правка ассета их не переопределяет).
+	// ----------------------------------------------------------------------
+	bool BuildConsent(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.8f));
+
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.5f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(960.0f, 560.0f), 0.98f);
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("ConsentScreenWidget", "TitleText", "Пара слов перед началом"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 24, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 24.0f));
+
+		// Три абзаца с переносом слов в явных прямоугольниках (ручки ресайза в дизайнере).
+		auto AddParagraph = [&](const TCHAR* Name, const FText& Sample, float Y, float Height)
+		{
+			UTextBlock* Paragraph = MakeText(Tree, Roboto, Name, Sample,
+				FLinearColor(0.88f, 0.88f, 0.88f, 1.0f), 15, TEXT("Regular"));
+			Paragraph->SetAutoWrapText(true);
+			Paragraph->bIsVariable = true;
+			if (UCanvasPanelSlot* ParagraphSlot = Panel->AddChildToCanvas(Paragraph))
+			{
+				ParagraphSlot->SetAnchors(FAnchors());
+				ParagraphSlot->SetAlignment(FVector2D::ZeroVector);
+				ParagraphSlot->SetPosition(FVector2D(30.0f, Y));
+				ParagraphSlot->SetSize(FVector2D(900.0f, Height));
+			}
+		};
+		AddParagraph(TEXT("Body1Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText1",
+			"Игра бесплатная и живёт за счёт рекламы. Чтобы реклама работала, а я понимал, где игроку тяжело, игра передаёт обезличенные сведения: модель телефона, версию системы, язык, страну, рекламный идентификатор устройства и игровые события — например, начало игры, смерть, покупку в магазине, просмотр рекламного ролика."),
+			76.0f, 110.0f);
+		AddParagraph(TEXT("Body2Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText2",
+			"Этим занимаются рекламная сеть Яндекса, AppMetrica и GameAnalytics. Имя, телефон, почта, контакты и точное местоположение НЕ собираются никогда."),
+			196.0f, 60.0f);
+		AddParagraph(TEXT("Body3Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText3",
+			"Если не согласиться, играть можно точно так же: статистика отключится, а реклама станет неперсональной."),
+			266.0f, 50.0f);
+
+		UButton* Accept = MakeGreyButton(Tree, TEXT("AcceptButton"));
+		SetUnlockedCaption(Tree, Roboto, Accept, TEXT("AcceptText"),
+			NSLOCTEXT("ConsentScreenWidget", "AcceptText", "Принимаю"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+		PlaceCenteredButton(Panel, Accept, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -140.0f), FVector2D(300.0f, 58.0f));
+
+		UButton* Decline = MakeGreyButton(Tree, TEXT("DeclineButton"));
+		SetUnlockedCaption(Tree, Roboto, Decline, TEXT("DeclineText"),
+			NSLOCTEXT("ConsentScreenWidget", "DeclineText", "Не сейчас"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+		PlaceCenteredButton(Panel, Decline, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -72.0f), FVector2D(300.0f, 58.0f));
+
+		// Ссылка на политику: прозрачная кнопка, видна только подпись.
+		UButton* Policy = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PolicyButton"));
+		Policy->SetBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		Policy->bIsVariable = true;
+		UTextBlock* PolicyCaption = MakeText(Tree, Roboto, TEXT("PolicyText"),
+			NSLOCTEXT("ConsentScreenWidget", "PolicyLinkText", "Политика конфиденциальности"),
+			FLinearColor(0.55f, 0.75f, 1.0f, 1.0f), 13, TEXT("Regular"));
+		PolicyCaption->SetJustification(ETextJustify::Center);
+		PolicyCaption->bIsVariable = true;
+		Policy->SetContent(PolicyCaption);
+		CanvasCentered(Panel, Policy, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -16.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_PauseMenu — меню паузы (вид = UPauseMenuWidget::BuildCodeTree). Подписи
+	// согласия/политики/версии — образцы: живые ставит код из настроек и состояния (Б6).
+	// ----------------------------------------------------------------------
+	bool BuildPauseMenu(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.55f));
+
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(380.0f, 440.0f), 0.95f);
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("PauseMenuWidget", "TitleText", "ПАУЗА"),
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 24, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 22.0f));
+
+		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
+		auto AddMenuButton = [&](const TCHAR* ButtonName, const TCHAR* TextName,
+			const FText& Caption, float Y) -> UButton*
+		{
+			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 19);
+			PlaceCenteredButton(Panel, Button, 0.0f, FVector2D(0.5f, 0.0f),
+				FVector2D(0.0f, Y), FVector2D(280.0f, 58.0f));
+			return Button;
+		};
+		AddMenuButton(TEXT("ResumeButton"), TEXT("ResumeText"),
+			NSLOCTEXT("PauseMenuWidget", "ResumeText", "Продолжить"), 76.0f);
+		AddMenuButton(TEXT("ConsentButton"), TEXT("ConsentText"),
+			NSLOCTEXT("PauseMenuWidget", "ConsentSample", "Статистика: выключена"), 146.0f);
+		AddMenuButton(TEXT("PolicyButton"), TEXT("PolicyText"),
+			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 216.0f);
+		AddMenuButton(TEXT("QuitButton"), TEXT("QuitText"),
+			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 286.0f);
+
+		// Номер версии сборки — мелко внизу (живой текст ставит код).
+		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
+			FLinearColor(0.6f, 0.6f, 0.6f, 1.0f), 12, TEXT("Regular"));
+		Version->bIsVariable = true;
+		CanvasCentered(Panel, Version, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -14.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_Intro — интро-экран (вид = UIntroScreenWidget::BuildCodeTree). Тексты и
+	// прозрачности ведёт контроллер (это и есть анимация интро); владельцу — шрифты/позиции.
+	// ----------------------------------------------------------------------
+	bool BuildIntro(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Чёрный фон на весь экран (процедурная кисть — без текстуры).
+		UImage* Background = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("Background"));
+		Background->SetBrush(MakeRoundedBrush(FLinearColor::Black, 0.0f));
+		Background->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Background->bIsVariable = true;
+		if (UCanvasPanelSlot* BgSlot = Root->AddChildToCanvas(Background))
+		{
+			BgSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+			BgSlot->SetOffsets(FMargin(0.0f));
+		}
+
+		// Крупная строка по центру: центральная полоса ~70% ширины, авто-перенос.
+		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("LineText"), TEXT("Строка интро."),
+			FLinearColor::White, 42, TEXT("Regular"));
+		Line->SetJustification(ETextJustify::Center);
+		Line->SetAutoWrapText(true);
+		Line->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Line->bIsVariable = true;
+		CanvasStretch(Root, Line, FAnchors(0.15f, 0.42f, 0.85f, 0.58f), FMargin(0.0f));
+
+		// Подсказка пропуска внизу. Collapsed — как в кодовом дереве: показывает её только
+		// SetSkipHint при повторных заходах, иначе образец висел бы поверх интро.
+		UTextBlock* SkipHint = MakeText(Tree, Roboto, TEXT("SkipHintText"),
+			TEXT("Зажми, чтобы пропустить"), FLinearColor(0.8f, 0.8f, 0.82f, 1.0f), 22, TEXT("Regular"));
+		SkipHint->SetJustification(ETextJustify::Center);
+		SkipHint->SetVisibility(ESlateVisibility::Collapsed);
+		SkipHint->bIsVariable = true;
+		CanvasStretch(Root, SkipHint, FAnchors(0.2f, 0.88f, 0.8f, 0.96f), FMargin(0.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_OnboardingHint — тост-подсказка обучения (вид = UOnboardingHintWidget::BuildCodeTree).
+	// Текст подсказки ставит код (шаг обучения); владельцу — плашка, шрифт, позиция.
+	// ----------------------------------------------------------------------
+	bool BuildOnboardingHint(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintPlate"));
+		Plate->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.65f));
+		Plate->SetPadding(FMargin(18.0f, 12.0f));
+		Plate->bIsVariable = true;
+
+		UTextBlock* Hint = MakeText(Tree, Roboto, TEXT("HintText"),
+			TEXT("Здесь появляется подсказка обучения."),
+			FLinearColor(1.0f, 0.95f, 0.5f, 1.0f), 18, TEXT("Bold"));
+		Hint->SetAutoWrapText(true);
+		Hint->SetJustification(ETextJustify::Center);
+		Hint->bIsVariable = true;
+		Plate->SetContent(Hint);
+
+		// Верх-центр (0.5 / 0.10), фиксированная ширина — как FOnboardingHintStyle по умолчанию.
+		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+		{
+			PlateSlot->SetAnchors(FAnchors(0.5f, 0.10f, 0.5f, 0.10f));
+			PlateSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			PlateSlot->SetPosition(FVector2D::ZeroVector);
+			PlateSlot->SetSize(FVector2D(820.0f, 96.0f));
+		}
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_LimpIndicator — плашка «Ранен» (вид = ULimpIndicatorWidget::BuildCodeTree).
+	// Текст ставит код; видимостью управляет NativeTick через базу USelfHidingWidget.
+	// ----------------------------------------------------------------------
+	bool BuildLimpIndicator(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		USizeBox* WidthBox = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("WidthBox"));
+		WidthBox->SetWidthOverride(344.0f);
+		WidthBox->bIsVariable = true;
+
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Plate"));
+		Plate->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.65f));
+		Plate->SetPadding(FMargin(12.0f, 8.0f));
+		Plate->bIsVariable = true;
+
+		UTextBlock* Indicator = MakeText(Tree, Roboto, TEXT("IndicatorText"),
+			TEXT("Ранен: скорость снижена"),
+			FLinearColor(1.0f, 0.45f, 0.35f, 1.0f), 15, TEXT("Bold"));
+		Indicator->SetAutoWrapText(true);
+		Indicator->bIsVariable = true;
+
+		Plate->SetContent(Indicator);
+		WidthBox->SetContent(Plate);
+
+		// Под стеком статов (Canvas-метрики: отступ 24, стек ~180 px) — дефолт стиля.
+		if (UCanvasPanelSlot* BoxSlot = Root->AddChildToCanvas(WidthBox))
+		{
+			BoxSlot->SetAnchors(FAnchors());
+			BoxSlot->SetAlignment(FVector2D::ZeroVector);
+			BoxSlot->SetPosition(FVector2D(24.0f, 210.0f));
+			BoxSlot->SetAutoSize(true); // высота — по тексту; ширину держит SizeBox
+		}
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_MockAd — экран-заглушка рекламного ролика (вид = UMockAdWidget::BuildCodeTree).
+	// Отсчёт и появление кнопки закрытия ведёт код (NativeTick).
+	// ----------------------------------------------------------------------
+	bool BuildMockAd(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Непрозрачный тёмный фон: «ролик» перекрывает игру целиком.
+		MakeDimLayer(Tree, Root, FLinearColor(0.02f, 0.02f, 0.03f, 0.97f));
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("MockAd", "Title", "Здесь будет рекламный ролик"),
+			FLinearColor(0.95f, 0.96f, 1.0f, 1.0f), 30, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Root, Title, 0.5f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -70.0f));
+
+		// Образцы: placement и отсчёт переписывает код (SetPlacement / NativeTick).
+		UTextBlock* Placement = MakeText(Tree, Roboto, TEXT("PlacementText"), TEXT("placement"),
+			FLinearColor(0.55f, 0.57f, 0.62f, 1.0f), 12, TEXT("Regular"));
+		Placement->bIsVariable = true;
+		CanvasCentered(Root, Placement, 0.5f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -44.0f));
+
+		UTextBlock* Countdown = MakeText(Tree, Roboto, TEXT("CountdownText"), TEXT("Ролик идёт… 3"),
+			FLinearColor(0.8f, 0.8f, 0.85f, 1.0f), 18, TEXT("Regular"));
+		Countdown->bIsVariable = true;
+		CanvasCentered(Root, Countdown, 0.5f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 8.0f));
+
+		// Кнопка в ассете видима (владельцу есть что редактировать); на живом экране её
+		// прячет NativeOnInitialized и показывает конец отсчёта.
+		UButton* Close = MakeGreyButton(Tree, TEXT("CloseButton"));
+		SetUnlockedCaption(Tree, Roboto, Close, TEXT("CloseText"),
+			NSLOCTEXT("MockAd", "Close", "Закрыть"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 18);
+		PlaceCenteredButton(Root, Close, 0.5f, FVector2D(0.5f, 0.0f),
+			FVector2D(0.0f, 48.0f), FVector2D(180.0f, 48.0f));
+		return true;
+	}
+
+	// ======================================================================
 	// Таблица ассетов
 	// ======================================================================
 
@@ -2109,6 +2631,43 @@ namespace
 			{ TEXT("TitleText"), TEXT("LootList"),
 			  TEXT("TakeAllButton"), TEXT("TakeAllText"),
 			  TEXT("CloseButton"), TEXT("CloseText") } },
+		// --- Волна 08-07 (ТЗ Рината): окна, жившие только кодовыми деревьями. Все ассеты
+		// БЕЗ замков дизайнера вовсе — контракты в GLockContracts с пустым списком замков. ---
+		{ TEXT("/Game/UI/WBP_DailyReward"), TEXT("WBP_DailyReward"),
+			TEXT("/Script/ContrarySurvivor.DailyRewardWidget"), &BuildDailyReward,
+			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("StreakText"), TEXT("RewardText"),
+			  TEXT("TakeButton"), TEXT("TakeText"),
+			  TEXT("DoubleButton"), TEXT("DoubleText"), TEXT("DoubleSubText") } },
+		{ TEXT("/Game/UI/WBP_StartScreen"), TEXT("WBP_StartScreen"),
+			TEXT("/Script/ContrarySurvivor.StartScreenWidget"), &BuildStartScreen,
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			  TEXT("ContinueButton"), TEXT("ContinueText"),
+			  TEXT("NewGameButton"), TEXT("NewGameText") } },
+		{ TEXT("/Game/UI/WBP_Consent"), TEXT("WBP_Consent"),
+			TEXT("/Script/ContrarySurvivor.ConsentScreenWidget"), &BuildConsent,
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("Body1Text"), TEXT("Body2Text"), TEXT("Body3Text"),
+			  TEXT("AcceptButton"), TEXT("AcceptText"), TEXT("DeclineButton"), TEXT("DeclineText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText") } },
+		{ TEXT("/Game/UI/WBP_PauseMenu"), TEXT("WBP_PauseMenu"),
+			TEXT("/Script/ContrarySurvivor.PauseMenuWidget"), &BuildPauseMenu,
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("ResumeButton"), TEXT("ResumeText"), TEXT("ConsentButton"), TEXT("ConsentText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
+			  TEXT("VersionText") } },
+		{ TEXT("/Game/UI/WBP_Intro"), TEXT("WBP_Intro"),
+			TEXT("/Script/ContrarySurvivor.IntroScreenWidget"), &BuildIntro,
+			{ TEXT("Background"), TEXT("LineText"), TEXT("SkipHintText") } },
+		{ TEXT("/Game/UI/WBP_OnboardingHint"), TEXT("WBP_OnboardingHint"),
+			TEXT("/Script/ContrarySurvivor.OnboardingHintWidget"), &BuildOnboardingHint,
+			{ TEXT("HintPlate"), TEXT("HintText") } },
+		{ TEXT("/Game/UI/WBP_LimpIndicator"), TEXT("WBP_LimpIndicator"),
+			TEXT("/Script/ContrarySurvivor.LimpIndicatorWidget"), &BuildLimpIndicator,
+			{ TEXT("WidthBox"), TEXT("Plate"), TEXT("IndicatorText") } },
+		{ TEXT("/Game/UI/WBP_MockAd"), TEXT("WBP_MockAd"),
+			TEXT("/Script/ContrarySurvivor.MockAdWidget"), &BuildMockAd,
+			{ TEXT("DimBorder"), TEXT("TitleText"), TEXT("PlacementText"),
+			  TEXT("CountdownText"), TEXT("CloseButton"), TEXT("CloseText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -2217,6 +2776,46 @@ namespace
 			  TEXT("ConsumablesLineText"), TEXT("SavedLineText"), TEXT("LossPanel"),
 			  TEXT("LossHeaderText"), TEXT("LossGrid"), TEXT("LossMoreText"), TEXT("LossMoneyText"),
 			  TEXT("SaveBackpackButton"), TEXT("RespawnButton"), TEXT("KeyHintText") } },
+		// --- Волна 08-07: новые ассеты БЕЗ замков вовсе (прямое требование Рината: «всё
+		// можно редактировать мышкой, без этой дурацкой пунктирной сетки»). Пустой список
+		// замкнутых + полный список свободных = -verify докажет, что ни один элемент не
+		// заперт и панель «Детали» доступна везде. ---
+		{ TEXT("WBP_DailyReward"),
+			{ },
+			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("StreakText"), TEXT("RewardText"),
+			  TEXT("TakeButton"), TEXT("TakeText"),
+			  TEXT("DoubleButton"), TEXT("DoubleRow"), TEXT("DoubleIcon"),
+			  TEXT("DoubleLabels"), TEXT("DoubleText"), TEXT("DoubleSubText") } },
+		{ TEXT("WBP_StartScreen"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			  TEXT("ContinueButton"), TEXT("ContinueText"),
+			  TEXT("NewGameButton"), TEXT("NewGameText") } },
+		{ TEXT("WBP_Consent"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("Body1Text"), TEXT("Body2Text"), TEXT("Body3Text"),
+			  TEXT("AcceptButton"), TEXT("AcceptText"), TEXT("DeclineButton"), TEXT("DeclineText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText") } },
+		{ TEXT("WBP_PauseMenu"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("ResumeButton"), TEXT("ResumeText"), TEXT("ConsentButton"), TEXT("ConsentText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
+			  TEXT("VersionText") } },
+		{ TEXT("WBP_Intro"),
+			{ },
+			{ TEXT("Background"), TEXT("LineText"), TEXT("SkipHintText") } },
+		{ TEXT("WBP_OnboardingHint"),
+			{ },
+			{ TEXT("HintPlate"), TEXT("HintText") } },
+		{ TEXT("WBP_LimpIndicator"),
+			{ },
+			{ TEXT("WidthBox"), TEXT("Plate"), TEXT("IndicatorText") } },
+		{ TEXT("WBP_MockAd"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("TitleText"), TEXT("PlacementText"),
+			  TEXT("CountdownText"), TEXT("CloseButton"), TEXT("CloseText") } },
 	};
 
 	// ======================================================================
@@ -3957,33 +4556,75 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 // Поправка 08-07: тексты кнопок правятся владельцем + слот окна обыска на HUD
 // ======================================================================
 
-// Слоты UMG-классов на CDO BP_ContrarySurvivorHUD (ADR-048; имена — ContrarySurvivorHUD.h,
-// поля protected, поэтому доступ через reflection — как к дефолтам тач-слоя). Список нужен
-// печати-пруфу: какой класс стоит в каждом слоте.
+// Слоты UMG-классов на CDO блюпринтов (ADR-048; доступ через reflection — поля protected).
+// Волна 08-07: прежний точечный фикс CorpseLootWidgetClass обобщён таблицей — «какой слот
+// какого блюпринта каким классом WBP заполнять, если он пуст». Слоты окон контроллера
+// (стартовый экран/интро/пауза) живут на BP контроллера: эти окна создаёт он сам.
+static const TCHAR* GHudBlueprintPackage = TEXT("/Game/UI/BP_ContrarySurvivorHUD");
+static const TCHAR* GHudBlueprintPath = TEXT("/Game/UI/BP_ContrarySurvivorHUD.BP_ContrarySurvivorHUD");
+static const TCHAR* GPcBlueprintPackage = TEXT("/Game/System/BP_ContrarySurviorPlayerController");
+static const TCHAR* GPcBlueprintPath =
+	TEXT("/Game/System/BP_ContrarySurviorPlayerController.BP_ContrarySurviorPlayerController");
+
+struct FCdoSlotSpec
+{
+	const TCHAR* BlueprintPackage; // пакет BP (для SavePackage)
+	const TCHAR* BlueprintPath;    // объектный путь BP
+	UClass* (*BaseClass)();        // нативный родитель BP (проверка «тот ли ассет»)
+	const TCHAR* SlotName;         // имя FClassProperty на CDO
+	const TCHAR* WidgetClassPath;  // класс WBP_..._C, которым заполняется пустой слот
+};
+
+// ВАЖНО: слоты, ещё не объявленные в C++ (перенос правки чужого файла на следующую волну),
+// дают Warning и пропуск, а не ошибку: игра остаётся играбельной на кодовом фолбэке.
+static const FCdoSlotSpec GCdoSlots[] =
+{
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("CorpseLootWidgetClass"), TEXT("/Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("DailyRewardWidgetClass"), TEXT("/Game/UI/WBP_DailyReward.WBP_DailyReward_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("ConsentWidgetClass"), TEXT("/Game/UI/WBP_Consent.WBP_Consent_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("OnboardingHintWidgetClass"), TEXT("/Game/UI/WBP_OnboardingHint.WBP_OnboardingHint_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("LimpIndicatorWidgetClass"), TEXT("/Game/UI/WBP_LimpIndicator.WBP_LimpIndicator_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("MockAdWidgetClass"), TEXT("/Game/UI/WBP_MockAd.WBP_MockAd_C") },
+	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
+		TEXT("StartScreenWidgetClass"), TEXT("/Game/UI/WBP_StartScreen.WBP_StartScreen_C") },
+	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
+		TEXT("IntroScreenWidgetClass"), TEXT("/Game/UI/WBP_Intro.WBP_Intro_C") },
+	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
+		TEXT("PauseMenuWidgetClass"), TEXT("/Game/UI/WBP_PauseMenu.WBP_PauseMenu_C") },
+};
+
+// Печать-пруф: все слоты UMG-классов HUD (стабильный формат — срезы «до/после» сравниваются
+// глазами). Расширен слотами волны 08-07.
 static const TCHAR* GHudWidgetSlotNames[] =
 {
 	TEXT("ShopWidgetClass"), TEXT("DialogWidgetClass"), TEXT("InventoryWidgetClass"),
 	TEXT("DeathWidgetClass"), TEXT("PlayerStatsWidgetClass"), TEXT("QuestTrackerWidgetClass"),
 	TEXT("InteractPromptWidgetClass"), TEXT("CorpseLootWidgetClass"),
+	TEXT("DailyRewardWidgetClass"), TEXT("ConsentWidgetClass"), TEXT("OnboardingHintWidgetClass"),
+	TEXT("LimpIndicatorWidgetClass"), TEXT("MockAdWidgetClass"),
 };
 
-static const TCHAR* GHudBlueprintPackage = TEXT("/Game/UI/BP_ContrarySurvivorHUD");
-static const TCHAR* GHudBlueprintPath = TEXT("/Game/UI/BP_ContrarySurvivorHUD.BP_ContrarySurvivorHUD");
-
-// Загрузить BP HUD и вернуть CDO его generated-класса (nullptr при любой беде, лог пишется).
-static UObject* LoadHudCdo(UBlueprint*& OutBP)
+// Загрузить BP по пути и вернуть CDO его generated-класса (nullptr при любой беде, лог пишется).
+static UObject* LoadBpCdo(const TCHAR* BlueprintPath, UClass* ExpectedBase, UBlueprint*& OutBP)
 {
-	OutBP = LoadObject<UBlueprint>(nullptr, GHudBlueprintPath);
+	OutBP = LoadObject<UBlueprint>(nullptr, BlueprintPath);
 	if (!OutBP || !OutBP->GeneratedClass)
 	{
 		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: %s не загрузился (или без generated-класса)."),
-			GHudBlueprintPath);
+			BlueprintPath);
 		return nullptr;
 	}
-	if (!OutBP->GeneratedClass->IsChildOf(AContrarySurvivorHUD::StaticClass()))
+	if (!OutBP->GeneratedClass->IsChildOf(ExpectedBase))
 	{
-		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: %s — родитель не AContrarySurvivorHUD (%s)."),
-			GHudBlueprintPath, *OutBP->GeneratedClass->GetSuperClass()->GetPathName());
+		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: %s — родитель не %s (%s)."),
+			BlueprintPath, *ExpectedBase->GetName(),
+			*OutBP->GeneratedClass->GetSuperClass()->GetPathName());
 		return nullptr;
 	}
 	return OutBP->GeneratedClass->GetDefaultObject();
@@ -4084,72 +4725,117 @@ int32 UGenerateWbpCommandlet::UnlockButtonCaptions()
 
 int32 UGenerateWbpCommandlet::FixHudWidgetSlots()
 {
-	// ТЗ Рината 08-07 п.1 («WBP_CorpseLoot видимо не используется»): слот
-	// CorpseLootWidgetClass ассета BP_ContrarySurvivorHUD ПУСТ — единственный из восьми,
-	// который никогда не заполнялся (остальные Ринат назначил в редакторе руками, а для
-	// окна обыска пустой слот незаметен: по ContrarySurvivorHUD.h:604-608 обыск молча
-	// работает на кодовом запасном дереве со старой мелкой кнопкой — оно и уехало в
-	// сборку на телефон, правки Рината в WBP_CorpseLoot не видны). Заполняем слот классом
-	// WBP_CorpseLoot_C тем же путём, каким GenerateOne пишет класс плитки на CDO окна
-	// (правка CDO + SavePackage). Идемпотентно: непустой слот НЕ трогается (это выбор
-	// владельца), правка только «пусто -> WBP_CorpseLoot_C».
-	UBlueprint* BP = nullptr;
-	UObject* HudCdo = LoadHudCdo(BP);
-	if (!HudCdo)
-	{
-		return 1;
-	}
-	DumpHudWidgetSlots(TEXT("до"), HudCdo);
+	// ТЗ Рината 08-07: заполнить ПУСТЫЕ слоты UMG-классов по таблице GCdoSlots (началось с
+	// CorpseLootWidgetClass п.1 — пустой слот незаметен: окно молча живёт на кодовом
+	// запасном дереве, и правки владельца в WBP не видны; теперь так же подключаются все
+	// окна волны 08-07). Правка тем же путём, каким GenerateOne пишет класс плитки на CDO
+	// окна (правка CDO + SavePackage). Идемпотентно: непустой слот НЕ трогается (выбор
+	// владельца), правка только «пусто -> WBP_..._C». Слот, ещё не объявленный в C++
+	// (перенос правки чужого файла на следующую волну), — Warning и пропуск, не ошибка.
+	int32 Errors = 0;
 
-	FClassProperty* SlotProp = FindFProperty<FClassProperty>(HudCdo->GetClass(),
-		TEXT("CorpseLootWidgetClass"));
-	if (!SlotProp)
+	// Оба блюпринта грузим по одному разу, копим факт изменения — SavePackage один на ассет.
+	struct FBpBatch
 	{
-		UE_LOG(LogGenerateWbp, Error,
-			TEXT("HUDSLOT: свойства CorpseLootWidgetClass в классе HUD нет — сверить с ContrarySurvivorHUD.h."));
-		return 1;
-	}
-	if (SlotProp->GetObjectPropertyValue_InContainer(HudCdo))
+		UBlueprint* BP = nullptr;
+		UObject* Cdo = nullptr;
+		bool bChanged = false;
+		const TCHAR* Package = nullptr;
+	};
+	TMap<FString, FBpBatch> Batches;
+
+	for (const FCdoSlotSpec& SlotSpec : GCdoSlots)
 	{
-		UE_LOG(LogGenerateWbp, Display,
-			TEXT("HUDSLOT SKIP: CorpseLootWidgetClass уже заполнен — не трогаю (выбор владельца)."));
-		return 0;
+		FBpBatch* Batch = Batches.Find(SlotSpec.BlueprintPath);
+		if (!Batch)
+		{
+			FBpBatch NewBatch;
+			NewBatch.Package = SlotSpec.BlueprintPackage;
+			NewBatch.Cdo = LoadBpCdo(SlotSpec.BlueprintPath, SlotSpec.BaseClass(), NewBatch.BP);
+			Batch = &Batches.Add(SlotSpec.BlueprintPath, NewBatch);
+			// Печать-пруф всех слотов — только для HUD (список имён GHudWidgetSlotNames его);
+			// у контроллера слоты печатаются поштучно по ходу цикла.
+			if (Batch->Cdo && FCString::Strcmp(SlotSpec.BlueprintPath, GHudBlueprintPath) == 0)
+			{
+				DumpHudWidgetSlots(TEXT("до"), Batch->Cdo);
+			}
+		}
+		if (!Batch->Cdo)
+		{
+			++Errors;
+			continue;
+		}
+
+		FClassProperty* SlotProp = FindFProperty<FClassProperty>(Batch->Cdo->GetClass(),
+			SlotSpec.SlotName);
+		if (!SlotProp)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("HUDSLOT SKIP: свойства %s в %s ещё нет (слот не объявлен в C++) — окно живёт на кодовом фолбэке."),
+				SlotSpec.SlotName, SlotSpec.BlueprintPath);
+			continue;
+		}
+		if (SlotProp->GetObjectPropertyValue_InContainer(Batch->Cdo))
+		{
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("HUDSLOT SKIP: %s уже заполнен — не трогаю (выбор владельца)."),
+				SlotSpec.SlotName);
+			continue;
+		}
+
+		UClass* WidgetClass = StaticLoadClass(UUserWidget::StaticClass(), nullptr,
+			SlotSpec.WidgetClassPath);
+		if (!WidgetClass)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("HUDSLOT: класс %s не загрузился — слот %s не заполнен."),
+				SlotSpec.WidgetClassPath, SlotSpec.SlotName);
+			++Errors;
+			continue;
+		}
+		if (SlotProp->MetaClass && !WidgetClass->IsChildOf(SlotProp->MetaClass))
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("HUDSLOT: %s не наследует %s — слот %s не заполнен."),
+				SlotSpec.WidgetClassPath, *SlotProp->MetaClass->GetPathName(), SlotSpec.SlotName);
+			++Errors;
+			continue;
+		}
+
+		Batch->BP->Modify();
+		SlotProp->SetObjectPropertyValue_InContainer(Batch->Cdo, WidgetClass);
+		Batch->bChanged = true;
+		UE_LOG(LogGenerateWbp, Display, TEXT("HUDSLOT OK: %s = %s."),
+			SlotSpec.SlotName, *WidgetClass->GetPathName());
 	}
 
-	UClass* CorpseClass = StaticLoadClass(UCorpseLootWidget::StaticClass(), nullptr,
-		TEXT("/Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C"));
-	if (!CorpseClass)
+	for (TPair<FString, FBpBatch>& Pair : Batches)
 	{
-		UE_LOG(LogGenerateWbp, Error,
-			TEXT("HUDSLOT: класс /Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C не загрузился — слот не заполнен."));
-		return 1;
-	}
-	if (SlotProp->MetaClass && !CorpseClass->IsChildOf(SlotProp->MetaClass))
-	{
-		UE_LOG(LogGenerateWbp, Error,
-			TEXT("HUDSLOT: WBP_CorpseLoot_C не наследует %s — слот не заполнен."),
-			*SlotProp->MetaClass->GetPathName());
-		return 1;
-	}
-
-	BP->Modify();
-	SlotProp->SetObjectPropertyValue_InContainer(HudCdo, CorpseClass);
-
-	const FString Filename = FPackageName::LongPackageNameToFilename(
-		GHudBlueprintPackage, FPackageName::GetAssetPackageExtension());
-	FSavePackageArgs SaveArgs;
-	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
-	if (!UPackage::SavePackage(BP->GetOutermost(), BP, *Filename, SaveArgs))
-	{
-		UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: SavePackage не сохранил %s."), *Filename);
-		return 1;
+		FBpBatch& Batch = Pair.Value;
+		if (!Batch.Cdo || !Batch.bChanged)
+		{
+			continue;
+		}
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			Batch.Package, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(Batch.BP->GetOutermost(), Batch.BP, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("HUDSLOT: SavePackage не сохранил %s."), *Filename);
+			++Errors;
+			continue;
+		}
+		if (Pair.Key == GHudBlueprintPath)
+		{
+			DumpHudWidgetSlots(TEXT("после"), Batch.Cdo);
+		}
+		UE_LOG(LogGenerateWbp, Display, TEXT("HUDSLOT: ассет сохранён (%s)."), *Filename);
 	}
 
-	DumpHudWidgetSlots(TEXT("после"), HudCdo);
-	UE_LOG(LogGenerateWbp, Display,
-		TEXT("HUDSLOT OK: CorpseLootWidgetClass = %s, ассет сохранён (%s)."),
-		*CorpseClass->GetPathName(), *Filename);
-	return 0;
+	UE_LOG(LogGenerateWbp, Display, TEXT("HUDSLOT ИТОГ: ошибок %d из %d слотов таблицы."),
+		Errors, static_cast<int32>(UE_ARRAY_COUNT(GCdoSlots)));
+	return Errors > 0 ? 1 : 0;
 }
 
 int32 UGenerateWbpCommandlet::GenerateAll(bool bForce)
@@ -4283,42 +4969,57 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 		}
 	}
 
-	// Контракт HUD (08-07): слот CorpseLootWidgetClass на BP_ContrarySurvivorHUD заполнен
-	// классом-наследником UCorpseLootWidget. Пустой слот у окна обыска НЕ безобиден:
-	// Canvas-пути у этого окна нет (ContrarySurvivorHUD.h:604-608) — везде, включая
-	// телефон, молча работает кодовое запасное дерево, и правки владельца в WBP не видны.
+	// Контракт слотов CDO (08-07, обобщён таблицей GCdoSlots): каждый заявленный слот HUD и
+	// контроллера заполнен классом-наследником своего окна. Пустой слот НЕ безобиден: окно
+	// молча живёт на кодовом запасном дереве, и правки владельца в WBP не видны (чинится
+	// -hudslots). Слот, ещё не объявленный в C++ (перенос правки чужого файла на следующую
+	// волну), — Warning, не провал: игра играбельна на кодовом фолбэке.
 	{
-		UBlueprint* HudBP = nullptr;
-		UObject* HudCdo = LoadHudCdo(HudBP);
-		if (!HudCdo)
+		bool bHudDumped = false;
+		for (const FCdoSlotSpec& SlotSpec : GCdoSlots)
 		{
-			++FailCount;
-		}
-		else
-		{
-			DumpHudWidgetSlots(TEXT("verify"), HudCdo);
-			const FClassProperty* SlotProp = FindFProperty<FClassProperty>(HudCdo->GetClass(),
-				TEXT("CorpseLootWidgetClass"));
-			const UClass* SlotValue = SlotProp
-				? Cast<UClass>(SlotProp->GetObjectPropertyValue_InContainer(HudCdo)) : nullptr;
+			UBlueprint* BP = nullptr;
+			UObject* Cdo = LoadBpCdo(SlotSpec.BlueprintPath, SlotSpec.BaseClass(), BP);
+			if (!Cdo)
+			{
+				++FailCount;
+				continue;
+			}
+			if (!bHudDumped && FCString::Strcmp(SlotSpec.BlueprintPath, GHudBlueprintPath) == 0)
+			{
+				DumpHudWidgetSlots(TEXT("verify"), Cdo);
+				bHudDumped = true;
+			}
+
+			const FClassProperty* SlotProp = FindFProperty<FClassProperty>(Cdo->GetClass(),
+				SlotSpec.SlotName);
+			if (!SlotProp)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("VERIFY: свойства %s в %s ещё нет (слот не объявлен в C++) — окно живёт на кодовом фолбэке."),
+					SlotSpec.SlotName, SlotSpec.BlueprintPath);
+				continue;
+			}
+			const UClass* SlotValue =
+				Cast<UClass>(SlotProp->GetObjectPropertyValue_InContainer(Cdo));
 			if (!SlotValue)
 			{
 				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: BP_ContrarySurvivorHUD — слот CorpseLootWidgetClass пуст: окно обыска живёт на кодовом запасном дереве, WBP_CorpseLoot не используется (чинится -hudslots)."));
+					TEXT("VERIFY FAIL: слот %s пуст — окно живёт на кодовом запасном дереве, %s не используется (чинится -hudslots)."),
+					SlotSpec.SlotName, SlotSpec.WidgetClassPath);
 				++FailCount;
 			}
-			else if (!SlotValue->IsChildOf(UCorpseLootWidget::StaticClass()))
+			else if (SlotProp->MetaClass && !SlotValue->IsChildOf(SlotProp->MetaClass))
 			{
 				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: BP_ContrarySurvivorHUD — в слоте CorpseLootWidgetClass чужой класс %s."),
-					*SlotValue->GetPathName());
+					TEXT("VERIFY FAIL: в слоте %s чужой класс %s."),
+					SlotSpec.SlotName, *SlotValue->GetPathName());
 				++FailCount;
 			}
 			else
 			{
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("VERIFY OK: BP_ContrarySurvivorHUD — CorpseLootWidgetClass = %s."),
-					*SlotValue->GetPathName());
+				UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY OK: слот %s = %s."),
+					SlotSpec.SlotName, *SlotValue->GetPathName());
 			}
 		}
 	}

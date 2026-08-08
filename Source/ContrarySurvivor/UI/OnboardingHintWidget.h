@@ -45,10 +45,15 @@ struct FOnboardingHintStyle
 
 /**
  * Всплывающая подсказка онбординга (Этап F1): тёмная плашка с текстом сверху по центру
- * экрана. Дерево целиком строится в C++ (WidgetTree), создаётся напрямую из класса —
- * BP-наследник не нужен. Показ/скрытие управляет UOnboardingComponent (таймер/любой ввод).
+ * экрана. Показ/скрытие управляет UOnboardingComponent (таймер/любой ввод).
  * Верх-центр выбран, чтобы не спорить с подсказкой взаимодействия «E — подобрать»
  * (низ-центр) и статами игрока (верх-лево)/трекером квеста (верх-право).
+ *
+ * ТЗ Рината 08-07 — два пути, как у UEndOfStoryWidget (архитектура ADR-048):
+ *  - создан из WBP_OnboardingHint (слот OnboardingHintWidgetClass на HUD) → дерево
+ *    владельца из дизайнера (плашка и шрифт правятся мышкой), стиль код не перекрашивает;
+ *    сам текст подсказки ставит код (SetHintText) — он зависит от шага обучения;
+ *  - ассета нет / слот пуст → прежний кодовый вид (BuildCodeTree + FOnboardingHintStyle).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UOnboardingHintWidget : public UUserWidget
@@ -61,15 +66,25 @@ public:
 
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт UOnboardingComponent сразу после создания виджета.
+	// При дизайнер-дереве не делает ничего — вид целиком в ассете.
 	void ApplyStyle(const FOnboardingHintStyle& Style);
 
 protected:
 	virtual void NativeOnInitialized() override;
 
 private:
-	UPROPERTY()
+	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
+	// те же, что генерирует коммандлет в WBP_OnboardingHint.
+	void BuildCodeTree();
+
+	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
+
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> HintText;
 
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> HintPlate;
+
+	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
+	bool bDesignerTree = false;
 };

@@ -21,12 +21,31 @@ void UIntroScreenWidget::NativeOnInitialized()
 	// Слой не должен перехватывать ввод (пропуск ловится опросом клавиш контроллером).
 	SetVisibility(ESlateVisibility::HitTestInvisible);
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики (Background/LineText/SkipHintText) привязаны — строить нечего,
+	// шрифты и позиции строк за владельцем; альфы и тексты дальше ведёт контроллер.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		if (!Background || !LineText)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("IntroScreenWidget: в WBP_Intro нет кубика Background или LineText — интро останется без этого элемента"));
+		}
+		return;
+	}
+
+	BuildCodeTree();
+}
+
+void UIntroScreenWidget::BuildCodeTree()
+{
 	RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("IntroRoot"));
 	WidgetTree->RootWidget = RootCanvas;
 
 	// Чёрный фон на весь экран. Процедурная кисть RoundedBox с нулевым скруглением рисует
 	// сплошной прямоугольник без текстуры (тот же приём, что круглые кнопки тач-слоя).
-	Background = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("IntroBackground"));
+	Background = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("Background"));
 	{
 		FSlateBrush Brush;
 		Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
@@ -43,7 +62,7 @@ void UIntroScreenWidget::NativeOnInitialized()
 	}
 
 	// Крупная строка по центру. Центральная полоса ~70% ширины, авто-перенос длинных строк.
-	LineText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("IntroLine"));
+	LineText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("LineText"));
 	LineText->SetJustification(ETextJustify::Center);
 	LineText->SetAutoWrapText(true);
 	LineText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
@@ -60,7 +79,7 @@ void UIntroScreenWidget::NativeOnInitialized()
 	}
 
 	// Подсказка пропуска внизу (мелкая, светло-серая). По умолчанию скрыта.
-	SkipHintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("IntroSkipHint"));
+	SkipHintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SkipHintText"));
 	SkipHintText->SetJustification(ETextJustify::Center);
 	SkipHintText->SetColorAndOpacity(FSlateColor(FLinearColor(0.8f, 0.8f, 0.82f, 1.0f)));
 	SkipHintText->SetVisibility(ESlateVisibility::Collapsed);

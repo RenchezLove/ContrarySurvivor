@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/StartScreenWidget.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -21,16 +22,56 @@ void UStartScreenWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ TitleText, TEXT("TitleText") }, { SubtitleText, TEXT("SubtitleText") },
+			{ ContinueButton, TEXT("ContinueButton") }, { ContinueText, TEXT("ContinueText") },
+			{ NewGameButton, TEXT("NewGameButton") }, { NewGameText, TEXT("NewGameText") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("StartScreenWidget: кубик %s не найден в WBP_StartScreen — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
+	if (ContinueButton)
+	{
+		ContinueButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleContinueClicked);
+	}
+	if (NewGameButton)
+	{
+		NewGameButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleNewGameClicked);
+	}
+
+	if (!bDesignerTree)
+	{
+		ApplyStyle(CachedStyle);
+	}
+}
+
+void UStartScreenWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("StartRoot"));
 	WidgetTree->RootWidget = Root;
 
-	// Стиль (цвета/тексты/шрифты) — дефолты FStartScreenStyle; фактический стиль перекрывает
-	// ApplyStyle (EditAnywhere-настройка контроллера, тот же паттерн, что у меню паузы).
-	const FStartScreenStyle Defaults;
-
 	// Затемнение на весь экран. Visible — ловит хит-тест, чтобы клик мимо кнопок не ушёл в мир.
-	DimmerBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StartDimmer"));
-	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimmerBorder))
+	DimBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimBorder))
 	{
 		DimmerSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
 		DimmerSlot->SetOffsets(FMargin(0.0f));
@@ -47,31 +88,33 @@ void UStartScreenWidget::NativeOnInitialized()
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("StartColumn"));
 	PanelBorder->SetContent(Column);
 
-	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartTitle"));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
+	const FStartScreenStyle Defaults;
+
+	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleText))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	}
 
-	SubtitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartSubtitle"));
-	SubtitleBlock->SetAutoWrapText(true);
-	SubtitleBlock->SetJustification(ETextJustify::Center);
-	if (UVerticalBoxSlot* SubtitleSlot = Column->AddChildToVerticalBox(SubtitleBlock))
+	SubtitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SubtitleText"));
+	SubtitleText->SetAutoWrapText(true);
+	SubtitleText->SetJustification(ETextJustify::Center);
+	if (UVerticalBoxSlot* SubtitleSlot = Column->AddChildToVerticalBox(SubtitleText))
 	{
 		SubtitleSlot->SetHorizontalAlignment(HAlign_Center);
 		SubtitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 22.0f));
 	}
 
-	if (UButton* ContinueButton = MakeMenuButton(Column, Defaults.ContinueText, TEXT("StartContinue")))
+	ContinueButton = MakeMenuButton(Column, Defaults.ContinueText, TEXT("ContinueButton"));
+	if (ContinueButton)
 	{
-		ContinueButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleContinueClicked);
-		ContinueLabel = Cast<UTextBlock>(ContinueButton->GetContent());
+		ContinueText = Cast<UTextBlock>(ContinueButton->GetContent());
 	}
-	if (UButton* NewGameButton = MakeMenuButton(Column, Defaults.NewGameText, TEXT("StartNewGame")))
+	NewGameButton = MakeMenuButton(Column, Defaults.NewGameText, TEXT("NewGameButton"));
+	if (NewGameButton)
 	{
-		NewGameButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleNewGameClicked);
-		NewGameLabel = Cast<UTextBlock>(NewGameButton->GetContent());
+		NewGameText = Cast<UTextBlock>(NewGameButton->GetContent());
 	}
 
 	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
@@ -81,24 +124,27 @@ void UStartScreenWidget::NativeOnInitialized()
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
-
-	ApplyStyle(Defaults);
 }
 
 void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 {
 	CachedStyle = Style;
 
-	if (DimmerBorder) { DimmerBorder->SetBrushColor(Style.DimColor); }
-	if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
-	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
-
-	for (USizeBox* Box : ButtonBoxes)
+	// Дерево владельца из WBP_StartScreen: цвета/шрифты/размеры — его, код не перекрашивает
+	// (ТЗ Рината 08-07). Тексты переключаются ниже — они зависят от режима переспроса.
+	if (!bDesignerTree)
 	{
-		if (Box)
+		if (DimBorder)    { DimBorder->SetBrushColor(Style.DimColor); }
+		if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
+		if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
+
+		for (USizeBox* Box : ButtonBoxes)
 		{
-			Box->SetWidthOverride(Style.ButtonSize.X);
-			Box->SetHeightOverride(Style.ButtonSize.Y);
+			if (Box)
+			{
+				Box->SetWidthOverride(Style.ButtonSize.X);
+				Box->SetHeightOverride(Style.ButtonSize.Y);
+			}
 		}
 	}
 
@@ -109,60 +155,78 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 
 void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 {
-	if (TitleBlock)
+	if (TitleText)
 	{
-		TitleBlock->SetText(Style.TitleText);
-		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
-		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		TitleText->SetText(Style.TitleText);
+		if (!bDesignerTree)
+		{
+			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+			TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		}
 	}
-	if (SubtitleBlock)
+	if (SubtitleText)
 	{
-		SubtitleBlock->SetText(Style.SubtitleText);
-		SubtitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
-		SubtitleBlock->SetColorAndOpacity(FSlateColor(Style.SubtitleColor));
+		SubtitleText->SetText(Style.SubtitleText);
+		if (!bDesignerTree)
+		{
+			SubtitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
+			SubtitleText->SetColorAndOpacity(FSlateColor(Style.SubtitleColor));
+		}
 	}
 
-	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
 	{
 		if (Label)
 		{
 			Label->SetText(Text);
-			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			if (!bDesignerTree)
+			{
+				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+				Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			}
 		}
 	};
-	StyleButtonLabel(ContinueLabel, Style.ContinueText);
-	StyleButtonLabel(NewGameLabel, Style.NewGameText);
+	StyleButtonLabel(ContinueText, Style.ContinueText);
+	StyleButtonLabel(NewGameText, Style.NewGameText);
 }
 
 void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 {
 	// Переспрос «Точно начать заново?» (решение лида 08-05): те же две кнопки, другие подписи —
 	// «Продолжить» временно становится «Отмена», «Новая игра» — «Да, начать заново».
-	if (TitleBlock)
+	if (TitleText)
 	{
-		TitleBlock->SetText(Style.ConfirmTitleText);
-		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
-		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		TitleText->SetText(Style.ConfirmTitleText);
+		if (!bDesignerTree)
+		{
+			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+			TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		}
 	}
-	if (SubtitleBlock)
+	if (SubtitleText)
 	{
-		SubtitleBlock->SetText(Style.ConfirmSubtitleText);
-		SubtitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
-		SubtitleBlock->SetColorAndOpacity(FSlateColor(Style.SubtitleColor));
+		SubtitleText->SetText(Style.ConfirmSubtitleText);
+		if (!bDesignerTree)
+		{
+			SubtitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
+			SubtitleText->SetColorAndOpacity(FSlateColor(Style.SubtitleColor));
+		}
 	}
 
-	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
 	{
 		if (Label)
 		{
 			Label->SetText(Text);
-			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			if (!bDesignerTree)
+			{
+				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+				Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			}
 		}
 	};
-	StyleButtonLabel(ContinueLabel, Style.ConfirmCancelText);
-	StyleButtonLabel(NewGameLabel, Style.ConfirmYesText);
+	StyleButtonLabel(ContinueText, Style.ConfirmCancelText);
+	StyleButtonLabel(NewGameText, Style.ConfirmYesText);
 }
 
 UButton* UStartScreenWidget::MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName)

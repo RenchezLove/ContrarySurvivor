@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/ConsentScreenWidget.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -21,6 +22,57 @@ void UConsentScreenWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
+		{
+			{ TitleText, TEXT("TitleText") },
+			{ Body1Text, TEXT("Body1Text") }, { Body2Text, TEXT("Body2Text") },
+			{ Body3Text, TEXT("Body3Text") },
+			{ AcceptButton, TEXT("AcceptButton") }, { AcceptText, TEXT("AcceptText") },
+			{ DeclineButton, TEXT("DeclineButton") }, { DeclineText, TEXT("DeclineText") },
+			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
+		};
+		for (const auto& Entry : Expected)
+		{
+			if (!Entry.W)
+			{
+				UE_LOG(LogQA, Warning,
+					TEXT("ConsentScreenWidget: кубик %s не найден в WBP_Consent — элемент отключён"),
+					Entry.Name);
+			}
+		}
+	}
+	else
+	{
+		BuildCodeTree();
+	}
+
+	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
+	if (AcceptButton)
+	{
+		AcceptButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandleAcceptClicked);
+	}
+	if (DeclineButton)
+	{
+		DeclineButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandleDeclineClicked);
+	}
+	if (PolicyButton)
+	{
+		PolicyButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandlePolicyClicked);
+	}
+
+	if (!bDesignerTree)
+	{
+		ApplyStyle(FConsentScreenStyle());
+	}
+}
+
+void UConsentScreenWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ConsentRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -29,8 +81,8 @@ void UConsentScreenWidget::NativeOnInitialized()
 	const FConsentScreenStyle Defaults;
 
 	// Затемнение на весь экран. Visible — ловит хит-тест, чтобы касание мимо кнопок не ушло в мир.
-	DimmerBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ConsentDimmer"));
-	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimmerBorder))
+	DimBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
+	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimBorder))
 	{
 		DimmerSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
 		DimmerSlot->SetOffsets(FMargin(0.0f));
@@ -51,34 +103,33 @@ void UConsentScreenWidget::NativeOnInitialized()
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ConsentColumn"));
 	ColumnBox->SetContent(Column);
 
-	TitleBlock = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ConsentTitle"));
-	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleBlock))
+	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
+	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleText))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
 		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
 	}
 
-	BodyBlocks.Add(MakeParagraph(Column, Defaults.BodyText1, TEXT("ConsentBody1")));
-	BodyBlocks.Add(MakeParagraph(Column, Defaults.BodyText2, TEXT("ConsentBody2")));
-	BodyBlocks.Add(MakeParagraph(Column, Defaults.BodyText3, TEXT("ConsentBody3")));
+	Body1Text = MakeParagraph(Column, Defaults.BodyText1, TEXT("Body1Text"));
+	Body2Text = MakeParagraph(Column, Defaults.BodyText2, TEXT("Body2Text"));
+	Body3Text = MakeParagraph(Column, Defaults.BodyText3, TEXT("Body3Text"));
 
-	if (UButton* AcceptButton = MakeMenuButton(Column, Defaults.AcceptText, TEXT("ConsentAccept")))
+	AcceptButton = MakeMenuButton(Column, Defaults.AcceptText, TEXT("AcceptButton"));
+	if (AcceptButton)
 	{
-		AcceptButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandleAcceptClicked);
-		AcceptLabel = Cast<UTextBlock>(AcceptButton->GetContent());
+		AcceptText = Cast<UTextBlock>(AcceptButton->GetContent());
 	}
-	if (UButton* DeclineButton = MakeMenuButton(Column, Defaults.DeclineText, TEXT("ConsentDecline")))
+	DeclineButton = MakeMenuButton(Column, Defaults.DeclineText, TEXT("DeclineButton"));
+	if (DeclineButton)
 	{
-		DeclineButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandleDeclineClicked);
-		DeclineLabel = Cast<UTextBlock>(DeclineButton->GetContent());
+		DeclineText = Cast<UTextBlock>(DeclineButton->GetContent());
 	}
 
 	// Ссылка на политику — мелкой строкой под кнопками (по источнику истины, раздел 2).
-	PolicyButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("ConsentPolicy"));
-	PolicyLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ConsentPolicyLabel"));
-	PolicyLabel->SetText(Defaults.PolicyLinkText);
-	PolicyButton->SetContent(PolicyLabel);
-	PolicyButton->OnClicked.AddDynamic(this, &UConsentScreenWidget::HandlePolicyClicked);
+	PolicyButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PolicyButton"));
+	PolicyText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PolicyText"));
+	PolicyText->SetText(Defaults.PolicyLinkText);
+	PolicyButton->SetContent(PolicyText);
 	// Кнопка-ссылка без своей заливки: видна только подпись.
 	PolicyButton->SetBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	if (UVerticalBoxSlot* PolicySlot = Column->AddChildToVerticalBox(PolicyButton))
@@ -94,28 +145,36 @@ void UConsentScreenWidget::NativeOnInitialized()
 		PanelSlot->SetAutoSize(true);
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
 	}
-
-	ApplyStyle(Defaults);
 }
 
 void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 {
-	if (DimmerBorder) { DimmerBorder->SetBrushColor(Style.DimColor); }
-	if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
-	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
-	if (ColumnBox)    { ColumnBox->SetWidthOverride(FMath::Max(200.0f, Style.TextColumnWidth)); }
-
-	if (TitleBlock)
+	// Дерево владельца из WBP_Consent: цвета/шрифты/размеры — его (ТЗ Рината 08-07).
+	// ТЕКСТЫ ставятся в обоих путях: формулировки согласия — дословно из источника истины
+	// (издатель проверяет), правка ассета их переопределять не должна.
+	if (!bDesignerTree)
 	{
-		TitleBlock->SetText(Style.TitleText);
-		TitleBlock->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
-		TitleBlock->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		if (DimBorder)    { DimBorder->SetBrushColor(Style.DimColor); }
+		if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
+		if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
+		if (ColumnBox)    { ColumnBox->SetWidthOverride(FMath::Max(200.0f, Style.TextColumnWidth)); }
 	}
 
-	const FText BodyTexts[] = { Style.BodyText1, Style.BodyText2, Style.BodyText3 };
-	for (int32 Index = 0; Index < BodyBlocks.Num(); ++Index)
+	if (TitleText)
 	{
-		UTextBlock* Block = BodyBlocks[Index];
+		TitleText->SetText(Style.TitleText);
+		if (!bDesignerTree)
+		{
+			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
+			TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
+		}
+	}
+
+	UTextBlock* const Bodies[] = { Body1Text.Get(), Body2Text.Get(), Body3Text.Get() };
+	const FText BodyTexts[] = { Style.BodyText1, Style.BodyText2, Style.BodyText3 };
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Bodies); ++Index)
+	{
+		UTextBlock* Block = Bodies[Index];
 		if (!Block)
 		{
 			continue;
@@ -128,35 +187,47 @@ void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 		}
 		Block->SetVisibility(ESlateVisibility::HitTestInvisible);
 		Block->SetText(BodyTexts[Index]);
-		Block->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.BodyFontSize)));
-		Block->SetColorAndOpacity(FSlateColor(Style.BodyColor));
+		if (!bDesignerTree)
+		{
+			Block->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.BodyFontSize)));
+			Block->SetColorAndOpacity(FSlateColor(Style.BodyColor));
+		}
 	}
 
-	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
 	{
 		if (Label)
 		{
 			Label->SetText(Text);
-			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			if (!bDesignerTree)
+			{
+				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+				Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+			}
 		}
 	};
-	StyleButtonLabel(AcceptLabel, Style.AcceptText);
-	StyleButtonLabel(DeclineLabel, Style.DeclineText);
+	StyleButtonLabel(AcceptText, Style.AcceptText);
+	StyleButtonLabel(DeclineText, Style.DeclineText);
 
-	if (PolicyLabel)
+	if (PolicyText)
 	{
-		PolicyLabel->SetText(Style.PolicyLinkText);
-		PolicyLabel->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.LinkFontSize)));
-		PolicyLabel->SetColorAndOpacity(FSlateColor(Style.LinkColor));
+		PolicyText->SetText(Style.PolicyLinkText);
+		if (!bDesignerTree)
+		{
+			PolicyText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.LinkFontSize)));
+			PolicyText->SetColorAndOpacity(FSlateColor(Style.LinkColor));
+		}
 	}
 
-	for (USizeBox* Box : ButtonBoxes)
+	if (!bDesignerTree)
 	{
-		if (Box)
+		for (USizeBox* Box : ButtonBoxes)
 		{
-			Box->SetWidthOverride(Style.ButtonSize.X);
-			Box->SetHeightOverride(Style.ButtonSize.Y);
+			if (Box)
+			{
+				Box->SetWidthOverride(Style.ButtonSize.X);
+				Box->SetHeightOverride(Style.ButtonSize.Y);
+			}
 		}
 	}
 }

@@ -9,6 +9,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h"   // LogQA
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот DailyRewardWidgetClass (ТЗ 08-07)
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/UI/DailyRewardWidget.h"
 #include "Blueprint/UserWidget.h"
@@ -126,7 +127,17 @@ void UDailyRewardComponent::EvaluateDailyReward()
 		return;
 	}
 
-	ActiveWindow = CreateWidget<UDailyRewardWidget>(PC, UDailyRewardWidget::StaticClass());
+	// ТЗ Рината 08-07: слот WBP-класса на HUD (архитектура ADR-048). Назначен — окно живёт
+	// на дереве владельца из дизайнера; пуст — прежний кодовый вид (BuildCodeTree).
+	UClass* WindowClass = UDailyRewardWidget::StaticClass();
+	if (const AContrarySurvivorHUD* Hud = Cast<AContrarySurvivorHUD>(PC->GetHUD()))
+	{
+		if (Hud->DailyRewardWidgetClass)
+		{
+			WindowClass = Hud->DailyRewardWidgetClass;
+		}
+	}
+	ActiveWindow = CreateWidget<UDailyRewardWidget>(PC, WindowClass);
 	if (!ActiveWindow)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("DailyReward: window creation failed, day NOT consumed"));

@@ -20,17 +20,33 @@ void ULimpIndicatorWidget::NativeOnInitialized()
 		return;
 	}
 
+	// ТЗ Рината 08-07, детект как в EndOfStoryWidget.cpp: дерево владельца из WBP уже
+	// построено и кубики привязаны — строить и стилизовать ничего не нужно.
+	bDesignerTree = (WidgetTree->RootWidget != nullptr);
+	if (bDesignerTree)
+	{
+		if (!IndicatorText)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("LimpIndicatorWidget: в WBP_LimpIndicator нет кубика IndicatorText — плашка останется без текста"));
+		}
+		return;
+	}
+
+	BuildCodeTree();
+	ApplyStyle(FLimpIndicatorStyle());
+}
+
+void ULimpIndicatorWidget::BuildCodeTree()
+{
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LimpRoot"));
 	WidgetTree->RootWidget = Root;
 
-	// Дефолты стиля; фактический стиль перекроет ApplyStyle (EditAnywhere на APlayerCharacter).
-	const FLimpIndicatorStyle Defaults;
-
 	// SizeBox фиксирует ширину, Border — подложка, текст переносится: высота плашки растёт за
 	// текстом (слот канвы в авто-размере), развёрнутая подсказка занимает 2-3 строки без обрезки.
-	WidthBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("LimpWidth"));
-	Plate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("LimpPlate"));
-	IndicatorText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("LimpText"));
+	WidthBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("WidthBox"));
+	Plate = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Plate"));
+	IndicatorText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("IndicatorText"));
 	IndicatorText->SetAutoWrapText(true);
 	IndicatorText->SetJustification(ETextJustify::Left);
 	Plate->SetContent(IndicatorText);
@@ -41,12 +57,17 @@ void ULimpIndicatorWidget::NativeOnInitialized()
 		BoxSlot->SetAlignment(FVector2D(0.0f, 0.0f));
 		BoxSlot->SetAutoSize(true); // высота — по содержимому; ширину держит SizeBox
 	}
-
-	ApplyStyle(Defaults);
 }
 
 void ULimpIndicatorWidget::ApplyStyle(const FLimpIndicatorStyle& Style)
 {
+	// Дерево владельца из WBP_LimpIndicator: плашка/шрифт/позиция — его, код не трогает
+	// (ТЗ Рината 08-07). Текст ставит SetIndicatorText в обоих путях.
+	if (bDesignerTree)
+	{
+		return;
+	}
+
 	if (WidthBox)
 	{
 		WidthBox->SetWidthOverride(FMath::Max(50.0f, Style.BoxWidth));
