@@ -107,6 +107,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Texts", meta = (DisplayPriority = "6"))
 	FText EmptyLabel = NSLOCTEXT("CorpseLoot", "Empty", "Пусто");
 
+	// ADR-063 п.2: всплывашка при подборе огнестрела с трупа ({Item} — имя предмета).
+	// Ствол остаётся в рюкзаке, в слот игрок надевает сам — надпись это объясняет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Texts", meta = (DisplayPriority = "7"))
+	FText FirearmPickupHintFormat = NSLOCTEXT("CorpseLoot", "FirearmPickupHint",
+		"Подобрано: {Item} — наденьте в инвентаре");
+
+	// Забрать один предмет трупа в рюкзак игрока. true — предмет ушёл игроку. ПУБЛИЧНЫЙ
+	// намеренно: его зовут и клики плиток, и headless-тесты потока лута (живой Slate в
+	// Automation-тестах проекта не поднимается — паттерн UStartScreenWidget).
+	bool TakeItemToBackpack(AMasterInventoryItem* TakenItem);
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -146,9 +157,6 @@ protected:
 private:
 	// Кодовое дерево-фолбэк, если окно создано без WBP.
 	void BuildFallbackTree();
-
-	// Забрать один предмет трупа в рюкзак игрока. true — предмет ушёл игроку.
-	bool TakeItemToBackpack(AMasterInventoryItem* TakenItem);
 
 	// Забрать деньги трупа на баланс игрока.
 	void TakeMoneyToPlayer();

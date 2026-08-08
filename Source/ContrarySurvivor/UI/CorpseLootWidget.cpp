@@ -6,7 +6,9 @@
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Retention/OnboardingComponent.h" // ADR-063: всплывашка «Подобрано: …»
 #include "AMasterInventoryItem.h"
+#include "ARangedWeapon.h" // ADR-063: детект огнестрела в луте трупа
 #include "UInventoryComponent.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -291,9 +293,22 @@ bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem)
 		return false;
 	}
 
-	// Найденный огнестрел занимает пустой слот оружия — тем же путём, что покупка у
-	// торговца (Build 1.2.2: на старте огнестрела нет, в рюкзаке он был бы мёртвым грузом).
-	Player->TryAdoptRangedWeapon(TakenItem);
+	// ADR-063 п.2 (издатель, дословно: «любой полученный огнестрел падает в рюкзак, в боевой
+	// слот игрок надевает его сам»): автонадевание с трупа убрано — в бою оно могло втихую
+	// заменить хорошее оружие на худшее. Ствол остаётся в рюкзаке (тот же поток, что покупка,
+	// 018b2fa); игроку — короткая всплывашка-подсказка тем же тостом, что подсказки
+	// онбординга (ShowTransientHint: одноразовость не ведётся, показывается на каждый ствол).
+	if (Cast<ARangedWeapon>(TakenItem))
+	{
+		if (UOnboardingComponent* Onboarding = Player->GetOnboarding())
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Item"), TakenItem->GetItemDisplayText());
+			Onboarding->ShowTransientHint(FText::Format(FirearmPickupHintFormat, Args));
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' с трупа лёг в РЮКЗАК (без автоэкипа, ADR-063)"),
+			*TakenItem->GetItemDisplayText().ToString());
+	}
 	return true;
 }
 
