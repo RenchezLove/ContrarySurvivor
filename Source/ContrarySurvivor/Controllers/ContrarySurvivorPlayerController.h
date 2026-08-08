@@ -375,6 +375,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (DisplayPriority = "1"))
 	FStartScreenStyle StartScreenStyle;
 
+	// --- Слоты WBP-классов окон контроллера (ТЗ Рината 08-07, архитектура ADR-048; паттерн
+	// TouchControlsWidgetClass выше). Пусто — окно строится кодом, как раньше; назначен
+	// WBP_* (родитель — соответствующий C++-класс) — вид окна правится мышкой в дизайнере.
+	// Пустые слоты заполняет режим генератора -hudslots. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (DisplayPriority = "0"))
+	TSubclassOf<UPauseMenuWidget> PauseMenuWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (DisplayPriority = "0"))
+	TSubclassOf<UStartScreenWidget> StartScreenWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (DisplayPriority = "0"))
+	TSubclassOf<UIntroScreenWidget> IntroScreenWidgetClass;
+
 	// Тексты контекстной подсказки взаимодействия (низ-центр экрана, рисует HUD).
 	// Локализация (ADR-050): FText, дефолты через NSLOCTEXT (LOCTEXT в значении по
 	// умолчанию UHT запрещает — UhtTextProperty.cs:104).

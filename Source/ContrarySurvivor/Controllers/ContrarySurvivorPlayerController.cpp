@@ -395,7 +395,9 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 
 	if (!PauseMenuWidget)
 	{
-		PauseMenuWidget = CreateWidget<UPauseMenuWidget>(this, UPauseMenuWidget::StaticClass());
+		// Слот назначен (ADR-048) — окно из WBP, правится в дизайнере; пусто — кодовое дерево.
+		PauseMenuWidget = CreateWidget<UPauseMenuWidget>(this,
+			PauseMenuWidgetClass ? PauseMenuWidgetClass.Get() : UPauseMenuWidget::StaticClass());
 		if (!PauseMenuWidget)
 		{
 			return;
@@ -482,7 +484,9 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 
 	if (!StartScreenWidget)
 	{
-		StartScreenWidget = CreateWidget<UStartScreenWidget>(this, UStartScreenWidget::StaticClass());
+		// Слот назначен (ADR-048) — окно из WBP, правится в дизайнере; пусто — кодовое дерево.
+		StartScreenWidget = CreateWidget<UStartScreenWidget>(this,
+			StartScreenWidgetClass ? StartScreenWidgetClass.Get() : UStartScreenWidget::StaticClass());
 		if (!StartScreenWidget)
 		{
 			// Виджет не создался — не блокируем игру навсегда, откатываемся к обычной новой игре.
@@ -1876,7 +1880,9 @@ void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
 
 	if (!IntroWidget)
 	{
-		IntroWidget = CreateWidget<UIntroScreenWidget>(this, UIntroScreenWidget::StaticClass());
+		// Слот назначен (ADR-048) — окно из WBP, правится в дизайнере; пусто — кодовое дерево.
+		IntroWidget = CreateWidget<UIntroScreenWidget>(this,
+			IntroScreenWidgetClass ? IntroScreenWidgetClass.Get() : UIntroScreenWidget::StaticClass());
 	}
 	if (IntroWidget)
 	{
