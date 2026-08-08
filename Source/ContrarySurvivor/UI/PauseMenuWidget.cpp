@@ -29,11 +29,14 @@ void UPauseMenuWidget::NativeOnInitialized()
 	bDesignerTree = (WidgetTree->RootWidget != nullptr);
 	if (bDesignerTree)
 	{
+		// Переключатель согласия из паузы УБРАН (ТЗ Рината 08-08): согласие ставится только
+		// на стартовом экране согласия, в паузе его быть не должно. Кубики ConsentButton/
+		// ConsentText в предупреждениях больше не ждём — их отсутствие в WBP законно, а если
+		// они там остались, код их прячет ниже.
 		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
 		{
 			{ TitleText, TEXT("TitleText") },
 			{ ResumeButton, TEXT("ResumeButton") }, { ResumeText, TEXT("ResumeText") },
-			{ ConsentButton, TEXT("ConsentButton") }, { ConsentText, TEXT("ConsentText") },
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
 			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
 			{ VersionText, TEXT("VersionText") },
@@ -58,10 +61,12 @@ void UPauseMenuWidget::NativeOnInitialized()
 	{
 		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
 	}
-	if (ConsentButton)
-	{
-		ConsentButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleConsentClicked);
-	}
+	// ТЗ Рината 08-08: переключатель согласия в паузе не нужен. Кнопку НЕ подключаем и
+	// прячем оба её кубика, если они пришли из WBP_PauseMenu — отзыв согласия теперь только
+	// на стартовом экране согласия. Сам код HandleConsentClicked/RefreshConsentAndVersion
+	// оставлен рабочим для строки политики и номера версии (они в паузе остаются).
+	if (ConsentButton) { ConsentButton->SetVisibility(ESlateVisibility::Collapsed); }
+	if (ConsentText)   { ConsentText->SetVisibility(ESlateVisibility::Collapsed); }
 	if (PolicyButton)
 	{
 		PolicyButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandlePolicyClicked);
@@ -124,13 +129,9 @@ void UPauseMenuWidget::BuildCodeTree()
 		ResumeText = Cast<UTextBlock>(ResumeButton->GetContent());
 	}
 
-	// Б6 (ADR-059 + правило 5 источника истины): переключатель согласия и строка политики.
-	// Подписи берутся из настроек проекта (UDataConsentSettings) при каждом открытии паузы.
-	ConsentButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("ConsentButton"));
-	if (ConsentButton)
-	{
-		ConsentText = Cast<UTextBlock>(ConsentButton->GetContent());
-	}
+	// ТЗ Рината 08-08: переключатель согласия из паузы убран (согласие — только на стартовом
+	// экране согласия), поэтому кодовое дерево его больше НЕ строит. Остаётся строка политики
+	// (ADR-059 минимум для паузы) и мелкий номер версии сборки ниже.
 	PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PolicyButton"));
 	if (PolicyButton)
 	{
@@ -192,15 +193,13 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	StyleButtonLabel(ResumeText, Style.ResumeText);
 	StyleButtonLabel(QuitText, Style.QuitText);
 
-	// Б6: подписи переключателя согласия и политики приходят не из стиля, а из настроек
-	// проекта (одно место правды на весь текст согласия) — здесь только шрифт и цвет.
-	for (UTextBlock* Label : { ConsentText.Get(), PolicyText.Get() })
+	// Подпись строки политики приходит не из стиля, а из настроек проекта (одно место правды
+	// на весь текст согласия) — здесь только шрифт и цвет. Переключатель согласия из паузы
+	// убран (ТЗ Рината 08-08), поэтому стилизуем только строку политики.
+	if (PolicyText)
 	{
-		if (Label)
-		{
-			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
-		}
+		PolicyText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+		PolicyText->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
 	}
 	if (VersionText)
 	{
@@ -257,12 +256,8 @@ void UPauseMenuWidget::RefreshConsentAndVersion()
 	const UDataConsentSettings* Settings = UDataConsentSettings::Get();
 	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
 
-	if (ConsentText && Settings)
-	{
-		// Пока игрок не отвечал, ничего не собирается — так и пишем «выключен».
-		const bool bGranted = Consent && Consent->IsConsentGranted();
-		ConsentText->SetText(bGranted ? Settings->PauseMenuConsentOnText : Settings->PauseMenuConsentOffText);
-	}
+	// ТЗ Рината 08-08: подпись переключателя согласия в паузе больше не обновляем — самого
+	// переключателя в паузе нет. Освежаем только строку политики и номер версии сборки.
 	if (PolicyText && Settings)
 	{
 		PolicyText->SetText(Settings->PauseMenuPolicyText);
