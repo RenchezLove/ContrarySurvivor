@@ -1305,10 +1305,9 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             Bought->SetActorEnableCollision(false);
             Inventory->AddItem(Bought);
 
-            // Купленный огнестрел занимает пустой слот оружия — иначе он лежал бы в рюкзаке
-            // мёртвым грузом (Build 1.2.2: на старте огнестрела нет, торговец — единственный
-            // источник). Слот занят — вещь просто остаётся в рюкзаке.
-            TryAdoptRangedWeapon(Bought);
+            // ТЗ Рината 08-08 (STALKER-поток): купленный огнестрел попадает В РЮКЗАК и остаётся
+            // там. Автоэкип в слот оружия убран — в слот его переносит сам игрок тапом по плитке
+            // в окне инвентаря (UInventoryScreenWidget::HandleTileUse -> TryAdoptRangedWeapon).
         }
     }
 

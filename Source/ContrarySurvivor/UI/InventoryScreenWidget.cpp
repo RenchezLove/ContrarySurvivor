@@ -336,14 +336,24 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 	{
 		return;
 	}
-	// Клик по плитке = применить. Действие есть только у расходника (использовать) и
-	// брони (надеть) — прочие предметы (квест/патроны) по клику молчат, как раньше
-	// строка без кнопки «Использовать».
+	// Клик по плитке = применить. Действие есть у расходника (использовать), брони (надеть)
+	// и огнестрела (занять слот оружия — ТЗ Рината 08-08); прочие предметы (квест/патроны)
+	// по клику молчат, как раньше строка без кнопки «Использовать».
 	const EItemCategory Category = Item->GetItemCategory();
 	if (Category == EItemCategory::Consumable || Category == EItemCategory::Armor)
 	{
 		Player->Inv_UseBackpackItem(Item); // тот же вызов, что раньше кнопка строки
 		RefreshAll();
+	}
+	else if (Category == EItemCategory::Weapon)
+	{
+		// STALKER-поток: тап по огнестрелу в рюкзаке переносит его в пустой слот оружия
+		// (в кобуру). Занят слот или это не дальнобойное оружие — TryAdoptRangedWeapon
+		// вернёт false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
+		if (Player->TryAdoptRangedWeapon(Item))
+		{
+			RefreshAll();
+		}
 	}
 }
 
