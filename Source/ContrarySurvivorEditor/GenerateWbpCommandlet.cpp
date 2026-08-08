@@ -4465,6 +4465,11 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		{ TEXT("WBP_PlayerStats"), true },
 		{ TEXT("WBP_Dialog"), true },
 		{ TEXT("WBP_Death"), true },
+		// ADR-062 (волна меню): ввод новых пунктов главного меню в живой ассет — точечной
+		// пересборкой `-rebuild -asset=WBP_StartScreen`. По git-истории ассета правок
+		// владельца в нём нет (единственный коммит — генерация ad93f73), так что терять
+		// нечего; перенос владельческих значений включён на будущее, как у остальных.
+		{ TEXT("WBP_StartScreen"), true },
 	};
 
 	int32 FailCount = 0;
