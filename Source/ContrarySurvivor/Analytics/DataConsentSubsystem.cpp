@@ -37,6 +37,13 @@ void UDataConsentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	// она обязана быть готова раньше нас.
 	Collection.InitializeDependency<UAnalyticsSubsystem>();
 
+	// Рекламная служба обязана быть готова раньше нас ПО ТОЙ ЖЕ ПРИЧИНЕ: при сохранённом
+	// ответе игрока ApplyConsentToServices зовётся прямо отсюда, и без этой строки порядок
+	// создания подсистем случаен — GetSubsystem<UYandexAdService> в повторных запусках
+	// возвращал пусто, согласие тихо пропадало и SDK не поднимался никогда (дефект с
+	// телефона 08-08: реклама работала только в первой сессии после установки).
+	Collection.InitializeDependency<UYandexAdService>();
+
 	const EDataConsentState State = GetConsentState();
 	if (State != EDataConsentState::Unknown)
 	{
