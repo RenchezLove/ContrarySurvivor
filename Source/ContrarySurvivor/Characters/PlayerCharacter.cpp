@@ -883,6 +883,12 @@ void APlayerCharacter::ReconcileOutOfSlotRangedWeapon()
     }
 }
 
+bool APlayerCharacter::HasTurnedInFirstQuest() const
+{
+    // ADR-063: единое квестовое условие порога рекламы (РИ-29) и приглушения истощения.
+    return Quests && Quests->GetTurnedInQuestCount() > 0;
+}
+
 bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
 {
     ARangedWeapon* Ranged = Cast<ARangedWeapon>(Item);

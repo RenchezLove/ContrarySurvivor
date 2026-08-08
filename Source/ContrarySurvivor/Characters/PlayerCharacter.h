@@ -383,11 +383,12 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float DeathDropShareFraction = 0.50f;
 
-    // Build 1.2.1 (ТЗ В1, Ринат утвердил ровно 360 с): порог суммарного игрового времени,
-    // после которого доступны все три rewarded-точки (рюкзак/магазин/ежедневка). Был
-    // константой 15 минут в AdGatingLogic.h — теперь настраивается здесь без пересборки.
+    // ADR-063 п.3 (РИ-29, было 360 по В1): порог суммарного игрового времени, после
+    // которого доступны все три rewarded-точки (рюкзак на экране смерти/магазин/ежедневка).
+    // Порог обходится раньше, если сдан первый квест (HasTurnedInFirstQuest) — обе части
+    // условия сводит AdGating::IsAdGatePassed, её зовут все три точки.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "0.0", DisplayName = "Порог рекламы (сек игрового времени)", DisplayPriority = "1"))
-    float AdMinPlaytimeSeconds = 360.0f;
+    float AdMinPlaytimeSeconds = 300.0f;
 
     // Лимит показов «Спасти рюкзак» в календарные сутки (ТЗ №1 п.3: не более 3).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ads", meta = (ClampMin = "0"))
@@ -541,10 +542,10 @@ protected:
     void SpawnMeleeWeapon();
 
 public:
-    // Занять пустой слот огнестрела предметом из рюкзака. ТЗ Рината 08-08 (STALKER-поток):
-    // купленный ствол больше НЕ экипируется автоматически — он лежит в рюкзаке, а в слот его
-    // переносит сам игрок тапом по плитке в окне инвентаря (UInventoryScreenWidget::
-    // HandleTileUse). Тем же методом кладёт огнестрел находка в трупе (CorpseLootWidget).
+    // Занять пустой слот огнестрела предметом из рюкзака. Единый поток огнестрела (ТЗ
+    // Рината 08-08 + ADR-063 п.2): ЛЮБОЙ полученный ствол (покупка И лут с трупа) лежит в
+    // рюкзаке, а в слот его переносит сам игрок тапом по плитке в окне инвентаря
+    // (UInventoryScreenWidget::HandleTileUse) — единственный штатный вызывающий.
     // Слот уже занят — предмет остаётся в рюкзаке (второй ствол не отбираем). Оружие встаёт
     // «в кобуру», как нож: в руки его берёт игрок кнопкой «Оружие» (SwitchWeapon).
     // Возвращает true, если предмет забран из рюкзака в слот.
@@ -587,6 +588,12 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Quest")
     UQuestComponent* GetQuests() const { return Quests; }
+
+    // ADR-063: сдан ли хотя бы один квест. «Первый квест выполнен» читаем существующим
+    // сигналом журнала (GetTurnedInQuestCount — квест сдан старосте, награда получена).
+    // Общее условие двух механик: порога рекламы (РИ-29) и снятия приглушения истощения.
+    UFUNCTION(BlueprintPure, Category = "Quest")
+    bool HasTurnedInFirstQuest() const;
 
     // Build 1.2.2 (два слота оружия в инвентаре, Ринат): экземпляры живут ОБА (спавн в
     // BeginPlay), в руках один — CurrentWeapon базы. Экрану инвентаря нужны оба сразу.

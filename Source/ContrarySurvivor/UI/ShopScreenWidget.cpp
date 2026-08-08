@@ -700,8 +700,10 @@ void UShopScreenWidget::UpdateSellAdButton()
 
 	// Условия показа (ТЗ №2 п.4): все обязаны выполниться, иначе кнопка прячется целиком.
 	FString DenyReason;
-	// Порог теперь EditAnywhere на игроке (Build 1.2.1 В1: 360 с вместо константы 15 мин).
-	if (!AdGating::IsPlaytimeGatePassed(Player->GetTotalPlayTimeSeconds(), Player->GetAdMinPlaytimeSeconds()))
+	// ADR-063 п.3 (РИ-29): 300 с игры ИЛИ сдан первый квест — что раньше. Имя причины
+	// «under_15min» историческое, это идентификатор события аналитики — не переименовывать.
+	if (!AdGating::IsAdGatePassed(Player->GetTotalPlayTimeSeconds(),
+		Player->HasTurnedInFirstQuest(), Player->GetAdMinPlaytimeSeconds()))
 	{
 		DenyReason = TEXT("under_15min");
 	}

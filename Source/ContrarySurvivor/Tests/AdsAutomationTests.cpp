@@ -75,16 +75,16 @@ bool FDeathLossEdgesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Глобальный гейт игрового времени. Build 1.2.1 (ТЗ В1): порог 360 с (6 мин, Ринат
-// утвердил ровно 360) вместо прежних 15 минут; граница включительно; порог передаётся
-// вторым аргументом (EditAnywhere на игроке), константа — только дефолт.
+// Глобальный гейт игрового времени. ADR-063 п.3 (РИ-29): порог 300 с (5 мин, было 360 по
+// В1); граница включительно; порог передаётся вторым аргументом (EditAnywhere на игроке),
+// константа — только дефолт. Квестовый обход порога — Adr063AutomationTests (IsAdGatePassed).
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdGatingPlaytimeTest,
-	"ContrarySurvivor.Ads.Gating.PlaytimeGate6Min", AdsTestFlags)
+	"ContrarySurvivor.Ads.Gating.PlaytimeGate5Min", AdsTestFlags)
 bool FAdGatingPlaytimeTest::RunTest(const FString& Parameters)
 {
-	TestEqual(TEXT("дефолт порога = ровно 360 с (ТЗ В1)"), AdGating::MinPlaytimeSeconds, 360.0);
-	TestFalse(TEXT("5:59 игрового времени: рекламы нет"), AdGating::IsPlaytimeGatePassed(359.0));
-	TestTrue(TEXT("ровно 6:00: реклама разрешена"), AdGating::IsPlaytimeGatePassed(360.0));
+	TestEqual(TEXT("дефолт порога = ровно 300 с (ADR-063, РИ-29)"), AdGating::MinPlaytimeSeconds, 300.0);
+	TestFalse(TEXT("4:59 игрового времени: рекламы нет"), AdGating::IsPlaytimeGatePassed(299.0));
+	TestTrue(TEXT("ровно 5:00: реклама разрешена"), AdGating::IsPlaytimeGatePassed(300.0));
 	TestTrue(TEXT("больше порога: разрешена"), AdGating::IsPlaytimeGatePassed(5000.0));
 	TestFalse(TEXT("свежая установка (0 сек): нет"), AdGating::IsPlaytimeGatePassed(0.0));
 	// Порог настраиваемый: функция обязана уважать переданное значение, а не константу.

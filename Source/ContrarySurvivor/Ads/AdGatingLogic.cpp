@@ -9,6 +9,12 @@ namespace AdGating
 		return TotalPlaySeconds >= MinSeconds;
 	}
 
+	bool IsAdGatePassed(double TotalPlaySeconds, bool bFirstQuestDone, double MinSeconds)
+	{
+		// «Что раньше»: сданный первый квест открывает рекламу до порога времени (РИ-29).
+		return bFirstQuestDone || IsPlaytimeGatePassed(TotalPlaySeconds, MinSeconds);
+	}
+
 	int32 UsesToday(const FDateTime& Now, const FDateTime& CounterDate, int32 CounterUses)
 	{
 		if (CounterDate.GetTicks() == 0)

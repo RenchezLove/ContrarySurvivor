@@ -15,15 +15,22 @@
  */
 namespace AdGating
 {
-	// Build 1.2.1 (ТЗ В1, Ринат утвердил ровно 360 с): порог больше НЕ жёсткая константа
-	// трёх точек — живое значение настраивается EditAnywhere на игроке
-	// (APlayerCharacter::AdMinPlaytimeSeconds), все три точки показа передают его сюда
-	// вторым аргументом. Эта константа осталась дефолтом поля и дефолт-аргументом чистой
-	// функции (headless-тесты гоняют её без UObject). Было: 15 минут (ТЗ раздел 0 п.2).
-	inline constexpr double MinPlaytimeSeconds = 360.0;
+	// ADR-063 п.3 (РИ-29, было 360 по В1): порог больше НЕ жёсткая константа трёх точек —
+	// живое значение настраивается EditAnywhere на игроке
+	// (APlayerCharacter::AdMinPlaytimeSeconds), все три точки показа передают его сюда.
+	// Эта константа осталась дефолтом поля и дефолт-аргументом чистых функций
+	// (headless-тесты гоняют их без UObject).
+	inline constexpr double MinPlaytimeSeconds = 300.0;
 
 	// Пройден ли глобальный порог игрового времени.
 	CONTRARYSURVIVOR_API bool IsPlaytimeGatePassed(double TotalPlaySeconds,
+		double MinSeconds = MinPlaytimeSeconds);
+
+	// ADR-063 п.3 (РИ-29, дословно): «300 секунд игры ИЛИ выполнен первый квест, что
+	// раньше, на всех трёх точках, включая экран смерти». Единая проверка порога для всех
+	// трёх точек показа (магазин / ежедневная награда / «Спасти рюкзак» экрана смерти);
+	// bFirstQuestDone — сдан ли первый квест (APlayerCharacter::HasTurnedInFirstQuest).
+	CONTRARYSURVIVOR_API bool IsAdGatePassed(double TotalPlaySeconds, bool bFirstQuestDone,
 		double MinSeconds = MinPlaytimeSeconds);
 
 	// Сколько использований точки числится на СЕГОДНЯ: счётчик из сейва хранится парой
