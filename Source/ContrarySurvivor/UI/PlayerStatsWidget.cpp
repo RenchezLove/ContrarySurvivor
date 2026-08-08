@@ -1,11 +1,13 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/PlayerStatsWidget.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: диагностика ряда голода (задача Г 08-08)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
 #include "ARangedWeapon.h" // патроны только у дальнобоя (#5, как Canvas DrawPlayerStats)
 #include "Components/TextBlock.h"
+#include "Components/PanelWidget.h" // GetParent() в диагностике ряда голода (наследование для каста к UWidget)
 #include "Components/ProgressBar.h"
 #include "Components/Widget.h"
 
@@ -46,6 +48,33 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 		Args.Add(TEXT("Max"), FText::AsNumber(FMath::RoundToInt32(SurvivalMax)));
 		HungerText->SetText(FText::Format(HungerFormat, Args));
 	}
+	// --- Диагностика задачи Г (08-08): на телефоне ряд голода «исчезал» после «Продолжить»,
+	// хотя ассет (геометрия И видимость, дамп dumpslots-g-0808) и код чисты. Пишем живое
+	// состояние кубиков ряда при каждой СМЕНЕ снимка (не каждый кадр): наличие, видимость,
+	// прозрачность, размер отрисованной геометрии (нулевой = Slate кубик не рисует),
+	// заполнение с шагом 0.1. Корень найдётся — диагностику снять. ---
+	{
+		auto DescribeWidget = [](const UWidget* W) -> FString
+		{
+			if (!W)
+			{
+				return TEXT("НЕТ");
+			}
+			const FVector2D Size = W->GetCachedGeometry().GetLocalSize();
+			return FString::Printf(TEXT("vis=%d op=%.2f geom=%.0fx%.0f"),
+				static_cast<int32>(W->GetVisibility()), W->GetRenderOpacity(), Size.X, Size.Y);
+		};
+		const UWidget* HungerParent = HungerBar ? HungerBar->GetParent() : nullptr;
+		const FString Snapshot = FString::Printf(TEXT("bar[%s] text[%s] parent[%s] percent=%.1f"),
+			*DescribeWidget(HungerBar), *DescribeWidget(HungerText), *DescribeWidget(HungerParent),
+			HungerBar ? HungerBar->GetPercent() : -1.0f);
+		if (!Snapshot.Equals(HungerRowLastSnapshot))
+		{
+			HungerRowLastSnapshot = Snapshot;
+			UE_LOG(LogQA, Display, TEXT("QA: HUNGER-ROW %s"), *Snapshot);
+		}
+	}
+
 	if (ThirstBar)
 	{
 		ThirstBar->SetPercent(FMath::Clamp(Stats->GetThirst() / SurvivalMax, 0.0f, 1.0f));

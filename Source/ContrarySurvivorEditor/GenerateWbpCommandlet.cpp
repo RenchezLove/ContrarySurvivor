@@ -4407,9 +4407,23 @@ static void DumpSlotSubtree(const TCHAR* AssetName, UWidget* Widget, int32 Depth
 		SlotDesc = Widget->Slot->GetClass()->GetName();
 	}
 
-	UE_LOG(LogGenerateWbp, Display, TEXT("SLOTS %s: %s%s : %s : %s"),
+	// Видимость и прозрачность (задача Г 08-08: якоря рядов совпадали, а невидимость
+	// геометрический дамп не ловил — печатаем и её). «видим» — штатные значения; всё
+	// остальное печатается явно, чтобы дифф рядов сразу показывал спрятанный кубик.
+	FString VisDesc;
+	const ESlateVisibility Vis = Widget->GetVisibility();
+	if (Vis == ESlateVisibility::Collapsed || Vis == ESlateVisibility::Hidden)
+	{
+		VisDesc += (Vis == ESlateVisibility::Collapsed) ? TEXT(" СХЛОПНУТ") : TEXT(" СКРЫТ");
+	}
+	if (!FMath::IsNearlyEqual(Widget->GetRenderOpacity(), 1.0f))
+	{
+		VisDesc += FString::Printf(TEXT(" прозрачность=%.2f"), Widget->GetRenderOpacity());
+	}
+
+	UE_LOG(LogGenerateWbp, Display, TEXT("SLOTS %s: %s%s : %s : %s%s"),
 		AssetName, *FString::ChrN(Depth * 2, TEXT(' ')), *Widget->GetName(),
-		*Widget->GetClass()->GetName(), *SlotDesc);
+		*Widget->GetClass()->GetName(), *SlotDesc, *VisDesc);
 
 	if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
 	{
