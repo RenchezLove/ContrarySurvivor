@@ -237,6 +237,23 @@ void UAnalyticsSubsystem::RecordTutorialCompleted(int32 TotalSteps)
 		TotalSteps);
 }
 
+bool UAnalyticsSubsystem::MarkLaunchAndCheckWasLaunchedBefore()
+{
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (!Save)
+	{
+		// Память на установку не читается (крайний случай) — считаем запуск повторным:
+		// лишнее меню безобиднее, чем пропуск меню у игрока со стажем.
+		return true;
+	}
+	if (Save->MarkGameLaunched())
+	{
+		WriteProfileSave(Save);
+		return false; // самый первый запуск после установки
+	}
+	return true;
+}
+
 void UAnalyticsSubsystem::RecordFirstLaunchIfNeeded()
 {
 	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();

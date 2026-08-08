@@ -38,6 +38,16 @@ bool UAnalyticsProfileSave::MarkFirstLaunchReported()
 	return true;
 }
 
+bool UAnalyticsProfileSave::MarkGameLaunched()
+{
+	if (bGameLaunchedBefore)
+	{
+		return false;
+	}
+	bGameLaunchedBefore = true;
+	return true;
+}
+
 bool UAnalyticsProfileSave::MarkTutorialStepReported(const FString& StepId)
 {
 	if (StepId.IsEmpty() || ReportedTutorialSteps.Contains(StepId))

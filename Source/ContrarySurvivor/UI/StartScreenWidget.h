@@ -262,6 +262,12 @@ private:
 	void ApplyChoiceLabels(const FStartScreenStyle& Style);
 	void ApplyConfirmLabels(const FStartScreenStyle& Style);
 
+	// Видимость пунктов обычного выбора: «Продолжить» — по наличию сейва (вместе с
+	// подзаголовком про найденное сохранение), «Настройки» — когда владелец привязал
+	// открытие экрана настроек (до подхода 2 пункт спрятан), «Сообщество» — по адресу
+	// из конфига, «Выход» — всегда.
+	void ApplyMenuRowVisibility();
+
 	// Версия сборки, подпись политики, видимость «Сообщества» — данные из настроек/подсистем
 	// (механизм меню паузы), освежаются при каждом показе меню (NativeConstruct).
 	void RefreshMenuExtras();
@@ -303,6 +309,35 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> NewGameText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SettingsButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SettingsText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> CommunityButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CommunityText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ExitButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ExitText;
+
+	// Низ панели (спека: «мелким шрифтом, не кнопками»): ссылка политики — прозрачная
+	// кнопка, видна только подпись (как на экране согласия); строка версии — просто текст.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PolicyButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PolicyText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> VersionText;
 
 	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()

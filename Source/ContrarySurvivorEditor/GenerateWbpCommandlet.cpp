@@ -2205,7 +2205,10 @@ namespace
 	}
 
 	// ----------------------------------------------------------------------
-	// WBP_StartScreen — «Продолжить»/«Новая игра» (вид = UStartScreenWidget::BuildCodeTree)
+	// WBP_StartScreen — главное меню (вид = UStartScreenWidget::BuildCodeTree; ADR-062).
+	// Пять пунктов сверху вниз + мелкие строки политики/версии внизу (спека
+	// glavnoe-menu-spec.md). Видимость пунктов («Продолжить» по сейву, «Настройки» до
+	// подхода 2, «Сообщество» по адресу в конфиге) ведёт код — в ассете все видимы.
 	// ----------------------------------------------------------------------
 	bool BuildStartScreen(UWidgetTree* Tree)
 	{
@@ -2217,7 +2220,7 @@ namespace
 		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
 
 		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
-			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(480.0f, 320.0f), 0.97f);
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(480.0f, 560.0f), 0.97f);
 
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
 			NSLOCTEXT("StartScreenWidget", "TitleText", "С ВОЗВРАЩЕНИЕМ"),
@@ -2239,21 +2242,45 @@ namespace
 			SubtitleSlot->SetSize(FVector2D(400.0f, 44.0f));
 		}
 
-		// Подписи кнопок — образцы: код переключает их между обычным выбором и переспросом
-		// «Новая игра» (ApplyChoiceLabels/ApplyConfirmLabels), тексты живут в стиле контроллера.
-		UButton* Continue = MakeGreyButton(Tree, TEXT("ContinueButton"));
-		SetUnlockedCaption(Tree, Roboto, Continue, TEXT("ContinueText"),
-			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"),
-			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
-		PlaceCenteredButton(Panel, Continue, 1.0f, FVector2D(0.5f, 1.0f),
-			FVector2D(0.0f, -100.0f), FVector2D(280.0f, 58.0f));
+		// Подписи кнопок — образцы: живые ставит код (стиль контроллера; «Продолжить»/«Новая
+		// игра» ещё и переключаются переспросом ApplyChoiceLabels/ApplyConfirmLabels).
+		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
+		auto AddMenuButton = [&](const TCHAR* ButtonName, const TCHAR* TextName,
+			const FText& Caption, float Y)
+		{
+			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 19);
+			PlaceCenteredButton(Panel, Button, 0.0f, FVector2D(0.5f, 0.0f),
+				FVector2D(0.0f, Y), FVector2D(280.0f, 58.0f));
+		};
+		AddMenuButton(TEXT("ContinueButton"), TEXT("ContinueText"),
+			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 126.0f);
+		AddMenuButton(TEXT("NewGameButton"), TEXT("NewGameText"),
+			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 196.0f);
+		AddMenuButton(TEXT("SettingsButton"), TEXT("SettingsText"),
+			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 266.0f);
+		AddMenuButton(TEXT("CommunityButton"), TEXT("CommunityText"),
+			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 336.0f);
+		AddMenuButton(TEXT("ExitButton"), TEXT("ExitText"),
+			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 406.0f);
 
-		UButton* NewGame = MakeGreyButton(Tree, TEXT("NewGameButton"));
-		SetUnlockedCaption(Tree, Roboto, NewGame, TEXT("NewGameText"),
-			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"),
-			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
-		PlaceCenteredButton(Panel, NewGame, 1.0f, FVector2D(0.5f, 1.0f),
-			FVector2D(0.0f, -30.0f), FVector2D(280.0f, 58.0f));
+		// Низ (спека: «мелким шрифтом, не кнопками»): ссылка политики — прозрачная кнопка,
+		// видна только подпись (приём WBP_Consent); под ней строка версии (живой текст ставит код).
+		UButton* Policy = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PolicyButton"));
+		Policy->SetBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		Policy->bIsVariable = true;
+		UTextBlock* PolicyCaption = MakeText(Tree, Roboto, TEXT("PolicyText"),
+			NSLOCTEXT("DataConsentSettings", "PauseMenuPolicyText", "Политика конфиденциальности"),
+			FLinearColor(0.55f, 0.75f, 1.0f, 1.0f), 13, TEXT("Regular"));
+		PolicyCaption->SetJustification(ETextJustify::Center);
+		PolicyCaption->bIsVariable = true;
+		Policy->SetContent(PolicyCaption);
+		CanvasCentered(Panel, Policy, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -36.0f));
+
+		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
+			FLinearColor(0.6f, 0.6f, 0.6f, 1.0f), 12, TEXT("Regular"));
+		Version->bIsVariable = true;
+		CanvasCentered(Panel, Version, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -12.0f));
 		return true;
 	}
 
@@ -2642,7 +2669,11 @@ namespace
 			TEXT("/Script/ContrarySurvivor.StartScreenWidget"), &BuildStartScreen,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
-			  TEXT("NewGameButton"), TEXT("NewGameText") } },
+			  TEXT("NewGameButton"), TEXT("NewGameText"),
+			  TEXT("SettingsButton"), TEXT("SettingsText"),
+			  TEXT("CommunityButton"), TEXT("CommunityText"),
+			  TEXT("ExitButton"), TEXT("ExitText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
 		{ TEXT("/Game/UI/WBP_Consent"), TEXT("WBP_Consent"),
 			TEXT("/Script/ContrarySurvivor.ConsentScreenWidget"), &BuildConsent,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
@@ -2790,7 +2821,11 @@ namespace
 			{ },
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
-			  TEXT("NewGameButton"), TEXT("NewGameText") } },
+			  TEXT("NewGameButton"), TEXT("NewGameText"),
+			  TEXT("SettingsButton"), TEXT("SettingsText"),
+			  TEXT("CommunityButton"), TEXT("CommunityText"),
+			  TEXT("ExitButton"), TEXT("ExitText"),
+			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
 		{ TEXT("WBP_Consent"),
 			{ },
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),

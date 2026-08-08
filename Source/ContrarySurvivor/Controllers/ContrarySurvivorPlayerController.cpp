@@ -38,7 +38,8 @@
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Build 1: отложенное окно ежедневки (после интро-диалога)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
-#include "ContrarySurvivor/UI/StartScreenWidget.h"          // Б3: стартовый экран «Продолжить»/«Новая игра»
+#include "ContrarySurvivor/UI/StartScreenWidget.h"          // Главное меню (ADR-062; вырос из стартового экрана Б3)
+#include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
@@ -470,9 +471,9 @@ void AContrarySurvivorPlayerController::HandlePauseQuit()
 }
 
 // ---------------------------------------------------------------------------
-// Стартовый экран (Б3, ТЗ издателя): «Продолжить» / «Новая игра» — показывается ТОЛЬКО когда
-// найден сейв с реальным прогрессом (MaybeStartIntro). Паттерн — точная копия меню паузы
-// (SetPause + барьер виджета), см. OpenPauseMenu/ClosePauseMenu выше.
+// Главное меню (ADR-062, спека glavnoe-menu-spec.md; выросло из стартового экрана Б3):
+// показывается со ВТОРОГО запуска игры (решает MaybeStartIntro). Паттерн — точная копия
+// меню паузы (SetPause + барьер виджета), см. OpenPauseMenu/ClosePauseMenu выше.
 // ---------------------------------------------------------------------------
 
 void AContrarySurvivorPlayerController::OpenStartScreen()
@@ -497,7 +498,17 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 		StartScreenWidget->ApplyStyle(StartScreenStyle); // стиль с контроллера (EditAnywhere) поверх дефолтов
 		StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenContinue);
 		StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenNewGame);
+		StartScreenWidget->OnExitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenExit);
+		// OnSettingsRequested НАРОЧНО не привязан: экрана настроек ещё нет (подход 2 волны
+		// меню). Пункт «Настройки» до привязки спрятан самим виджетом (ApplyMenuRowVisibility);
+		// когда подход 2 добавит обработчик — пункт появится без правок виджета.
 	}
+
+	// Наличие сейва освежаем при КАЖДОМ открытии (меню без сейва: «Продолжить» не
+	// показывается вовсе, «Новая игра» стартует без переспроса — спека).
+	APlayerCharacter* MenuPawn = Cast<APlayerCharacter>(GetPawn());
+	StartScreenWidget->SetHasSave(MenuPawn && MenuPawn->HasSaveGame());
+
 	// Z=70: выше меню паузы (60) и интро (50) — при интро экран не появляется, запас на будущее.
 	StartScreenWidget->AddToViewport(/*ZOrder=*/70);
 
@@ -519,7 +530,8 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 	SetInputMode(Mode);
 	bShowMouseCursor = true;
 
-	UE_LOG(LogQA, Display, TEXT("QA: start screen OPEN (save with real progress found, world paused)"));
+	UE_LOG(LogQA, Display, TEXT("QA: start screen OPEN (has save: %s, world paused)"),
+		(MenuPawn && MenuPawn->HasSaveGame()) ? TEXT("yes") : TEXT("no"));
 }
 
 void AContrarySurvivorPlayerController::CloseStartScreen()
@@ -580,6 +592,21 @@ void AContrarySurvivorPlayerController::HandleStartScreenNewGame()
 	}
 
 	StartNewGameFlow(); // полное интро — как у игрока без сейва вообще
+}
+
+void AContrarySurvivorPlayerController::HandleStartScreenExit()
+{
+	// «Выход» главного меню закрывает игру — тот же путь, что «Выход» меню паузы.
+	UE_LOG(LogQA, Display, TEXT("QA: start screen EXIT pressed — quitting game"));
+	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, /*bIgnorePlatformRestrictions=*/false);
+}
+
+bool AContrarySurvivorPlayerController::ShouldShowMainMenuOnLaunch(bool bLaunchedBefore, bool bHasSave)
+{
+	// Спека главного меню: самый первый запуск после установки — сразу во вступление, со
+	// второго запуска — меню. Найденный сейв тоже доказывает прошлый запуск (обновление со
+	// сборки, где маркера запусков ещё не было) — прежнее поведение Б3 сохраняется.
+	return bLaunchedBefore || bHasSave;
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,17 +1855,27 @@ void AContrarySurvivorPlayerController::MaybeStartIntro()
 	}
 	bIntroChecked = true; // решение принимаем ровно один раз
 
-	// Б3 (задача издателя): найден сейв с РЕАЛЬНЫМ прогрессом — решение «Продолжить»/«Новая
-	// игра» отдаётся стартовому экрану, а не автостарту. Интро (если будет) запустит
-	// HandleStartScreenNewGame через StartNewGameFlow. После смерти BeginPlay контроллера не
-	// вызывается повторно (пешка та же) — сюда попадаем ровно один раз за запуск игры.
-	if (PlayerChar->HasSaveGame())
+	// Волна «Главное меню» (ADR-062, спека glavnoe-menu-spec.md): самый первый запуск после
+	// установки идёт сразу во вступление, со второго и всех последующих запусков игра
+	// открывается главным меню. Признак запуска живёт в памяти на установку (слот
+	// ContraryAnalytics): «Новая игра» и стирание игрового сейва его НЕ сбрасывают. Сюда
+	// попадаем ровно один раз за запуск игры (после смерти BeginPlay контроллера не
+	// вызывается повторно — пешка та же), так что пометка запуска не задваивается.
+	const bool bHasSave = PlayerChar->HasSaveGame();
+	bool bLaunchedBefore = false;
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
 	{
+		bLaunchedBefore = Analytics->MarkLaunchAndCheckWasLaunchedBefore();
+	}
+	if (ShouldShowMainMenuOnLaunch(bLaunchedBefore, bHasSave))
+	{
+		// Выбор («Продолжить»/«Новая игра»/…) — за меню; интро (если будет) запустит
+		// HandleStartScreenNewGame через StartNewGameFlow.
 		OpenStartScreen();
 		return;
 	}
 
-	// Сейва с реальным прогрессом нет — как раньше, сразу обычная новая игра.
+	// Самый первый запуск после установки — без меню, сразу обычная новая игра со вступлением.
 	StartNewGameFlow();
 }
 

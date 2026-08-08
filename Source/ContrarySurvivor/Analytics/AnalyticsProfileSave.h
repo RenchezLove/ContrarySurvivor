@@ -47,6 +47,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Analytics")
 	bool bFirstLaunchReported = false;
 
+	// Игра уже запускалась на этом устройстве (волна «Главное меню», ADR-062: со второго
+	// запуска игра открывается главным меню). НАРОЧНО отдельно от bFirstLaunchReported: тот
+	// отмечает отправку события статистики и взводится только после согласия игрока и при
+	// найденных ключах — для решения «показывать ли меню» он не годится.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Analytics")
+	bool bGameLaunchedBefore = false;
+
 	// Событие завершения обучения уже отправлено.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Analytics")
 	bool bTutorialCompletedReported = false;
@@ -65,6 +72,7 @@ public:
 	// делает UAnalyticsSubsystem, чтобы место записи было одно. ---
 
 	bool MarkFirstLaunchReported();
+	bool MarkGameLaunched();
 	bool MarkTutorialStepReported(const FString& StepId);
 	bool MarkTutorialCompletedReported();
 
