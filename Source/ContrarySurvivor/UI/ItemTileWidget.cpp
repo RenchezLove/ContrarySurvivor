@@ -14,6 +14,7 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Texture2D.h"
 #include "Styling/CoreStyle.h"
+#include "Types/SlateEnums.h" // EButtonTouchMethod::PreciseTap (лёгкая прокрутка списков)
 
 void UItemTileWidget::NativeOnInitialized()
 {
@@ -29,6 +30,13 @@ void UItemTileWidget::NativeOnInitialized()
 	if (TileButton)
 	{
 		TileButton->OnClicked.AddDynamic(this, &UItemTileWidget::HandleTileClicked);
+		// ТЗ Рината 08-08 (прокрутка списков «тяжёлая»): плитка целиком — кнопка, а кнопка по
+		// умолчанию (DownAndUp) забирает касание себе и не отдаёт его ScrollBox, из-за чего
+		// свайп пальцем по плитке не прокручивал список. PreciseTap меняет это ровно по
+		// документации движка (SlateEnums.h): «внутри списка кнопка срабатывает только точным
+		// тапом, а движение пальца прокручивает список». Тап-выбор (купить/использовать/
+		// экипировать) при этом сохраняется. Работает и на кодовой плитке, и на WBP_ItemTile.
+		TileButton->SetTouchMethod(EButtonTouchMethod::PreciseTap);
 	}
 	else
 	{
@@ -37,6 +45,9 @@ void UItemTileWidget::NativeOnInitialized()
 	if (DropButton)
 	{
 		DropButton->OnClicked.AddDynamic(this, &UItemTileWidget::HandleDropClicked);
+		// Мини-кнопка выброса — тоже PreciseTap: если палец начал свайп на ней, список всё
+		// равно прокрутится, а точный тап по-прежнему выбрасывает предмет.
+		DropButton->SetTouchMethod(EButtonTouchMethod::PreciseTap);
 		DropButton->SetVisibility(ESlateVisibility::Collapsed); // включает SetDropVisible (рюкзак)
 	}
 }
