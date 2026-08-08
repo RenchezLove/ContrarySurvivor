@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Адаптивная иконка Android 8+ (API 26). Перекрывает drawable-*/icon.png на новых
+     системах: квалификатор anydpi-v26 приоритетнее плотностных для API >= 26.
+     Зачем: без адаптивной иконки лаунчер и системная заставка Android 12+ рисуют
+     legacy-иконку УМЕНЬШЕННОЙ на белой подложке (дефект «белый борт», Ринат 08-08,
+     живые кадры Screenshots/splash-probe-1..8).
+     Слои: фон - цвет #271D14 (программное среднее краёв картинки, замер concept 08-08),
+     передний план - drawable-*/icon_fg.png (волк в центральных 2/3 холста 108dp,
+     кайма - размытое продолжение сцены; системная маска показывает только центр). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/contrary_icon_bg"/>
+    <foreground android:drawable="@drawable/icon_fg"/>
+</adaptive-icon>
