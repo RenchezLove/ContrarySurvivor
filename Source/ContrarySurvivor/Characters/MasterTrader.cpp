@@ -16,6 +16,10 @@ AMasterTrader::AMasterTrader()
 	// Тик торговцу не нужен (стоит на месте). База включает тик — гасим для экономии.
 	PrimaryActorTick.bCanEverTick = false;
 
+	// Торговец неуязвим — та же дыра, что у старосты (потомок гуманоида получал урон от
+	// ножа игрока и «умирал» заглушкой, ломая магазин и проход; дефект 08-08, задача Д).
+	bImmuneToDamage = true;
+
 	// Триггер взаимодействия: overlap ТОЛЬКО по Pawn (игроку), не блокирует движение/выстрелы.
 	// QueryOnly + Ignore по всем каналам → не участвует в физике и не ловит ECC_Visibility (выстрел
 	// проходит мимо). Крепим к капсуле-корню Character'а.
@@ -100,6 +104,15 @@ void AMasterTrader::ApplyTraderHealth()
 float AMasterTrader::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 	AController* EventInstigator, AActor* DamageCauser)
 {
+	// Задача Д (08-08): мирный NPC урона не получает ВОВСЕ — гейт тот же, что в базе
+	// (собственный override его обходил, поэтому дублируем первой строкой). Прежняя схема
+	// «царапается до нижнего порога» ниже остаётся страховкой на случай, если оператор
+	// снимет флаг неуязвимости в BP.
+	if (bImmuneToDamage)
+	{
+		return 0.0f;
+	}
+
 	// НАМЕРЕННО НЕ зовём Super (AMasterHumanoidCharacter::TakeDamage) — его путь Health<=0 →
 	// HandleDeath обошёл бы неубиваемость. Торговец лишь «царапается»: HP упирается в нижний
 	// порог TraderMinHealth и никогда не достигает 0 → смерть невозможна. База/игрок/оружие

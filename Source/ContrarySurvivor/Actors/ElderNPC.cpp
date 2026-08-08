@@ -13,6 +13,10 @@ AElderNPC::AElderNPC()
 	// Тик старосте не нужен (стоит на месте). База (AMasterHumanoidCharacter) включает тик — гасим.
 	PrimaryActorTick.bCanEverTick = false;
 
+	// Староста неуязвим (замысел «как торговец» — см. комментарий ниже про ECC_Visibility;
+	// дефект 08-08: три удара ножом убивали старосту, диалог умирал, игрок проходил сквозь).
+	bImmuneToDamage = true;
+
 	// Авто-AIController подавлен: статичный квест-NPC не должен управляться AI (иначе мог бы
 	// крутиться/уезжать по дефолтному поведению). По риску из плана A3.
 	AutoPossessAI = EAutoPossessAI::Disabled;

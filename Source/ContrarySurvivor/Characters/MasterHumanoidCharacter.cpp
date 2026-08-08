@@ -561,6 +561,13 @@ void AMasterHumanoidCharacter::ReloadCurrentWeapon()
 
 float AMasterHumanoidCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
+    // Мирный NPC (староста/торговец) неуязвим: урон не проходит вовсе, HandleDeath
+    // недостижим (дефект 08-08: убитый ножом староста ломал диалог и коллизию).
+    if (bImmuneToDamage)
+    {
+        return 0.0f;
+    }
+
     float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
     if (ActualDamage > 0.0f)
     {

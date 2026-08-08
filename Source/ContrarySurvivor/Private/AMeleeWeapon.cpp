@@ -244,6 +244,16 @@ void AMeleeWeapon::ApplyMeleeDamage()
 			continue;
 		}
 
+		// Мирные неуязвимые NPC (староста/торговец) — не цели: не бьём и НЕ занимаем ими
+		// слот удара (дефект 08-08: староста забирал «front sector 1/1» у реальных врагов).
+		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(HitActor))
+		{
+			if (Humanoid->IsImmuneToDamage())
+			{
+				continue;
+			}
+		}
+
 		const float SurfaceDist = GetSurfaceDistanceTo(HitActor);
 		if (SurfaceDist > MeleeRange)
 		{

@@ -49,6 +49,15 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats")
     float MaxHealth;
 
+	// Мирный квестовый NPC неуязвим (дефект 08-08: старосту убивали ножом, диалог умирал и
+	// игрок проходил сквозь тело; замысел «староста как торговец — неуязвим» — ElderNPC.cpp).
+	// Действие: TakeDamage возвращает 0 (HandleDeath недостижим), нож не берёт такого в
+	// кандидаты сектора (не отнимает слот цели у реальных врагов — AMeleeWeapon).
+	// Включается в конструкторах AElderNPC/AMasterTrader; EditAnywhere — на случай новых NPC.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats",
+		meta = (DisplayName = "Неуязвим (мирный NPC)", DisplayPriority = "51"))
+	bool bImmuneToDamage = false;
+
 	// --- Состояние боя ---
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (DisplayPriority = "52"))
@@ -302,6 +311,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
+
+	// Неуязвимый мирный NPC (староста/торговец)? Читает нож при отборе целей сектора.
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	bool IsImmuneToDamage() const { return bImmuneToDamage; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 	virtual void RestoreHealth(float HealAmount);
