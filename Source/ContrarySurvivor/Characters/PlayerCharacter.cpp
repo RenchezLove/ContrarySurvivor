@@ -18,6 +18,7 @@
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"   // Этап F3: события аналитики
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"         // слот LimpIndicatorWidgetClass (ADR-048)
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "Components/CapsuleComponent.h"
@@ -521,7 +522,17 @@ void APlayerCharacter::UpdateLimpIndicator()
         {
             return; // виджет не нужен, пока игрок ни разу не захромал
         }
-        LimpIndicatorWidget = CreateWidget<ULimpIndicatorWidget>(PC, ULimpIndicatorWidget::StaticClass());
+        // Слот на HUD назначен (ADR-048) — индикатор из WBP, правится в дизайнере; пусто —
+        // кодовое дерево (замечание qa к волне night-0807: слот был объявлен, но не читался).
+        TSubclassOf<ULimpIndicatorWidget> LimpClass = ULimpIndicatorWidget::StaticClass();
+        if (const AContrarySurvivorHUD* Hud = Cast<AContrarySurvivorHUD>(PC->GetHUD()))
+        {
+            if (Hud->LimpIndicatorWidgetClass)
+            {
+                LimpClass = Hud->LimpIndicatorWidgetClass;
+            }
+        }
+        LimpIndicatorWidget = CreateWidget<ULimpIndicatorWidget>(PC, LimpClass);
         if (!LimpIndicatorWidget)
         {
             UE_LOG(LogTemp, Warning, TEXT("LimpIndicator: widget creation failed"));
