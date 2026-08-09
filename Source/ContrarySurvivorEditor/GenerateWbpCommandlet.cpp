@@ -50,6 +50,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // -hudslots 08-07: слоты окон контроллера
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
+#include "ContrarySurvivor/UI/SettingsScreenWidget.h" // FSettingsTouchLayout: размеры «под палец» — одно место правды
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
@@ -2402,182 +2403,277 @@ namespace
 
 		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
 
-		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.5f),
-			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(900.0f, 560.0f), 0.97f);
+		// Размеры «под палец» — те же поля, по которым строит кодовое дерево-запаска
+		// (USettingsScreenWidget::TouchLayout / TouchBoxFor). Одно место правды: правка поля
+		// меняет и живое окно (после пересборки), и запаску, они не разъезжаются.
+		const FSettingsTouchLayout Layout;
+		auto TouchBox = [&Layout](EContrarySettingsControl Control)
+		{
+			return USettingsScreenWidget::TouchBoxFor(Layout, Control);
+		};
 
 		const FLinearColor GoldColor(1.0f, 0.85f, 0.2f, 1.0f);
 		const FLinearColor LabelColor(0.85f, 0.85f, 0.85f, 1.0f);
 		const FLinearColor ValueColor(1.0f, 0.97f, 0.7f, 1.0f);
 		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
 
+		// Подложка окна. Раскладка — СТОЛБИК С ПРОКРУТКОЙ, а не два столбца в фиксированном
+		// прямоугольнике, как было: элементы «под палец» физически не помещаются на экран
+		// телефона все разом (на 9 мм высоты их влезает шесть с половиной), поэтому список
+		// листается. Внутри подложки: заголовок сверху, под ним прокручиваемый столбик.
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.97f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Plate->SetPadding(FMargin(28.0f, 22.0f));
+		Plate->bIsVariable = true;
+		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+		{
+			PlateSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			PlateSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			PlateSlot->SetPosition(FVector2D::ZeroVector);
+			PlateSlot->SetSize(Layout.PanelSize);
+		}
+
+		UVerticalBox* PlateColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelColumn"));
+		Plate->SetContent(PlateColumn);
+
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
-			NSLOCTEXT("SettingsScreenWidget", "Title", "НАСТРОЙКИ"), GoldColor, 24, TEXT("Bold"));
+			NSLOCTEXT("SettingsScreenWidget", "Title", "НАСТРОЙКИ"), GoldColor,
+			Layout.TitleFontSize, TEXT("Bold"));
 		Title->bIsVariable = true;
-		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 14.0f));
-
-		// Столбцы содержимого: левый — картинка, правый — звук/управление/прочее.
-		const float LeftX = 30.0f;
-		const float RightX = 470.0f;
-		const float TopY = 56.0f;
-
-		auto AddHeader = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
+		if (UVerticalBoxSlot* TitleSlot = PlateColumn->AddChildToVerticalBox(Title))
 		{
-			UTextBlock* Header = MakeText(Tree, Roboto, FName(Name), Caption, GoldColor, 17, TEXT("Bold"));
+			TitleSlot->SetHorizontalAlignment(HAlign_Center);
+			TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
+		}
+
+		UScrollBox* Scroll = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SettingsScroll"));
+		Scroll->bIsVariable = true;
+		if (UVerticalBoxSlot* ScrollSlot = PlateColumn->AddChildToVerticalBox(Scroll))
+		{
+			ScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		}
+
+		UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SettingsColumn"));
+		Scroll->AddChild(Column);
+
+		// --- Строки списка. Все габариты — из полей раскладки, чисел «на глазок» здесь нет. ---
+
+		auto AddHeader = [&](const TCHAR* Name, const FText& Caption)
+		{
+			UTextBlock* Header = MakeText(Tree, Roboto, FName(Name), Caption, GoldColor,
+				Layout.HeaderFontSize, TEXT("Bold"));
 			Header->bIsVariable = true;
-			CanvasAuto(Panel, Header, FVector2D(X, Y));
+			if (UVerticalBoxSlot* HeaderSlot = Column->AddChildToVerticalBox(Header))
+			{
+				HeaderSlot->SetPadding(FMargin(0.0f, Layout.RowGap, 0.0f, Layout.RowGap * 0.25f));
+			}
 		};
-		auto AddLabel = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
+		// Подпись строки (что настраиваем) и образец значения: живые строки всегда переписывает
+		// код экрана (RefreshLabels), в ассете это текст-заполнитель.
+		auto AddLine = [&](const TCHAR* Name, const FText& Caption, const FLinearColor& Color)
 		{
-			UTextBlock* Label = MakeText(Tree, Roboto, FName(Name), Caption, LabelColor, 15, TEXT("Regular"));
-			Label->bIsVariable = true;
-			CanvasAuto(Panel, Label, FVector2D(X, Y));
+			UTextBlock* Line = MakeText(Tree, Roboto, FName(Name), Caption, Color,
+				Layout.LabelFontSize, TEXT("Regular"));
+			Line->bIsVariable = true;
+			if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
+			{
+				LineSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.25f));
+			}
+			return Line;
 		};
-		// Образцы значений: живые строки всегда переписывает код экрана (RefreshLabels), поэтому
-		// в ассете это просто текст-заполнитель — перевод ему не нужен.
-		auto AddValue = [&](const TCHAR* Name, const FString& Sample, float X, float Y)
+		auto AddSample = [&](const TCHAR* Name, const FString& Sample)
 		{
-			UTextBlock* Value = MakeText(Tree, Roboto, FName(Name), Sample, ValueColor, 15, TEXT("Regular"));
-			Value->bIsVariable = true;
-			CanvasAuto(Panel, Value, FVector2D(X, Y));
+			UTextBlock* Line = MakeText(Tree, Roboto, FName(Name), Sample, ValueColor,
+				Layout.LabelFontSize, TEXT("Regular"));
+			Line->bIsVariable = true;
+			if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
+			{
+				LineSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.25f));
+			}
+			return Line;
 		};
-		auto AddButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
-			float X, float Y, const FVector2D& Size)
+		// Кнопка в габаритной коробке: коробка держит размер под палец, её же прячет код,
+		// когда строка не нужна (иначе осталось бы пустое место — урок AmmoRow).
+		auto AddRowButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
+			EContrarySettingsControl Control)
 		{
+			const FVector2D BoxSize = TouchBox(Control);
+			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(FString(ButtonName) + TEXT("Box"))));
+			Box->SetWidthOverride(BoxSize.X);
+			Box->SetHeightOverride(BoxSize.Y);
+			Box->bIsVariable = true;
+
 			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
-			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 16);
-			CanvasAt(Panel, Button, FVector2D(X, Y), Size);
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption,
+				Layout.ButtonFontSize);
+			Box->SetContent(Button);
+
+			if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
+			{
+				BoxSlot->SetHorizontalAlignment(HAlign_Center);
+				// Зазор снизу — не меньше половины высоты строки: промах уходит в пустоту.
+				BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
+			}
 			return Button;
 		};
-		auto AddSlider = [&](const TCHAR* Name, float X, float Y, float Width)
+		// Ползунок тоже в габаритной коробке: тянуть его надо тем же пальцем, а собственная
+		// высота ползунка — полоска в пару миллиметров.
+		auto AddSlider = [&](const TCHAR* Name, EContrarySettingsControl Control)
 		{
+			const FVector2D BoxSize = TouchBox(Control);
+			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(FString(Name) + TEXT("Box"))));
+			Box->SetWidthOverride(BoxSize.X);
+			Box->SetHeightOverride(BoxSize.Y);
+			Box->bIsVariable = true;
+
 			USlider* Slider = Tree->ConstructWidget<USlider>(USlider::StaticClass(), FName(Name));
 			Slider->bIsVariable = true;
-			CanvasAt(Panel, Slider, FVector2D(X, Y), FVector2D(Width, 24.0f));
+			Box->SetContent(Slider);
+
+			if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
+			{
+				BoxSlot->SetHorizontalAlignment(HAlign_Center);
+				BoxSlot->SetPadding(FMargin(0.0f, Layout.RowGap * 0.25f, 0.0f, Layout.RowGap * 0.5f));
+			}
 			return Slider;
 		};
 
-		// --- Левый столбец: картинка ---
-		AddHeader(TEXT("GraphicsHeaderText"),
-			NSLOCTEXT("SettingsScreenWidget", "GraphicsHeader", "Картинка"), LeftX, TopY);
-		AddValue(TEXT("PresetValueText"), TEXT("Качество картинки: Авто (среднее)"),
-			LeftX, TopY + 28.0f);
+		// --- Картинка ---
+		AddHeader(TEXT("GraphicsHeaderText"), NSLOCTEXT("SettingsScreenWidget", "GraphicsHeader", "Картинка"));
+		AddSample(TEXT("PresetValueText"), TEXT("Качество картинки: Авто (среднее)"));
+		AddRowButton(TEXT("PresetLowButton"), TEXT("PresetLowText"),
+			NSLOCTEXT("ContrarySettings", "PresetLow", "Низкое"), EContrarySettingsControl::PresetLow);
+		AddRowButton(TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
+			NSLOCTEXT("ContrarySettings", "PresetMedium", "Среднее"), EContrarySettingsControl::PresetMedium);
+		AddRowButton(TEXT("PresetHighButton"), TEXT("PresetHighText"),
+			NSLOCTEXT("ContrarySettings", "PresetHigh", "Высокое"), EContrarySettingsControl::PresetHigh);
+		AddRowButton(TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
+			NSLOCTEXT("ContrarySettings", "PresetAuto", "Авто"), EContrarySettingsControl::PresetAuto);
 
-		const FVector2D PresetButtonSize(96.0f, 44.0f);
-		AddButton(TEXT("PresetLowButton"), TEXT("PresetLowText"),
-			NSLOCTEXT("ContrarySettings", "PresetLow", "Низкое"), LeftX, TopY + 56.0f, PresetButtonSize);
-		AddButton(TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
-			NSLOCTEXT("ContrarySettings", "PresetMedium", "Среднее"), LeftX + 102.0f, TopY + 56.0f, PresetButtonSize);
-		AddButton(TEXT("PresetHighButton"), TEXT("PresetHighText"),
-			NSLOCTEXT("ContrarySettings", "PresetHigh", "Высокое"), LeftX + 204.0f, TopY + 56.0f, PresetButtonSize);
-		AddButton(TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
-			NSLOCTEXT("ContrarySettings", "PresetAuto", "Авто"), LeftX + 306.0f, TopY + 56.0f, PresetButtonSize);
-
-		AddLabel(TEXT("ResolutionLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResolutionRow", "Масштаб разрешения"), LeftX, TopY + 112.0f);
-		AddSlider(TEXT("ResolutionSlider"), LeftX, TopY + 138.0f, 280.0f);
-		AddButton(TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
-			NSLOCTEXT("SettingsScreenWidget", "Minus", "−"), LeftX + 290.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
-		AddButton(TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
-			NSLOCTEXT("SettingsScreenWidget", "Plus", "+"), LeftX + 348.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
+		AddLine(TEXT("ResolutionLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResolutionRow", "Масштаб разрешения"), LabelColor);
+		AddSlider(TEXT("ResolutionSlider"), EContrarySettingsControl::ResolutionSlider);
 		// Образец подписи: живую строку с пикселями этого экрана собирает код.
-		AddValue(TEXT("ResolutionValueText"), TEXT("100% — это 720 на 1600"), LeftX, TopY + 168.0f);
+		AddSample(TEXT("ResolutionValueText"), TEXT("100% — это 720 на 1600"));
+		AddRowButton(TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Minus", "−"), EContrarySettingsControl::ResolutionMinus);
+		AddRowButton(TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Plus", "+"), EContrarySettingsControl::ResolutionPlus);
 
-		AddButton(TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
+		AddRowButton(TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
 			NSLOCTEXT("SettingsScreenWidget", "FrameLimitSample", "Ограничение кадров: 30 кадров"),
-			LeftX, TopY + 198.0f, FVector2D(400.0f, 46.0f));
-		AddButton(TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
+			EContrarySettingsControl::FrameLimit);
+		AddRowButton(TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
 			NSLOCTEXT("SettingsScreenWidget", "FpsCounterSample", "Счётчик кадров: выключен"),
-			LeftX, TopY + 250.0f, FVector2D(400.0f, 46.0f));
+			EContrarySettingsControl::FpsCounter);
 
-		// --- Правый столбец: звук, управление, прочее ---
-		AddHeader(TEXT("SoundHeaderText"),
-			NSLOCTEXT("SettingsScreenWidget", "SoundHeader", "Звук"), RightX, TopY);
-		AddLabel(TEXT("MusicLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "MusicRow", "Громкость музыки"), RightX, TopY + 28.0f);
-		AddSlider(TEXT("MusicSlider"), RightX, TopY + 50.0f, 280.0f);
-		AddValue(TEXT("MusicValueText"), TEXT("100%"), RightX + 292.0f, TopY + 48.0f);
-		AddLabel(TEXT("EffectsLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "EffectsRow", "Громкость эффектов"), RightX, TopY + 80.0f);
-		AddSlider(TEXT("EffectsSlider"), RightX, TopY + 102.0f, 280.0f);
-		AddValue(TEXT("EffectsValueText"), TEXT("100%"), RightX + 292.0f, TopY + 100.0f);
+		// --- Звук ---
+		AddHeader(TEXT("SoundHeaderText"), NSLOCTEXT("SettingsScreenWidget", "SoundHeader", "Звук"));
+		AddLine(TEXT("MusicLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "MusicRow", "Громкость музыки"), LabelColor);
+		AddSlider(TEXT("MusicSlider"), EContrarySettingsControl::MusicSlider);
+		AddSample(TEXT("MusicValueText"), TEXT("100%"));
+		AddLine(TEXT("EffectsLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "EffectsRow", "Громкость эффектов"), LabelColor);
+		AddSlider(TEXT("EffectsSlider"), EContrarySettingsControl::EffectsSlider);
+		AddSample(TEXT("EffectsValueText"), TEXT("100%"));
 
-		AddHeader(TEXT("ControlsHeaderText"),
-			NSLOCTEXT("SettingsScreenWidget", "ControlsHeader", "Управление"), RightX, TopY + 134.0f);
-		AddLabel(TEXT("SensitivityLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "SensitivityRow", "Чувствительность управления"), RightX, TopY + 162.0f);
-		AddSlider(TEXT("SensitivitySlider"), RightX, TopY + 184.0f, 280.0f);
-		AddValue(TEXT("SensitivityValueText"), TEXT("100%"), RightX + 292.0f, TopY + 182.0f);
-		AddLabel(TEXT("OpacityLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "OpacityRow", "Прозрачность экранных кнопок"), RightX, TopY + 214.0f);
-		AddSlider(TEXT("OpacitySlider"), RightX, TopY + 236.0f, 280.0f);
-		AddValue(TEXT("OpacityValueText"), TEXT("50%"), RightX + 292.0f, TopY + 234.0f);
-		AddButton(TEXT("VibrationButton"), TEXT("VibrationText"),
+		// --- Управление ---
+		AddHeader(TEXT("ControlsHeaderText"), NSLOCTEXT("SettingsScreenWidget", "ControlsHeader", "Управление"));
+		AddLine(TEXT("SensitivityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "SensitivityRow", "Чувствительность управления"), LabelColor);
+		AddSlider(TEXT("SensitivitySlider"), EContrarySettingsControl::SensitivitySlider);
+		AddSample(TEXT("SensitivityValueText"), TEXT("100%"));
+		AddLine(TEXT("OpacityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "OpacityRow", "Прозрачность экранных кнопок"), LabelColor);
+		AddSlider(TEXT("OpacitySlider"), EContrarySettingsControl::OpacitySlider);
+		AddSample(TEXT("OpacityValueText"), TEXT("50%"));
+		AddRowButton(TEXT("VibrationButton"), TEXT("VibrationText"),
 			NSLOCTEXT("SettingsScreenWidget", "VibrationSample", "Вибрация: включена"),
-			RightX, TopY + 264.0f, FVector2D(340.0f, 44.0f));
+			EContrarySettingsControl::Vibration);
 
-		AddHeader(TEXT("MiscHeaderText"),
-			NSLOCTEXT("SettingsScreenWidget", "MiscHeader", "Прочее"), RightX, TopY + 320.0f);
-		AddButton(TEXT("ReportBugButton"), TEXT("ReportBugText"),
+		// --- Прочее ---
+		AddHeader(TEXT("MiscHeaderText"), NSLOCTEXT("SettingsScreenWidget", "MiscHeader", "Прочее"));
+		AddRowButton(TEXT("ReportBugButton"), TEXT("ReportBugText"),
 			NSLOCTEXT("SettingsScreenWidget", "ReportBug", "Сообщить об ошибке"),
-			RightX, TopY + 348.0f, FVector2D(340.0f, 44.0f));
+			EContrarySettingsControl::ReportBug);
 		UTextBlock* BugHint = MakeText(Tree, Roboto, TEXT("ReportBugHintText"),
 			TEXT("В сообщении укажите номер сборки: Версия 0.1.0 (сборка 1)"),
-			LabelColor, 12, TEXT("Regular"));
+			LabelColor, FMath::Max(8, Layout.LabelFontSize - 4), TEXT("Regular"));
 		BugHint->SetAutoWrapText(true);
 		BugHint->bIsVariable = true;
-		CanvasAt(Panel, BugHint, FVector2D(RightX, TopY + 396.0f), FVector2D(340.0f, 34.0f));
-		AddButton(TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
+		if (UVerticalBoxSlot* HintSlot = Column->AddChildToVerticalBox(BugHint))
+		{
+			HintSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
+		}
+		AddRowButton(TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
 			NSLOCTEXT("SettingsScreenWidget", "ResetProgress", "Сбросить прогресс"),
-			RightX, TopY + 432.0f, FVector2D(340.0f, 44.0f));
+			EContrarySettingsControl::ResetProgress);
 
-		// «Назад» — по центру низа панели.
-		UButton* Close = MakeGreyButton(Tree, TEXT("CloseButton"));
-		SetUnlockedCaption(Tree, Roboto, Close, TEXT("CloseText"),
-			NSLOCTEXT("SettingsScreenWidget", "Close", "Назад"), DarkCaption, 18);
-		PlaceCenteredButton(Panel, Close, 1.0f, FVector2D(0.5f, 1.0f),
-			FVector2D(-230.0f, -14.0f), FVector2D(220.0f, 48.0f));
+		// «Назад» — последней строкой списка (как в кодовом дереве): на телефоне её ищут внизу.
+		AddRowButton(TEXT("CloseButton"), TEXT("CloseText"),
+			NSLOCTEXT("SettingsScreenWidget", "Close", "Назад"), EContrarySettingsControl::Close);
 
-		// Панель двойного переспроса сброса. В ассете ВИДИМА (владельцу есть что править) —
-		// на живом экране её прячет код при каждом показе (RefreshConfirmPanel).
+		// --- Панель двойного переспроса сброса. В ассете ВИДИМА (владельцу есть что править) —
+		// на живом экране её прячет код при каждом показе (RefreshConfirmPanel). ---
 		UBorder* Confirm = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ConfirmPanel"));
 		Confirm->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.99f), 6.0f,
 			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
-		Confirm->SetPadding(FMargin(0.0f));
+		Confirm->SetPadding(FMargin(32.0f, 28.0f));
 		Confirm->bIsVariable = true;
 		if (UCanvasPanelSlot* ConfirmSlot = Root->AddChildToCanvas(Confirm))
 		{
 			ConfirmSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
 			ConfirmSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 			ConfirmSlot->SetPosition(FVector2D::ZeroVector);
-			ConfirmSlot->SetSize(FVector2D(460.0f, 220.0f));
+			ConfirmSlot->SetAutoSize(true);
 		}
-		UCanvasPanel* ConfirmCanvas = Tree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(), TEXT("ConfirmCanvas"));
-		Confirm->SetContent(ConfirmCanvas);
+		UVerticalBox* ConfirmColumn = Tree->ConstructWidget<UVerticalBox>(
+			UVerticalBox::StaticClass(), TEXT("ConfirmColumn"));
+		Confirm->SetContent(ConfirmColumn);
 
 		UTextBlock* ConfirmTitle = MakeText(Tree, Roboto, TEXT("ConfirmTitleText"),
 			NSLOCTEXT("SettingsScreenWidget", "ResetAsk1", "Сбросить весь прогресс?"),
-			GoldColor, 18, TEXT("Bold"));
+			GoldColor, Layout.HeaderFontSize, TEXT("Bold"));
 		ConfirmTitle->SetAutoWrapText(true);
 		ConfirmTitle->SetJustification(ETextJustify::Center);
 		ConfirmTitle->bIsVariable = true;
-		if (UCanvasPanelSlot* ConfirmTitleSlot = ConfirmCanvas->AddChildToCanvas(ConfirmTitle))
+		if (UVerticalBoxSlot* ConfirmTitleSlot = ConfirmColumn->AddChildToVerticalBox(ConfirmTitle))
 		{
-			ConfirmTitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-			ConfirmTitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-			ConfirmTitleSlot->SetPosition(FVector2D(0.0f, 26.0f));
-			ConfirmTitleSlot->SetSize(FVector2D(400.0f, 56.0f));
+			ConfirmTitleSlot->SetHorizontalAlignment(HAlign_Center);
+			ConfirmTitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
 		}
-		UButton* ConfirmYes = MakeGreyButton(Tree, TEXT("ConfirmYesButton"));
-		SetUnlockedCaption(Tree, Roboto, ConfirmYes, TEXT("ConfirmYesText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResetYes1", "Да, сбросить"), DarkCaption, 16);
-		PlaceCenteredButton(ConfirmCanvas, ConfirmYes, 1.0f, FVector2D(0.5f, 1.0f),
-			FVector2D(0.0f, -74.0f), FVector2D(300.0f, 46.0f));
-		UButton* ConfirmNo = MakeGreyButton(Tree, TEXT("ConfirmNoButton"));
-		SetUnlockedCaption(Tree, Roboto, ConfirmNo, TEXT("ConfirmNoText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResetNo", "Отмена"), DarkCaption, 16);
-		PlaceCenteredButton(ConfirmCanvas, ConfirmNo, 1.0f, FVector2D(0.5f, 1.0f),
-			FVector2D(0.0f, -18.0f), FVector2D(300.0f, 46.0f));
+
+		auto AddConfirmButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
+			EContrarySettingsControl Control)
+		{
+			const FVector2D BoxSize = TouchBox(Control);
+			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
+				FName(*(FString(ButtonName) + TEXT("Box"))));
+			Box->SetWidthOverride(BoxSize.X);
+			Box->SetHeightOverride(BoxSize.Y);
+			Box->bIsVariable = true;
+
+			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption,
+				Layout.ButtonFontSize);
+			Box->SetContent(Button);
+
+			if (UVerticalBoxSlot* BoxSlot = ConfirmColumn->AddChildToVerticalBox(Box))
+			{
+				BoxSlot->SetHorizontalAlignment(HAlign_Center);
+				BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
+			}
+		};
+		AddConfirmButton(TEXT("ConfirmYesButton"), TEXT("ConfirmYesText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetYes1", "Да, сбросить"),
+			EContrarySettingsControl::ConfirmYes);
+		AddConfirmButton(TEXT("ConfirmNoButton"), TEXT("ConfirmNoText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetNo", "Отмена"),
+			EContrarySettingsControl::ConfirmNo);
 		return true;
 	}
 
@@ -4283,6 +4379,106 @@ namespace
 		return false;
 	}
 
+	// Проверка -verify для экрана настроек: в ЖИВОМ ассете у каждого управляющего элемента
+	// область нажатия не меньше 9 мм на телефоне Рината (1600 на 720 точек, 320 точек на дюйм).
+	// Зачем отдельно от автотеста: автотест проверяет РАСЧЁТ и кодовое дерево, а здесь мы
+	// смотрим на сам файл окна — иначе «поправили код, но ассет не пересобрали» осталось бы
+	// незамеченным, и на телефоне кнопки так и остались бы мелкими.
+	bool VerifySettingsTouchSizes(const TCHAR* AssetName, UWidgetBlueprint* WBP)
+	{
+		if (!WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — дерева виджетов нет."), AssetName);
+			return false;
+		}
+
+		const FSettingsTouchLayout Layout;
+		const float Threshold = USettingsScreenWidget::MinTouchPointsFor(
+			/*Millimeters=*/9.0f, /*ScreenDpi=*/320.0f, FIntPoint(1600, 720));
+
+		struct FControlEntry
+		{
+			EContrarySettingsControl Control;
+			const TCHAR* WidgetName;
+		};
+		static const FControlEntry Controls[] =
+		{
+			{ EContrarySettingsControl::PresetLow,         TEXT("PresetLowButton") },
+			{ EContrarySettingsControl::PresetMedium,      TEXT("PresetMediumButton") },
+			{ EContrarySettingsControl::PresetHigh,        TEXT("PresetHighButton") },
+			{ EContrarySettingsControl::PresetAuto,        TEXT("PresetAutoButton") },
+			{ EContrarySettingsControl::ResolutionSlider,  TEXT("ResolutionSlider") },
+			{ EContrarySettingsControl::ResolutionMinus,   TEXT("ResolutionMinusButton") },
+			{ EContrarySettingsControl::ResolutionPlus,    TEXT("ResolutionPlusButton") },
+			{ EContrarySettingsControl::FrameLimit,        TEXT("FrameLimitButton") },
+			{ EContrarySettingsControl::FpsCounter,        TEXT("FpsCounterButton") },
+			{ EContrarySettingsControl::MusicSlider,       TEXT("MusicSlider") },
+			{ EContrarySettingsControl::EffectsSlider,     TEXT("EffectsSlider") },
+			{ EContrarySettingsControl::SensitivitySlider, TEXT("SensitivitySlider") },
+			{ EContrarySettingsControl::OpacitySlider,     TEXT("OpacitySlider") },
+			{ EContrarySettingsControl::Vibration,         TEXT("VibrationButton") },
+			{ EContrarySettingsControl::ReportBug,         TEXT("ReportBugButton") },
+			{ EContrarySettingsControl::ResetProgress,     TEXT("ResetProgressButton") },
+			{ EContrarySettingsControl::Close,             TEXT("CloseButton") },
+			{ EContrarySettingsControl::ConfirmYes,        TEXT("ConfirmYesButton") },
+			{ EContrarySettingsControl::ConfirmNo,         TEXT("ConfirmNoButton") },
+		};
+
+		bool bOk = true;
+		for (const FControlEntry& Entry : Controls)
+		{
+			UWidget* Widget = WBP->WidgetTree->FindWidget(FName(Entry.WidgetName));
+			if (!Widget)
+			{
+				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — элемента '%s' в окне нет."),
+					AssetName, Entry.WidgetName);
+				bOk = false;
+				continue;
+			}
+			// Габарит держит коробка-обёртка (у кнопки и ползунка своего размера нет).
+			USizeBox* Box = Cast<USizeBox>(Widget->GetParent());
+			if (!Box || !Box->IsWidthOverride() || !Box->IsHeightOverride())
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: %s — у элемента '%s' нет габаритной коробки с заданным размером: под палец он не рассчитан."),
+					AssetName, Entry.WidgetName);
+				bOk = false;
+				continue;
+			}
+			const float Width = Box->GetWidthOverride();
+			const float Height = Box->GetHeightOverride();
+			if (Width + KINDA_SMALL_NUMBER < Threshold || Height + KINDA_SMALL_NUMBER < Threshold)
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: %s — элемент '%s' мельче порога под палец: %.0fx%.0f при нужных %.0f (это 9 мм на экране 1600x720 при 320 точках на дюйм)."),
+					AssetName, Entry.WidgetName, Width, Height, Threshold);
+				bOk = false;
+				continue;
+			}
+			// Зазор до соседней строки — не меньше половины высоты строки.
+			if (UVerticalBoxSlot* BoxSlot = Cast<UVerticalBoxSlot>(Box->Slot))
+			{
+				const FMargin Padding = BoxSlot->GetPadding();
+				const float GapBelow = Padding.Bottom;
+				if (GapBelow + KINDA_SMALL_NUMBER < Height * 0.5f)
+				{
+					UE_LOG(LogGenerateWbp, Error,
+						TEXT("VERIFY FAIL: %s — под элементом '%s' зазор %.0f, а нужно не меньше половины его высоты (%.0f)."),
+						AssetName, Entry.WidgetName, GapBelow, Height * 0.5f);
+					bOk = false;
+				}
+			}
+		}
+
+		if (bOk)
+		{
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("VERIFY %s: все %d управляющих элементов не мельче %.0f точек интерфейса (9 мм на телефоне), зазоры не меньше половины высоты."),
+				AssetName, static_cast<int32>(UE_ARRAY_COUNT(Controls)), Threshold);
+		}
+		return bOk;
+	}
+
 	void ApplyTileClassFixup(const FWbpSpec& Spec, UWidgetBlueprint* WBP)
 	{
 		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_Inventory")) == 0)
@@ -5907,6 +6103,12 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
 		{
 			bOk = VerifyTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
+		}
+
+		// Экран настроек: каждый элемент обязан быть «под палец» (жалоба Рината 08-09).
+		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_Settings")) == 0)
+		{
+			bOk = VerifySettingsTouchSizes(Spec.AssetName, WBP);
 		}
 
 		// ГЕОМЕТРИЯ (задача лида 08-09). Прежде проверка знала про виджет только имя и класс,

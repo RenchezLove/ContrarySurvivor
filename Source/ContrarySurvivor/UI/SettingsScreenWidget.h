@@ -29,6 +29,104 @@ enum class EResetConfirmStage : uint8
 };
 
 /**
+ * Все управляющие элементы экрана настроек, в которые игрок тычет пальцем. Список нужен,
+ * чтобы требование «в любой элемент можно попасть пальцем» проверялось МЕХАНИЧЕСКИ по всему
+ * экрану, а не выборочно: автотест перебирает это перечисление целиком.
+ * ⚠ Добавил элемент на экран — добавь его сюда, иначе он выпадет из проверки.
+ */
+UENUM()
+enum class EContrarySettingsControl : uint8
+{
+	PresetLow,
+	PresetMedium,
+	PresetHigh,
+	PresetAuto,
+	ResolutionSlider,
+	ResolutionMinus,
+	ResolutionPlus,
+	FrameLimit,
+	FpsCounter,
+	MusicSlider,
+	EffectsSlider,
+	SensitivitySlider,
+	OpacitySlider,
+	Vibration,
+	ReportBug,
+	ResetProgress,
+	Close,
+	ConfirmYes,
+	ConfirmNo,
+	MAX_None UMETA(Hidden) // хвост для перебора в тесте, элементом экрана не является
+};
+
+/**
+ * Размеры экрана настроек «под палец» (жалоба Рината 08-09: «как само окно побольше сделать,
+ * так и кнопки и расстояния между ними; сейчас тяжеловато по ним пальцами попадать»).
+ *
+ * ОТКУДА ЧИСЛА. Требование измеримое: сторона области нажатия не меньше 9 мм на настоящем
+ * экране. Телефон Рината — 720 на 1600 точек при плотности 320 точек на дюйм, поэтому
+ * 9 мм = 9/25.4*320 = 113.4 физической точки. Движок рисует интерфейс в СВОИХ точках и
+ * умножает их на масштаб (правило «по короткой стороне», кривая UIScaleCurve из
+ * BaseEngine.ini): при короткой стороне 720 масштаб 0.666, значит одна точка интерфейса —
+ * это 0.666 физической. Отсюда порог 113.4/0.666 = 170.3 точки интерфейса; берём 172 с
+ * небольшим запасом. Считает это MinTouchPointsFor — числа в тесте не зашиты, он спрашивает
+ * масштаб у самого движка.
+ *
+ * Поля живут в Class Defaults окна: Ринат меняет размер мышкой, без правки кода.
+ */
+USTRUCT(BlueprintType)
+struct FSettingsTouchLayout
+{
+	GENERATED_BODY()
+
+	// Размер самого окна настроек, точек интерфейса. Было 520x620 — на телефоне это чуть
+	// больше половины экрана, всё в нём мелкое.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Размер окна настроек", DisplayPriority = "1"))
+	FVector2D PanelSize = FVector2D(1500.0f, 960.0f);
+
+	// Минимальная сторона области нажатия любого элемента (те самые 9 мм).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Наименьшая сторона кнопки под палец", ClampMin = "1.0", DisplayPriority = "2"))
+	float MinTouchSize = 172.0f;
+
+	// Зазор между соседними строками. Не меньше половины высоты элемента: промах должен
+	// уходить в пустоту, а не в соседний переключатель.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Зазор между строками", ClampMin = "0.0", DisplayPriority = "3"))
+	float RowGap = 88.0f;
+
+	// Ширина строки-кнопки и ползунка во всю строку.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Ширина строки", ClampMin = "1.0", DisplayPriority = "4"))
+	float RowWidth = 1360.0f;
+
+	// Ширина кнопок переспроса («Да, сбросить» / «Отмена») — они лежат в своём окошке.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Ширина кнопки переспроса", ClampMin = "1.0", DisplayPriority = "5"))
+	float ConfirmButtonWidth = 620.0f;
+
+	// --- Кегли шрифтов. Прежние (24/17/15/17) на телефоне давали строку около миллиметра
+	// высотой: читать можно, попасть — нет. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Шрифты",
+		meta = (DisplayName = "Заголовок окна", ClampMin = "8", DisplayPriority = "1"))
+	int32 TitleFontSize = 52;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Шрифты",
+		meta = (DisplayName = "Заголовок раздела", ClampMin = "8", DisplayPriority = "2"))
+	int32 HeaderFontSize = 42;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Шрифты",
+		meta = (DisplayName = "Подписи и значения", ClampMin = "8", DisplayPriority = "3"))
+	int32 LabelFontSize = 34;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Шрифты",
+		meta = (DisplayName = "Надписи на кнопках", ClampMin = "8", DisplayPriority = "4"))
+	int32 ButtonFontSize = 36;
+};
+
+/**
  * Экран настроек (волна «Главное меню» 08-08, подход 2; спека glavnoe-menu-spec.md, раздел
  * «Экран настроек»). Открывается пунктом «Настройки» главного меню.
  *
@@ -66,7 +164,23 @@ public:
 	// Идёт ли сейчас переспрос сброса и на какой стадии (для владельца и автотестов).
 	EResetConfirmStage GetResetConfirmStage() const { return ResetConfirmStage; }
 
+	// Размеры окна и элементов «под палец» (жалоба 08-09). Правятся в Class Defaults окна.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	FSettingsTouchLayout TouchLayout;
+
 	// --- Чистые правила (покрыты автотестами ContrarySurvivor.Settings) ---
+
+	// Порог области нажатия в ТОЧКАХ ИНТЕРФЕЙСА для экрана заданного размера: сколько точек
+	// занимает требуемый физический размер. Масштаб интерфейса берётся у самого движка
+	// (UUserInterfaceSettings::GetDPIScaleBasedOnSize) — своей копии кривой мы не заводим.
+	// Millimeters — требуемый размер в миллиметрах, ScreenDpi — плотность экрана устройства,
+	// ViewportSize — размер вьюпорта в физических точках (для телефона Рината 1600x720).
+	static float MinTouchPointsFor(float Millimeters, float ScreenDpi, FIntPoint ViewportSize);
+
+	// Габарит области нажатия конкретного элемента экрана настроек. ОДНО МЕСТО ПРАВДЫ:
+	// по нему строит кодовое дерево, по нему же генератор кладёт размеры в живой ассет,
+	// и его же перебирает автотест по всему перечислению элементов.
+	static FVector2D TouchBoxFor(const FSettingsTouchLayout& Layout, EContrarySettingsControl Control);
 
 	// «Сообщить об ошибке»: пустой/пробельный адрес в конфиге — пункт спрятан целиком
 	// (то же правило, что у «Сообщества» главного меню — ADR-062).
@@ -124,10 +238,12 @@ private:
 
 	// Строка «подпись + кнопка» и строка «подпись + ползунок + значение» кодового дерева.
 	// Выходной параметр — TObjectPtr: сюда пишутся поля-кубики самого виджета.
+	// Control задаёт габарит области нажатия (TouchBoxFor) — размеры строк не разбросаны
+	// по коду, а приходят из одного места вместе с живым ассетом.
 	UButton* MakeRowButton(UVerticalBox* Column, const FName& BaseName, const FText& Caption,
-		TObjectPtr<UTextBlock>& OutCaption);
+		TObjectPtr<UTextBlock>& OutCaption, EContrarySettingsControl Control);
 	USlider* MakeRowSlider(UVerticalBox* Column, const FName& BaseName, const FText& Label,
-		TObjectPtr<UTextBlock>& OutValueText);
+		TObjectPtr<UTextBlock>& OutValueText, EContrarySettingsControl Control);
 	UTextBlock* MakeSectionHeader(UVerticalBox* Column, const FName& Name, const FText& Caption);
 
 	// Подписи «живут» значениями: пресет, масштаб (с пикселями), предел кадров, счётчик,
