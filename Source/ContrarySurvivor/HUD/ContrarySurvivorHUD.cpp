@@ -1653,7 +1653,9 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 				*DialogElder->GetDialogueActivePrefix().ToString(), *QData.Title.ToString(), *ObjStr);
 			break;
 		case EQuestState::Completed:
-			NPCText = DialogElder->GetDialogueCompletedText().ToString();
+			// ADR-065: своя реплика при сдаче ПЕРВОГО квеста (совет про торговца). Тот же
+			// метод, что у UMG-панели, — иначе два пути диалога разошлись бы текстами.
+			NPCText = DialogElder->GetCompletedTextForQuest(QData.QuestId).ToString();
 			break;
 		case EQuestState::TurnedIn:
 			NPCText = DialogElder->GetDialogueTurnedInText().ToString();

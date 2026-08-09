@@ -159,7 +159,10 @@ void UDialogScreenWidget::RefreshDialog()
 			break;
 		}
 		case EQuestState::Completed:
-			NPCText = Elder->GetDialogueCompletedText();
+			// ADR-065: у первого квеста своя реплика — вместе с наградой староста советует
+			// заглянуть к торговцу. Выбор делает сам староста (одно место правды на оба
+			// пути отрисовки диалога — UMG и запасной Canvas).
+			NPCText = Elder->GetCompletedTextForQuest(QData.QuestId);
 			break;
 		case EQuestState::TurnedIn:
 			// Build 1: TurnedIn здесь = сдан ТЕРМИНАЛЬНЫЙ квест (кв.2 — ноутбук; промежуточные

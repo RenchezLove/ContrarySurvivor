@@ -110,6 +110,17 @@ public:
 	const FText& GetDialogueDisplayName() const { return DialogueDisplayName; }
 	const FText& GetDialogueActivePrefix() const { return DialogueActivePrefix; }
 	const FText& GetDialogueCompletedText() const { return DialogueCompletedText; }
+
+	// Реплика в состоянии «задание выполнено, жду сдачи» ДЛЯ КОНКРЕТНОГО квеста (ADR-065).
+	// У первого квеста она своя: вместе с наградой староста между делом советует заглянуть
+	// к торговцу. Общий DialogueCompletedText для этого не годится — он звучал бы и при
+	// сдаче второго квеста, где совет про первое оружие уже нелеп.
+	// Пустая реплика первого квеста означает «веди себя как раньше» — вернётся общая.
+	const FText& GetCompletedTextForQuest(const FName& QuestId) const;
+
+	// Тот же выбор чистой функцией — чтобы правило гонялось автотестом без мира и диалога.
+	static bool ShouldUseFirstQuestCompletedText(const FName& QuestId, const FName& FirstQuestId,
+		bool bFirstQuestTextIsSet);
 	const FText& GetDialogueTurnedInText() const { return DialogueTurnedInText; }
 	const FText& GetDialogueEarlyHookText() const { return DialogueEarlyHookText; }
 
@@ -140,7 +151,16 @@ protected:
 	FText DialogueCompletedText = NSLOCTEXT("Dialog", "ElderCompleted",
 		"Отлично! Задание выполнено. Вот твоя награда.");
 
+	// ADR-065 (замысел Рината: «первое оружие — решение игрока, а не подарок»). Реплика
+	// показывается ТОЛЬКО при сдаче ПЕРВОГО квеста, вместе с наградой: староста не даёт
+	// инструкцию и ничего не подсвечивает, а между делом советует зайти к торговцу — чтобы
+	// игрок сам додумался купить оружие и припасы. При сдаче второго квеста показывается
+	// обычная реплика выше. Очистить это поле — вернуть прежнее поведение для всех квестов.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4", MultiLine = "true"))
+	FText FirstQuestCompletedText = NSLOCTEXT("Dialog", "ElderFirstQuestCompleted",
+		"Держи, заработал. И вот что: загляни к торговцу, он под навесом. С ножом на волка ходить — дело молодое, а с железом в руке и подальше зайти можно. Да про припасы не забудь: голодному дорога короткая.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
 	FText DialogueTurnedInText = NSLOCTEXT("Dialog", "ElderTurnedIn",
 		"Спасибо тебе ещё раз. Деревня тебе благодарна.");
 

@@ -48,7 +48,7 @@ AElderNPC::AElderNPC()
 	// КВЕСТ 1 (DRAFT, замысел Рината): убить волков у Логова, собрать ШКУРЫ и принести старосте.
 	// Тип Collect: завершённость считается по ITEM-цели (шкуры в рюкзаке); kill-цели нет
 	// (TargetCount=0) — шкуры падают с волков, прогресс идёт по собранным шкурам. При сдаче
-	// шкуры ИЗЫМАЮТСЯ (UQuestComponent::TurnInQuest). Награда 150 монет (DRAFT).
+	// шкуры ИЗЫМАЮТСЯ (UQuestComponent::TurnInQuest). Награда — см. ADR-065 ниже.
 	// A1: число шкур 5 -> 3 (баланс демки).
 	OfferedQuest.QuestId = FName(TEXT("KillWolves"));
 	OfferedQuest.Title = NSLOCTEXT("Quest", "Q1Title", "Шкуры волков");
@@ -63,7 +63,13 @@ AElderNPC::AElderNPC()
 	OfferedQuest.RequiredItemName = TEXT("Шкура волка"); // имя предмета совпадает с дропом волка (WolfCharacter)
 	OfferedQuest.RequiredItemCount = 3;
 	OfferedQuest.ItemObjectiveLabel = NSLOCTEXT("Quest", "Q1ItemObjective", "Собрать шкуры волков"); // текст метки на карте (с прогрессом x/3)
-	OfferedQuest.RewardMoney = 150.0f;
+	// ADR-065 (решение Рината, числа посчитаны game-lead по реальному прайсу торговца):
+	// награда 150 -> 200. Замысел — «первое оружие покупает сам игрок», поэтому награда
+	// обязана покрыть не только пистолет, но и припасы, иначе игрок уходит в лес голым.
+	// Арифметика: стартовые 50 + награда 200 = 250; пистолет 150 оставляет 100; бинт 12 +
+	// консервы 12 + вода 5 + 20 патронов по 2 = 69, свободных 31 (плюс 15 за необязательную
+	// четвёртую шкуру). Цену пистолета и награду второго квеста НЕ трогаем.
+	OfferedQuest.RewardMoney = 200.0f;
 	OfferedQuest.State = EQuestState::NotStarted;
 	// Этап D: метка цели квеста на HUD — логово волков (BP_WolfDen несёт QuestMarkerTag="WolfDen").
 	OfferedQuest.MapMarkerTag = FName(TEXT("WolfDen"));
@@ -263,6 +269,20 @@ const FQuest& AElderNPC::GetQuestForPlayer(const UQuestComponent* PlayerQuests) 
 		}
 	}
 	return OfferedQuest;
+}
+
+bool AElderNPC::ShouldUseFirstQuestCompletedText(const FName& QuestId, const FName& FirstQuestId,
+	bool bFirstQuestTextIsSet)
+{
+	// Совет про торговца уместен ровно один раз — когда староста платит за ПЕРВОЕ задание.
+	// При сдаче второго квеста игрок давно у торговца был, и повтор звучал бы глупо.
+	return bFirstQuestTextIsSet && !QuestId.IsNone() && QuestId == FirstQuestId;
+}
+
+const FText& AElderNPC::GetCompletedTextForQuest(const FName& QuestId) const
+{
+	return ShouldUseFirstQuestCompletedText(QuestId, OfferedQuest.QuestId, !FirstQuestCompletedText.IsEmpty())
+		? FirstQuestCompletedText : DialogueCompletedText;
 }
 
 void AElderNPC::OnInteractBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
