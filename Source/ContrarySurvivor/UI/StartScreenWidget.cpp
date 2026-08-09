@@ -327,6 +327,24 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 			}
 		}
 
+		// Вид кнопок по макету 08-09: тёплая полупрозрачная заливка, тонкая рамка, скругление;
+		// верхний пункт выделен оранжевым. Кисти собирает MakeMenuButtonStyle — тот же метод
+		// зовёт генератор живого окна, поэтому запаска и WBP_StartScreen выглядят одинаково.
+		// Верхний пункт остаётся выделенным и в переспросе: там он подписан «Отмена», и
+		// подсвечивать безопасный выход правильнее, чем стирание прогресса.
+		auto StyleMenuButton = [&Style](UButton* Button, bool bPrimary)
+		{
+			if (Button)
+			{
+				Button->SetStyle(MakeMenuButtonStyle(Style, bPrimary));
+			}
+		};
+		StyleMenuButton(ContinueButton, /*bPrimary=*/true);
+		StyleMenuButton(NewGameButton, false);
+		StyleMenuButton(SettingsButton, false);
+		StyleMenuButton(CommunityButton, false);
+		StyleMenuButton(ExitButton, false);
+
 		// Мелкие строки низа — один шрифт/цвет на обе (поле стиля «версия и политика»).
 		if (PolicyText)
 		{
@@ -347,6 +365,8 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 
 void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 {
+	// Тексты ставим и в спрятанном состоянии (прячет их ApplyMenuRowVisibility в конце этого
+	// метода): переспрос включается мгновенно, дописывать строки в тот момент негде.
 	if (TitleText)
 	{
 		TitleText->SetText(Style.TitleText);
@@ -366,7 +386,7 @@ void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 		}
 	}
 
-	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text, bool bPrimary)
 	{
 		if (Label)
 		{
@@ -374,15 +394,15 @@ void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 			if (!bDesignerTree)
 			{
 				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-				Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+				Label->SetColorAndOpacity(FSlateColor(MenuButtonTextColor(Style, bPrimary)));
 			}
 		}
 	};
-	StyleButtonLabel(ContinueText, Style.ContinueText);
-	StyleButtonLabel(NewGameText, Style.NewGameText);
-	StyleButtonLabel(SettingsText, Style.SettingsText);
-	StyleButtonLabel(CommunityText, Style.CommunityText);
-	StyleButtonLabel(ExitText, Style.ExitText);
+	StyleButtonLabel(ContinueText, Style.ContinueText, /*bPrimary=*/true);
+	StyleButtonLabel(NewGameText, Style.NewGameText, false);
+	StyleButtonLabel(SettingsText, Style.SettingsText, false);
+	StyleButtonLabel(CommunityText, Style.CommunityText, false);
+	StyleButtonLabel(ExitText, Style.ExitText, false);
 
 	// Возврат из переспроса «Новая игра» обязан вернуть и спрятанные на его время пункты.
 	ApplyMenuRowVisibility();
@@ -392,9 +412,12 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 {
 	// Переспрос «Точно начать заново?» (решение лида 08-05): те же две кнопки, другие подписи —
 	// «Продолжить» временно становится «Отмена», «Новая игра» — «Да, начать заново».
+	// Вопрос и пояснение показываются ТОЛЬКО здесь: в обычном меню их над кнопками нет
+	// (макет 08-09), но спрашивать о стирании прогресса молча нельзя.
 	if (TitleText)
 	{
 		TitleText->SetText(Style.ConfirmTitleText);
+		TitleText->SetVisibility(ESlateVisibility::HitTestInvisible);
 		if (!bDesignerTree)
 		{
 			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
@@ -404,6 +427,7 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 	if (SubtitleText)
 	{
 		SubtitleText->SetText(Style.ConfirmSubtitleText);
+		SubtitleText->SetVisibility(ESlateVisibility::HitTestInvisible);
 		if (!bDesignerTree)
 		{
 			SubtitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
@@ -411,7 +435,7 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 		}
 	}
 
-	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text, bool bPrimary)
 	{
 		if (Label)
 		{
@@ -419,12 +443,12 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 			if (!bDesignerTree)
 			{
 				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-				Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+				Label->SetColorAndOpacity(FSlateColor(MenuButtonTextColor(Style, bPrimary)));
 			}
 		}
 	};
-	StyleButtonLabel(ContinueText, Style.ConfirmCancelText);
-	StyleButtonLabel(NewGameText, Style.ConfirmYesText);
+	StyleButtonLabel(ContinueText, Style.ConfirmCancelText, /*bPrimary=*/true);
+	StyleButtonLabel(NewGameText, Style.ConfirmYesText, false);
 
 	// На время переспроса остаются ровно две кнопки — «Отмена» и «Да, начать заново»;
 	// остальные пункты меню прячутся, чтобы случайный тап рядом не увёл с вопроса о стирании.
@@ -437,14 +461,21 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 void UStartScreenWidget::ApplyMenuRowVisibility()
 {
 	// «Продолжить» без сейва не показывается вовсе — Collapsed, места в колонке не занимает
-	// (спека: «не гаснет серым»). Подзаголовок «Найдено сохранение прошлой игры.» без сейва
-	// был бы неправдой — прячется вместе с пунктом.
-	const ESlateVisibility ContinueVisibility = ContinueVisibilityFor(bHasSave);
-	SetRowVisibility(ContinueButton, ContinueVisibility);
+	// (спека: «не гаснет серым»).
+	SetRowVisibility(ContinueButton, ContinueVisibilityFor(bHasSave));
+
+	// Заголовок «С ВОЗВРАЩЕНИЕМ» и подпись «Найдено сохранение прошлой игры» в обычном меню
+	// спрятаны всегда (макет 08-09 не показывает над кнопками ничего). Их единственное живое
+	// место — переспрос «Начать заново?»: там ApplyConfirmLabels показывает обе строки, потому
+	// что спрашивать о стирании прогресса молча нельзя. Решение принимается ЗДЕСЬ, в одном
+	// месте на всю видимость пунктов меню.
+	if (TitleText)
+	{
+		TitleText->SetVisibility(ESlateVisibility::Collapsed);
+	}
 	if (SubtitleText)
 	{
-		SubtitleText->SetVisibility(ContinueVisibility == ESlateVisibility::Visible
-			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		SubtitleText->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
 	// «Настройки»: пока владелец не привязал открытие экрана настроек (подход 2), пункт
@@ -513,6 +544,45 @@ ESlateVisibility UStartScreenWidget::LogoVisibilityFor(const TSoftObjectPtr<UTex
 	// Логотипа игры отдельной картинкой в проекте пока нет: пустое поле обязано означать
 	// «просто не рисуем», а не пустой прямоугольник посреди меню.
 	return LogoTexture.IsNull() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible;
+}
+
+FButtonStyle UStartScreenWidget::MakeMenuButtonStyle(const FStartScreenStyle& Style, bool bPrimary)
+{
+	const FLinearColor Fill = bPrimary ? Style.PrimaryButtonFillColor : Style.ButtonFillColor;
+	const FLinearColor Border = bPrimary ? Style.PrimaryButtonBorderColor : Style.ButtonBorderColor;
+	const float Radius = FMath::Max(0.0f, Style.ButtonCornerRadius);
+	const float BorderWidth = FMath::Max(0.0f, Style.ButtonBorderWidth);
+
+	// Наведение и нажатие выводим из заливки: под пальцем кнопка светлеет, при нажатии темнеет.
+	// Прозрачность у всех состояний одна — иначе кнопка на касании «мигала» бы фоном.
+	auto Shade = [&Fill](float Scale, float TowardsWhite)
+	{
+		FLinearColor Result = Fill * Scale;
+		Result = FMath::Lerp(Result, FLinearColor(1.0f, 1.0f, 1.0f, Fill.A), TowardsWhite);
+		Result.A = Fill.A;
+		return Result;
+	};
+
+	auto MakeBrush = [Radius, BorderWidth, &Border](const FLinearColor& Tint)
+	{
+		FSlateBrush Brush;
+		Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
+		Brush.TintColor = FSlateColor(Tint);
+		Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		Brush.OutlineSettings.CornerRadii = FVector4(Radius, Radius, Radius, Radius);
+		Brush.OutlineSettings.Color = FSlateColor(Border);
+		Brush.OutlineSettings.Width = BorderWidth;
+		return Brush;
+	};
+
+	FButtonStyle Result;
+	Result.Normal = MakeBrush(Fill);
+	Result.Hovered = MakeBrush(Shade(1.0f, 0.10f));
+	Result.Pressed = MakeBrush(Shade(0.75f, 0.0f));
+	Result.Disabled = MakeBrush(FLinearColor(Fill.R, Fill.G, Fill.B, Fill.A * 0.5f));
+	Result.NormalPadding = FMargin(0.0f);
+	Result.PressedPadding = FMargin(0.0f);
+	return Result;
 }
 
 bool UStartScreenWidget::ShouldFillBackgroundWithColor(const TSoftObjectPtr<UTexture2D>& BackgroundTexture)

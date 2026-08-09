@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Styling/SlateTypes.h" // FButtonStyle — вид кнопок меню общий для кода и генератора
 #include "StartScreenWidget.generated.h"
 
 class UButton;
@@ -109,12 +110,15 @@ struct FStartScreenStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FLinearColor DimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-	// Золотой кант панели и тёмный фон панели (палитра модалок HUD, как у меню паузы).
+	// Кант и фон подложки под столбиком кнопок. По макету 08-09 подложки НЕТ ВОВСЕ: кнопки
+	// стоят прямо на фоне. Оба цвета поэтому полностью прозрачны — холодная синевато-серая
+	// рамка, которую Ринат назвал «старой», больше не рисуется. Захочешь вернуть подложку —
+	// подними прозрачность здесь, кубики в дереве остались на месте.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
-	FLinearColor FrameColor = FLinearColor(0.8f, 0.65f, 0.25f, 0.9f);
+	FLinearColor FrameColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
-	FLinearColor PanelColor = FLinearColor(0.06f, 0.07f, 0.09f, 0.97f);
+	FLinearColor PanelColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FText TitleText = NSLOCTEXT("StartScreenWidget", "TitleText", "С ВОЗВРАЩЕНИЕМ");
@@ -183,16 +187,61 @@ struct FStartScreenStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Confirm New Game")
 	FText ConfirmCancelText = NSLOCTEXT("StartScreenWidget", "ConfirmCancelText", "Отмена");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (ClampMin = "8"))
-	int32 ButtonFontSize = 19;
+	// --- Вид кнопок меню. Все значения по умолчанию сняты ПИПЕТКОЙ с макета
+	// `concept-art/menu-mockups/menu-background-A-check.png` (живой осмотр 08-09: «цвет кнопок
+	// и рамка старые, не как на этой картинке»). Цвета движок держит в ЛИНЕЙНОМ виде, поэтому
+	// рядом в комментарии — исходный код цвета с макета, каким его показывает пипетка.
+	// Размеры сняты с того же макета и пересчитаны в точки эталонного экрана высотой 1080
+	// (макет 1920x864 — это экран телефона в масштабе 0.8). ---
 
-	// Цвет подписей кнопок (тёмный — на светлой штатной кнопке UButton).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
-	FLinearColor ButtonTextColor = FLinearColor(0.05f, 0.05f, 0.05f, 1.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (ClampMin = "8"))
+	int32 ButtonFontSize = 34;
+
+	// Подписи обычных пунктов — почти белые (#EDECE7 на макете).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Цвет подписи обычной кнопки"))
+	FLinearColor ButtonTextColor = FLinearColor(0.8469f, 0.8388f, 0.7991f, 1.0f);
+
+	// Заливка обычной кнопки — тёмно-коричневая и ПОЛУПРОЗРАЧНАЯ, фон сквозь неё чуть виден
+	// (#160E09 на макете).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Заливка обычной кнопки"))
+	FLinearColor ButtonFillColor = FLinearColor(0.0080f, 0.0044f, 0.0027f, 0.75f);
+
+	// Тонкая тёплая рамка обычной кнопки (#3A332E на макете).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Рамка обычной кнопки"))
+	FLinearColor ButtonBorderColor = FLinearColor(0.0423f, 0.0331f, 0.0273f, 0.9f);
+
+	// Верхний пункт («Продолжить») выделен оранжевой заливкой (#BC7335 на макете).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Заливка выделенной кнопки"))
+	FLinearColor PrimaryButtonFillColor = FLinearColor(0.5029f, 0.1714f, 0.0356f, 1.0f);
+
+	// Рамка выделенной кнопки светлее её заливки (#CA874D на макете).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Рамка выделенной кнопки"))
+	FLinearColor PrimaryButtonBorderColor = FLinearColor(0.5906f, 0.2423f, 0.0742f, 1.0f);
+
+	// Подпись выделенной кнопки на макете ТЁМНАЯ (#201209): по светлому оранжевому она
+	// читается лучше белой. Это не описка — снято пипеткой с самого макета.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Цвет подписи выделенной кнопки"))
+	FLinearColor PrimaryButtonTextColor = FLinearColor(0.0144f, 0.0060f, 0.0027f, 1.0f);
+
+	// Скругление углов кнопки, точек.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Скругление углов кнопки", ClampMin = "0.0"))
+	float ButtonCornerRadius = 7.0f;
+
+	// Толщина рамки кнопки, точек. Ноль — рамки нет вовсе.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen",
+		meta = (DisplayName = "Толщина рамки кнопки", ClampMin = "0.0"))
+	float ButtonBorderWidth = 2.0f;
 
 	// Габарит кнопки под палец (SizeBox: у UButton 5.5 нет SetPadding).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
-	FVector2D ButtonSize = FVector2D(280.0f, 58.0f);
+	FVector2D ButtonSize = FVector2D(480.0f, 90.0f);
 
 	// --- Раскладка «логотип слева, кнопки справа» (просьба Рината 08-09: телефон лежит
 	// горизонтально, кнопки должны попадать под большой палец правой руки). Поля действуют
@@ -214,15 +263,15 @@ struct FStartScreenStyle
 		meta = (DisplayName = "Отступ логотипа от левого края"))
 	float LogoLeftMargin = 56.0f;
 
-	// Отступ столбика кнопок от ПРАВОГО края экрана, точек.
+	// Отступ столбика кнопок от ПРАВОГО края экрана, точек (с макета 08-09).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
 		meta = (DisplayName = "Отступ кнопок от правого края"))
-	float ButtonsRightMargin = 64.0f;
+	float ButtonsRightMargin = 98.0f;
 
-	// Вертикальный зазор между кнопками, точек.
+	// Вертикальный зазор между кнопками, точек (с макета 08-09).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
 		meta = (DisplayName = "Зазор между кнопками", ClampMin = "0.0"))
-	float ButtonSpacing = 12.0f;
+	float ButtonSpacing = 20.0f;
 };
 
 /**
@@ -292,6 +341,21 @@ public:
 	// Нужна ли сплошная заливка вместо картинки (переделка 08-09): картинки нет — да.
 	// Фон обязан быть непрозрачным в любом случае, сквозь меню игру видно быть не должно.
 	static bool ShouldFillBackgroundWithColor(const TSoftObjectPtr<UTexture2D>& BackgroundTexture);
+
+	// Вид кнопки меню по макету 08-09: заливка, тонкая рамка, скругление углов.
+	// bPrimary — верхний выделенный пункт («Продолжить»), у него своя оранжевая пара цветов.
+	// Наведение и нажатие НЕ отдельные поля: наведение чуть светлее заливки, нажатие чуть
+	// темнее — так один правленый цвет тянет за собой все состояния и они не разъезжаются.
+	// ⛔ ОДНО МЕСТО ПРАВДЫ на оба пути: этим же методом красит кнопки живого окна генератор
+	// ассетов (GenerateWbpCommandlet::BuildStartScreen), поэтому кодовое дерево-запаска и
+	// WBP_StartScreen выглядят одинаково.
+	static FButtonStyle MakeMenuButtonStyle(const FStartScreenStyle& Style, bool bPrimary);
+
+	// Цвет подписи кнопки: у выделенного пункта свой (на макете он тёмный по оранжевому).
+	static FLinearColor MenuButtonTextColor(const FStartScreenStyle& Style, bool bPrimary)
+	{
+		return bPrimary ? Style.PrimaryButtonTextColor : Style.ButtonTextColor;
+	}
 
 	// --- Обработчики кнопок. ПУБЛИЧНЫЕ намеренно: их зовут и клики кнопок, и headless-тесты
 	// меню (живой Slate в Automation-тестах проекта не поднимается — паттерн DeathScreenWidget). ---

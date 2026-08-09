@@ -50,6 +50,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // -hudslots 08-07: слоты окон контроллера
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
+#include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
@@ -2289,51 +2290,79 @@ namespace
 
 		// --- Столбик кнопок СПРАВА: телефон лежит горизонтально, кнопки должны попадать под
 		// большой палец правой руки. Привязка к ПРАВОМУ краю (якорь 1 по X) и к середине по
-		// высоте — раскладка переживает экран другой формы, а не рассыпается. ---
-		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(1.0f, 0.5f, 1.0f, 0.5f),
-			FVector2D(1.0f, 0.5f), FVector2D(-64.0f, 0.0f), FVector2D(380.0f, 470.0f), 0.82f);
+		// высоте — раскладка переживает экран другой формы, а не рассыпается.
+		//
+		// Переделка 08-09 по макету `concept-art/menu-mockups/menu-background-A-check.png`
+		// (живой осмотр Рината): подложки под столбиком БОЛЬШЕ НЕТ — кнопки стоят прямо на
+		// фоне, холодная синевато-серая рамка панели убрана. Размеры и цвета — из
+		// FStartScreenStyle, то есть ровно те же, что у кодового дерева-запаски. ---
+		const FStartScreenStyle MenuStyle;
+		const FVector2D ButtonSize = MenuStyle.ButtonSize;
+		const float ButtonStep = ButtonSize.Y + MenuStyle.ButtonSpacing;
+		constexpr int32 MenuButtonCount = 5;
+		// Столбик центрирован по высоте экрана (как на макете): верх первой кнопки — на
+		// половину всей высоты столбика выше середины.
+		const float ColumnTop = -0.5f * (MenuButtonCount * ButtonSize.Y
+			+ (MenuButtonCount - 1) * MenuStyle.ButtonSpacing);
 
+		// Заголовок и подпись живут НАД столбиком и в обычном меню спрятаны кодом
+		// (UStartScreenWidget::ApplyChoiceLabels): на макете над кнопками пусто. В ассете
+		// оставлены видимыми — они нужны переспросу «Начать заново?» и владельцу в дизайнере.
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
 			NSLOCTEXT("StartScreenWidget", "TitleText", "С ВОЗВРАЩЕНИЕМ"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 22, TEXT("Bold"));
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 26, TEXT("Bold"));
+		Title->SetJustification(ETextJustify::Center);
 		Title->bIsVariable = true;
-		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 18.0f));
+		if (UCanvasPanelSlot* TitleSlot = Root->AddChildToCanvas(Title))
+		{
+			TitleSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			TitleSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+			TitleSlot->SetPosition(FVector2D(-MenuStyle.ButtonsRightMargin, ColumnTop - 56.0f));
+			TitleSlot->SetSize(FVector2D(ButtonSize.X, 36.0f));
+		}
 
 		UTextBlock* Subtitle = MakeText(Tree, Roboto, TEXT("SubtitleText"),
 			NSLOCTEXT("StartScreenWidget", "SubtitleText", "Найдено сохранение прошлой игры."),
-			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 14, TEXT("Regular"));
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 18, TEXT("Regular"));
 		Subtitle->SetAutoWrapText(true);
 		Subtitle->SetJustification(ETextJustify::Center);
 		Subtitle->bIsVariable = true;
-		if (UCanvasPanelSlot* SubtitleSlot = Panel->AddChildToCanvas(Subtitle))
+		if (UCanvasPanelSlot* SubtitleSlot = Root->AddChildToCanvas(Subtitle))
 		{
-			SubtitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-			SubtitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-			SubtitleSlot->SetPosition(FVector2D(0.0f, 48.0f));
-			SubtitleSlot->SetSize(FVector2D(320.0f, 38.0f));
+			SubtitleSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			SubtitleSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+			SubtitleSlot->SetPosition(FVector2D(-MenuStyle.ButtonsRightMargin, ColumnTop - 16.0f));
+			SubtitleSlot->SetSize(FVector2D(ButtonSize.X, 34.0f));
 		}
 
 		// Подписи кнопок — образцы: живые ставит код (стиль контроллера; «Продолжить»/«Новая
 		// игра» ещё и переключаются переспросом ApplyChoiceLabels/ApplyConfirmLabels).
-		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
 		auto AddMenuButton = [&](const TCHAR* ButtonName, const TCHAR* TextName,
-			const FText& Caption, float Y)
+			const FText& Caption, int32 Index, bool bPrimary)
 		{
-			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
-			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 19);
-			PlaceCenteredButton(Panel, Button, 0.0f, FVector2D(0.5f, 0.0f),
-				FVector2D(0.0f, Y), FVector2D(300.0f, 58.0f));
+			UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), FName(ButtonName));
+			Button->SetStyle(UStartScreenWidget::MakeMenuButtonStyle(MenuStyle, bPrimary));
+			Button->bIsVariable = true;
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption,
+				UStartScreenWidget::MenuButtonTextColor(MenuStyle, bPrimary), MenuStyle.ButtonFontSize);
+			if (UCanvasPanelSlot* ButtonSlot = Root->AddChildToCanvas(Button))
+			{
+				ButtonSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+				ButtonSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+				ButtonSlot->SetPosition(FVector2D(-MenuStyle.ButtonsRightMargin, ColumnTop + Index * ButtonStep));
+				ButtonSlot->SetSize(ButtonSize);
+			}
 		};
 		AddMenuButton(TEXT("ContinueButton"), TEXT("ContinueText"),
-			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 100.0f);
+			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 0, /*bPrimary=*/true);
 		AddMenuButton(TEXT("NewGameButton"), TEXT("NewGameText"),
-			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 170.0f);
+			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 1, false);
 		AddMenuButton(TEXT("SettingsButton"), TEXT("SettingsText"),
-			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 240.0f);
+			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 2, false);
 		AddMenuButton(TEXT("CommunityButton"), TEXT("CommunityText"),
-			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 310.0f);
+			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 3, false);
 		AddMenuButton(TEXT("ExitButton"), TEXT("ExitText"),
-			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 380.0f);
+			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 4, false);
 
 		// Низ ЭКРАНА (спека: «мелким шрифтом, не кнопками»). Лежат не в панели, а прямо на
 		// фоне — по центру нижнего края, на затемнении, чтобы читались при любой картинке.
@@ -2940,10 +2969,12 @@ namespace
 			{ TEXT("PanelPlate"), TEXT("TitleText"), TEXT("StreakText"), TEXT("RewardText"),
 			  TEXT("TakeButton"), TEXT("TakeText"),
 			  TEXT("DoubleButton"), TEXT("DoubleText"), TEXT("DoubleSubText") } },
+		// 08-09 (макет menu-background-A-check.png): подложки PanelPlate у меню больше нет —
+		// кнопки стоят прямо на фоне.
 		{ TEXT("/Game/UI/WBP_StartScreen"), TEXT("WBP_StartScreen"),
 			TEXT("/Script/ContrarySurvivor.StartScreenWidget"), &BuildStartScreen,
 			{ TEXT("BackgroundImage"), TEXT("LogoImage"),
-			  TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			  TEXT("DimBorder"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
@@ -3488,7 +3519,7 @@ namespace
 		{ TEXT("WBP_StartScreen"),
 			{ },
 			{ TEXT("BackgroundImage"), TEXT("LogoImage"),
-			  TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			  TEXT("DimBorder"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
