@@ -45,6 +45,7 @@
 #include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA
 #include "ContrarySurvivor/Ads/AdGatingLogic.h"  // Build 1.2: суточные счётчики/кулдаун рекламы
 #include "ContrarySurvivor/Debug/QADebug.h"      // QA god-mode (неуязвимость)
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость музыки/эффектов игрока
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
@@ -348,8 +349,28 @@ void APlayerCharacter::StartAmbience()
     }
 
     // bAutoDestroy=false — держим компонент живым (зациклен), храним ссылку.
+    // Громкость музыки с экрана настроек (ADR-062): фоновый эмбиент — единственный
+    // непрерывный фон игры, он и живёт на канале музыки, пока настоящей музыки нет.
     AmbienceComponent = UGameplayStatics::SpawnSound2D(
-        this, AmbienceSound, AmbienceVolume, 1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
+        this, AmbienceSound,
+        AmbienceVolume * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe(),
+        1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
+}
+
+void APlayerCharacter::ApplyAudioSettings()
+{
+    // Зацикленные звуки уже играют — им громкость меняем прямо на компоненте
+    // (SetVolumeMultiplier), иначе настройка подействовала бы только после перезапуска звука.
+    if (AmbienceComponent)
+    {
+        AmbienceComponent->SetVolumeMultiplier(
+            AmbienceVolume * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe());
+    }
+    if (LimpBreathingComponent)
+    {
+        LimpBreathingComponent->SetVolumeMultiplier(
+            UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
+    }
 }
 
 void APlayerCharacter::OnConstruction(const FTransform& Transform)
@@ -492,7 +513,9 @@ void APlayerCharacter::UpdateLimpState(float NewHealth, float InMaxHealth)
                 Wave->bLooping = true; // как эмбиент: зацикливание — свойство самого ассета (UE 5.5)
             }
             LimpBreathingComponent = UGameplayStatics::SpawnSound2D(
-                this, LimpBreathingSound, 1.0f, 1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
+                this, LimpBreathingSound,
+                UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe(),
+                1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
         }
     }
     else if (LimpBreathingComponent)
@@ -755,7 +778,10 @@ void APlayerCharacter::UpdateFootsteps(float DeltaTime)
         const int32 Index = FMath::RandRange(0, FootstepSounds.Num() - 1);
         if (USoundBase* Step = FootstepSounds[Index])
         {
-            UGameplayStatics::PlaySoundAtLocation(this, Step, GetActorLocation(), FootstepVolume);
+            // Громкость эффектов с экрана настроек (ADR-062): разовые звуки берут её в момент
+            // проигрывания, поэтому правка ползунка слышна со следующего же шага.
+            UGameplayStatics::PlaySoundAtLocation(this, Step, GetActorLocation(),
+                FootstepVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
         }
     }
 }

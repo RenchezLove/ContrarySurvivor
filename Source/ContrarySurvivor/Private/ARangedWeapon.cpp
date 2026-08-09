@@ -12,6 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // D5: лёгкая тряска камеры при выстреле игрока
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // вариант A прицеливания: доворот корпуса носителя
 
 ARangedWeapon::ARangedWeapon()
@@ -125,7 +126,9 @@ void ARangedWeapon::PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound)
 	// Звук выстрела (для ИИ бандита; игрок проигрывает его сам в Fire()).
 	if (bPlaySound && FireSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), FireSoundVolume);
+		// Громкость эффектов с экрана настроек (ADR-062).
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(),
+			FireSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
 	}
 
 	if (!bEnableFireVisuals)
@@ -257,7 +260,9 @@ void ARangedWeapon::Fire(AActor* Target)
 	// Звук выстрела — только при реальном выстреле (CanFire() уже прошёл, обойма не пуста).
 	if (FireSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(), FireSoundVolume);
+		// Громкость эффектов с экрана настроек (ADR-062).
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(),
+			FireSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
 	}
 
 	// Тратим патрон и обновляем время последнего выстрела

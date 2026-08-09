@@ -9,6 +9,7 @@
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "AConsumableItem.h"
 #include "AQuestItem.h" // Фаза 5: «Шкура волка» — квест-предмет (категория Quest, не теряется при смерти)
 #include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
@@ -196,7 +197,9 @@ void AWolfCharacter::PlayAttackSound()
 	const int32 Index = FMath::RandRange(0, AttackGrowlSounds.Num() - 1);
 	if (USoundBase* Growl = AttackGrowlSounds[Index])
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, Growl, GetActorLocation(), AttackGrowlVolume);
+		// Громкость эффектов с экрана настроек (ADR-062): значение берётся в момент проигрывания.
+		UGameplayStatics::PlaySoundAtLocation(this, Growl, GetActorLocation(),
+			AttackGrowlVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
 	}
 }
 

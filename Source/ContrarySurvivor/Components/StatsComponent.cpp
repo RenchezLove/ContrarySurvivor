@@ -10,6 +10,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"     // QA god-mode (заморозка деградации) + MONEY-лог
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // #2: флаг спринта владельца
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // ADR-063: приглушение истощения (квест/наигрыш)
 
@@ -58,7 +59,9 @@ void UStatsComponent::PlayHurtSound()
 	}
 
 	UAudioComponent* Audio = UGameplayStatics::SpawnSoundAtLocation(
-		this, HurtSound, Loc, FRotator::ZeroRotator, HurtSoundVolume,
+		this, HurtSound, Loc, FRotator::ZeroRotator,
+		// Громкость эффектов с экрана настроек (ADR-062).
+		HurtSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe(),
 		/*PitchMultiplier=*/1.0f, StartTime);
 	if (!Audio)
 	{

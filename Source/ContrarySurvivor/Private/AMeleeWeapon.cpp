@@ -14,6 +14,7 @@
 #include "Sound/SoundBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // Build 1.1: плавный доворот StartAimTurnTo
 
 AMeleeWeapon::AMeleeWeapon()
@@ -132,7 +133,9 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 	// Звук замаха — на каждый реальный взмах (звучит и при промахе).
 	if (SwingSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, SwingSound, Wielder->GetActorLocation(), SwingSoundVolume);
+		// Громкость эффектов с экрана настроек (ADR-062).
+		UGameplayStatics::PlaySoundAtLocation(this, SwingSound, Wielder->GetActorLocation(),
+			SwingSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
 	}
 
 	const FVector Origin = Wielder->GetActorLocation();

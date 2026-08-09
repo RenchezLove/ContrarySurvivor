@@ -21,6 +21,7 @@
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
 #include "ContrarySurvivor/Utils/ContrarySurvivorStatics.h" // GetCurrentFPS (Блок E)
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // выбор игрока: счётчик кадров, прозрачность, чувствительность
 #include "ContrarySurvivor/Debug/QADebug.h" // CONTRARY_WITH_QA_CHEATS: экранной отладки нет в Shipping
 
 namespace
@@ -136,6 +137,42 @@ void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
 		ResetStick();
 		ResetHeldButtons();
 	}
+}
+
+void UTouchControlsWidget::ApplyPlayerSettings()
+{
+	// Прозрачность экранных кнопок (спека, раздел «Управление»). Ползунок задаёт прозрачность
+	// В ПОКОЕ; активный элемент светлее в том же соотношении, что было зашито раньше
+	// (0.5 в покое / 0.85 под пальцем), поэтому при значении по умолчанию вид не меняется.
+	const float IdleFromSettings = UContrarySurvivorGameUserSettings::GetTouchButtonsOpacitySafe();
+	Config.IdleOpacity = IdleFromSettings;
+	Config.ActiveOpacity = FMath::Clamp(IdleFromSettings * 1.7f, IdleFromSettings, 1.0f);
+
+	// Прозрачность применяем к уже созданным кубикам: настройка обязана действовать сразу,
+	// без пересоздания слоя. Кубики могут быть пустыми (WBP без них) — молча пропускаем.
+	auto ApplyIdle = [this](UWidget* Widget)
+	{
+		if (Widget)
+		{
+			Widget->SetRenderOpacity(Config.IdleOpacity);
+		}
+	};
+	ApplyIdle(StickBase);
+	ApplyIdle(StickThumb);
+	ApplyIdle(FireButton);
+	ApplyIdle(ReloadButton);
+	ApplyIdle(InteractButton);
+	ApplyIdle(WeaponButton);
+	ApplyIdle(InventoryButton);
+	ApplyIdle(PauseButton);
+	ApplyIdle(WeaponIconImage);
+	// Кнопка БЕГ в режиме «бег включён» светится активной прозрачностью — её не гасим.
+	if (SprintButton && !bSprintOn)
+	{
+		SprintButton->SetRenderOpacity(Config.IdleOpacity);
+	}
+
+	// Чувствительность управления читается прямо в UpdateStickFromPointer — кешировать нечего.
 }
 
 void UTouchControlsWidget::NativeOnInitialized()
@@ -538,8 +575,9 @@ void UTouchControlsWidget::UpdateFrameTimeText(float DeltaTime)
 #if !CONTRARY_WITH_QA_CHEATS
 	FrameTimeText->SetVisibility(ESlateVisibility::Collapsed);
 #else
-	// Живём по тому же выключателю, что счётчик кадров (плюс собственная галочка).
-	if (!bShowFps || !bShowFrameTimings)
+	// Живём по тому же выключателю, что счётчик кадров (плюс собственная галочка): игрок
+	// выключил счётчик на экране настроек — строка времён пропадает вместе с ним.
+	if (!bShowFps || !bShowFrameTimings || !UContrarySurvivorGameUserSettings::IsFpsCounterShownSafe())
 	{
 		FrameTimeText->SetVisibility(ESlateVisibility::Collapsed);
 		return;
@@ -574,14 +612,15 @@ void UTouchControlsWidget::UpdateFpsText()
 	{
 		return; // кубика нет (WBP без него и не кодовое дерево) — нечего обновлять
 	}
-	// Счётчик кадров с экрана релиза убран по требованию издателя — тем же компиляционным
-	// гейтом, что и строка времён под ним (CONTRARY_WITH_QA_CHEATS, Debug/QADebug.h).
-	// Страховка на случай, если кубик пришёл из ассета WBP, а не создан кодом.
-#if !CONTRARY_WITH_QA_CHEATS
-	FpsText->SetVisibility(ESlateVisibility::Collapsed);
-	return;
-#else
-	if (!bShowFps)
+	// Счётчик кадров теперь ведёт САМ ИГРОК с экрана настроек (спека glavnoe-menu-spec.md:
+	// «Счётчик кадров — переключатель, по умолчанию ВЫКЛЮЧЕН. В релизе счётчик не виден, пока
+	// игрок сам его не включит»). Поэтому прежний компиляционный гейт CONTRARY_WITH_QA_CHEATS
+	// с этой строки снят: он запрещал счётчик в релизе даже по желанию игрока. Требование
+	// издателя «в релизе счётчика не видно» держится значением по умолчанию (выключен) —
+	// UContrarySurvivorGameUserSettings::IsFpsCounterShownSafe() без настроек тоже отдаёт false.
+	// Строка ВРЕМЁН КАДРА под счётчиком (отладочная телеметрия) осталась под компиляционным
+	// гейтом — её в релизе нет вовсе, см. UpdateFrameTimeText.
+	if (!bShowFps || !UContrarySurvivorGameUserSettings::IsFpsCounterShownSafe())
 	{
 		FpsText->SetVisibility(ESlateVisibility::Collapsed);
 		return;
@@ -596,7 +635,6 @@ void UTouchControlsWidget::UpdateFpsText()
 		Line += FpsSuffix.ToString();
 	}
 	FpsText->SetText(FText::FromString(Line));
-#endif
 }
 
 void UTouchControlsWidget::UpdateSprintVisual(float DeltaTime)
@@ -915,6 +953,20 @@ void UTouchControlsWidget::UpdateStickFromPointer(const FGeometry& Geo, const FP
 	if (NewVector.Size() < Config.StickDeadZone)
 	{
 		NewVector = FVector2D::ZeroVector;
+	}
+	else
+	{
+		// Чувствительность управления (экран настроек, ADR-062): множитель хода стика.
+		// Больше единицы — полная скорость набирается меньшим движением пальца, меньше —
+		// палец надо увести дальше. Длину ограничиваем единицей: движок ждёт нормализованный
+		// вектор, иначе персонаж поехал бы быстрее собственного предела скорости.
+		// Умножаем ТОЛЬКО передаваемое значение — «шляпка» стика продолжает идти строго
+		// за пальцем (Offset ниже), иначе она уезжала бы из-под него.
+		NewVector *= UContrarySurvivorGameUserSettings::GetControlSensitivitySafe();
+		if (NewVector.Size() > 1.0f)
+		{
+			NewVector.Normalize();
+		}
 	}
 	StickVector = NewVector;
 
