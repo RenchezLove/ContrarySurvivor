@@ -321,7 +321,7 @@ void USettingsScreenWidget::RefreshLabels()
 
 	// Пункт «Сообщить об ошибке» без адреса в конфиге спрятан целиком — то же правило,
 	// что у «Сообщества» главного меню (ADR-062).
-	const ESlateVisibility BugVisibility = ReportBugVisibilityFor(UMainMenuSettings::GetBugReportUrl());
+	const ESlateVisibility BugVisibility = ReportBugVisibilityFor(UMainMenuSettings::GetEffectiveBugReportUrl());
 	SetRowVisibility(ReportBugButton, BugVisibility);
 	SetRowVisibility(ReportBugHintText, BugVisibility);
 }
@@ -523,7 +523,7 @@ void USettingsScreenWidget::HandleVibrationClicked()
 
 void USettingsScreenWidget::HandleReportBugClicked()
 {
-	const FString Url = UMainMenuSettings::GetBugReportUrl();
+	const FString Url = UMainMenuSettings::GetEffectiveBugReportUrl();
 	if (Url.IsEmpty())
 	{
 		// Пункт при пустом адресе спрятан целиком, штатно сюда не попасть — строка в журнал.

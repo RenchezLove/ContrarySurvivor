@@ -30,6 +30,14 @@ FString UMainMenuSettings::GetBugReportUrl()
 	return Settings ? Settings->BugReportUrl.TrimStartAndEnd() : FString();
 }
 
+FString UMainMenuSettings::GetEffectiveBugReportUrl()
+{
+	// Решение game-lead 08-09: канал у нас один, поэтому отдельный адрес для отчётов об
+	// ошибках необязателен — не заполнен, значит отчёты идут в чат сообщества.
+	const FString OwnUrl = GetBugReportUrl();
+	return OwnUrl.IsEmpty() ? GetCommunityUrl() : OwnUrl;
+}
+
 void UStartScreenWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();

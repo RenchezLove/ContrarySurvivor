@@ -294,6 +294,49 @@ bool FSettingsReportBugUrlTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// --- 7б. Свой адрес не задан — отчёты идут в чат сообщества (решение game-lead 08-09) -----
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSettingsReportBugFallbackTest,
+	"ContrarySurvivor.Settings.ReportBugFallsBackToCommunity", SettingsTestFlags)
+
+bool FSettingsReportBugFallbackTest::RunTest(const FString& Parameters)
+{
+	UMainMenuSettings* Settings = GetMutableDefault<UMainMenuSettings>();
+	if (!TestNotNull(TEXT("Настройки главного меню доступны"), Settings))
+	{
+		return false;
+	}
+	const FString SavedBug = Settings->BugReportUrl;
+	const FString SavedCommunity = Settings->CommunityUrl;
+
+	// Канал у нас один: отдельный адрес для отчётов заполнять необязательно.
+	Settings->BugReportUrl = FString();
+	Settings->CommunityUrl = TEXT("https://t.me/contrary_survivor");
+	TestEqual(TEXT("Без своего адреса отчёты идут в чат сообщества"),
+		UMainMenuSettings::GetEffectiveBugReportUrl(), TEXT("https://t.me/contrary_survivor"));
+	TestEqual(TEXT("И пункт «Сообщить об ошибке» при этом виден"),
+		USettingsScreenWidget::ReportBugVisibilityFor(UMainMenuSettings::GetEffectiveBugReportUrl()),
+		ESlateVisibility::Visible);
+
+	// Свой адрес задан — он и побеждает (дверь на будущее: отдельный чат под ошибки).
+	Settings->BugReportUrl = TEXT("https://t.me/contrary_bugs");
+	TestEqual(TEXT("Свой адрес отчётов важнее адреса сообщества"),
+		UMainMenuSettings::GetEffectiveBugReportUrl(), TEXT("https://t.me/contrary_bugs"));
+
+	// Пусты обе строки — пункта нет.
+	Settings->BugReportUrl = FString();
+	Settings->CommunityUrl = FString();
+	TestTrue(TEXT("Без обоих адресов отчётам уходить некуда"),
+		UMainMenuSettings::GetEffectiveBugReportUrl().IsEmpty());
+	TestEqual(TEXT("И пункт спрятан целиком"),
+		USettingsScreenWidget::ReportBugVisibilityFor(UMainMenuSettings::GetEffectiveBugReportUrl()),
+		ESlateVisibility::Collapsed);
+
+	Settings->BugReportUrl = SavedBug; // не оставлять след другим тестам
+	Settings->CommunityUrl = SavedCommunity;
+	return true;
+}
+
 // --- 8. «Сбросить прогресс» — только после двойного переспроса ----------------------------
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSettingsResetDoubleConfirmTest,
