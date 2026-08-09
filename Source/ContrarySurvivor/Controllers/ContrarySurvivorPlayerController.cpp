@@ -448,7 +448,7 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 	bUIClickConsumed = false;
 
 	// Музыка паузы: звучит по кругу, пока панель на экране (просьба Рината 08-09).
-	StartPauseMusic();
+	ApplyMenuMusicGate();
 
 	// Тач-слой прячем: стик не рисуется поверх затемнения, зажатый стик сбрасывается.
 	if (TouchControlsLayer)
@@ -467,6 +467,22 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 	bShowMouseCursor = true;
 
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu OPEN (world paused)"));
+}
+
+void AContrarySurvivorPlayerController::ApplyMenuMusicGate()
+{
+	// Трек играет, пока на экране ЛЮБОЕ меню: пауза, главное меню или настройки поверх них
+	// (просьба Рината 08-09: «музыка должна играть и в главном меню»). Трек один и тот же,
+	// поле ссылки и поле громкости тоже одни — вторых не заводим.
+	const bool bWantMusic = bPauseMenuOpen || IsMainMenuOnScreen() || bHoldMenuMusicThroughTransition;
+	if (bWantMusic)
+	{
+		StartPauseMusic(); // при уже играющем треке метод сам ничего не делает
+	}
+	else
+	{
+		StopPauseMusic();
+	}
 }
 
 void AContrarySurvivorPlayerController::StartPauseMusic()
@@ -529,7 +545,7 @@ void AContrarySurvivorPlayerController::ClosePauseMenu()
 	bPauseMenuOpen = false;
 	bUIClickConsumed = false;
 
-	StopPauseMusic();
+	ApplyMenuMusicGate();
 
 	if (PauseMenuWidget)
 	{
@@ -560,10 +576,16 @@ void AContrarySurvivorPlayerController::HandlePauseMainMenu()
 	// уже переспросил сам (спека, раздел «Поведение паузы»).
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu -> MAIN MENU"));
 
+	// Музыка НЕ обрывается на этом переходе: между закрытием паузы и открытием меню на один
+	// шаг не открыто ни то, ни другое, и гейт остановил бы трек, а меню завело бы его заново
+	// с начала. Держим его на время перехода (просьба Рината: пусть продолжает играть).
+	bHoldMenuMusicThroughTransition = true;
 	ClosePauseMenu();
 	// Главное меню само поставит паузу заново и обновит наличие сохранения (оттуда игрок
 	// выберет «Продолжить» — загрузку последнего сохранения — или «Новую игру»).
 	OpenStartScreen();
+	bHoldMenuMusicThroughTransition = false;
+	ApplyMenuMusicGate();
 }
 
 void AContrarySurvivorPlayerController::HandlePauseQuit()
@@ -624,6 +646,7 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
 	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
+	ApplyMenuMusicGate(); // музыка меню: играет и в паузе, и в главном меню
 
 	if (TouchControlsLayer)
 	{
@@ -661,6 +684,21 @@ void AContrarySurvivorPlayerController::ApplyWorldAudioGate()
 	}
 
 	const bool bWantMuted = IsMainMenuOnScreen();
+
+	// ЛЕСНОЙ ФОН — НАПРЯМУЮ ПО ССЫЛКЕ, а не через общий отбор ниже. Он заведён через
+	// SpawnSound2D и потому считается звуком интерфейса, а общий отбор интерфейсные
+	// пропускает намеренно. Живая сессия 08-09 показала ровно это: «найдено 1, заглушено 0,
+	// пропущено: интерфейсных 1» — птицы пели поверх меню. Теперь фон глушится независимо
+	// от признака, а общий отбор остаётся страховкой для будущих звуков мира.
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (PlayerChar->SetAmbienceSilenced(bWantMuted))
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: лесной фон %s (меню на экране: %s) [ambience: silenced=%d]"),
+				bWantMuted ? TEXT("приглушён") : TEXT("возвращён"),
+				bWantMuted ? TEXT("да") : TEXT("нет"), bWantMuted ? 1 : 0);
+		}
+	}
 
 	// Мир снова звучит: возвращаем к жизни ровно те звуки, что усыпили мы.
 	if (!bWantMuted)
@@ -760,6 +798,7 @@ void AContrarySurvivorPlayerController::CloseStartScreen()
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
 	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
+	ApplyMenuMusicGate(); // музыка меню: играет и в паузе, и в главном меню
 
 	if (StartScreenWidget)
 	{
@@ -868,6 +907,7 @@ void AContrarySurvivorPlayerController::OpenSettingsScreen()
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
 	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
+	ApplyMenuMusicGate(); // музыка меню: играет и в паузе, и в главном меню
 
 	if (TouchControlsLayer)
 	{
@@ -906,6 +946,7 @@ void AContrarySurvivorPlayerController::CloseSettingsScreen()
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
 	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
+	ApplyMenuMusicGate(); // музыка меню: играет и в паузе, и в главном меню
 
 	if (SettingsScreenWidget)
 	{
