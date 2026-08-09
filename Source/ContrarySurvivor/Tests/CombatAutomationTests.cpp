@@ -204,7 +204,12 @@ bool FCombatFinishingBlowTest::RunTest(const FString& Parameters)
 }
 
 // ===========================================================================
-// 4. Урон оружия — дефолты CDO: пистолет 25, нож 35 (числа из APistol/AMeleeWeapon ctor)
+// 4. Урон оружия — дефолты CDO: пистолет 25, нож 40 (числа из APistol/AMeleeWeapon ctor).
+//    Нож был 35 и стал 40 по живому осмотру Рината 08-09 («урон от ножа чуть выше»).
+//    ⚠ Этот тест держит ТОЧНЫЕ числа и потому ломается при каждой правке баланса — это
+//    осознанно: он про то, что дефолты вообще проставлены, а не про игровой смысл.
+//    Смысл (за сколько ударов падает волк, сколько укусов держит игрок) живёт отдельно —
+//    ContrarySurvivor.MeleeWolfBalance, он переживает разумную подкрутку чисел.
 // ===========================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCombatWeaponDamageTest,
 	"ContrarySurvivor.Combat.Weapon.DamageDefaults", CombatTestFlags)
@@ -217,7 +222,7 @@ bool FCombatWeaponDamageTest::RunTest(const FString& Parameters)
 	if (!PistolCDO || !KnifeCDO) { return false; }
 
 	TestEqual(TEXT("Pistol damage 25"), PistolCDO->GetDamage(), 25.0f);
-	TestEqual(TEXT("Knife damage 35"), KnifeCDO->GetDamage(), 35.0f);
+	TestEqual(TEXT("Knife damage 40"), KnifeCDO->GetDamage(), 40.0f);
 
 	return true;
 }
