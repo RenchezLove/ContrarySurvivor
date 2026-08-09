@@ -2285,6 +2285,202 @@ namespace
 	}
 
 	// ----------------------------------------------------------------------
+	// WBP_Settings — экран настроек (вид = USettingsScreenWidget::BuildCodeTree; ADR-062,
+	// подход 2 волны меню; спека glavnoe-menu-spec.md, раздел «Экран настроек»).
+	// Раскладка в ДВА СТОЛБЦА: игра идёт в альбомной ориентации (DefaultEngine.ini,
+	// Orientation=SensorLandscape), в один столбец список настроек на телефон не влезает.
+	// Слева картинка, справа звук/управление/прочее. Все значения и подписи ставит код —
+	// в ассете это образцы (владелец правит вид, а не тексты значений).
+	// ----------------------------------------------------------------------
+	bool BuildSettings(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
+
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.5f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(900.0f, 560.0f), 0.97f);
+
+		const FLinearColor GoldColor(1.0f, 0.85f, 0.2f, 1.0f);
+		const FLinearColor LabelColor(0.85f, 0.85f, 0.85f, 1.0f);
+		const FLinearColor ValueColor(1.0f, 0.97f, 0.7f, 1.0f);
+		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
+
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
+			NSLOCTEXT("SettingsScreenWidget", "Title", "НАСТРОЙКИ"), GoldColor, 24, TEXT("Bold"));
+		Title->bIsVariable = true;
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 14.0f));
+
+		// Столбцы содержимого: левый — картинка, правый — звук/управление/прочее.
+		const float LeftX = 30.0f;
+		const float RightX = 470.0f;
+		const float TopY = 56.0f;
+
+		auto AddHeader = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
+		{
+			UTextBlock* Header = MakeText(Tree, Roboto, FName(Name), Caption, GoldColor, 17, TEXT("Bold"));
+			Header->bIsVariable = true;
+			CanvasAuto(Panel, Header, FVector2D(X, Y));
+		};
+		auto AddLabel = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
+		{
+			UTextBlock* Label = MakeText(Tree, Roboto, FName(Name), Caption, LabelColor, 15, TEXT("Regular"));
+			Label->bIsVariable = true;
+			CanvasAuto(Panel, Label, FVector2D(X, Y));
+		};
+		// Образцы значений: живые строки всегда переписывает код экрана (RefreshLabels), поэтому
+		// в ассете это просто текст-заполнитель — перевод ему не нужен.
+		auto AddValue = [&](const TCHAR* Name, const FString& Sample, float X, float Y)
+		{
+			UTextBlock* Value = MakeText(Tree, Roboto, FName(Name), Sample, ValueColor, 15, TEXT("Regular"));
+			Value->bIsVariable = true;
+			CanvasAuto(Panel, Value, FVector2D(X, Y));
+		};
+		auto AddButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
+			float X, float Y, const FVector2D& Size)
+		{
+			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 16);
+			CanvasAt(Panel, Button, FVector2D(X, Y), Size);
+			return Button;
+		};
+		auto AddSlider = [&](const TCHAR* Name, float X, float Y, float Width)
+		{
+			USlider* Slider = Tree->ConstructWidget<USlider>(USlider::StaticClass(), FName(Name));
+			Slider->bIsVariable = true;
+			CanvasAt(Panel, Slider, FVector2D(X, Y), FVector2D(Width, 24.0f));
+			return Slider;
+		};
+
+		// --- Левый столбец: картинка ---
+		AddHeader(TEXT("GraphicsHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "GraphicsHeader", "Картинка"), LeftX, TopY);
+		AddValue(TEXT("PresetValueText"), TEXT("Качество картинки: Авто (среднее)"),
+			LeftX, TopY + 28.0f);
+
+		const FVector2D PresetButtonSize(96.0f, 44.0f);
+		AddButton(TEXT("PresetLowButton"), TEXT("PresetLowText"),
+			NSLOCTEXT("ContrarySettings", "PresetLow", "Низкое"), LeftX, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
+			NSLOCTEXT("ContrarySettings", "PresetMedium", "Среднее"), LeftX + 102.0f, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetHighButton"), TEXT("PresetHighText"),
+			NSLOCTEXT("ContrarySettings", "PresetHigh", "Высокое"), LeftX + 204.0f, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
+			NSLOCTEXT("ContrarySettings", "PresetAuto", "Авто"), LeftX + 306.0f, TopY + 56.0f, PresetButtonSize);
+
+		AddLabel(TEXT("ResolutionLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResolutionRow", "Масштаб разрешения"), LeftX, TopY + 112.0f);
+		AddSlider(TEXT("ResolutionSlider"), LeftX, TopY + 138.0f, 280.0f);
+		AddButton(TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Minus", "−"), LeftX + 290.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
+		AddButton(TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Plus", "+"), LeftX + 348.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
+		// Образец подписи: живую строку с пикселями этого экрана собирает код.
+		AddValue(TEXT("ResolutionValueText"), TEXT("100% — это 720 на 1600"), LeftX, TopY + 168.0f);
+
+		AddButton(TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
+			NSLOCTEXT("SettingsScreenWidget", "FrameLimitSample", "Ограничение кадров: 30 кадров"),
+			LeftX, TopY + 198.0f, FVector2D(400.0f, 46.0f));
+		AddButton(TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
+			NSLOCTEXT("SettingsScreenWidget", "FpsCounterSample", "Счётчик кадров: выключен"),
+			LeftX, TopY + 250.0f, FVector2D(400.0f, 46.0f));
+
+		// --- Правый столбец: звук, управление, прочее ---
+		AddHeader(TEXT("SoundHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "SoundHeader", "Звук"), RightX, TopY);
+		AddLabel(TEXT("MusicLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "MusicRow", "Громкость музыки"), RightX, TopY + 28.0f);
+		AddSlider(TEXT("MusicSlider"), RightX, TopY + 50.0f, 280.0f);
+		AddValue(TEXT("MusicValueText"), TEXT("100%"), RightX + 292.0f, TopY + 48.0f);
+		AddLabel(TEXT("EffectsLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "EffectsRow", "Громкость эффектов"), RightX, TopY + 80.0f);
+		AddSlider(TEXT("EffectsSlider"), RightX, TopY + 102.0f, 280.0f);
+		AddValue(TEXT("EffectsValueText"), TEXT("100%"), RightX + 292.0f, TopY + 100.0f);
+
+		AddHeader(TEXT("ControlsHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "ControlsHeader", "Управление"), RightX, TopY + 134.0f);
+		AddLabel(TEXT("SensitivityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "SensitivityRow", "Чувствительность управления"), RightX, TopY + 162.0f);
+		AddSlider(TEXT("SensitivitySlider"), RightX, TopY + 184.0f, 280.0f);
+		AddValue(TEXT("SensitivityValueText"), TEXT("100%"), RightX + 292.0f, TopY + 182.0f);
+		AddLabel(TEXT("OpacityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "OpacityRow", "Прозрачность экранных кнопок"), RightX, TopY + 214.0f);
+		AddSlider(TEXT("OpacitySlider"), RightX, TopY + 236.0f, 280.0f);
+		AddValue(TEXT("OpacityValueText"), TEXT("50%"), RightX + 292.0f, TopY + 234.0f);
+		AddButton(TEXT("VibrationButton"), TEXT("VibrationText"),
+			NSLOCTEXT("SettingsScreenWidget", "VibrationSample", "Вибрация: включена"),
+			RightX, TopY + 264.0f, FVector2D(340.0f, 44.0f));
+
+		AddHeader(TEXT("MiscHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "MiscHeader", "Прочее"), RightX, TopY + 320.0f);
+		AddButton(TEXT("ReportBugButton"), TEXT("ReportBugText"),
+			NSLOCTEXT("SettingsScreenWidget", "ReportBug", "Сообщить об ошибке"),
+			RightX, TopY + 348.0f, FVector2D(340.0f, 44.0f));
+		UTextBlock* BugHint = MakeText(Tree, Roboto, TEXT("ReportBugHintText"),
+			TEXT("В сообщении укажите номер сборки: Версия 0.1.0 (сборка 1)"),
+			LabelColor, 12, TEXT("Regular"));
+		BugHint->SetAutoWrapText(true);
+		BugHint->bIsVariable = true;
+		CanvasAt(Panel, BugHint, FVector2D(RightX, TopY + 396.0f), FVector2D(340.0f, 34.0f));
+		AddButton(TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetProgress", "Сбросить прогресс"),
+			RightX, TopY + 432.0f, FVector2D(340.0f, 44.0f));
+
+		// «Назад» — по центру низа панели.
+		UButton* Close = MakeGreyButton(Tree, TEXT("CloseButton"));
+		SetUnlockedCaption(Tree, Roboto, Close, TEXT("CloseText"),
+			NSLOCTEXT("SettingsScreenWidget", "Close", "Назад"), DarkCaption, 18);
+		PlaceCenteredButton(Panel, Close, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(-230.0f, -14.0f), FVector2D(220.0f, 48.0f));
+
+		// Панель двойного переспроса сброса. В ассете ВИДИМА (владельцу есть что править) —
+		// на живом экране её прячет код при каждом показе (RefreshConfirmPanel).
+		UBorder* Confirm = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ConfirmPanel"));
+		Confirm->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.99f), 6.0f,
+			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+		Confirm->SetPadding(FMargin(0.0f));
+		Confirm->bIsVariable = true;
+		if (UCanvasPanelSlot* ConfirmSlot = Root->AddChildToCanvas(Confirm))
+		{
+			ConfirmSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			ConfirmSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			ConfirmSlot->SetPosition(FVector2D::ZeroVector);
+			ConfirmSlot->SetSize(FVector2D(460.0f, 220.0f));
+		}
+		UCanvasPanel* ConfirmCanvas = Tree->ConstructWidget<UCanvasPanel>(
+			UCanvasPanel::StaticClass(), TEXT("ConfirmCanvas"));
+		Confirm->SetContent(ConfirmCanvas);
+
+		UTextBlock* ConfirmTitle = MakeText(Tree, Roboto, TEXT("ConfirmTitleText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetAsk1", "Сбросить весь прогресс?"),
+			GoldColor, 18, TEXT("Bold"));
+		ConfirmTitle->SetAutoWrapText(true);
+		ConfirmTitle->SetJustification(ETextJustify::Center);
+		ConfirmTitle->bIsVariable = true;
+		if (UCanvasPanelSlot* ConfirmTitleSlot = ConfirmCanvas->AddChildToCanvas(ConfirmTitle))
+		{
+			ConfirmTitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+			ConfirmTitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			ConfirmTitleSlot->SetPosition(FVector2D(0.0f, 26.0f));
+			ConfirmTitleSlot->SetSize(FVector2D(400.0f, 56.0f));
+		}
+		UButton* ConfirmYes = MakeGreyButton(Tree, TEXT("ConfirmYesButton"));
+		SetUnlockedCaption(Tree, Roboto, ConfirmYes, TEXT("ConfirmYesText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetYes1", "Да, сбросить"), DarkCaption, 16);
+		PlaceCenteredButton(ConfirmCanvas, ConfirmYes, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -74.0f), FVector2D(300.0f, 46.0f));
+		UButton* ConfirmNo = MakeGreyButton(Tree, TEXT("ConfirmNoButton"));
+		SetUnlockedCaption(Tree, Roboto, ConfirmNo, TEXT("ConfirmNoText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetNo", "Отмена"), DarkCaption, 16);
+		PlaceCenteredButton(ConfirmCanvas, ConfirmNo, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -18.0f), FVector2D(300.0f, 46.0f));
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
 	// WBP_Consent — экран согласия Б6 (вид = UConsentScreenWidget::BuildCodeTree).
 	// Тексты в ассете — образцы: живые всегда ставит код из настроек проекта (дословно из
 	// источника истины soglasie-i-politika.md — правка ассета их не переопределяет).
@@ -2674,6 +2870,34 @@ namespace
 			  TEXT("CommunityButton"), TEXT("CommunityText"),
 			  TEXT("ExitButton"), TEXT("ExitText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
+		// ADR-062, подход 2: экран настроек. Кубики — по BindWidgetOptional-полям
+		// USettingsScreenWidget (Source/ContrarySurvivor/UI/SettingsScreenWidget.h).
+		{ TEXT("/Game/UI/WBP_Settings"), TEXT("WBP_Settings"),
+			TEXT("/Script/ContrarySurvivor.SettingsScreenWidget"), &BuildSettings,
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("GraphicsHeaderText"), TEXT("PresetValueText"),
+			  TEXT("PresetLowButton"), TEXT("PresetLowText"),
+			  TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
+			  TEXT("PresetHighButton"), TEXT("PresetHighText"),
+			  TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
+			  TEXT("ResolutionLabelText"), TEXT("ResolutionSlider"), TEXT("ResolutionValueText"),
+			  TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
+			  TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
+			  TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
+			  TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
+			  TEXT("SoundHeaderText"), TEXT("MusicLabelText"), TEXT("MusicSlider"), TEXT("MusicValueText"),
+			  TEXT("EffectsLabelText"), TEXT("EffectsSlider"), TEXT("EffectsValueText"),
+			  TEXT("ControlsHeaderText"),
+			  TEXT("SensitivityLabelText"), TEXT("SensitivitySlider"), TEXT("SensitivityValueText"),
+			  TEXT("OpacityLabelText"), TEXT("OpacitySlider"), TEXT("OpacityValueText"),
+			  TEXT("VibrationButton"), TEXT("VibrationText"),
+			  TEXT("MiscHeaderText"),
+			  TEXT("ReportBugButton"), TEXT("ReportBugText"), TEXT("ReportBugHintText"),
+			  TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
+			  TEXT("CloseButton"), TEXT("CloseText"),
+			  TEXT("ConfirmPanel"), TEXT("ConfirmTitleText"),
+			  TEXT("ConfirmYesButton"), TEXT("ConfirmYesText"),
+			  TEXT("ConfirmNoButton"), TEXT("ConfirmNoText") } },
 		{ TEXT("/Game/UI/WBP_Consent"), TEXT("WBP_Consent"),
 			TEXT("/Script/ContrarySurvivor.ConsentScreenWidget"), &BuildConsent,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
@@ -2826,6 +3050,34 @@ namespace
 			  TEXT("CommunityButton"), TEXT("CommunityText"),
 			  TEXT("ExitButton"), TEXT("ExitText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
+		// Экран настроек (ADR-062, подход 2): замков нет вовсе — всё правится мышкой,
+		// включая подписи внутри кнопок (то же требование Рината, что для окон волны 08-07).
+		{ TEXT("WBP_Settings"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
+			  TEXT("GraphicsHeaderText"), TEXT("PresetValueText"),
+			  TEXT("PresetLowButton"), TEXT("PresetLowText"),
+			  TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
+			  TEXT("PresetHighButton"), TEXT("PresetHighText"),
+			  TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
+			  TEXT("ResolutionLabelText"), TEXT("ResolutionSlider"), TEXT("ResolutionValueText"),
+			  TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
+			  TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
+			  TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
+			  TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
+			  TEXT("SoundHeaderText"), TEXT("MusicLabelText"), TEXT("MusicSlider"), TEXT("MusicValueText"),
+			  TEXT("EffectsLabelText"), TEXT("EffectsSlider"), TEXT("EffectsValueText"),
+			  TEXT("ControlsHeaderText"),
+			  TEXT("SensitivityLabelText"), TEXT("SensitivitySlider"), TEXT("SensitivityValueText"),
+			  TEXT("OpacityLabelText"), TEXT("OpacitySlider"), TEXT("OpacityValueText"),
+			  TEXT("VibrationButton"), TEXT("VibrationText"),
+			  TEXT("MiscHeaderText"),
+			  TEXT("ReportBugButton"), TEXT("ReportBugText"), TEXT("ReportBugHintText"),
+			  TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
+			  TEXT("CloseButton"), TEXT("CloseText"),
+			  TEXT("ConfirmPanel"), TEXT("ConfirmTitleText"),
+			  TEXT("ConfirmYesButton"), TEXT("ConfirmYesText"),
+			  TEXT("ConfirmNoButton"), TEXT("ConfirmNoText") } },
 		{ TEXT("WBP_Consent"),
 			{ },
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
@@ -4484,6 +4736,10 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		// владельца в нём нет (единственный коммит — генерация ad93f73), так что терять
 		// нечего; перенос владельческих значений включён на будущее, как у остальных.
 		{ TEXT("WBP_StartScreen"), true },
+		// ADR-062 (подход 2 волны меню): экран настроек. Ассета ещё нет вовсе — первым
+		// прогоном его создаёт обычная генерация (-run=GenerateWbp), эта строка нужна для
+		// последующих точечных пересборок `-rebuild -asset=WBP_Settings`.
+		{ TEXT("WBP_Settings"), true },
 	};
 
 	int32 FailCount = 0;
@@ -4647,6 +4903,8 @@ static const FCdoSlotSpec GCdoSlots[] =
 		TEXT("MockAdWidgetClass"), TEXT("/Game/UI/WBP_MockAd.WBP_MockAd_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
 		TEXT("StartScreenWidgetClass"), TEXT("/Game/UI/WBP_StartScreen.WBP_StartScreen_C") },
+	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
+		TEXT("SettingsScreenWidgetClass"), TEXT("/Game/UI/WBP_Settings.WBP_Settings_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
 		TEXT("IntroScreenWidgetClass"), TEXT("/Game/UI/WBP_Intro.WBP_Intro_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,

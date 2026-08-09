@@ -33,8 +33,18 @@ public:
 		meta = (DisplayName = "Адрес сообщества для пункта «Сообщество»"))
 	FString CommunityUrl;
 
+	// Адрес Telegram для пункта «Сообщить об ошибке» на экране настроек (подход 2 волны меню).
+	// Держим отдельной строкой от сообщества: издатель вправе завести под отчёты об ошибках
+	// свой чат. Пусто — пункт на экране настроек спрятан целиком (правило ADR-062).
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Главное меню",
+		meta = (DisplayName = "Адрес для пункта «Сообщить об ошибке»"))
+	FString BugReportUrl;
+
 	// Готовый адрес из конфига (без лишних пробелов) либо пустая строка.
 	static FString GetCommunityUrl();
+
+	// То же для адреса отчётов об ошибках.
+	static FString GetBugReportUrl();
 };
 
 /**

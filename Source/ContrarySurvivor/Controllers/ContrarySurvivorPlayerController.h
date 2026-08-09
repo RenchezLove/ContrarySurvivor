@@ -24,6 +24,7 @@ class UOnboardingComponent;
 class UTouchControlsWidget;
 class UPauseMenuWidget;
 class UStartScreenWidget;                  // Б3: экран «Продолжить»/«Новая игра», строится кодом
+class USettingsScreenWidget;               // Подход 2 волны меню: экран настроек (ADR-062)
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
@@ -159,7 +160,7 @@ public:
 	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
 	// смерти/меню паузы/стартовый экран Б3). Нужно UDailyRewardComponent: возвращать GameOnly
 	// после окна награды можно только если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen; }
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bSettingsScreenOpen; }
 
 	// Подавлен ли сейчас ввод движения интро-последовательностью (чёрный экран строк /
 	// авто-подход к деревне). Нужно индикатору хромоты (Build 1): разовая расшифровка
@@ -218,6 +219,26 @@ protected:
 
 	// «Выход» главного меню: закрыть игру (тот же путь, что «Выход» меню паузы).
 	void HandleStartScreenExit();
+
+	// --- Экран настроек (ADR-062, подход 2 волны меню) ---
+
+	// «Настройки» главного меню: открыть экран настроек поверх меню. Сама привязка этого
+	// обработчика ещё и ПОКАЗЫВАЕТ пункт «Настройки»: виджет меню держит пункт спрятанным,
+	// пока владелец не подписался на OnSettingsRequested (UStartScreenWidget::ApplyMenuRowVisibility).
+	void HandleStartScreenSettings();
+
+	// Открыть/закрыть экран настроек (мир уже на паузе под главным меню — повторно не паузим).
+	void OpenSettingsScreen();
+	void CloseSettingsScreen();
+
+	// Настройка изменилась: освежить то, что живёт в мире, — прозрачность и чувствительность
+	// экранного управления и громкость уже играющего звука (сама настройка применяется и
+	// сохраняется в UContrarySurvivorGameUserSettings).
+	void ApplyPlayerSettingsToWorld();
+
+	// Двойной переспрос сброса пройден: стереть сохранение и освежить главное меню
+	// («Продолжить» обязан пропасть — сохранения больше нет).
+	void HandleSettingsResetProgress();
 
 	// --- Интро (Build 1, ТЗ раздел 2) ---
 
@@ -394,6 +415,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (DisplayPriority = "0"))
 	TSubclassOf<UStartScreenWidget> StartScreenWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings Screen", meta = (DisplayPriority = "0"))
+	TSubclassOf<USettingsScreenWidget> SettingsScreenWidgetClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (DisplayPriority = "0"))
 	TSubclassOf<UIntroScreenWidget> IntroScreenWidgetClass;
@@ -798,6 +822,14 @@ private:
 	// Источник переключения — MaybeStartIntro (открытие) и HandleStartScreen*/CloseStartScreen.
 	bool bStartScreenOpen = false;
 
+	// Открыт ли экран настроек (ADR-062, подход 2): показывается поверх главного меню,
+	// мир к этому моменту уже на паузе. Источник — OpenSettingsScreen/CloseSettingsScreen.
+	bool bSettingsScreenOpen = false;
+
+	// Паузу мира поставил САМ экран настроек (а не меню под ним). Только в этом случае
+	// закрытие настроек снимает паузу — иначе «Назад» оживил бы мир под открытым меню.
+	bool bPausedBySettingsScreen = false;
+
 	// Экранный тач-слой (этап G): создаётся в BeginPlay на Android или при bEnableTouchControls.
 	// null — слой выключен.
 	UPROPERTY()
@@ -811,6 +843,11 @@ private:
 	// «Продолжить», либо «Новая игра» — повторно экран не открывается).
 	UPROPERTY()
 	TObjectPtr<UStartScreenWidget> StartScreenWidget;
+
+	// Виджет экрана настроек (ADR-062, подход 2): создаётся лениво при первом открытии,
+	// дальше переиспользуется (значения перечитываются при каждом показе).
+	UPROPERTY()
+	TObjectPtr<USettingsScreenWidget> SettingsScreenWidget;
 
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()

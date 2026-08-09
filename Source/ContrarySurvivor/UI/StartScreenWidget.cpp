@@ -24,6 +24,12 @@ FString UMainMenuSettings::GetCommunityUrl()
 	return Settings ? Settings->CommunityUrl.TrimStartAndEnd() : FString();
 }
 
+FString UMainMenuSettings::GetBugReportUrl()
+{
+	const UMainMenuSettings* Settings = GetDefault<UMainMenuSettings>();
+	return Settings ? Settings->BugReportUrl.TrimStartAndEnd() : FString();
+}
+
 void UStartScreenWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();

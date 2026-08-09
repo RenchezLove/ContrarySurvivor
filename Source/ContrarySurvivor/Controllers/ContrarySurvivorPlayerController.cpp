@@ -39,6 +39,8 @@
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
 #include "ContrarySurvivor/UI/StartScreenWidget.h"          // Главное меню (ADR-062; вырос из стартового экрана Б3)
+#include "ContrarySurvivor/UI/SettingsScreenWidget.h"       // Экран настроек (ADR-062, подход 2)
+#include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // применение настроек при запуске
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
@@ -85,6 +87,21 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
 		Subsystem->AddMappingContext(DefaultMappingContext, 0);
+	}
+
+	// Настройки игрока (ADR-062, подход 2) применяем ДО создания тач-слоя: пресет качества,
+	// масштаб разрешения и предел кадров должны действовать с первого кадра, а слой экранных
+	// кнопок ниже сразу возьмёт из настроек прозрачность и чувствительность.
+	// Значения движок уже прочитал с диска при создании объекта настроек — это и есть
+	// «сохраняется между запусками» (Config/DefaultEngine.ini, GameUserSettingsClassName).
+	if (UContrarySurvivorGameUserSettings* PlayerSettings = UContrarySurvivorGameUserSettings::Get())
+	{
+		PlayerSettings->ApplyContrarySettings();
+	}
+	else
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: player settings unavailable (GameUserSettingsClassName в DefaultEngine.ini?) — играем на значениях по умолчанию"));
 	}
 
 	// Показываем курсор мыши (нужен для выбора цели кликом)
@@ -141,6 +158,8 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			TouchConfig.PauseButton      = TouchPauseButton;
 			TouchConfig.bSprintToggle    = bTouchSprintToggle;
 			Layer->InitTouch(this, MoveAction, FireAction, ReloadAction, SprintAction, TouchConfig);
+			// Поверх настроек контроллера — выбор игрока (прозрачность кнопок, чувствительность).
+			Layer->ApplyPlayerSettings();
 			// Z=10: под онбординг-подсказками (40) и модальными окнами (50/60).
 			Layer->AddToViewport(/*ZOrder=*/10);
 			TouchControlsLayer = Layer;
@@ -499,9 +518,10 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 		StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenContinue);
 		StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenNewGame);
 		StartScreenWidget->OnExitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenExit);
-		// OnSettingsRequested НАРОЧНО не привязан: экрана настроек ещё нет (подход 2 волны
-		// меню). Пункт «Настройки» до привязки спрятан самим виджетом (ApplyMenuRowVisibility);
-		// когда подход 2 добавит обработчик — пункт появится без правок виджета.
+		// Подход 2 волны меню: обработчик появился — и вместе с ним появился сам пункт
+		// «Настройки». Виджет держит пункт спрятанным, пока OnSettingsRequested никем не
+		// привязан (UStartScreenWidget::ApplyMenuRowVisibility), правок виджета не потребовалось.
+		StartScreenWidget->OnSettingsRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenSettings);
 	}
 
 	// Наличие сейва освежаем при КАЖДОМ открытии (меню без сейва: «Продолжить» не
@@ -599,6 +619,139 @@ void AContrarySurvivorPlayerController::HandleStartScreenExit()
 	// «Выход» главного меню закрывает игру — тот же путь, что «Выход» меню паузы.
 	UE_LOG(LogQA, Display, TEXT("QA: start screen EXIT pressed — quitting game"));
 	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, /*bIgnorePlatformRestrictions=*/false);
+}
+
+// ---------------------------------------------------------------------------
+// Экран настроек (ADR-062, подход 2 волны меню; спека glavnoe-menu-spec.md).
+// Открывается пунктом «Настройки» ПОВЕРХ главного меню: мир к этому моменту уже на паузе,
+// поэтому пауза здесь не «своя», а унаследованная — снимаем её только если ставили сами.
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::HandleStartScreenSettings()
+{
+	OpenSettingsScreen();
+}
+
+void AContrarySurvivorPlayerController::OpenSettingsScreen()
+{
+	if (bSettingsScreenOpen)
+	{
+		return;
+	}
+
+	if (!SettingsScreenWidget)
+	{
+		// Слот назначен (ADR-048) — окно из WBP_Settings; пусто — кодовое дерево.
+		SettingsScreenWidget = CreateWidget<USettingsScreenWidget>(this,
+			SettingsScreenWidgetClass ? SettingsScreenWidgetClass.Get() : USettingsScreenWidget::StaticClass());
+		if (!SettingsScreenWidget)
+		{
+			// Экран не создался — молча остаёмся в меню, игру не блокируем.
+			UE_LOG(LogQA, Warning, TEXT("QA: settings screen widget creation failed — staying in menu"));
+			return;
+		}
+		SettingsScreenWidget->OnCloseRequested.AddUObject(this, &AContrarySurvivorPlayerController::CloseSettingsScreen);
+		SettingsScreenWidget->OnSettingsChanged.AddUObject(this, &AContrarySurvivorPlayerController::ApplyPlayerSettingsToWorld);
+		SettingsScreenWidget->OnResetProgressConfirmed.AddUObject(this, &AContrarySurvivorPlayerController::HandleSettingsResetProgress);
+	}
+
+	// Значения перечитываются при каждом показе (виджет переиспользуется).
+	SettingsScreenWidget->RefreshFromSettings();
+
+	// Z=75: выше главного меню (70) — настройки открываются поверх него, меню остаётся под ними.
+	SettingsScreenWidget->AddToViewport(/*ZOrder=*/75);
+
+	bSettingsScreenOpen = true;
+	bUIClickConsumed = false;
+
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(false);
+	}
+
+	// Пауза уже стоит (экран открыт из меню) — второй раз не ставим и, главное, при закрытии
+	// не снимаем чужую: иначе «Назад» из настроек оживил бы мир под открытым меню.
+	bPausedBySettingsScreen = !IsPaused();
+	if (bPausedBySettingsScreen)
+	{
+		SetPause(true);
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: settings screen OPEN"));
+}
+
+void AContrarySurvivorPlayerController::CloseSettingsScreen()
+{
+	if (!bSettingsScreenOpen)
+	{
+		return;
+	}
+	bSettingsScreenOpen = false;
+	bUIClickConsumed = false;
+
+	if (SettingsScreenWidget)
+	{
+		SettingsScreenWidget->RemoveFromParent();
+	}
+
+	if (bPausedBySettingsScreen)
+	{
+		SetPause(false);
+		bPausedBySettingsScreen = false;
+	}
+
+	// Тач-слой возвращаем только если под настройками не осталось другого модального окна
+	// (штатный путь: под ними главное меню — слой обязан остаться выключенным).
+	if (TouchControlsLayer && !IsAnyModalUIOpen())
+	{
+		TouchControlsLayer->SetLayerEnabled(true);
+	}
+
+	if (!IsAnyModalUIOpen())
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: settings screen CLOSED"));
+}
+
+void AContrarySurvivorPlayerController::ApplyPlayerSettingsToWorld()
+{
+	// Графику, предел кадров и запись на диск делает сам объект настроек. Здесь — только то,
+	// что живёт в мире и объекту настроек недоступно.
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->ApplyPlayerSettings();
+	}
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->ApplyAudioSettings();
+	}
+}
+
+void AContrarySurvivorPlayerController::HandleSettingsResetProgress()
+{
+	// Сюда попадаем ТОЛЬКО после двойного переспроса (виджет держит стадии сам).
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->ResetToNewGame();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: settings RESET PROGRESS — save wiped"));
+
+	// Экран настроек закрываем: игрок вернулся в меню, и меню обязано показать правду —
+	// сохранения больше нет, пункта «Продолжить» быть не должно.
+	CloseSettingsScreen();
+	if (StartScreenWidget)
+	{
+		StartScreenWidget->SetHasSave(false);
+	}
 }
 
 bool AContrarySurvivorPlayerController::ShouldShowMainMenuOnLaunch(bool bLaunchedBefore, bool bHasSave)
