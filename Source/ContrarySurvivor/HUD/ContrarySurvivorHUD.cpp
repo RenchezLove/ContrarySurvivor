@@ -114,6 +114,15 @@ void AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel()
 		PlayerStatsWidgetInstance->ApplyMainMenuGate(bMainMenuOnScreen);
 	}
 
+	// Заодно и звук мира: пока меню на экране, птицы и прочая жизнь локации молчат
+	// (жалоба Рината 08-09). Зовём каждый кадр из отрисовки интерфейса — она идёт и на паузе,
+	// а состояние метод спрашивает сам, ждать чужого вызова мы больше не будем.
+	if (AContrarySurvivorPlayerController* AudioPC =
+		Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController()))
+	{
+		AudioPC->ApplyWorldAudioGate();
+	}
+
 	LogStatsPanelDiagnostics(bMainMenuOnScreen);
 }
 

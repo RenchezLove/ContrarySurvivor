@@ -20,6 +20,10 @@
 #include "GameFramework/CharacterMovementComponent.h" // QA: StopMovementImmediately (телепорт V)
 #include "Components/CapsuleComponent.h"              // QA: halfHeight капсулы (телепорт V)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
+#include "Components/AudioComponent.h" // заглушение звуков мира на время меню (08-09)
+#include "UObject/UObjectIterator.h"    // обход живых звуков мира
+#include "Components/AudioComponent.h" // заглушение звуков мира на время меню (08-09)
+#include "UObject/UObjectIterator.h"           // обход живых звуков мира
 #include "ContrarySurvivor/Actors/ShopTypes.h"          // FShopEntry (каталог в OnQABuyCheapest, A2)
 #include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
@@ -426,6 +430,9 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 		PauseMenuWidget->OnResumeRequested.AddUObject(this, &AContrarySurvivorPlayerController::ClosePauseMenu);
 		PauseMenuWidget->OnQuitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseQuit);
 		PauseMenuWidget->OnMainMenuRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseMainMenu);
+		// Просьба Рината 08-09: настройки открываются и из паузы — тем же методом, что из
+		// главного меню. Пункт в панели появляется САМ по факту этой привязки.
+		PauseMenuWidget->OnSettingsRequested.AddUObject(this, &AContrarySurvivorPlayerController::OpenSettingsScreen);
 	}
 
 	// Есть ли что терять — решает игрок-персонаж (сравнивает заработанное с последним
@@ -561,6 +568,7 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 	{
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
+	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
 
 	if (TouchControlsLayer)
 	{
@@ -581,6 +589,79 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 		(MenuPawn && MenuPawn->HasSaveGame()) ? TEXT("yes") : TEXT("no"));
 }
 
+bool AContrarySurvivorPlayerController::ShouldSilenceWorldSound(bool bIsUISound, bool bIsPlaying, bool bAlreadyPaused)
+{
+	// Звук интерфейса (щелчки кнопок, музыка меню) не трогаем никогда — иначе меню онемеет.
+	// Молчащий звук глушить незачем. Приостановленный кем-то другим не наш: усыпили не мы,
+	// значит и будить его при закрытии меню мы не вправе.
+	return !bIsUISound && bIsPlaying && !bAlreadyPaused;
+}
+
+void AContrarySurvivorPlayerController::ApplyWorldAudioGate()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const bool bWantMuted = IsMainMenuOnScreen();
+
+	// Мир снова звучит: возвращаем к жизни ровно те звуки, что усыпили мы.
+	if (!bWantMuted)
+	{
+		if (bWorldAudioMutedByMenu)
+		{
+			for (const TWeakObjectPtr<UAudioComponent>& Weak : MutedWorldSounds)
+			{
+				if (UAudioComponent* Sound = Weak.Get())
+				{
+					Sound->SetPaused(false);
+				}
+			}
+			UE_LOG(LogQA, Display, TEXT("QA: звуки мира возвращены после меню (%d шт.)"),
+				MutedWorldSounds.Num());
+			MutedWorldSounds.Reset();
+			bWorldAudioMutedByMenu = false;
+		}
+		return;
+	}
+
+	// Меню на экране. Проходим по миру не каждый кадр, а раз в секунду: звук мог начаться
+	// уже при открытом меню (например, зациклённый эмбиент завёлся с задержкой).
+	// Время живое (GetRealTimeSeconds) — игровое на паузе стоит, и проверка бы не повторялась.
+	const double Now = World->GetRealTimeSeconds();
+	if (bWorldAudioMutedByMenu && (Now - LastWorldAudioSweepTime) < 1.0)
+	{
+		return;
+	}
+	LastWorldAudioSweepTime = Now;
+
+	int32 MutedNow = 0;
+	for (TObjectIterator<UAudioComponent> It; It; ++It)
+	{
+		UAudioComponent* Sound = *It;
+		if (!IsValid(Sound) || Sound->GetWorld() != World)
+		{
+			continue; // чужой мир (редактор, другой уровень) — не наше дело
+		}
+		if (!ShouldSilenceWorldSound(Sound->bIsUISound != 0, Sound->IsPlaying(), Sound->bIsPaused != 0))
+		{
+			continue;
+		}
+		Sound->SetPaused(true);
+		MutedWorldSounds.Add(Sound);
+		++MutedNow;
+	}
+
+	if (MutedNow > 0)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: на время меню заглушены звуки мира (%d шт., всего удержано %d)"),
+			MutedNow, MutedWorldSounds.Num());
+	}
+	bWorldAudioMutedByMenu = true;
+}
+
 void AContrarySurvivorPlayerController::CloseStartScreen()
 {
 	if (!bStartScreenOpen)
@@ -596,6 +677,7 @@ void AContrarySurvivorPlayerController::CloseStartScreen()
 	{
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
+	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
 
 	if (StartScreenWidget)
 	{
@@ -703,6 +785,7 @@ void AContrarySurvivorPlayerController::OpenSettingsScreen()
 	{
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
+	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
 
 	if (TouchControlsLayer)
 	{
@@ -740,6 +823,7 @@ void AContrarySurvivorPlayerController::CloseSettingsScreen()
 	{
 		CSHUD->ApplyMainMenuGateToStatsPanel();
 	}
+	ApplyWorldAudioGate(); // мир молчит, пока меню на экране, и звучит снова после него
 
 	if (SettingsScreenWidget)
 	{
