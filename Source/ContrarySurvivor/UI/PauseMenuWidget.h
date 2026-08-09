@@ -68,8 +68,26 @@ struct FPauseMenuStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Confirm Main Menu")
 	FText ConfirmMainMenuCancelText = NSLOCTEXT("PauseMenuWidget", "ConfirmMainMenuCancel", "Отмена");
 
+	// --- Новые пункты паузы (просьба Рината 08-09: «добавь кнопку ведующую в сообщество, а
+	// также кнопку открывающую меню настроек»). Открывают ровно то же, что одноимённые пункты
+	// главного меню: адрес сообщества берётся из общей настройки проекта, экран настроек —
+	// тот же самый. Второго адреса и второго экрана в проекте не заводится. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FText SettingsText = NSLOCTEXT("PauseMenuWidget", "SettingsText", "Настройки");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FText CommunityText = NSLOCTEXT("PauseMenuWidget", "CommunityText", "Сообщество");
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
 	int32 ButtonFontSize = 19;
+
+	// Кегль подписи «Политика конфиденциальности». Отдельный и мельче остальных: подпись
+	// длинная (27 знаков) и при общем кегле не помещалась в кнопку — Ринат увидел её
+	// обрезанной на телефоне 08-09.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu",
+		meta = (DisplayName = "Кегль строки политики", ClampMin = "6"))
+	int32 PolicyFontSize = 14;
 
 	// Цвет подписей кнопок (тёмный — на светлой штатной кнопке UButton).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
@@ -122,6 +140,11 @@ public:
 	// переспрашивает сам (спека).
 	FSimpleMulticastDelegate OnMainMenuRequested;
 
+	// «Настройки» — владелец открывает ТОТ ЖЕ экран настроек, что и из главного меню
+	// (AContrarySurvivorPlayerController::OpenSettingsScreen). Пункт появляется сам по факту
+	// привязки: не привязан — не показывается (тот же приём, что в главном меню).
+	FSimpleMulticastDelegate OnSettingsRequested;
+
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenPauseMenu).
 	void ApplyStyle(const FPauseMenuStyle& Style);
@@ -149,6 +172,15 @@ public:
 	// второе («Да, выйти») отправляет сигнал владельцу. Когда терять нечего — уходим сразу.
 	UFUNCTION()
 	void HandleMainMenuClicked();
+
+	// «Настройки» — просто просит владельца открыть экран настроек поверх паузы.
+	UFUNCTION()
+	void HandleSettingsClicked();
+
+	// «Сообщество» — открывает адрес из настройки проекта во внешнем браузере. Адрес тот же,
+	// что у пункта главного меню (UMainMenuSettings::GetCommunityUrl) — второго не заводим.
+	UFUNCTION()
+	void HandleCommunityClicked();
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -244,6 +276,19 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MainMenuText;
+
+	// Волна 08-09: «Настройки» и «Сообщество» прямо из паузы.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SettingsButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SettingsText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> CommunityButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CommunityText;
 
 	// Б6: строка политики и мелкий номер версии сборки (переключатель согласия отсюда убран).
 	UPROPERTY(meta = (BindWidgetOptional))

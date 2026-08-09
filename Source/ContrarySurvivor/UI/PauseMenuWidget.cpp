@@ -4,6 +4,8 @@
 #include "ContrarySurvivor/Analytics/DataConsentSettings.h"   // Б6: подписи строк паузы
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h"  // Б6: согласие, политика, версия
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
+#include "ContrarySurvivor/UI/StartScreenWidget.h" // UMainMenuSettings: адрес сообщества — один на игру
+#include "HAL/PlatformProcess.h" // FPlatformProcess::LaunchURL (пункт «Сообщество»)
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -38,6 +40,8 @@ void UPauseMenuWidget::NativeOnInitialized()
 			{ TitleText, TEXT("TitleText") },
 			{ ResumeButton, TEXT("ResumeButton") }, { ResumeText, TEXT("ResumeText") },
 			{ MainMenuButton, TEXT("MainMenuButton") }, { MainMenuText, TEXT("MainMenuText") },
+			{ SettingsButton, TEXT("SettingsButton") }, { SettingsText, TEXT("SettingsText") },
+			{ CommunityButton, TEXT("CommunityButton") }, { CommunityText, TEXT("CommunityText") },
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
 			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
 			{ VersionText, TEXT("VersionText") },
@@ -81,6 +85,14 @@ void UPauseMenuWidget::NativeOnInitialized()
 	if (MainMenuButton)
 	{
 		MainMenuButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleMainMenuClicked);
+	}
+	if (SettingsButton)
+	{
+		SettingsButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleSettingsClicked);
+	}
+	if (CommunityButton)
+	{
+		CommunityButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleCommunityClicked);
 	}
 
 	if (!bDesignerTree)
@@ -147,6 +159,19 @@ void UPauseMenuWidget::BuildCodeTree()
 	// ТЗ Рината 08-08: переключатель согласия из паузы убран (согласие — только на стартовом
 	// экране согласия), поэтому кодовое дерево его больше НЕ строит. Остаётся строка политики
 	// (ADR-059 минимум для паузы) и мелкий номер версии сборки ниже.
+	// Волна 08-09: «Настройки» и «Сообщество» прямо из паузы — открывают то же самое,
+	// что одноимённые пункты главного меню. Стоят между возвратом в меню и политикой.
+	SettingsButton = MakeMenuButton(Column, Defaults.SettingsText, TEXT("SettingsButton"));
+	if (SettingsButton)
+	{
+		SettingsText = Cast<UTextBlock>(SettingsButton->GetContent());
+	}
+	CommunityButton = MakeMenuButton(Column, Defaults.CommunityText, TEXT("CommunityButton"));
+	if (CommunityButton)
+	{
+		CommunityText = Cast<UTextBlock>(CommunityButton->GetContent());
+	}
+
 	PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PolicyButton"));
 	if (PolicyButton)
 	{
@@ -221,8 +246,14 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	// убран (ТЗ Рината 08-08), поэтому стилизуем только строку политики.
 	if (PolicyText)
 	{
-		PolicyText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+		// Своим кеглем, мельче остальных подписей: «Политика конфиденциальности» — 27 знаков,
+		// и общим кеглем она не помещалась в кнопку (Ринат увидел обрезанную надпись 08-09).
+		// Плюс перенос по словам: если владелец сузит кнопку, надпись перенесётся, а не
+		// обрежется.
+		PolicyText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(6, Style.PolicyFontSize)));
 		PolicyText->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
+		PolicyText->SetAutoWrapText(true);
+		PolicyText->SetJustification(ETextJustify::Center);
 	}
 	if (VersionText)
 	{
@@ -332,6 +363,24 @@ void UPauseMenuWidget::ApplyNormalLabels()
 	{
 		MainMenuText->SetText(CachedStyle.MainMenuText);
 	}
+	if (SettingsText && !bDesignerTree)
+	{
+		SettingsText->SetText(CachedStyle.SettingsText);
+	}
+	if (CommunityText && !bDesignerTree)
+	{
+		CommunityText->SetText(CachedStyle.CommunityText);
+	}
+
+	// «Настройки» появляются САМИ по факту привязки обработчика владельцем (тот же приём, что
+	// в главном меню): не привязано — пункта нет, чтобы в панели не висела мёртвая кнопка.
+	SetRowVisibility(SettingsButton, OnSettingsRequested.IsBound()
+		? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+	// «Сообщество» видно только при непустом адресе в настройке проекта. Правило одно на всю
+	// игру — берём его у главного меню, второго адреса и второго правила не заводим.
+	SetRowVisibility(CommunityButton,
+		UStartScreenWidget::CommunityVisibilityFor(UMainMenuSettings::GetCommunityUrl()));
 
 	// Возвращаем ровно ту видимость, которая была ДО вопроса, и только если прятали её мы.
 	// Иначе выход из переспроса «показал» бы пункты, которые владелец сам скрыл в дизайнере.
@@ -422,6 +471,30 @@ void UPauseMenuWidget::HandlePolicyClicked()
 		// Адреса нет — метод сам тихо ничего не делает, пустую страницу не показываем.
 		Consent->OpenPrivacyPolicy();
 	}
+}
+
+void UPauseMenuWidget::HandleSettingsClicked()
+{
+	// Экран настроек открывает владелец: виджет не знает ни про контроллер, ни про то, что
+	// настройки лягут поверх паузы. Не привязано — пункт и не показывался (ApplyNormalLabels).
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu SETTINGS pressed"));
+	OnSettingsRequested.Broadcast();
+}
+
+void UPauseMenuWidget::HandleCommunityClicked()
+{
+	// Тот же адрес и то же поведение, что у пункта «Сообщество» в главном меню.
+	const FString Url = UMainMenuSettings::GetCommunityUrl();
+	if (Url.IsEmpty())
+	{
+		// При пустом адресе пункт спрятан целиком, штатно сюда не попасть — строка в журнал.
+		UE_LOG(LogQA, Display, TEXT("QA: pause menu COMMUNITY pressed (no url in config)"));
+		return;
+	}
+	FString Error;
+	FPlatformProcess::LaunchURL(*Url, nullptr, &Error);
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu COMMUNITY pressed, url '%s'%s%s"),
+		*Url, Error.IsEmpty() ? TEXT("") : TEXT(", error: "), *Error);
 }
 
 // --- Модальный барьер: события мимо кнопок не идут дальше в мир ---
