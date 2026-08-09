@@ -291,6 +291,12 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 		if (LogoVisibility != ESlateVisibility::Collapsed)
 		{
 			LogoImage->SetBrushFromSoftTexture(Style.LogoTexture, /*bMatchSize=*/false);
+			// Тинт сбрасываем в белый — как у фона. В ассете у пустого места логотипа стоит
+			// бледная заливка (чтобы владелец видел, за что браться мышкой), а подстановка
+			// текстуры цвет кисти НЕ трогает (UImage::SetBrushFromTexture меняет только
+			// ресурс) — без этой строки живой логотип рисовался бы в четверть яркости.
+			// Находку принёс unreal-operator 08-09, дефект был мой.
+			LogoImage->SetBrushTintColor(FSlateColor(FLinearColor::White));
 		}
 		LogoImage->SetVisibility(LogoVisibility);
 	}
