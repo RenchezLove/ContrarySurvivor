@@ -51,7 +51,7 @@
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "ContrarySurvivor/UI/IntroObjectiveWidget.h" // строка задачи вступления: вид берём у самого окна
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
-#include "ContrarySurvivor/UI/SettingsScreenWidget.h" // FSettingsTouchLayout: размеры «под палец» — одно место правды
+#include "ContrarySurvivor/UI/SettingsScreenWidget.h" // родительский класс окна настроек
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
@@ -2449,282 +2449,182 @@ namespace
 
 		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
 
-		// Размеры «под палец» — те же поля, по которым строит кодовое дерево-запаска
-		// (USettingsScreenWidget::TouchLayout / TouchBoxFor). Одно место правды: правка поля
-		// меняет и живое окно (после пересборки), и запаску, они не разъезжаются.
-		const FSettingsTouchLayout Layout;
-		auto TouchBox = [&Layout](EContrarySettingsControl Control)
-		{
-			return USettingsScreenWidget::TouchBoxFor(Layout, Control);
-		};
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.5f),
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(900.0f, 560.0f), 0.97f);
 
 		const FLinearColor GoldColor(1.0f, 0.85f, 0.2f, 1.0f);
 		const FLinearColor LabelColor(0.85f, 0.85f, 0.85f, 1.0f);
 		const FLinearColor ValueColor(1.0f, 0.97f, 0.7f, 1.0f);
 		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
 
-		// Подложка окна. Раскладка — СТОЛБИК С ПРОКРУТКОЙ, а не два столбца в фиксированном
-		// прямоугольнике, как было: элементы «под палец» физически не помещаются на экран
-		// телефона все разом (на 9 мм высоты их влезает шесть с половиной), поэтому список
-		// листается. Внутри подложки: заголовок сверху, под ним прокручиваемый столбик.
-		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
-		Plate->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.97f), 6.0f,
-			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
-		Plate->SetPadding(FMargin(28.0f, 22.0f));
-		Plate->bIsVariable = true;
-		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
-		{
-			PlateSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
-			PlateSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-			PlateSlot->SetPosition(FVector2D::ZeroVector);
-			PlateSlot->SetSize(Layout.PanelSize);
-		}
-
-		UVerticalBox* PlateColumn = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelColumn"));
-		Plate->SetContent(PlateColumn);
-
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
-			NSLOCTEXT("SettingsScreenWidget", "Title", "НАСТРОЙКИ"), GoldColor,
-			Layout.TitleFontSize, TEXT("Bold"));
+			NSLOCTEXT("SettingsScreenWidget", "Title", "НАСТРОЙКИ"), GoldColor, 24, TEXT("Bold"));
 		Title->bIsVariable = true;
-		if (UVerticalBoxSlot* TitleSlot = PlateColumn->AddChildToVerticalBox(Title))
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 14.0f));
+
+		// Столбцы содержимого: левый — картинка, правый — звук/управление/прочее.
+		const float LeftX = 30.0f;
+		const float RightX = 470.0f;
+		const float TopY = 56.0f;
+
+		auto AddHeader = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
 		{
-			TitleSlot->SetHorizontalAlignment(HAlign_Center);
-			TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
-		}
-
-		UScrollBox* Scroll = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("SettingsScroll"));
-		Scroll->bIsVariable = true;
-		if (UVerticalBoxSlot* ScrollSlot = PlateColumn->AddChildToVerticalBox(Scroll))
-		{
-			ScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		}
-
-		UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SettingsColumn"));
-		Scroll->AddChild(Column);
-
-		// --- Строки списка. Все габариты — из полей раскладки, чисел «на глазок» здесь нет. ---
-
-		auto AddHeader = [&](const TCHAR* Name, const FText& Caption)
-		{
-			UTextBlock* Header = MakeText(Tree, Roboto, FName(Name), Caption, GoldColor,
-				Layout.HeaderFontSize, TEXT("Bold"));
+			UTextBlock* Header = MakeText(Tree, Roboto, FName(Name), Caption, GoldColor, 17, TEXT("Bold"));
 			Header->bIsVariable = true;
-			if (UVerticalBoxSlot* HeaderSlot = Column->AddChildToVerticalBox(Header))
-			{
-				HeaderSlot->SetPadding(FMargin(0.0f, Layout.RowGap, 0.0f, Layout.RowGap * 0.25f));
-			}
+			CanvasAuto(Panel, Header, FVector2D(X, Y));
 		};
-		// Подпись строки (что настраиваем) и образец значения: живые строки всегда переписывает
-		// код экрана (RefreshLabels), в ассете это текст-заполнитель.
-		auto AddLine = [&](const TCHAR* Name, const FText& Caption, const FLinearColor& Color)
+		auto AddLabel = [&](const TCHAR* Name, const FText& Caption, float X, float Y)
 		{
-			UTextBlock* Line = MakeText(Tree, Roboto, FName(Name), Caption, Color,
-				Layout.LabelFontSize, TEXT("Regular"));
-			Line->bIsVariable = true;
-			if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
-			{
-				LineSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.25f));
-			}
-			return Line;
+			UTextBlock* Label = MakeText(Tree, Roboto, FName(Name), Caption, LabelColor, 15, TEXT("Regular"));
+			Label->bIsVariable = true;
+			CanvasAuto(Panel, Label, FVector2D(X, Y));
 		};
-		auto AddSample = [&](const TCHAR* Name, const FString& Sample)
+		// Образцы значений: живые строки всегда переписывает код экрана (RefreshLabels), поэтому
+		// в ассете это просто текст-заполнитель — перевод ему не нужен.
+		auto AddValue = [&](const TCHAR* Name, const FString& Sample, float X, float Y)
 		{
-			UTextBlock* Line = MakeText(Tree, Roboto, FName(Name), Sample, ValueColor,
-				Layout.LabelFontSize, TEXT("Regular"));
-			Line->bIsVariable = true;
-			if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
-			{
-				LineSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.25f));
-			}
-			return Line;
+			UTextBlock* Value = MakeText(Tree, Roboto, FName(Name), Sample, ValueColor, 15, TEXT("Regular"));
+			Value->bIsVariable = true;
+			CanvasAuto(Panel, Value, FVector2D(X, Y));
 		};
-		// Кнопка в габаритной коробке: коробка держит размер под палец, её же прячет код,
-		// когда строка не нужна (иначе осталось бы пустое место — урок AmmoRow).
-		auto AddRowButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
-			EContrarySettingsControl Control)
+		auto AddButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
+			float X, float Y, const FVector2D& Size)
 		{
-			const FVector2D BoxSize = TouchBox(Control);
-			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(FString(ButtonName) + TEXT("Box"))));
-			Box->SetWidthOverride(BoxSize.X);
-			Box->SetHeightOverride(BoxSize.Y);
-			Box->bIsVariable = true;
-
 			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
-			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption,
-				Layout.ButtonFontSize);
-			Box->SetContent(Button);
-
-			if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
-			{
-				BoxSlot->SetHorizontalAlignment(HAlign_Center);
-				// Зазор снизу — не меньше половины высоты строки: промах уходит в пустоту.
-				BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
-			}
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 16);
+			CanvasAt(Panel, Button, FVector2D(X, Y), Size);
 			return Button;
 		};
-		// Ползунок тоже в габаритной коробке: тянуть его надо тем же пальцем, а собственная
-		// высота ползунка — полоска в пару миллиметров.
-		auto AddSlider = [&](const TCHAR* Name, EContrarySettingsControl Control)
+		auto AddSlider = [&](const TCHAR* Name, float X, float Y, float Width)
 		{
-			const FVector2D BoxSize = TouchBox(Control);
-			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(FString(Name) + TEXT("Box"))));
-			Box->SetWidthOverride(BoxSize.X);
-			Box->SetHeightOverride(BoxSize.Y);
-			Box->bIsVariable = true;
-
 			USlider* Slider = Tree->ConstructWidget<USlider>(USlider::StaticClass(), FName(Name));
-			// Полоска заметная, бегунок крупный — вид берётся тем же методом, что в запаске.
-			Slider->SetWidgetStyle(USettingsScreenWidget::MakeSliderStyle(Layout));
 			Slider->bIsVariable = true;
-			Box->SetContent(Slider);
-
-			if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
-			{
-				BoxSlot->SetHorizontalAlignment(HAlign_Center);
-				// Зазор снизу — ПОЛНЫЙ, как у кнопок. Половинного не хватает: проверка окна
-				// поймала это на первой же живой пересборке (44 при нужных 86), а под
-				// ползунком строкой ниже стоит следующий элемент, в который уходил бы промах.
-				BoxSlot->SetPadding(FMargin(0.0f, Layout.RowGap * 0.25f, 0.0f, Layout.RowGap));
-			}
+			CanvasAt(Panel, Slider, FVector2D(X, Y), FVector2D(Width, 24.0f));
 			return Slider;
 		};
 
-		// --- Картинка ---
-		AddHeader(TEXT("GraphicsHeaderText"), NSLOCTEXT("SettingsScreenWidget", "GraphicsHeader", "Картинка"));
-		AddSample(TEXT("PresetValueText"), TEXT("Качество картинки: Авто (среднее)"));
-		AddRowButton(TEXT("PresetLowButton"), TEXT("PresetLowText"),
-			NSLOCTEXT("ContrarySettings", "PresetLow", "Низкое"), EContrarySettingsControl::PresetLow);
-		AddRowButton(TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
-			NSLOCTEXT("ContrarySettings", "PresetMedium", "Среднее"), EContrarySettingsControl::PresetMedium);
-		AddRowButton(TEXT("PresetHighButton"), TEXT("PresetHighText"),
-			NSLOCTEXT("ContrarySettings", "PresetHigh", "Высокое"), EContrarySettingsControl::PresetHigh);
-		AddRowButton(TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
-			NSLOCTEXT("ContrarySettings", "PresetAuto", "Авто"), EContrarySettingsControl::PresetAuto);
+		// --- Левый столбец: картинка ---
+		AddHeader(TEXT("GraphicsHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "GraphicsHeader", "Картинка"), LeftX, TopY);
+		AddValue(TEXT("PresetValueText"), TEXT("Качество картинки: Авто (среднее)"),
+			LeftX, TopY + 28.0f);
 
-		AddLine(TEXT("ResolutionLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResolutionRow", "Масштаб разрешения"), LabelColor);
-		AddSlider(TEXT("ResolutionSlider"), EContrarySettingsControl::ResolutionSlider);
+		const FVector2D PresetButtonSize(96.0f, 44.0f);
+		AddButton(TEXT("PresetLowButton"), TEXT("PresetLowText"),
+			NSLOCTEXT("ContrarySettings", "PresetLow", "Низкое"), LeftX, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetMediumButton"), TEXT("PresetMediumText"),
+			NSLOCTEXT("ContrarySettings", "PresetMedium", "Среднее"), LeftX + 102.0f, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetHighButton"), TEXT("PresetHighText"),
+			NSLOCTEXT("ContrarySettings", "PresetHigh", "Высокое"), LeftX + 204.0f, TopY + 56.0f, PresetButtonSize);
+		AddButton(TEXT("PresetAutoButton"), TEXT("PresetAutoText"),
+			NSLOCTEXT("ContrarySettings", "PresetAuto", "Авто"), LeftX + 306.0f, TopY + 56.0f, PresetButtonSize);
+
+		AddLabel(TEXT("ResolutionLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResolutionRow", "Масштаб разрешения"), LeftX, TopY + 112.0f);
+		AddSlider(TEXT("ResolutionSlider"), LeftX, TopY + 138.0f, 280.0f);
+		AddButton(TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Minus", "−"), LeftX + 290.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
+		AddButton(TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
+			NSLOCTEXT("SettingsScreenWidget", "Plus", "+"), LeftX + 348.0f, TopY + 128.0f, FVector2D(52.0f, 44.0f));
 		// Образец подписи: живую строку с пикселями этого экрана собирает код.
-		AddSample(TEXT("ResolutionValueText"), TEXT("100% — это 720 на 1600"));
-		AddRowButton(TEXT("ResolutionMinusButton"), TEXT("ResolutionMinusText"),
-			NSLOCTEXT("SettingsScreenWidget", "Minus", "−"), EContrarySettingsControl::ResolutionMinus);
-		AddRowButton(TEXT("ResolutionPlusButton"), TEXT("ResolutionPlusText"),
-			NSLOCTEXT("SettingsScreenWidget", "Plus", "+"), EContrarySettingsControl::ResolutionPlus);
+		AddValue(TEXT("ResolutionValueText"), TEXT("100% — это 720 на 1600"), LeftX, TopY + 168.0f);
 
-		AddRowButton(TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
+		AddButton(TEXT("FrameLimitButton"), TEXT("FrameLimitText"),
 			NSLOCTEXT("SettingsScreenWidget", "FrameLimitSample", "Ограничение кадров: 30 кадров"),
-			EContrarySettingsControl::FrameLimit);
-		AddRowButton(TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
+			LeftX, TopY + 198.0f, FVector2D(400.0f, 46.0f));
+		AddButton(TEXT("FpsCounterButton"), TEXT("FpsCounterText"),
 			NSLOCTEXT("SettingsScreenWidget", "FpsCounterSample", "Счётчик кадров: выключен"),
-			EContrarySettingsControl::FpsCounter);
+			LeftX, TopY + 250.0f, FVector2D(400.0f, 46.0f));
 
-		// --- Звук ---
-		AddHeader(TEXT("SoundHeaderText"), NSLOCTEXT("SettingsScreenWidget", "SoundHeader", "Звук"));
-		AddLine(TEXT("MusicLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "MusicRow", "Громкость музыки"), LabelColor);
-		AddSlider(TEXT("MusicSlider"), EContrarySettingsControl::MusicSlider);
-		AddSample(TEXT("MusicValueText"), TEXT("100%"));
-		AddLine(TEXT("EffectsLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "EffectsRow", "Громкость эффектов"), LabelColor);
-		AddSlider(TEXT("EffectsSlider"), EContrarySettingsControl::EffectsSlider);
-		AddSample(TEXT("EffectsValueText"), TEXT("100%"));
+		// --- Правый столбец: звук, управление, прочее ---
+		AddHeader(TEXT("SoundHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "SoundHeader", "Звук"), RightX, TopY);
+		AddLabel(TEXT("MusicLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "MusicRow", "Громкость музыки"), RightX, TopY + 28.0f);
+		AddSlider(TEXT("MusicSlider"), RightX, TopY + 50.0f, 280.0f);
+		AddValue(TEXT("MusicValueText"), TEXT("100%"), RightX + 292.0f, TopY + 48.0f);
+		AddLabel(TEXT("EffectsLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "EffectsRow", "Громкость эффектов"), RightX, TopY + 80.0f);
+		AddSlider(TEXT("EffectsSlider"), RightX, TopY + 102.0f, 280.0f);
+		AddValue(TEXT("EffectsValueText"), TEXT("100%"), RightX + 292.0f, TopY + 100.0f);
 
-		// --- Управление ---
-		AddHeader(TEXT("ControlsHeaderText"), NSLOCTEXT("SettingsScreenWidget", "ControlsHeader", "Управление"));
-		AddLine(TEXT("SensitivityLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "SensitivityRow", "Чувствительность управления"), LabelColor);
-		AddSlider(TEXT("SensitivitySlider"), EContrarySettingsControl::SensitivitySlider);
-		AddSample(TEXT("SensitivityValueText"), TEXT("100%"));
-		AddLine(TEXT("OpacityLabelText"),
-			NSLOCTEXT("SettingsScreenWidget", "OpacityRow", "Прозрачность экранных кнопок"), LabelColor);
-		AddSlider(TEXT("OpacitySlider"), EContrarySettingsControl::OpacitySlider);
-		AddSample(TEXT("OpacityValueText"), TEXT("50%"));
-		AddRowButton(TEXT("VibrationButton"), TEXT("VibrationText"),
+		AddHeader(TEXT("ControlsHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "ControlsHeader", "Управление"), RightX, TopY + 134.0f);
+		AddLabel(TEXT("SensitivityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "SensitivityRow", "Чувствительность управления"), RightX, TopY + 162.0f);
+		AddSlider(TEXT("SensitivitySlider"), RightX, TopY + 184.0f, 280.0f);
+		AddValue(TEXT("SensitivityValueText"), TEXT("100%"), RightX + 292.0f, TopY + 182.0f);
+		AddLabel(TEXT("OpacityLabelText"),
+			NSLOCTEXT("SettingsScreenWidget", "OpacityRow", "Прозрачность экранных кнопок"), RightX, TopY + 214.0f);
+		AddSlider(TEXT("OpacitySlider"), RightX, TopY + 236.0f, 280.0f);
+		AddValue(TEXT("OpacityValueText"), TEXT("50%"), RightX + 292.0f, TopY + 234.0f);
+		AddButton(TEXT("VibrationButton"), TEXT("VibrationText"),
 			NSLOCTEXT("SettingsScreenWidget", "VibrationSample", "Вибрация: включена"),
-			EContrarySettingsControl::Vibration);
+			RightX, TopY + 264.0f, FVector2D(340.0f, 44.0f));
 
-		// --- Прочее ---
-		AddHeader(TEXT("MiscHeaderText"), NSLOCTEXT("SettingsScreenWidget", "MiscHeader", "Прочее"));
-		AddRowButton(TEXT("ReportBugButton"), TEXT("ReportBugText"),
+		AddHeader(TEXT("MiscHeaderText"),
+			NSLOCTEXT("SettingsScreenWidget", "MiscHeader", "Прочее"), RightX, TopY + 320.0f);
+		AddButton(TEXT("ReportBugButton"), TEXT("ReportBugText"),
 			NSLOCTEXT("SettingsScreenWidget", "ReportBug", "Сообщить об ошибке"),
-			EContrarySettingsControl::ReportBug);
+			RightX, TopY + 348.0f, FVector2D(340.0f, 44.0f));
 		UTextBlock* BugHint = MakeText(Tree, Roboto, TEXT("ReportBugHintText"),
 			TEXT("В сообщении укажите номер сборки: Версия 0.1.0 (сборка 1)"),
-			LabelColor, FMath::Max(8, Layout.LabelFontSize - 4), TEXT("Regular"));
+			LabelColor, 12, TEXT("Regular"));
 		BugHint->SetAutoWrapText(true);
 		BugHint->bIsVariable = true;
-		if (UVerticalBoxSlot* HintSlot = Column->AddChildToVerticalBox(BugHint))
-		{
-			HintSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
-		}
-		AddRowButton(TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
+		CanvasAt(Panel, BugHint, FVector2D(RightX, TopY + 396.0f), FVector2D(340.0f, 34.0f));
+		AddButton(TEXT("ResetProgressButton"), TEXT("ResetProgressText"),
 			NSLOCTEXT("SettingsScreenWidget", "ResetProgress", "Сбросить прогресс"),
-			EContrarySettingsControl::ResetProgress);
+			RightX, TopY + 432.0f, FVector2D(340.0f, 44.0f));
 
-		// «Назад» — последней строкой списка (как в кодовом дереве): на телефоне её ищут внизу.
-		AddRowButton(TEXT("CloseButton"), TEXT("CloseText"),
-			NSLOCTEXT("SettingsScreenWidget", "Close", "Назад"), EContrarySettingsControl::Close);
+		// «Назад» — по центру низа панели.
+		UButton* Close = MakeGreyButton(Tree, TEXT("CloseButton"));
+		SetUnlockedCaption(Tree, Roboto, Close, TEXT("CloseText"),
+			NSLOCTEXT("SettingsScreenWidget", "Close", "Назад"), DarkCaption, 18);
+		PlaceCenteredButton(Panel, Close, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(-230.0f, -14.0f), FVector2D(220.0f, 48.0f));
 
-		// --- Панель двойного переспроса сброса. В ассете ВИДИМА (владельцу есть что править) —
-		// на живом экране её прячет код при каждом показе (RefreshConfirmPanel). ---
+		// Панель двойного переспроса сброса. В ассете ВИДИМА (владельцу есть что править) —
+		// на живом экране её прячет код при каждом показе (RefreshConfirmPanel).
 		UBorder* Confirm = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ConfirmPanel"));
 		Confirm->SetBrush(MakeRoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.99f), 6.0f,
 			FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
-		Confirm->SetPadding(FMargin(32.0f, 28.0f));
+		Confirm->SetPadding(FMargin(0.0f));
 		Confirm->bIsVariable = true;
 		if (UCanvasPanelSlot* ConfirmSlot = Root->AddChildToCanvas(Confirm))
 		{
 			ConfirmSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
 			ConfirmSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 			ConfirmSlot->SetPosition(FVector2D::ZeroVector);
-			ConfirmSlot->SetAutoSize(true);
+			ConfirmSlot->SetSize(FVector2D(460.0f, 220.0f));
 		}
-		UVerticalBox* ConfirmColumn = Tree->ConstructWidget<UVerticalBox>(
-			UVerticalBox::StaticClass(), TEXT("ConfirmColumn"));
-		Confirm->SetContent(ConfirmColumn);
+		UCanvasPanel* ConfirmCanvas = Tree->ConstructWidget<UCanvasPanel>(
+			UCanvasPanel::StaticClass(), TEXT("ConfirmCanvas"));
+		Confirm->SetContent(ConfirmCanvas);
 
 		UTextBlock* ConfirmTitle = MakeText(Tree, Roboto, TEXT("ConfirmTitleText"),
 			NSLOCTEXT("SettingsScreenWidget", "ResetAsk1", "Сбросить весь прогресс?"),
-			GoldColor, Layout.HeaderFontSize, TEXT("Bold"));
+			GoldColor, 18, TEXT("Bold"));
 		ConfirmTitle->SetAutoWrapText(true);
 		ConfirmTitle->SetJustification(ETextJustify::Center);
 		ConfirmTitle->bIsVariable = true;
-		if (UVerticalBoxSlot* ConfirmTitleSlot = ConfirmColumn->AddChildToVerticalBox(ConfirmTitle))
+		if (UCanvasPanelSlot* ConfirmTitleSlot = ConfirmCanvas->AddChildToCanvas(ConfirmTitle))
 		{
-			ConfirmTitleSlot->SetHorizontalAlignment(HAlign_Center);
-			ConfirmTitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap * 0.5f));
+			ConfirmTitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+			ConfirmTitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			ConfirmTitleSlot->SetPosition(FVector2D(0.0f, 26.0f));
+			ConfirmTitleSlot->SetSize(FVector2D(400.0f, 56.0f));
 		}
-
-		auto AddConfirmButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption,
-			EContrarySettingsControl Control)
-		{
-			const FVector2D BoxSize = TouchBox(Control);
-			USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-				FName(*(FString(ButtonName) + TEXT("Box"))));
-			Box->SetWidthOverride(BoxSize.X);
-			Box->SetHeightOverride(BoxSize.Y);
-			Box->bIsVariable = true;
-
-			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
-			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption,
-				Layout.ButtonFontSize);
-			Box->SetContent(Button);
-
-			if (UVerticalBoxSlot* BoxSlot = ConfirmColumn->AddChildToVerticalBox(Box))
-			{
-				BoxSlot->SetHorizontalAlignment(HAlign_Center);
-				BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
-			}
-		};
-		AddConfirmButton(TEXT("ConfirmYesButton"), TEXT("ConfirmYesText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResetYes1", "Да, сбросить"),
-			EContrarySettingsControl::ConfirmYes);
-		AddConfirmButton(TEXT("ConfirmNoButton"), TEXT("ConfirmNoText"),
-			NSLOCTEXT("SettingsScreenWidget", "ResetNo", "Отмена"),
-			EContrarySettingsControl::ConfirmNo);
+		UButton* ConfirmYes = MakeGreyButton(Tree, TEXT("ConfirmYesButton"));
+		SetUnlockedCaption(Tree, Roboto, ConfirmYes, TEXT("ConfirmYesText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetYes1", "Да, сбросить"), DarkCaption, 16);
+		PlaceCenteredButton(ConfirmCanvas, ConfirmYes, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -74.0f), FVector2D(300.0f, 46.0f));
+		UButton* ConfirmNo = MakeGreyButton(Tree, TEXT("ConfirmNoButton"));
+		SetUnlockedCaption(Tree, Roboto, ConfirmNo, TEXT("ConfirmNoText"),
+			NSLOCTEXT("SettingsScreenWidget", "ResetNo", "Отмена"), DarkCaption, 16);
+		PlaceCenteredButton(ConfirmCanvas, ConfirmNo, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -18.0f), FVector2D(300.0f, 46.0f));
 		return true;
 	}
 
@@ -2819,8 +2719,9 @@ namespace
 
 		// Плашка выше прежней (было 440): подход 3 добавил пункт «В главное меню», и на
 		// старой высоте нижняя кнопка налезала бы на строку версии.
+		// Плашка выросла ещё раз: волна 08-09 добавила «Настройки» и «Сообщество».
 		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
-			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(380.0f, 510.0f), 0.95f);
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(380.0f, 650.0f), 0.95f);
 
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
 			NSLOCTEXT("PauseMenuWidget", "TitleText", "ПАУЗА"),
@@ -2847,10 +2748,25 @@ namespace
 		// Переключателя согласия в паузе НЕТ (решение Рината 08-08) — и кодовое дерево его
 		// больше не создаёт (08-09). Раньше он оставался невидимым кубиком и лежал ровно под
 		// «В главное меню»; пересборка воскресила бы наложение, если оставить его здесь.
-		AddMenuButton(TEXT("PolicyButton"), TEXT("PolicyText"),
-			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 216.0f);
+		// Волна 08-09 (просьба Рината): настройки и сообщество прямо из паузы.
+		AddMenuButton(TEXT("SettingsButton"), TEXT("SettingsText"),
+			NSLOCTEXT("PauseMenuWidget", "SettingsText", "Настройки"), 216.0f);
+		AddMenuButton(TEXT("CommunityButton"), TEXT("CommunityText"),
+			NSLOCTEXT("PauseMenuWidget", "CommunityText", "Сообщество"), 286.0f);
+		// Подпись политики — своим кеглем: длинной надписью общий кегль 19 не помещался в
+		// кнопку, и на телефоне она была обрезана (жалоба Рината 08-09).
+		if (UButton* Policy = AddMenuButton(TEXT("PolicyButton"), TEXT("PolicyText"),
+			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 356.0f))
+		{
+			if (UTextBlock* PolicyCaption = Cast<UTextBlock>(Policy->GetContent()))
+			{
+				PolicyCaption->SetFont(FSlateFontInfo(Roboto, 14, TEXT("Bold")));
+				PolicyCaption->SetAutoWrapText(true);
+				PolicyCaption->SetJustification(ETextJustify::Center);
+			}
+		}
 		AddMenuButton(TEXT("QuitButton"), TEXT("QuitText"),
-			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 286.0f);
+			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 426.0f);
 
 		// Номер версии сборки — мелко внизу (живой текст ставит код).
 		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
@@ -3030,6 +2946,15 @@ namespace
 		const TCHAR* ParentClassPath;  // /Script/ContrarySurvivor....
 		bool (*Build)(UWidgetTree*);   // наполнение дерева
 		std::initializer_list<const TCHAR*> ExpectedCubes; // контракт BindWidgetOptional
+
+		// ⛔ ОКНО ОТДАНО ВЛАДЕЛЬЦУ (правило Рината 08-09: «я дальше сам настрою размер кнопок»).
+		// Такое окно генератор больше НЕ трогает: не пересобирает (-rebuild), не перезаписывает
+		// даже с -force. Единственное, что ему остаётся, — СОЗДАТЬ окно, если файла нет вовсе,
+		// и дополнить недостающими кубиками через -augment (тот раскладку не переставляет).
+		// Иначе выйдет так: Ринат двигает кнопки мышкой, а следующий наш прогон стирает работу.
+		// Проверка -verify по такому окну смотрит только состав (все ли кубики на месте и
+		// доступны ли они как переменные), но НЕ придирается к их положению и размеру.
+		bool bOwnerOwned = false;
 	};
 
 	// Порядок важен: WBP_ItemTile ДО экранов с сетками (WBP_Inventory/WBP_Shop/
@@ -3159,7 +3084,8 @@ namespace
 			  TEXT("CloseButton"), TEXT("CloseText"),
 			  TEXT("ConfirmPanel"), TEXT("ConfirmTitleText"),
 			  TEXT("ConfirmYesButton"), TEXT("ConfirmYesText"),
-			  TEXT("ConfirmNoButton"), TEXT("ConfirmNoText") } },
+			  TEXT("ConfirmNoButton"), TEXT("ConfirmNoText") },
+			/*bOwnerOwned=*/true },
 		{ TEXT("/Game/UI/WBP_Consent"), TEXT("WBP_Consent"),
 			TEXT("/Script/ContrarySurvivor.ConsentScreenWidget"), &BuildConsent,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
@@ -3171,8 +3097,11 @@ namespace
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
 			  TEXT("ResumeButton"), TEXT("ResumeText"),
 			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
+			  TEXT("SettingsButton"), TEXT("SettingsText"),
+			  TEXT("CommunityButton"), TEXT("CommunityText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
-			  TEXT("VersionText") } },
+			  TEXT("VersionText") },
+			/*bOwnerOwned=*/true },
 		{ TEXT("/Game/UI/WBP_Intro"), TEXT("WBP_Intro"),
 			TEXT("/Script/ContrarySurvivor.IntroScreenWidget"), &BuildIntro,
 			{ TEXT("Background"), TEXT("LineText"), TEXT("SkipHintText") } },
@@ -4344,6 +4273,116 @@ namespace
 		bChanged = true;
 	}
 
+	// WBP_PauseMenu, волна 08-09 (просьба Рината): «Настройки» и «Сообщество» прямо из паузы
+	// плюс подпись политики, которая не помещалась в кнопку. Делаем ДОПОЛНЕНИЕМ, а не
+	// пересборкой: окно отдано владельцу, и пересборка стёрла бы его ручную настройку.
+	// Идемпотентно: кнопки уже есть — выходим молча.
+	void AugmentPauseMenuExtras(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_PauseMenu");
+
+		// Подпись политики чиним всегда, когда она ещё общего кегля: это отдельная беда,
+		// не связанная с новыми кнопками.
+		if (UTextBlock* Policy = Cast<UTextBlock>(Tree->FindWidget(TEXT("PolicyText"))))
+		{
+			const FSlateFontInfo PolicyFont = Policy->GetFont();
+			if (PolicyFont.Size > 14 || !Policy->GetAutoWrapText())
+			{
+				FSlateFontInfo Fixed = PolicyFont;
+				Fixed.Size = 14;
+				Policy->SetFont(Fixed);
+				Policy->SetAutoWrapText(true);
+				Policy->SetJustification(ETextJustify::Center);
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: подпись политики уменьшена до кегля 14 и переносится по словам — целиком не помещалась."),
+					Name);
+				bChanged = true;
+			}
+		}
+
+		if (Tree->FindWidget(TEXT("SettingsButton")) && Tree->FindWidget(TEXT("CommunityButton")))
+		{
+			return; // кнопки уже добавлены — режим идемпотентный
+		}
+
+		UWidget* Anchor = Tree->FindWidget(TEXT("MainMenuButton"));
+		UCanvasPanelSlot* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
+		UCanvasPanel* Parent = Anchor ? Cast<UCanvasPanel>(Anchor->GetParent()) : nullptr;
+		if (!AnchorSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: кнопка MainMenuButton не найдена в канвас-слоте — некуда пристроить новые пункты."),
+				Name);
+			return;
+		}
+
+		const FVector2D AnchorSize = AnchorSlot->GetSize();
+		const FVector2D AnchorPos = AnchorSlot->GetPosition();
+		const FAnchors AnchorAnchors = AnchorSlot->GetAnchors();
+		constexpr float Gap = 12.0f;
+		const float Step = AnchorSize.Y + Gap;
+
+		// Пункты ниже «В главное меню» сдвигаем вниз, чтобы новые кнопки не легли на них.
+		// Двигаем ТОЛЬКО те, что привязаны к тому же краю (сверху): строка версии привязана
+		// к низу панели, её трогать нельзя — она уедет за край.
+		const int32 InsertCount = 2;
+		const float Shift = InsertCount * Step;
+		for (int32 Index = 0; Index < Parent->GetChildrenCount(); ++Index)
+		{
+			UWidget* Child = Parent->GetChildAt(Index);
+			UCanvasPanelSlot* ChildSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+			if (!ChildSlot || Child == Anchor)
+			{
+				continue;
+			}
+			if (!FMath::IsNearlyEqual(ChildSlot->GetAnchors().Minimum.Y, AnchorAnchors.Minimum.Y))
+			{
+				continue; // привязан к другому краю — не наш случай
+			}
+			if (ChildSlot->GetPosition().Y > AnchorPos.Y + KINDA_SMALL_NUMBER)
+			{
+				ChildSlot->SetPosition(ChildSlot->GetPosition() + FVector2D(0.0f, Shift));
+			}
+		}
+
+		// Панель подросла на столько же, иначе нижние пункты вывалятся за её край.
+		if (UWidget* Plate = Tree->FindWidget(TEXT("PanelPlate")))
+		{
+			if (UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(Plate->Slot))
+			{
+				PlateSlot->SetSize(PlateSlot->GetSize() + FVector2D(0.0f, Shift));
+			}
+		}
+
+		UObject* Roboto = LoadRobotoFont();
+		const FLinearColor DarkCaption(0.05f, 0.05f, 0.05f, 1.0f);
+		auto AddAt = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption, int32 Index)
+		{
+			if (Tree->FindWidget(FName(ButtonName)))
+			{
+				return; // эта кнопка уже есть — вторую не заводим
+			}
+			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
+			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 19);
+			if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(Button))
+			{
+				ButtonSlot->SetAnchors(AnchorAnchors);
+				ButtonSlot->SetAlignment(AnchorSlot->GetAlignment());
+				ButtonSlot->SetSize(AnchorSize);
+				ButtonSlot->SetPosition(AnchorPos + FVector2D(0.0f, Step * Index));
+			}
+			bChanged = true;
+		};
+		AddAt(TEXT("SettingsButton"), TEXT("SettingsText"),
+			NSLOCTEXT("PauseMenuWidget", "SettingsText", "Настройки"), 1);
+		AddAt(TEXT("CommunityButton"), TEXT("CommunityText"),
+			NSLOCTEXT("PauseMenuWidget", "CommunityText", "Сообщество"), 2);
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлены пункты «Настройки» и «Сообщество», нижние пункты сдвинуты на %.0f, панель подросла на столько же."),
+			Name, Shift);
+	}
+
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
 	// добавить кубик WeaponIconImage, если его ещё нет. Позиция берётся со слота кнопки
 	// ОРУЖИЕ: куда владелец её передвинул, туда встанет и иконка.
@@ -4432,146 +4471,6 @@ namespace
 		}
 		UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — Tile Widget Class пуст."), AssetName);
 		return false;
-	}
-
-	// Проверка -verify для экрана настроек: в ЖИВОМ ассете у каждого управляющего элемента
-	// область нажатия не меньше 9 мм на телефоне Рината (1600 на 720 точек, 320 точек на дюйм).
-	// Зачем отдельно от автотеста: автотест проверяет РАСЧЁТ и кодовое дерево, а здесь мы
-	// смотрим на сам файл окна — иначе «поправили код, но ассет не пересобрали» осталось бы
-	// незамеченным, и на телефоне кнопки так и остались бы мелкими.
-	bool VerifySettingsTouchSizes(const TCHAR* AssetName, UWidgetBlueprint* WBP)
-	{
-		if (!WBP->WidgetTree)
-		{
-			UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — дерева виджетов нет."), AssetName);
-			return false;
-		}
-
-		const FSettingsTouchLayout Layout;
-		const float Threshold = USettingsScreenWidget::MinTouchPointsFor(
-			/*Millimeters=*/9.0f, /*ScreenDpi=*/320.0f, FIntPoint(1600, 720));
-
-		struct FControlEntry
-		{
-			EContrarySettingsControl Control;
-			const TCHAR* WidgetName;
-		};
-		static const FControlEntry Controls[] =
-		{
-			{ EContrarySettingsControl::PresetLow,         TEXT("PresetLowButton") },
-			{ EContrarySettingsControl::PresetMedium,      TEXT("PresetMediumButton") },
-			{ EContrarySettingsControl::PresetHigh,        TEXT("PresetHighButton") },
-			{ EContrarySettingsControl::PresetAuto,        TEXT("PresetAutoButton") },
-			{ EContrarySettingsControl::ResolutionSlider,  TEXT("ResolutionSlider") },
-			{ EContrarySettingsControl::ResolutionMinus,   TEXT("ResolutionMinusButton") },
-			{ EContrarySettingsControl::ResolutionPlus,    TEXT("ResolutionPlusButton") },
-			{ EContrarySettingsControl::FrameLimit,        TEXT("FrameLimitButton") },
-			{ EContrarySettingsControl::FpsCounter,        TEXT("FpsCounterButton") },
-			{ EContrarySettingsControl::MusicSlider,       TEXT("MusicSlider") },
-			{ EContrarySettingsControl::EffectsSlider,     TEXT("EffectsSlider") },
-			{ EContrarySettingsControl::SensitivitySlider, TEXT("SensitivitySlider") },
-			{ EContrarySettingsControl::OpacitySlider,     TEXT("OpacitySlider") },
-			{ EContrarySettingsControl::Vibration,         TEXT("VibrationButton") },
-			{ EContrarySettingsControl::ReportBug,         TEXT("ReportBugButton") },
-			{ EContrarySettingsControl::ResetProgress,     TEXT("ResetProgressButton") },
-			{ EContrarySettingsControl::Close,             TEXT("CloseButton") },
-			{ EContrarySettingsControl::ConfirmYes,        TEXT("ConfirmYesButton") },
-			{ EContrarySettingsControl::ConfirmNo,         TEXT("ConfirmNoButton") },
-		};
-
-		bool bOk = true;
-		for (const FControlEntry& Entry : Controls)
-		{
-			UWidget* Widget = WBP->WidgetTree->FindWidget(FName(Entry.WidgetName));
-			if (!Widget)
-			{
-				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — элемента '%s' в окне нет."),
-					AssetName, Entry.WidgetName);
-				bOk = false;
-				continue;
-			}
-			// Габарит держит коробка-обёртка (у кнопки и ползунка своего размера нет).
-			USizeBox* Box = Cast<USizeBox>(Widget->GetParent());
-			// ⚠ В журнал коммандлета русские буквы у лида приходят вопросительными знаками
-			// (кодировка вывода), поэтому в КАЖДОЙ строке провала дублируем суть короткой
-			// латинской сводкой вида `size=WxH need>=N`. Без неё 08-09 разбор ушёл по ложному
-			// следу: из `44 ... 86` прочиталось «высота 44», хотя речь была про ЗАЗОР.
-			if (!Box || !Box->IsWidthOverride() || !Box->IsHeightOverride())
-			{
-				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — у элемента '%s' нет габаритной коробки с заданным размером: под палец он не рассчитан. [%s: no size box]"),
-					AssetName, Entry.WidgetName, Entry.WidgetName);
-				bOk = false;
-				continue;
-			}
-			const float Width = Box->GetWidthOverride();
-			const float Height = Box->GetHeightOverride();
-			if (Width + KINDA_SMALL_NUMBER < Threshold || Height + KINDA_SMALL_NUMBER < Threshold)
-			{
-				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — элемент '%s' мельче порога под палец: %.0fx%.0f при нужных %.0f (это 9 мм на экране 1600x720 при 320 точках на дюйм). [%s: size=%.0fx%.0f need>=%.0f]"),
-					AssetName, Entry.WidgetName, Width, Height, Threshold,
-					Entry.WidgetName, Width, Height, Threshold);
-				bOk = false;
-				continue;
-			}
-			// Зазор до соседней строки — не меньше половины высоты строки.
-			if (UVerticalBoxSlot* BoxSlot = Cast<UVerticalBoxSlot>(Box->Slot))
-			{
-				const FMargin Padding = BoxSlot->GetPadding();
-				const float GapBelow = Padding.Bottom;
-				if (GapBelow + KINDA_SMALL_NUMBER < Height * 0.5f)
-				{
-					UE_LOG(LogGenerateWbp, Error,
-						TEXT("VERIFY FAIL: %s — под элементом '%s' зазор снизу %.0f, а нужно не меньше %.0f (это половина его высоты %.0f; сама высота в порядке). [%s: gap=%.0f need>=%.0f height=%.0f]"),
-						AssetName, Entry.WidgetName, GapBelow, Height * 0.5f, Height,
-						Entry.WidgetName, GapBelow, Height * 0.5f, Height);
-					bOk = false;
-				}
-			}
-		}
-
-		// Кегль подписей на кнопках. Проверяем отдельно, потому что размер кнопки и размер
-		// букв на ней теряются по-разному: 08-09 пересборка с включённым переносом значений
-		// владельца принесла из старого ассета мелкий шрифт (16 вместо 36), кнопки при этом
-		// остались крупными — глазами в логе такое не поймать, а на телефоне подпись нечитаема.
-		static const TCHAR* const Captions[] =
-		{
-			TEXT("PresetLowText"), TEXT("PresetMediumText"), TEXT("PresetHighText"), TEXT("PresetAutoText"),
-			TEXT("ResolutionMinusText"), TEXT("ResolutionPlusText"),
-			TEXT("FrameLimitText"), TEXT("FpsCounterText"), TEXT("VibrationText"),
-			TEXT("ReportBugText"), TEXT("ResetProgressText"), TEXT("CloseText"),
-			TEXT("ConfirmYesText"), TEXT("ConfirmNoText"),
-		};
-		for (const TCHAR* CaptionName : Captions)
-		{
-			UTextBlock* Caption = Cast<UTextBlock>(WBP->WidgetTree->FindWidget(FName(CaptionName)));
-			if (!Caption)
-			{
-				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — подписи '%s' в окне нет."),
-					AssetName, CaptionName);
-				bOk = false;
-				continue;
-			}
-			const int32 FontSize = Caption->GetFont().Size;
-			if (FontSize < Layout.ButtonFontSize)
-			{
-				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — у подписи '%s' кегль %d, а положено не меньше %d: кнопка крупная, а надпись на ней мелкая. [%s: font=%d need>=%d]"),
-					AssetName, CaptionName, FontSize, Layout.ButtonFontSize,
-					CaptionName, FontSize, Layout.ButtonFontSize);
-				bOk = false;
-			}
-		}
-
-		if (bOk)
-		{
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("VERIFY %s: все %d управляющих элементов не мельче %.0f точек интерфейса (9 мм на телефоне), зазоры не меньше половины высоты, кегль всех %d подписей не меньше %d."),
-				AssetName, static_cast<int32>(UE_ARRAY_COUNT(Controls)), Threshold,
-				static_cast<int32>(UE_ARRAY_COUNT(Captions)), Layout.ButtonFontSize);
-		}
-		return bOk;
 	}
 
 	void ApplyTileClassFixup(const FWbpSpec& Spec, UWidgetBlueprint* WBP)
@@ -5574,7 +5473,7 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		// пересборка молча вернула бы их поверх новых 52/42/34/36, и на телефоне всё
 		// осталось бы таким же мелким. Переносить здесь НЕЧЕГО: правок владельца в этом
 		// окне нет (единственный коммит ассета — сама генерация, c4b6753), а вид и размеры
-		// живут в коде (BuildSettings + FSettingsTouchLayout).
+		// живут в коде (BuildSettings).
 		{ TEXT("WBP_Settings"), false },
 	};
 
@@ -5594,6 +5493,15 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 			if (FCString::Strcmp(Spec.AssetName, Entry.AssetName) == 0)
 			{
 				bFound = true;
+				// ⛔ Окно отдано владельцу — пересборка стёрла бы его ручную настройку.
+				// Отказ ГРОМКИЙ, но это не ошибка прогона: так и задумано.
+				if (Spec.bOwnerOwned)
+				{
+					UE_LOG(LogGenerateWbp, Warning,
+						TEXT("REBUILD SKIP: %s отдан владельцу — раскладку он правит мышкой, пересборка её сотрёт. Недостающие кубики добавляй режимом -augment."),
+						Spec.AssetName);
+					break;
+				}
 				if (RebuildOne(Spec, Entry.bTransferOwnerStyle) != 0)
 				{
 					++FailCount;
@@ -5646,6 +5554,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
 		// Подход 3 волны меню: пункт «В главное меню» в живую панель паузы.
 		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenu },
+		// Волна 08-09: «Настройки» и «Сообщество» в паузе + подпись политики, которая не
+		// помещалась. Отдельной записью со своей проверкой «уже сделано» — как у WBP_Shop.
+		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuExtras },
 	};
 
 	int32 FailCount = 0;
@@ -6103,6 +6014,15 @@ int32 UGenerateWbpCommandlet::GenerateAll(bool bForce)
 				Spec.PackageName);
 			continue;
 		}
+		// ⛔ Окно отдано владельцу: его не перезаписывает даже -force. Создать с нуля можно —
+		// это как раз случай «файла нет вовсе», ради него исключение и оставлено.
+		if (bForce && Spec.bOwnerOwned && FPackageName::DoesPackageExist(Spec.PackageName))
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("SKIP: %s отдан владельцу — не перезаписываю даже с -force (ручная настройка Рината)."),
+				Spec.PackageName);
+			continue;
+		}
 		if (GenerateOne(Spec) == 0)
 		{
 			++CreatedCount;
@@ -6145,11 +6065,48 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 		}
 		for (const TCHAR* Cube : Spec.ExpectedCubes)
 		{
-			if (!WBP->WidgetTree || !WBP->WidgetTree->FindWidget(FName(Cube)))
+			UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(Cube)) : nullptr;
+			if (!Found)
 			{
-				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — кубик %s не найден."), Spec.AssetName, Cube);
+				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — кубик %s не найден. [%s: missing]"),
+					Spec.AssetName, Cube, Cube);
+				bOk = false;
+				continue;
+			}
+			// Кубик обязан быть ИМЕНОВАННОЙ ПЕРЕМЕННОЙ окна: без этого его не выбрать в
+			// дизайнере и не настроить (требование Рината 08-09 «сделай их настраиваемыми»).
+			if (!Found->bIsVariable)
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: %s — кубик '%s' не заведён переменной окна: в редакторе его не выбрать и не настроить. [%s: not a variable]"),
+					Spec.AssetName, Cube, Cube);
 				bOk = false;
 			}
+		}
+
+		// Окно отдано владельцу: раскладку он двигает мышкой. Проверяем только СОСТАВ (выше),
+		// а положение, размеры и замки — не наше дело, иначе прогон будет ругаться на его
+		// собственную настройку. Заодно подсказываем, если элемент заперт в контейнере с
+		// автоматической раскладкой: оттуда его мышкой не подвинуть (жалоба про «пунктирную
+		// сетку»), но это предупреждение, а не ошибка — вдруг владелец так и задумал.
+		if (Spec.bOwnerOwned)
+		{
+			for (const TCHAR* Cube : Spec.ExpectedCubes)
+			{
+				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(Cube)) : nullptr;
+				const UPanelWidget* Parent = Found ? Found->GetParent() : nullptr;
+				if (Parent && !Parent->IsA<UCanvasPanel>())
+				{
+					UE_LOG(LogGenerateWbp, Warning,
+						TEXT("VERIFY %s: '%s' лежит в контейнере %s с автоматической раскладкой — мышкой его не подвинуть. [%s: parent=%s]"),
+						Spec.AssetName, Cube, *Parent->GetClass()->GetName(), Cube, *Parent->GetClass()->GetName());
+				}
+			}
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("VERIFY %s: окно отдано владельцу — проверен только состав (%d кубиков), к положению и размеру не придираемся."),
+				Spec.AssetName, static_cast<int32>(Spec.ExpectedCubes.size()));
+			FailCount += bOk ? 0 : 1;
+			continue;
 		}
 
 		// Контракт замков: начинка кнопок/рядов замкнута, верхнеуровневые элементы
@@ -6208,12 +6165,6 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
 		{
 			bOk = VerifyTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
-		}
-
-		// Экран настроек: каждый элемент обязан быть «под палец» (жалоба Рината 08-09).
-		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_Settings")) == 0)
-		{
-			bOk = VerifySettingsTouchSizes(Spec.AssetName, WBP);
 		}
 
 		// ГЕОМЕТРИЯ (задача лида 08-09). Прежде проверка знала про виджет только имя и класс,
