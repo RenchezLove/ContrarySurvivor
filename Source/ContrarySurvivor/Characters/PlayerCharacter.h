@@ -401,11 +401,43 @@ protected:
 
     // --- Сейв/респаун (GDD §7.8) ---
 
+    // Имя слота сохранения — ПАРАМЕТР, а не константа в коде (архитектурная оговорка спеки
+    // glavnoe-menu-spec.md: «имя слота сохранения — параметр… чтобы слоты можно было добавить
+    // позже без переделки»). Снаружи читается через GetSaveSlotName(); менять его в рантайме
+    // нельзя намеренно — слот это идентичность персонажа (тестам служит ASaveTestPlayerCharacter).
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
     FString SaveSlotName = TEXT("ContrarySave");
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
     int32 SaveUserIndex = 0;
+
+    // Надпись, всплывающая у костра в момент автосохранения (спека: текст-инструкцию не пишем,
+    // игрок сам поймёт, что костёр — точка сохранения).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save",
+        meta = (DisplayName = "Надпись при сохранении у костра"))
+    FText ProgressSavedMessage = NSLOCTEXT("PlayerCharacter", "ProgressSaved", "Прогресс сохранён");
+
+    // --- Вибрация телефона (подход 3 волны меню, решение game-lead 08-09). Вешаем на два
+    // события: игрок получил урон (короткий импульс) и игрок погиб (подлиннее). На взмах ножа
+    // и выстрел НЕ вешаем намеренно — игрок машет ножом постоянно, телефон тряс бы без
+    // остановки и сажал батарею. Выключатель — на экране настроек; здесь только сила и
+    // длительность, чтобы крутить их без пересборки. ---
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feel|Vibration",
+        meta = (DisplayName = "Сила вибрации при уроне", ClampMin = "0.0", ClampMax = "1.0"))
+    float DamageVibrationIntensity = 0.45f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feel|Vibration",
+        meta = (DisplayName = "Длительность вибрации при уроне, сек", ClampMin = "0.0", ClampMax = "2.0"))
+    float DamageVibrationDuration = 0.12f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feel|Vibration",
+        meta = (DisplayName = "Сила вибрации при смерти", ClampMin = "0.0", ClampMax = "1.0"))
+    float DeathVibrationIntensity = 0.9f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feel|Vibration",
+        meta = (DisplayName = "Длительность вибрации при смерти, сек", ClampMin = "0.0", ClampMax = "2.0"))
+    float DeathVibrationDuration = 0.5f;
 
     // Куда падает выброшенный из рюкзака предмет (мировой пикап): вперёд от игрока и вниз
     // к ногам (см). DRAFT-тюнинг (BUG3: выброс = пикап, а не Destroy).
@@ -744,6 +776,31 @@ public:
     UFUNCTION(BlueprintPure, Category = "Save")
     bool HasSaveGame() const;
 
+    // Сохранение У КОСТРА (подход 3 волны меню): обычное сохранение ПЛЮС короткая всплывающая
+    // надпись «Прогресс сохранён» тем же тостом, что подсказки обучения (спека
+    // glavnoe-menu-spec.md, раздел «Сохранение»). Отдельно от SaveGame(), потому что надпись
+    // нужна ИМЕННО у костра: пере-сохранение после смерти игроку в этот момент показывать нечего.
+    UFUNCTION(BlueprintCallable, Category = "Save")
+    bool SaveGameAtCampfire();
+
+    // Есть ли несохранённый прогресс (меню паузы спрашивает подтверждение перед выходом в
+    // главное меню — спека: «Возврат в меню из паузы — с подтверждением, если прогресс не
+    // сохранён»). Что считается прогрессом — см. FSavedProgressSnapshot ниже.
+    UFUNCTION(BlueprintPure, Category = "Save")
+    bool IsProgressUnsaved() const;
+
+    // Имя слота сохранения и номер пользователя. Слот — ПАРАМЕТР персонажа, а не константа
+    // (архитектурная оговорка спеки: слоты можно будет добавить позже без переделки), поэтому
+    // всем, кому нужен слот игрока (например QA-очистка сейва в контроллере), брать его здесь,
+    // а не писать имя строкой у себя.
+    const FString& GetSaveSlotName() const { return SaveSlotName; }
+    int32 GetSaveUserIndex() const { return SaveUserIndex; }
+
+    // Чистое правило вибрации при уроне (решение game-lead 08-09): трясём телефон, только если
+    // игрок не выключил вибрацию в настройках И урон реально прошёл (нулевой урон, броня в
+    // ноль, god-mode — не повод трястись). Вынесено отдельно, чтобы гоняться автотестом.
+    static bool ShouldPlayDamageVibration(bool bVibrationEnabled, float AppliedDamage);
+
     // Применить громкости с экрана настроек (ADR-062, подход 2) к УЖЕ ИГРАЮЩИМ зацикленным
     // звукам: фоновому эмбиенту (канал музыки) и дыханию при хромоте (канал эффектов).
     // Разовые звуки (шаги, выстрелы, удары) берут громкость сами в момент проигрывания.
@@ -983,6 +1040,35 @@ private:
 
     // Накопленное время пробега по шуму Перлина (масштабируется CameraShakeFrequency).
     float CameraShakeTime = 0.0f;
+
+    // --- Несохранённый прогресс (подход 3 волны меню) ---
+    //
+    // Снимок того, что игрок ЗАРАБОТАЛ, на момент последнего сохранения (или загрузки).
+    // Прогрессом считаем ровно три вещи: деньги, содержимое рюкзака и состояние журнала
+    // квестов. Постоянно ползущие сами по себе здоровье/голод/жажда и координаты игрока в
+    // снимок НЕ входят намеренно: они меняются каждую секунду просто от ходьбы, и вопрос
+    // «выйти без сохранения?» выскакивал бы всегда, а значит перестал бы что-либо значить.
+    struct FSavedProgressSnapshot
+    {
+        bool bValid = false;   // снимка ещё не было: сохранения в этой сессии не случилось
+        int32 Money = 0;
+        int32 ItemUnits = 0;   // суммарное количество предметов в рюкзаке с учётом стаков
+        int32 QuestCount = 0;
+        int32 TurnedInQuests = 0;
+    };
+
+    FSavedProgressSnapshot SavedProgress;
+
+    // Снять снимок текущего состояния (зовётся после успешного сохранения и после загрузки).
+    void CaptureProgressSnapshot();
+
+    // Собрать снимок из живого состояния — общий код для съёмки и для сравнения.
+    FSavedProgressSnapshot MakeProgressSnapshot() const;
+
+    // Короткий импульс вибрации телефона. Работает через штатный механизм отдачи движка
+    // (APlayerController::PlayDynamicForceFeedback): на Android он и крутит вибромотор,
+    // на ПК — отдачу геймпада, если он есть. Выключатель игрока проверяется здесь.
+    void PlayVibration(float Intensity, float Duration) const;
 
     // --- Аудио-рантайм (Демо) ---
     // Накопитель времени для интервала шагов.

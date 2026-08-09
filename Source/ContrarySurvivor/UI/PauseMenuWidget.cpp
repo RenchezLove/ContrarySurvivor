@@ -37,6 +37,7 @@ void UPauseMenuWidget::NativeOnInitialized()
 		{
 			{ TitleText, TEXT("TitleText") },
 			{ ResumeButton, TEXT("ResumeButton") }, { ResumeText, TEXT("ResumeText") },
+			{ MainMenuButton, TEXT("MainMenuButton") }, { MainMenuText, TEXT("MainMenuText") },
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
 			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
 			{ VersionText, TEXT("VersionText") },
@@ -56,6 +57,11 @@ void UPauseMenuWidget::NativeOnInitialized()
 		BuildCodeTree();
 	}
 
+	// Запоминаем подписи ДО того, как их тронет режим переспроса: в дизайнер-дереве это тексты
+	// владельца, и вернуть после отмены надо именно их.
+	OriginalTitleText = TitleText ? TitleText->GetText() : FText::GetEmpty();
+	OriginalResumeText = ResumeText ? ResumeText->GetText() : FText::GetEmpty();
+
 	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
 	if (ResumeButton)
 	{
@@ -74,6 +80,10 @@ void UPauseMenuWidget::NativeOnInitialized()
 	if (QuitButton)
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleQuitClicked);
+	}
+	if (MainMenuButton)
+	{
+		MainMenuButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleMainMenuClicked);
 	}
 
 	if (!bDesignerTree)
@@ -129,6 +139,14 @@ void UPauseMenuWidget::BuildCodeTree()
 		ResumeText = Cast<UTextBlock>(ResumeButton->GetContent());
 	}
 
+	// Подход 3 волны меню: возврат в главное меню — сразу под «Продолжить», выше «Выхода»
+	// (это возврат в игру, а не закрытие игры, и путать их пальцем не должно).
+	MainMenuButton = MakeMenuButton(Column, Defaults.MainMenuText, TEXT("MainMenuButton"));
+	if (MainMenuButton)
+	{
+		MainMenuText = Cast<UTextBlock>(MainMenuButton->GetContent());
+	}
+
 	// ТЗ Рината 08-08: переключатель согласия из паузы убран (согласие — только на стартовом
 	// экране согласия), поэтому кодовое дерево его больше НЕ строит. Остаётся строка политики
 	// (ADR-059 минимум для паузы) и мелкий номер версии сборки ниже.
@@ -163,11 +181,16 @@ void UPauseMenuWidget::BuildCodeTree()
 
 void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 {
+	// Стиль запоминаем: переспрос «выйти в меню» переключает подписи туда-обратно без
+	// пересоздания дерева.
+	CachedStyle = Style;
+
 	// Дерево владельца из WBP_PauseMenu: цвета/шрифты — его (ТЗ Рината 08-07); из кода
-	// живут только подписи согласия/политики/версии (RefreshConsentAndVersion ниже).
+	// живут только подписи согласия/политики/версии и подписи режима переспроса (это данные).
 	if (bDesignerTree)
 	{
 		RefreshConsentAndVersion();
+		bConfirmingMainMenu ? ApplyConfirmMainMenuLabels() : ApplyNormalLabels();
 		return;
 	}
 
@@ -176,22 +199,25 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
 	if (TitleText)
 	{
-		TitleText->SetText(Style.TitleText);
 		TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
 		TitleText->SetColorAndOpacity(FSlateColor(Style.TitleColor));
 	}
 
-	auto StyleButtonLabel = [&Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [&Style](UTextBlock* Label)
 	{
 		if (Label)
 		{
-			Label->SetText(Text);
 			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
 			Label->SetColorAndOpacity(FSlateColor(Style.ButtonTextColor));
 		}
 	};
-	StyleButtonLabel(ResumeText, Style.ResumeText);
-	StyleButtonLabel(QuitText, Style.QuitText);
+	StyleButtonLabel(ResumeText);
+	StyleButtonLabel(QuitText);
+	StyleButtonLabel(MainMenuText);
+
+	// Сами тексты ставит режим (обычный вид либо переспрос) — иначе повторный ApplyStyle
+	// сбросил бы открытый переспрос.
+	bConfirmingMainMenu ? ApplyConfirmMainMenuLabels() : ApplyNormalLabels();
 
 	// Подпись строки политики приходит не из стиля, а из настроек проекта (одно место правды
 	// на весь текст согласия) — здесь только шрифт и цвет. Переключатель согласия из паузы
@@ -249,6 +275,14 @@ void UPauseMenuWidget::NativeConstruct()
 	// Пауза открывается много раз за игру, а решение по согласию могло смениться — подпись
 	// переключателя и строку версии освежаем при каждом появлении меню на экране.
 	RefreshConsentAndVersion();
+
+	// Незакрытый вопрос «выйти в меню?» не должен пережить закрытие паузы (игрок мог выйти
+	// из неё клавишей): каждое открытие — обычный вид.
+	if (bConfirmingMainMenu)
+	{
+		bConfirmingMainMenu = false;
+	}
+	ApplyNormalLabels();
 }
 
 void UPauseMenuWidget::RefreshConsentAndVersion()
@@ -268,14 +302,120 @@ void UPauseMenuWidget::RefreshConsentAndVersion()
 	}
 }
 
+void UPauseMenuWidget::SetProgressUnsaved(bool bInUnsaved)
+{
+	bProgressUnsaved = bInUnsaved;
+}
+
+bool UPauseMenuWidget::ShouldConfirmMainMenu(bool bInProgressUnsaved)
+{
+	// Спека: «Возврат в меню из паузы — с подтверждением, если прогресс не сохранён».
+	// Сохранено всё — уходим молча, лишний вопрос игрока только злит.
+	return bInProgressUnsaved;
+}
+
+void UPauseMenuWidget::ApplyNormalLabels()
+{
+	// В дизайнер-дереве возвращаем подписи ВЛАДЕЛЬЦА (как он набрал их в WBP), в кодовом —
+	// значения стиля с контроллера.
+	if (TitleText)
+	{
+		TitleText->SetText(bDesignerTree ? OriginalTitleText : CachedStyle.TitleText);
+	}
+	if (ResumeText)
+	{
+		ResumeText->SetText(bDesignerTree ? OriginalResumeText : CachedStyle.ResumeText);
+	}
+	if (QuitText && !bDesignerTree)
+	{
+		QuitText->SetText(CachedStyle.QuitText);
+	}
+	// Подпись возврата в меню — всегда наша: у неё два состояния, и оба ведёт код.
+	if (MainMenuText)
+	{
+		MainMenuText->SetText(CachedStyle.MainMenuText);
+	}
+
+	// Возвращаем ровно ту видимость, которая была ДО вопроса, и только если прятали её мы.
+	// Иначе выход из переспроса «показал» бы пункты, которые владелец сам скрыл в дизайнере.
+	if (bRowsHiddenByConfirm)
+	{
+		SetRowVisibility(QuitButton, SavedQuitVisibility);
+		SetRowVisibility(PolicyButton, SavedPolicyVisibility);
+		bRowsHiddenByConfirm = false;
+	}
+}
+
+void UPauseMenuWidget::ApplyConfirmMainMenuLabels()
+{
+	// Те же две кнопки, другие подписи: «Продолжить» становится «Отмена», «В главное меню» —
+	// «Да, выйти». Остальные пункты на время вопроса прячутся.
+	if (TitleText)   { TitleText->SetText(CachedStyle.ConfirmMainMenuTitleText); }
+	if (ResumeText)  { ResumeText->SetText(CachedStyle.ConfirmMainMenuCancelText); }
+	if (MainMenuText) { MainMenuText->SetText(CachedStyle.ConfirmMainMenuYesText); }
+
+	if (!bRowsHiddenByConfirm)
+	{
+		// Запоминаем видимость ДО вопроса — вернём именно её (владелец мог что-то скрыть сам).
+		SavedQuitVisibility = QuitButton ? QuitButton->GetVisibility() : ESlateVisibility::Visible;
+		SavedPolicyVisibility = PolicyButton ? PolicyButton->GetVisibility() : ESlateVisibility::Visible;
+		bRowsHiddenByConfirm = true;
+	}
+	SetRowVisibility(QuitButton, ESlateVisibility::Collapsed);
+	SetRowVisibility(PolicyButton, ESlateVisibility::Collapsed);
+}
+
+void UPauseMenuWidget::SetRowVisibility(UWidget* Widget, ESlateVisibility InVisibility)
+{
+	if (!Widget)
+	{
+		return;
+	}
+	UWidget* Row = Widget;
+	if (USizeBox* Box = Cast<USizeBox>(Widget->GetParent()))
+	{
+		Row = Box;
+	}
+	Row->SetVisibility(InVisibility);
+}
+
 void UPauseMenuWidget::HandleResumeClicked()
 {
+	if (bConfirmingMainMenu)
+	{
+		// Кнопка сейчас подписана «Отмена»: возвращаем обычный вид паузы, из игры не выходим.
+		bConfirmingMainMenu = false;
+		ApplyNormalLabels();
+		return;
+	}
 	OnResumeRequested.Broadcast();
 }
 
 void UPauseMenuWidget::HandleQuitClicked()
 {
 	OnQuitRequested.Broadcast();
+}
+
+void UPauseMenuWidget::HandleMainMenuClicked()
+{
+	if (!bConfirmingMainMenu)
+	{
+		if (!ShouldConfirmMainMenu(bProgressUnsaved))
+		{
+			OnMainMenuRequested.Broadcast();
+			return;
+		}
+		// Первое нажатие ничего не решает — только спрашивает (спека).
+		bConfirmingMainMenu = true;
+		ApplyConfirmMainMenuLabels();
+		return;
+	}
+	// Второе явное нажатие («Да, выйти»). Режим снимаем ДО сигнала владельцу: виджет паузы
+	// переиспользуется, и в следующий раз он обязан открыться обычным видом (та же ловушка,
+	// что у переспроса «Новая игра» в главном меню).
+	bConfirmingMainMenu = false;
+	ApplyNormalLabels();
+	OnMainMenuRequested.Broadcast();
 }
 
 void UPauseMenuWidget::HandleConsentClicked()

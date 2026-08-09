@@ -425,6 +425,15 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 		PauseMenuWidget->ApplyStyle(PauseMenuStyle); // стиль с контроллера (EditAnywhere) поверх дефолтов
 		PauseMenuWidget->OnResumeRequested.AddUObject(this, &AContrarySurvivorPlayerController::ClosePauseMenu);
 		PauseMenuWidget->OnQuitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseQuit);
+		PauseMenuWidget->OnMainMenuRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseMainMenu);
+	}
+
+	// Есть ли что терять — решает игрок-персонаж (сравнивает заработанное с последним
+	// сохранением). Освежаем при КАЖДОМ открытии паузы: между открытиями игрок мог и
+	// сохраниться у костра, и снова набрать добра.
+	{
+		const APlayerCharacter* PausePawn = Cast<APlayerCharacter>(GetPawn());
+		PauseMenuWidget->SetProgressUnsaved(!PausePawn || PausePawn->IsProgressUnsaved());
 	}
 	// Z=60: поверх окна ежедневки (50) и остального UI.
 	PauseMenuWidget->AddToViewport(/*ZOrder=*/60);
@@ -481,6 +490,18 @@ void AContrarySurvivorPlayerController::ClosePauseMenu()
 	bShowMouseCursor = true;
 
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu CLOSED (world resumed)"));
+}
+
+void AContrarySurvivorPlayerController::HandlePauseMainMenu()
+{
+	// Сюда попадаем, когда решение окончательное: при несохранённом прогрессе виджет паузы
+	// уже переспросил сам (спека, раздел «Поведение паузы»).
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu -> MAIN MENU"));
+
+	ClosePauseMenu();
+	// Главное меню само поставит паузу заново и обновит наличие сохранения (оттуда игрок
+	// выберет «Продолжить» — загрузку последнего сохранения — или «Новую игру»).
+	OpenStartScreen();
 }
 
 void AContrarySurvivorPlayerController::HandlePauseQuit()
@@ -1405,10 +1426,18 @@ void AContrarySurvivorPlayerController::OnQASellFirstItem()
 
 void AContrarySurvivorPlayerController::OnQAClearSave()
 {
-	// F12: удалить слот сейва 'ContrarySave' (slot/index = дефолты APlayerCharacter).
-	// После рестарта PIE BeginPlay не найдёт сейв -> новый игрок -> InitMoney(50) = старт-деньги 50.
-	UGameplayStatics::DeleteGameInSlot(TEXT("ContrarySave"), 0);
-	UE_LOG(LogQA, Display, TEXT("QA: save 'ContrarySave' cleared - restart PIE for fresh start"));
+	// F12: удалить слот сейва игрока. Имя слота берём У САМОГО ПЕРСОНАЖА, а не пишем строкой:
+	// слот — параметр персонажа (архитектурная оговорка спеки главного меню), и зашитая здесь
+	// копия имени начала бы врать, как только слот сменится.
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: save NOT cleared — игрока нет, слот спросить не у кого"));
+		return;
+	}
+	const FString& SlotName = PlayerChar->GetSaveSlotName();
+	UGameplayStatics::DeleteGameInSlot(SlotName, PlayerChar->GetSaveUserIndex());
+	UE_LOG(LogQA, Display, TEXT("QA: save '%s' cleared - restart PIE for fresh start"), *SlotName);
 }
 
 // ---------------------------------------------------------------------------

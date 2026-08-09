@@ -2569,8 +2569,10 @@ namespace
 
 		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.55f));
 
+		// Плашка выше прежней (было 440): подход 3 добавил пункт «В главное меню», и на
+		// старой высоте нижняя кнопка налезала бы на строку версии.
 		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
-			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(380.0f, 440.0f), 0.95f);
+			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(380.0f, 510.0f), 0.95f);
 
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
 			NSLOCTEXT("PauseMenuWidget", "TitleText", "ПАУЗА"),
@@ -2590,12 +2592,16 @@ namespace
 		};
 		AddMenuButton(TEXT("ResumeButton"), TEXT("ResumeText"),
 			NSLOCTEXT("PauseMenuWidget", "ResumeText", "Продолжить"), 76.0f);
+		// Подход 3 волны меню: возврат в главное меню — сразу под «Продолжить» и подальше от
+		// «Выхода», чтобы палец не путал возврат в меню с закрытием игры.
+		AddMenuButton(TEXT("MainMenuButton"), TEXT("MainMenuText"),
+			NSLOCTEXT("PauseMenuWidget", "MainMenuText", "В главное меню"), 146.0f);
 		AddMenuButton(TEXT("ConsentButton"), TEXT("ConsentText"),
-			NSLOCTEXT("PauseMenuWidget", "ConsentSample", "Статистика: выключена"), 146.0f);
+			NSLOCTEXT("PauseMenuWidget", "ConsentSample", "Статистика: выключена"), 216.0f);
 		AddMenuButton(TEXT("PolicyButton"), TEXT("PolicyText"),
-			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 216.0f);
+			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 286.0f);
 		AddMenuButton(TEXT("QuitButton"), TEXT("QuitText"),
-			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 286.0f);
+			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 356.0f);
 
 		// Номер версии сборки — мелко внизу (живой текст ставит код).
 		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
@@ -2907,7 +2913,9 @@ namespace
 		{ TEXT("/Game/UI/WBP_PauseMenu"), TEXT("WBP_PauseMenu"),
 			TEXT("/Script/ContrarySurvivor.PauseMenuWidget"), &BuildPauseMenu,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
-			  TEXT("ResumeButton"), TEXT("ResumeText"), TEXT("ConsentButton"), TEXT("ConsentText"),
+			  TEXT("ResumeButton"), TEXT("ResumeText"),
+			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
+			  TEXT("ConsentButton"), TEXT("ConsentText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
 			  TEXT("VersionText") } },
 		{ TEXT("/Game/UI/WBP_Intro"), TEXT("WBP_Intro"),
@@ -3087,7 +3095,9 @@ namespace
 		{ TEXT("WBP_PauseMenu"),
 			{ },
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
-			  TEXT("ResumeButton"), TEXT("ResumeText"), TEXT("ConsentButton"), TEXT("ConsentText"),
+			  TEXT("ResumeButton"), TEXT("ResumeText"),
+			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
+			  TEXT("ConsentButton"), TEXT("ConsentText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
 			  TEXT("VersionText") } },
 		{ TEXT("WBP_Intro"),
@@ -3667,6 +3677,53 @@ namespace
 	void AugmentQuestTracker(UWidgetTree* Tree, bool& bChanged)
 	{
 		AugSetText(Tree, TEXT("WBP_QuestTracker"), TEXT("TrackerText"), FText::GetEmpty(), bChanged);
+	}
+
+	// WBP_PauseMenu (подход 3 волны меню): добавить пункт «В главное меню», если его ещё нет.
+	// Именно точечное дополнение, а не пересборка: живая панель паузы уже стилизована
+	// владельцем, и -rebuild пришлось бы гнать по всему окну. Новая кнопка встаёт под
+	// «Продолжить» — куда бы владелец её ни передвинул, отсчёт идёт от её слота.
+	void AugmentPauseMenu(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_PauseMenu");
+		if (Tree->FindWidget(TEXT("MainMenuButton")))
+		{
+			return; // уже добавлено — режим идемпотентный
+		}
+
+		UWidget* Resume = Tree->FindWidget(TEXT("ResumeButton"));
+		UCanvasPanelSlot* ResumeSlot = Resume ? Cast<UCanvasPanelSlot>(Resume->Slot) : nullptr;
+		if (!ResumeSlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: кнопка ResumeButton не найдена в канвас-слоте — некуда пристроить «В главное меню»."),
+				Name);
+			return;
+		}
+		UCanvasPanel* Parent = Cast<UCanvasPanel>(Resume->GetParent());
+		if (!Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: родитель ResumeButton не CanvasPanel — пропускаю."), Name);
+			return;
+		}
+
+		UObject* Roboto = LoadRobotoFont();
+		UButton* MainMenu = MakeGreyButton(Tree, TEXT("MainMenuButton"));
+		SetUnlockedCaption(Tree, Roboto, MainMenu, TEXT("MainMenuText"),
+			NSLOCTEXT("PauseMenuWidget", "MainMenuText", "В главное меню"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+
+		const FVector2D ResumeSize = ResumeSlot->GetSize();
+		if (UCanvasPanelSlot* MainMenuSlot = Parent->AddChildToCanvas(MainMenu))
+		{
+			MainMenuSlot->SetAnchors(ResumeSlot->GetAnchors());
+			MainMenuSlot->SetAlignment(ResumeSlot->GetAlignment());
+			MainMenuSlot->SetSize(ResumeSize);
+			// Под «Продолжить», с тем же зазором, что между остальными пунктами панели.
+			MainMenuSlot->SetPosition(ResumeSlot->GetPosition() + FVector2D(0.0f, ResumeSize.Y + 12.0f));
+		}
+		bChanged = true;
 	}
 
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
@@ -4808,6 +4865,8 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopTouchTargets },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTracker },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchControls },
+		// Подход 3 волны меню: пункт «В главное меню» в живую панель паузы.
+		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenu },
 	};
 
 	int32 FailCount = 0;

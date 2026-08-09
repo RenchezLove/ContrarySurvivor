@@ -839,6 +839,13 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
         // D5: тряска камеры при получении урона (голод/жажда сюда не приходят — они бьют
         // напрямую в Stats, минуя TakeDamage).
         AddCameraShake(DamageShakeTrauma);
+
+        // Короткий импульс вибрации (решение game-lead 08-09). Гейт вынесен в чистое правило,
+        // чтобы автотест мог проверить его без телефона.
+        if (ShouldPlayDamageVibration(UContrarySurvivorGameUserSettings::IsVibrationEnabledSafe(), Applied))
+        {
+            PlayVibration(DamageVibrationIntensity, DamageVibrationDuration);
+        }
     }
 
     UE_LOG(LogTemp, Log, TEXT("Player took %.1f dmg (incoming %.1f, armor frac %.2f cap %.2f). Health: %.1f/%.1f"),
@@ -1727,7 +1734,111 @@ bool APlayerCharacter::SaveGame()
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
     UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
         *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
+
+    // Записалось — значит заработанное на диске: с этой секунды несохранённого прогресса нет.
+    if (bOk)
+    {
+        CaptureProgressSnapshot();
+    }
     return bOk;
+}
+
+bool APlayerCharacter::SaveGameAtCampfire()
+{
+    const bool bOk = SaveGame();
+    if (!bOk)
+    {
+        // Соврать «сохранено», когда запись не прошла, нельзя — игрок понадеется и потеряет игру.
+        UE_LOG(LogQA, Warning, TEXT("QA: campfire save FAILED — надпись игроку не показываем"));
+        return false;
+    }
+
+    // Тот же тост, что у подсказок обучения (второй механизм всплывашек не заводим).
+    if (Onboarding)
+    {
+        Onboarding->ShowTransientHint(ProgressSavedMessage);
+    }
+    UE_LOG(LogQA, Display, TEXT("QA: campfire save OK — показана надпись «%s»"),
+        *ProgressSavedMessage.ToString());
+    return true;
+}
+
+APlayerCharacter::FSavedProgressSnapshot APlayerCharacter::MakeProgressSnapshot() const
+{
+    FSavedProgressSnapshot Snapshot;
+    Snapshot.bValid = true;
+    Snapshot.Money = Stats ? Stats->GetMoney() : 0;
+
+    if (Inventory)
+    {
+        for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+        {
+            if (Item)
+            {
+                // Считаем ШТУКИ, а не строки списка: съеденная консерва из стака «3 шт»
+                // меняет количество, но не длину списка — иначе такую трату мы бы не заметили.
+                Snapshot.ItemUnits += FMath::Max(1, Item->GetStackCount());
+            }
+        }
+    }
+
+    if (Quests)
+    {
+        Snapshot.QuestCount = Quests->GetQuests().Num();
+        Snapshot.TurnedInQuests = Quests->GetTurnedInQuestCount();
+    }
+    return Snapshot;
+}
+
+void APlayerCharacter::CaptureProgressSnapshot()
+{
+    SavedProgress = MakeProgressSnapshot();
+}
+
+bool APlayerCharacter::IsProgressUnsaved() const
+{
+    // Снимка нет — в этой сессии игрок ещё ни разу не сохранялся и не загружался: считаем,
+    // что терять есть что. Ошибиться безопаснее в эту сторону: лишний вопрос стоит одного
+    // касания, а молчание стоит игроку прохождения.
+    if (!SavedProgress.bValid)
+    {
+        return true;
+    }
+
+    const FSavedProgressSnapshot Now = MakeProgressSnapshot();
+    return Now.Money != SavedProgress.Money
+        || Now.ItemUnits != SavedProgress.ItemUnits
+        || Now.QuestCount != SavedProgress.QuestCount
+        || Now.TurnedInQuests != SavedProgress.TurnedInQuests;
+}
+
+bool APlayerCharacter::ShouldPlayDamageVibration(bool bVibrationEnabled, float AppliedDamage)
+{
+    return bVibrationEnabled && AppliedDamage > 0.0f;
+}
+
+void APlayerCharacter::PlayVibration(float Intensity, float Duration) const
+{
+    if (!UContrarySurvivorGameUserSettings::IsVibrationEnabledSafe())
+    {
+        return;
+    }
+    if (Intensity <= 0.0f || Duration <= 0.0f)
+    {
+        return;
+    }
+    APlayerController* PC = Cast<APlayerController>(GetController());
+    if (!PC)
+    {
+        return;
+    }
+    // Все четыре канала разом: у телефона мотор один, движок берёт наибольшее значение
+    // каналов (AndroidInputInterface.cpp: UpdateVibeMotors) — так импульс не зависит от того,
+    // какой канал платформа считает «своим».
+    PC->PlayDynamicForceFeedback(Intensity, Duration,
+        /*bAffectsLeftLarge=*/true, /*bAffectsLeftSmall=*/true,
+        /*bAffectsRightLarge=*/true, /*bAffectsRightSmall=*/true,
+        EDynamicForceFeedbackAction::Start);
 }
 
 bool APlayerCharacter::HasSaveGame() const
@@ -1824,6 +1935,10 @@ bool APlayerCharacter::LoadGameForContinue()
     // идемпотентно, но не оставляет скрытую зависимость от порядка BeginPlay/выбора игрока.
     SavedPlayTimeBase = FMath::Max(0.0f, Save->TotalPlayTimeSeconds);
     UnflushedPlayTime = 0.0f;
+
+    // Живое состояние теперь совпадает с содержимым слота: сразу после «Продолжить»
+    // несохранённого прогресса нет, и меню паузы не должно спрашивать лишнего.
+    CaptureProgressSnapshot();
 
     UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - loaded save (money %.0f, backpack %d item(s), quests %d)"),
         Save->Money, Save->InventoryEntries.Num(), Save->Quests.Num());
@@ -2272,6 +2387,9 @@ void APlayerCharacter::HandleDeath()
 
     UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter: death -> death screen (lived %.1fs, killer '%s', kills %d)"),
         LastLifeDuration, *LastDamagerName.ToString(), EnemyKillCount);
+
+    // Вибрация смерти — подлиннее и сильнее, чем при уроне (решение game-lead 08-09).
+    PlayVibration(DeathVibrationIntensity, DeathVibrationDuration);
 
     // Останавливаем персонажа (гасим движение; тело остаётся на месте).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())

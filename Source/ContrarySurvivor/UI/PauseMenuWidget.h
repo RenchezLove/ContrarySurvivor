@@ -51,6 +51,23 @@ struct FPauseMenuStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
 	FText QuitText = NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход");
 
+	// --- Возврат в главное меню (подход 3 волны меню; спека glavnoe-menu-spec.md, раздел
+	// «Поведение паузы»: «Возврат в меню из паузы — с подтверждением, если прогресс не
+	// сохранён»). Переспрос переключает подписи тех же кнопок, как у «Новой игры» в меню. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FText MainMenuText = NSLOCTEXT("PauseMenuWidget", "MainMenuText", "В главное меню");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Confirm Main Menu")
+	FText ConfirmMainMenuTitleText = NSLOCTEXT("PauseMenuWidget", "ConfirmMainMenuTitle",
+		"Выйти в меню без сохранения?");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Confirm Main Menu")
+	FText ConfirmMainMenuYesText = NSLOCTEXT("PauseMenuWidget", "ConfirmMainMenuYes", "Да, выйти");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Confirm Main Menu")
+	FText ConfirmMainMenuCancelText = NSLOCTEXT("PauseMenuWidget", "ConfirmMainMenuCancel", "Отмена");
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
 	int32 ButtonFontSize = 19;
 
@@ -100,9 +117,38 @@ public:
 	// «Выход» — владелец закрывает игру.
 	FSimpleMulticastDelegate OnQuitRequested;
 
+	// «В главное меню» — владелец закрывает паузу и открывает главное меню. Сигнал уходит
+	// только когда решение окончательное: при несохранённом прогрессе виджет сначала
+	// переспрашивает сам (спека).
+	FSimpleMulticastDelegate OnMainMenuRequested;
+
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenPauseMenu).
 	void ApplyStyle(const FPauseMenuStyle& Style);
+
+	// Есть ли несохранённый прогресс (ставит владелец при каждом открытии паузы). От этого
+	// зависит, спросит ли «В главное меню» подтверждение.
+	void SetProgressUnsaved(bool bInUnsaved);
+
+	// Идёт ли сейчас переспрос «Выйти в меню без сохранения?» (для владельца и автотестов).
+	bool IsConfirmingMainMenu() const { return bConfirmingMainMenu; }
+
+	// Чистое правило (покрыто автотестом): переспрашиваем ровно тогда, когда есть что терять.
+	static bool ShouldConfirmMainMenu(bool bProgressUnsaved);
+
+	// --- Обработчики. ПУБЛИЧНЫЕ намеренно: их зовут и клики кнопок, и headless-тесты
+	// (живой Slate в Automation-тестах проекта не поднимается — паттерн StartScreenWidget). ---
+
+	UFUNCTION()
+	void HandleResumeClicked();
+
+	UFUNCTION()
+	void HandleQuitClicked();
+
+	// «В главное меню»: при несохранённом прогрессе первое нажатие ТОЛЬКО переспрашивает,
+	// второе («Да, выйти») отправляет сигнал владельцу. Когда терять нечего — уходим сразу.
+	UFUNCTION()
+	void HandleMainMenuClicked();
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -117,12 +163,6 @@ protected:
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnTouchStarted(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
 	virtual FReply NativeOnTouchEnded(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
-
-	UFUNCTION()
-	void HandleResumeClicked();
-
-	UFUNCTION()
-	void HandleQuitClicked();
 
 	// Б6: игрок вправе передумать — переключатель согласия прямо в паузе (источник истины
 	// `docs/contrary-survivor/soglasie-i-politika.md`, раздел 2, правило 5).
@@ -141,6 +181,38 @@ private:
 
 	// Подпись переключателя согласия и строка версии сборки по текущему состоянию.
 	void RefreshConsentAndVersion();
+
+	// Подписи обычного вида и режима переспроса «Выйти в меню без сохранения?». На время
+	// переспроса остаются две кнопки: «Отмена» (бывшая «Продолжить») и «Да, выйти» (бывшая
+	// «В главное меню»), остальные прячутся, чтобы случайный тап рядом не увёл с вопроса.
+	void ApplyNormalLabels();
+	void ApplyConfirmMainMenuLabels();
+
+	// Скрыть/показать пункт ЦЕЛИКОМ: в кодовом дереве кнопка обёрнута в SizeBox — прятать
+	// надо обёртку, иначе в колонке останется пустое место (урок AmmoRow).
+	static void SetRowVisibility(class UWidget* Widget, ESlateVisibility InVisibility);
+
+	// Стиль, переданный ApplyStyle — нужен, чтобы переключать подписи без пересоздания дерева.
+	FPauseMenuStyle CachedStyle;
+
+	// Идёт переспрос «Выйти в меню без сохранения?».
+	bool bConfirmingMainMenu = false;
+
+	// Пункты «Выход» и «Политика» спрятаны НАМИ на время вопроса (и только тогда их видимость
+	// возвращается): владелец мог скрыть что-то из них сам, и наш переспрос не вправе это менять.
+	bool bRowsHiddenByConfirm = false;
+	ESlateVisibility SavedQuitVisibility = ESlateVisibility::Visible;
+	ESlateVisibility SavedPolicyVisibility = ESlateVisibility::Visible;
+
+	// Подписи, с которыми панель пришла из дизайнера. Переспрос временно меняет заголовок и
+	// подпись «Продолжить», а выход из переспроса обязан вернуть ИМЕННО их, а не значения
+	// стиля: иначе первый же отменённый переспрос затёр бы тексты, набранные владельцем в WBP.
+	FText OriginalTitleText;
+	FText OriginalResumeText;
+
+	// Есть ли несохранённый прогресс (ставит владелец). По умолчанию true — безопасная
+	// сторона: лучше лишний раз спросить, чем молча потерять прохождение.
+	bool bProgressUnsaved = true;
 
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера (мин. высота под палец),
 	// добавленная в колонку. Возвращает кнопку для подписки OnClicked.
@@ -165,6 +237,13 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> QuitText;
+
+	// Подход 3 волны меню: возврат в главное меню.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MainMenuButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MainMenuText;
 
 	// Б6: переключатель согласия, строка политики и мелкий номер версии сборки.
 	UPROPERTY(meta = (BindWidgetOptional))
