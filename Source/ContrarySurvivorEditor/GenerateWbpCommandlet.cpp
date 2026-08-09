@@ -3003,6 +3003,369 @@ namespace
 		return FString::Printf(TEXT("%s.%s"), Spec.PackageName, Spec.AssetName);
 	}
 
+	// ======================================================================
+	// ГЕОМЕТРИЯ ОКОН (задача лида 08-09 после брака, доехавшего до телефона)
+	// ======================================================================
+	//
+	// ЗАЧЕМ. Прежний -verify печатал про виджет только имя и класс, поэтому экран, у которого
+	// подложка сжалась с 560 до 320, а кнопки уехали на позиции -100 и -30 и налезли друг на
+	// друга, получал ровно такой же зелёный штамп, как здоровый. Брак прошёл гейт и уехал
+	// Ринату на телефон. Ниже — печать геометрии и механические проверки, которые ловят
+	// ровно этот класс поломок ДО сборки пакета.
+	//
+	// КАК СЧИТАЕМ ПРЯМОУГОЛЬНИК. В ассете лежит не готовая геометрия, а правило раскладки
+	// (якоря, отступы, выравнивание), поэтому реальный прямоугольник зависит от размера
+	// родителя. Считаем его ровно по механике UMG (SConstraintCanvas): по каждой оси,
+	// если якоря совпадают — размер берём из отступов, а положение отсчитываем от якоря с
+	// поправкой на выравнивание; если якоря разведены — края считаем от обоих якорей.
+	// Размер КОРНЕВОГО холста берём эталонный — 1920x1080, в этих координатах владелец и
+	// раскладывает окна в дизайнере UMG (и в них же считал Canvas-путь HUD). Телефон
+	// получает ТО ЖЕ дерево через масштабирование интерфейса, поэтому мерить раскладку
+	// «в точках телефона» нельзя: первый прогон с линейкой 1600x720 дал шесть ложных
+	// тревог на здоровых окнах (кнопка возрождения «вылезала» за низ, плашки инвентаря и
+	// магазина — за края), хотя на устройстве всё это масштабируется и помещается.
+	const FVector2D GReferenceScreenSize(1920.0f, 1080.0f);
+
+	// Насколько подложка должна быть больше лежащего на ней элемента, чтобы наложение
+	// считалось задумкой, а не браком. Плашка окна больше своей надписи в разы; две кнопки
+	// одного размера, оказавшиеся в одной точке, в этот признак не попадают — и правильно.
+	constexpr float GBackdropAreaRatio = 1.3f;
+
+	struct FWidgetRect
+	{
+		FVector2D Min = FVector2D::ZeroVector;
+		FVector2D Max = FVector2D::ZeroVector;
+		bool bAutoSize = false; // размер задаёт содержимое: в дизайн-тайме он неизвестен
+
+		FVector2D GetSize() const { return Max - Min; }
+
+		bool Intersects(const FWidgetRect& Other) const
+		{
+			// Касание краями пересечением не считаем: кнопки впритык — это норма.
+			constexpr float Tolerance = 0.5f;
+			return Min.X < Other.Max.X - Tolerance && Other.Min.X < Max.X - Tolerance
+				&& Min.Y < Other.Max.Y - Tolerance && Other.Min.Y < Max.Y - Tolerance;
+		}
+
+		float GetArea() const
+		{
+			const FVector2D Size = GetSize();
+			return FMath::Max(0.0f, Size.X) * FMath::Max(0.0f, Size.Y);
+		}
+
+		// Полностью ли этот прямоугольник накрывает другой (с запасом на округление).
+		bool Contains(const FWidgetRect& Other) const
+		{
+			constexpr float Tolerance = 0.5f;
+			return Min.X <= Other.Min.X + Tolerance && Min.Y <= Other.Min.Y + Tolerance
+				&& Max.X >= Other.Max.X - Tolerance && Max.Y >= Other.Max.Y - Tolerance;
+		}
+	};
+
+	// Прямоугольник канвас-слота в координатах родительского холста размера ParentSize.
+	FWidgetRect ComputeCanvasRect(const UCanvasPanelSlot* Slot, const FVector2D& ParentSize)
+	{
+		FWidgetRect Rect;
+		if (!Slot)
+		{
+			return Rect;
+		}
+		const FAnchorData Layout = Slot->GetLayout();
+		const FAnchors& Anchors = Layout.Anchors;
+		const FMargin& Offsets = Layout.Offsets;
+		const FVector2D& Alignment = Layout.Alignment;
+		Rect.bAutoSize = Slot->GetAutoSize();
+
+		// Ось X.
+		if (FMath::IsNearlyEqual(Anchors.Minimum.X, Anchors.Maximum.X))
+		{
+			const float Width = Offsets.Right; // при совпавших якорях правый отступ — это ширина
+			const float Left = Anchors.Minimum.X * ParentSize.X + Offsets.Left - Alignment.X * Width;
+			Rect.Min.X = Left;
+			Rect.Max.X = Left + Width;
+		}
+		else
+		{
+			Rect.Min.X = Anchors.Minimum.X * ParentSize.X + Offsets.Left;
+			Rect.Max.X = Anchors.Maximum.X * ParentSize.X - Offsets.Right;
+		}
+
+		// Ось Y.
+		if (FMath::IsNearlyEqual(Anchors.Minimum.Y, Anchors.Maximum.Y))
+		{
+			const float Height = Offsets.Bottom; // при совпавших якорях нижний отступ — это высота
+			const float Top = Anchors.Minimum.Y * ParentSize.Y + Offsets.Top - Alignment.Y * Height;
+			Rect.Min.Y = Top;
+			Rect.Max.Y = Top + Height;
+		}
+		else
+		{
+			Rect.Min.Y = Anchors.Minimum.Y * ParentSize.Y + Offsets.Top;
+			Rect.Max.Y = Anchors.Maximum.Y * ParentSize.Y - Offsets.Bottom;
+		}
+		return Rect;
+	}
+
+	// Растянут ли слот на ВСЮ площадь родителя (якоря 0..1 по обеим осям). Это объективный
+	// признак фонового слоя — затемнения, подложки, картинки фона: такой элемент по замыслу
+	// лежит под всеми и пересекается со всем, ругаться на него бессмысленно. Признак
+	// геометрический, а не «по имени»: имена у окон разные, а смысл один.
+	bool IsFullAreaLayer(const UCanvasPanelSlot* Slot)
+	{
+		if (!Slot)
+		{
+			return false;
+		}
+		const FAnchors Anchors = Slot->GetAnchors();
+		return FMath::IsNearlyZero(Anchors.Minimum.X) && FMath::IsNearlyZero(Anchors.Minimum.Y)
+			&& FMath::IsNearlyEqual(Anchors.Maximum.X, 1.0f) && FMath::IsNearlyEqual(Anchors.Maximum.Y, 1.0f);
+	}
+
+	// Явные исключения на окно — там, где геометрия сама за себя не говорит.
+	// Заполняется РУКАМИ и осознанно: проверка обязана молчать на здоровом экране, но не
+	// имеет права молчать на больном, поэтому «на всякий случай» сюда ничего не вносим.
+	struct FGeometryContract
+	{
+		const TCHAR* AssetName;
+		// Дополнительные фоновые слои (не растянутые на всю площадь, но лежащие ПОД остальными
+		// по замыслу): например полосы затемнения у нижнего края главного меню.
+		std::initializer_list<const TCHAR*> BackgroundWidgets;
+		// Намеренные наложения парами «A|B»: элементы, которым положено лежать друг на друге.
+		std::initializer_list<const TCHAR*> AllowedOverlaps;
+	};
+
+	const FGeometryContract GGeometryContracts[] =
+	{
+		// Главное меню: полосы затемнения у низа — фон под строками версии и политики
+		// (они и должны лежать НА затемнении, это и есть его смысл).
+		{ TEXT("WBP_StartScreen"),
+			{ TEXT("BottomShade0"), TEXT("BottomShade1"), TEXT("BottomShade2"),
+			  TEXT("BottomShade3"), TEXT("BottomShade4"), TEXT("BottomShade5") },
+			{ } },
+	};
+
+	// Фоновый ли это слой по контракту окна.
+	bool IsDeclaredBackground(const TCHAR* AssetName, const FString& WidgetName)
+	{
+		for (const FGeometryContract& Contract : GGeometryContracts)
+		{
+			if (FCString::Strcmp(Contract.AssetName, AssetName) != 0)
+			{
+				continue;
+			}
+			for (const TCHAR* Background : Contract.BackgroundWidgets)
+			{
+				if (WidgetName == Background)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	// Определена ниже (нужна проверке пересечений): разрешено ли паре лежать друг на друге.
+	bool IsOverlapAllowed(const TCHAR* AssetName, const FString& FirstName, const FString& SecondName);
+
+	// Проверка одного холста: печать геометрии детей + механические проверки. Возвращает
+	// число НАЙДЕННЫХ ОШИБОК. Рекурсивно спускается во вложенные холсты (в том числе в те,
+	// что лежат внутри подложек — типовая схема окон проекта: плашка, а в ней свой холст).
+	int32 CheckCanvasGeometry(const TCHAR* AssetName, UCanvasPanel* Canvas,
+		const FVector2D& CanvasSize, int32 Depth, bool bIsRootCanvas)
+	{
+		if (!Canvas)
+		{
+			return 0;
+		}
+		const FString Indent = FString::ChrN(Depth * 2, TEXT(' '));
+		int32 ErrorCount = 0;
+
+		struct FCheckedChild
+		{
+			UWidget* Widget = nullptr;
+			FWidgetRect Rect;
+			bool bParticipates = false; // участвует ли в проверке пересечений
+		};
+		TArray<FCheckedChild> Children;
+
+		for (int32 Index = 0; Index < Canvas->GetChildrenCount(); ++Index)
+		{
+			UWidget* Child = Canvas->GetChildAt(Index);
+			UCanvasPanelSlot* Slot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+			if (!Child || !Slot)
+			{
+				continue; // не канвас-слот: геометрию задаёт контейнер, проверять нечего
+			}
+
+			const FWidgetRect Rect = ComputeCanvasRect(Slot, CanvasSize);
+			const FAnchorData Layout = Slot->GetLayout();
+			const ESlateVisibility Visibility = Child->GetVisibility();
+			const bool bHidden = (Visibility == ESlateVisibility::Collapsed || Visibility == ESlateVisibility::Hidden);
+			const bool bBackground = IsFullAreaLayer(Slot) || IsDeclaredBackground(AssetName, Child->GetName());
+
+			// Печать. Формат стабильный: читается глазами и разбирается построчно.
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("VERIFY GEO %s: %s%s pos=(%.0f,%.0f) size=(%.0fx%.0f) anchors=(%.2f,%.2f..%.2f,%.2f) align=(%.2f,%.2f) rect=(%.0f,%.0f..%.0f,%.0f)%s%s%s"),
+				AssetName, *Indent, *Child->GetName(),
+				Layout.Offsets.Left, Layout.Offsets.Top,
+				Rect.GetSize().X, Rect.GetSize().Y,
+				Layout.Anchors.Minimum.X, Layout.Anchors.Minimum.Y,
+				Layout.Anchors.Maximum.X, Layout.Anchors.Maximum.Y,
+				Layout.Alignment.X, Layout.Alignment.Y,
+				Rect.Min.X, Rect.Min.Y, Rect.Max.X, Rect.Max.Y,
+				Rect.bAutoSize ? TEXT(" [размер по содержимому]") : TEXT(""),
+				bBackground ? TEXT(" [фон]") : TEXT(""),
+				bHidden ? TEXT(" [скрыт штатно]") : TEXT(""));
+
+			// Штатно скрытые не проверяем вовсе: свёрнутый ряд патронов или спрятанный по
+			// конфигу пункт меню — это норма, а не поломка.
+			if (bHidden)
+			{
+				continue;
+			}
+
+			// 1. Нулевой или отрицательный размер. У элементов «по содержимому» размер в
+			// ассете неизвестен — их пропускаем честно, а не придумываем число.
+			if (!Rect.bAutoSize && (Rect.GetSize().X <= 0.0f || Rect.GetSize().Y <= 0.0f))
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY GEO FAIL: %s — у '%s' нулевой или отрицательный размер (%.0fx%.0f): на экране его не будет видно."),
+					AssetName, *Child->GetName(), Rect.GetSize().X, Rect.GetSize().Y);
+				++ErrorCount;
+			}
+
+			// 2. Вылезание за пределы родителя (сегодняшний случай: «Выход» вывалился за плашку).
+			//    За ПОДЛОЖКУ — это ошибка: там всё детерминировано, размер родителя посчитан
+			//    от его собственного прямоугольника. За КРАЙ ЭКРАНА — только предупреждение:
+			//    настоящий размер холста зависит от устройства и от кривой масштабирования
+			//    интерфейса, поэтому уверенно ругаться нельзя, но показать стоит.
+			constexpr float Tolerance = 0.5f;
+			const bool bOutside = !Rect.bAutoSize && !bBackground
+				&& (Rect.Min.X < -Tolerance || Rect.Min.Y < -Tolerance
+					|| Rect.Max.X > CanvasSize.X + Tolerance || Rect.Max.Y > CanvasSize.Y + Tolerance);
+			if (bOutside && !bIsRootCanvas)
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY GEO FAIL: %s — '%s' вылезает за подложку: его прямоугольник (%.0f,%.0f..%.0f,%.0f), а место родителя (0,0..%.0f,%.0f)."),
+					AssetName, *Child->GetName(),
+					Rect.Min.X, Rect.Min.Y, Rect.Max.X, Rect.Max.Y, CanvasSize.X, CanvasSize.Y);
+				++ErrorCount;
+			}
+			else if (bOutside)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("VERIFY GEO: %s — '%s' выходит за эталонный экран %.0fx%.0f: его прямоугольник (%.0f,%.0f..%.0f,%.0f). На устройстве это масштабируется, но проверьте на узком экране."),
+					AssetName, *Child->GetName(), CanvasSize.X, CanvasSize.Y,
+					Rect.Min.X, Rect.Min.Y, Rect.Max.X, Rect.Max.Y);
+			}
+
+			FCheckedChild Entry;
+			Entry.Widget = Child;
+			Entry.Rect = Rect;
+			// В проверке пересечений участвуют только элементы с известным размером и не фоны.
+			Entry.bParticipates = !Rect.bAutoSize && !bBackground;
+			Children.Add(Entry);
+		}
+
+		// 3. Пересечения (сегодняшний случай: «Новая игра» и «Настройки» налезли друг на друга).
+		for (int32 First = 0; First < Children.Num(); ++First)
+		{
+			if (!Children[First].bParticipates)
+			{
+				continue;
+			}
+			for (int32 Second = First + 1; Second < Children.Num(); ++Second)
+			{
+				if (!Children[Second].bParticipates)
+				{
+					continue;
+				}
+				const FString FirstName = Children[First].Widget->GetName();
+				const FString SecondName = Children[Second].Widget->GetName();
+				if (!Children[First].Rect.Intersects(Children[Second].Rect))
+				{
+					continue;
+				}
+				if (IsOverlapAllowed(AssetName, FirstName, SecondName))
+				{
+					continue; // намеренное наложение, объявлено в контракте окна
+				}
+
+				// «Элемент лежит НА подложке» — это не брак, а обычная схема окна: плашка,
+				// а на ней надпись или кнопка. Признак объективный: один прямоугольник
+				// полностью накрывает другой и заметно больше его по площади. Две кнопки
+				// одинакового размера, оказавшиеся в одной точке, под это НЕ подпадают —
+				// именно такой случай и надо ловить.
+				const FWidgetRect& FirstRect = Children[First].Rect;
+				const FWidgetRect& SecondRect = Children[Second].Rect;
+				const bool bFirstIsBackdrop = FirstRect.Contains(SecondRect)
+					&& FirstRect.GetArea() >= SecondRect.GetArea() * GBackdropAreaRatio;
+				const bool bSecondIsBackdrop = SecondRect.Contains(FirstRect)
+					&& SecondRect.GetArea() >= FirstRect.GetArea() * GBackdropAreaRatio;
+				if (bFirstIsBackdrop || bSecondIsBackdrop)
+				{
+					continue;
+				}
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY GEO FAIL: %s — '%s' (%.0f,%.0f..%.0f,%.0f) и '%s' (%.0f,%.0f..%.0f,%.0f) налезают друг на друга."),
+					AssetName,
+					*FirstName, Children[First].Rect.Min.X, Children[First].Rect.Min.Y,
+					Children[First].Rect.Max.X, Children[First].Rect.Max.Y,
+					*SecondName, Children[Second].Rect.Min.X, Children[Second].Rect.Min.Y,
+					Children[Second].Rect.Max.X, Children[Second].Rect.Max.Y);
+				++ErrorCount;
+			}
+		}
+
+		// Рекурсия во вложенные холсты: напрямую и через подложку (плашка, а в ней холст —
+		// типовая схема окон проекта, см. MakeModalPlate).
+		for (const FCheckedChild& Entry : Children)
+		{
+			if (UCanvasPanel* Nested = Cast<UCanvasPanel>(Entry.Widget))
+			{
+				ErrorCount += CheckCanvasGeometry(AssetName, Nested, Entry.Rect.GetSize(), Depth + 1, /*bIsRootCanvas=*/false);
+			}
+			else if (UBorder* Plate = Cast<UBorder>(Entry.Widget))
+			{
+				if (UCanvasPanel* Inner = Cast<UCanvasPanel>(Plate->GetContent()))
+				{
+					// Внутренний холст меньше подложки на её внутренние отступы.
+					const FMargin Padding = Plate->GetPadding();
+					const FVector2D InnerSize(
+						FMath::Max(0.0f, Entry.Rect.GetSize().X - Padding.Left - Padding.Right),
+						FMath::Max(0.0f, Entry.Rect.GetSize().Y - Padding.Top - Padding.Bottom));
+					ErrorCount += CheckCanvasGeometry(AssetName, Inner, InnerSize, Depth + 1, /*bIsRootCanvas=*/false);
+				}
+			}
+		}
+		return ErrorCount;
+	}
+
+	// Разрешено ли этой паре пересекаться (порядок имён неважен).
+	bool IsOverlapAllowed(const TCHAR* AssetName, const FString& FirstName, const FString& SecondName)
+	{
+		for (const FGeometryContract& Contract : GGeometryContracts)
+		{
+			if (FCString::Strcmp(Contract.AssetName, AssetName) != 0)
+			{
+				continue;
+			}
+			for (const TCHAR* Pair : Contract.AllowedOverlaps)
+			{
+				FString Left, Right;
+				if (!FString(Pair).Split(TEXT("|"), &Left, &Right))
+				{
+					continue;
+				}
+				if ((FirstName == Left && SecondName == Right) || (FirstName == Right && SecondName == Left))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	// Контракт замков (см. SetButtonContent / LockPanelChildrenInDesigner): начинка
 	// кнопок и рядов статичной раскладки обязана быть замкнута (клик в дизайнере
 	// выделяет верхнеуровневый элемент целиком), сами верхнеуровневые элементы —
@@ -5404,9 +5767,37 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			bOk = VerifyTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
 		}
 
+		// ГЕОМЕТРИЯ (задача лида 08-09). Прежде проверка знала про виджет только имя и класс,
+		// поэтому разъехавшийся экран получал такой же зелёный штамп, как здоровый, и брак
+		// уехал на телефон. Теперь по каждому элементу в канвас-слоте печатается его
+		// прямоугольник, и механически ловятся три беды: нулевой размер, вылезание за
+		// подложку и наложение элементов друг на друга.
+		if (WBP->WidgetTree)
+		{
+			if (UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WBP->WidgetTree->RootWidget))
+			{
+				const int32 GeometryErrors =
+					CheckCanvasGeometry(Spec.AssetName, RootCanvas, GReferenceScreenSize, 1, /*bIsRootCanvas=*/true);
+				if (GeometryErrors > 0)
+				{
+					UE_LOG(LogGenerateWbp, Error,
+						TEXT("VERIFY GEO ИТОГ: %s — найдено проблем с раскладкой: %d."),
+						Spec.AssetName, GeometryErrors);
+					bOk = false;
+				}
+			}
+			else
+			{
+				// Не канвас в корне — геометрию задаёт контейнер, проверять нечего.
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("VERIFY GEO: %s — корень не CanvasPanel, проверка раскладки пропущена."),
+					Spec.AssetName);
+			}
+		}
+
 		if (bOk)
 		{
-			UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY OK: %s — все %d кубиков на месте."),
+			UE_LOG(LogGenerateWbp, Display, TEXT("VERIFY OK: %s — все %d кубиков на месте, раскладка без наложений."),
 				Spec.AssetName, static_cast<int32>(Spec.ExpectedCubes.size()));
 		}
 		else
