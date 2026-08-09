@@ -106,19 +106,32 @@ void USettingsScreenWidget::NativeOnInitialized()
 			{ ConfirmPanel, TEXT("ConfirmPanel") }, { ConfirmTitleText, TEXT("ConfirmTitleText") },
 			{ ConfirmYesButton, TEXT("ConfirmYesButton") }, { ConfirmNoButton, TEXT("ConfirmNoButton") },
 		};
+		int32 MissingCount = 0;
 		for (const auto& Entry : Expected)
 		{
 			if (!Entry.W)
 			{
+				++MissingCount;
 				UE_LOG(LogQA, Warning,
 					TEXT("SettingsScreenWidget: кубик %s не найден в WBP_Settings — элемент отключён"),
 					Entry.Name);
 			}
 		}
+		// Однозначный ответ на вопрос «а что игрок вообще видит»: строка в журнал живой сессии.
+		// Кодовое дерево-запаска при заполненном слоте НЕ участвует ВООБЩЕ — BuildCodeTree
+		// стоит в ветке else ниже и сюда не попадает. Признак честный: движок строит дерево
+		// владельца ДО этого места (UUserWidget::Initialize зовёт InitializeWidget блюпринт-
+		// класса раньше, чем NativeOnInitialized — UserWidget.cpp:136-163, UE 5.5), поэтому
+		// корень уже не пуст. Правит Ринат мышкой именно это окно.
+		UE_LOG(LogQA, Display,
+			TEXT("QA: SETTINGS-TREE окно настроек взято ИЗ АССЕТА WBP_Settings (кодовая запаска не строилась), недостающих кубиков %d. [settings: tree=asset missing=%d]"),
+			MissingCount, MissingCount);
 	}
 	else
 	{
 		BuildCodeTree();
+		UE_LOG(LogQA, Display,
+			TEXT("QA: SETTINGS-TREE слот окна настроек ПУСТ — построено кодовое дерево-запаска (с прокруткой). [settings: tree=code]"));
 	}
 
 	// Клики и ползунки — в обоих путях: из WBP приходят сами кубики, обработчики всё равно наши.
