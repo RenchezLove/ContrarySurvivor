@@ -2660,12 +2660,13 @@ namespace
 		// «Выхода», чтобы палец не путал возврат в меню с закрытием игры.
 		AddMenuButton(TEXT("MainMenuButton"), TEXT("MainMenuText"),
 			NSLOCTEXT("PauseMenuWidget", "MainMenuText", "В главное меню"), 146.0f);
-		AddMenuButton(TEXT("ConsentButton"), TEXT("ConsentText"),
-			NSLOCTEXT("PauseMenuWidget", "ConsentSample", "Статистика: выключена"), 216.0f);
+		// Переключателя согласия в паузе НЕТ (решение Рината 08-08) — и кодовое дерево его
+		// больше не создаёт (08-09). Раньше он оставался невидимым кубиком и лежал ровно под
+		// «В главное меню»; пересборка воскресила бы наложение, если оставить его здесь.
 		AddMenuButton(TEXT("PolicyButton"), TEXT("PolicyText"),
-			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 286.0f);
+			NSLOCTEXT("PauseMenuWidget", "PolicySample", "Политика конфиденциальности"), 216.0f);
 		AddMenuButton(TEXT("QuitButton"), TEXT("QuitText"),
-			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 356.0f);
+			NSLOCTEXT("PauseMenuWidget", "QuitText", "Выход"), 286.0f);
 
 		// Номер версии сборки — мелко внизу (живой текст ставит код).
 		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
@@ -2980,7 +2981,6 @@ namespace
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
 			  TEXT("ResumeButton"), TEXT("ResumeText"),
 			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
-			  TEXT("ConsentButton"), TEXT("ConsentText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
 			  TEXT("VersionText") } },
 		{ TEXT("/Game/UI/WBP_Intro"), TEXT("WBP_Intro"),
@@ -3526,7 +3526,6 @@ namespace
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"),
 			  TEXT("ResumeButton"), TEXT("ResumeText"),
 			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
-			  TEXT("ConsentButton"), TEXT("ConsentText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
 			  TEXT("VersionText") } },
 		{ TEXT("WBP_Intro"),
@@ -5103,6 +5102,10 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return FixHudWidgetSlots();
 	}
+	if (Switches.Contains(TEXT("dropdead")))
+	{
+		return DropDeadWidgets();
+	}
 	return GenerateAll(Switches.Contains(TEXT("force")));
 }
 
@@ -5529,6 +5532,106 @@ int32 UGenerateWbpCommandlet::UnlockButtonCaptions()
 
 	UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCK ИТОГ: сохранено %d, ошибок %d, всего ассетов %d."),
 		SavedCount, FailCount, static_cast<int32>(UE_ARRAY_COUNT(GAssets)));
+	return FailCount > 0 ? 1 : 0;
+}
+
+// Мёртвые кубики: ассет -> имена, которых в нём быть больше не должно. Заполняется РУКАМИ,
+// когда элемент выпилен из кода: пока он лежит в живом ассете, он мешает владельцу в
+// дизайнере и ломает проверку раскладки, даже будучи невидимым.
+struct FDeadWidgetSpec
+{
+	const TCHAR* PackageName;
+	const TCHAR* AssetName;
+	std::initializer_list<const TCHAR*> WidgetNames;
+};
+
+static const FDeadWidgetSpec GDeadWidgets[] =
+{
+	// Переключатель согласия убран из паузы решением Рината 08-08 (согласие спрашивается
+	// только на экране согласия). Кубики остались в ассете невидимыми и легли ровно под
+	// новой кнопкой «В главное меню» — проверка раскладки 08-09 это и поймала.
+	{ TEXT("/Game/UI/WBP_PauseMenu"), TEXT("WBP_PauseMenu"),
+		{ TEXT("ConsentButton"), TEXT("ConsentText") } },
+};
+
+int32 UGenerateWbpCommandlet::DropDeadWidgets()
+{
+	int32 FailCount = 0;
+	int32 RemovedTotal = 0;
+	int32 SavedCount = 0;
+
+	for (const FDeadWidgetSpec& Spec : GDeadWidgets)
+	{
+		const FString ObjectPath = FString::Printf(TEXT("%s.%s"), Spec.PackageName, Spec.AssetName);
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPath);
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("DROPDEAD: %s не загрузился."), Spec.AssetName);
+			++FailCount;
+			continue;
+		}
+
+		bool bChanged = false;
+		WBP->Modify();
+		for (const TCHAR* WidgetName : Spec.WidgetNames)
+		{
+			UWidget* Dead = WBP->WidgetTree->FindWidget(FName(WidgetName));
+			if (!Dead)
+			{
+				// Уже вычищено — режим идемпотентный, повторный прогон просто молчит.
+				UE_LOG(LogGenerateWbp, Display, TEXT("DROPDEAD SKIP: %s — '%s' в ассете уже нет."),
+					Spec.AssetName, WidgetName);
+				continue;
+			}
+			// RemoveWidget убирает кубик из дерева вместе с его слотом; соседей и их
+			// стилизацию не трогает.
+			if (WBP->WidgetTree->RemoveWidget(Dead))
+			{
+				UE_LOG(LogGenerateWbp, Display, TEXT("DROPDEAD: %s — '%s' удалён."),
+					Spec.AssetName, WidgetName);
+				bChanged = true;
+				++RemovedTotal;
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Error, TEXT("DROPDEAD: %s — '%s' не удалось удалить."),
+					Spec.AssetName, WidgetName);
+				++FailCount;
+			}
+		}
+
+		if (!bChanged)
+		{
+			continue;
+		}
+
+		FKismetEditorUtilities::CompileBlueprint(WBP);
+		if (WBP->Status == BS_Error)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("DROPDEAD: %s скомпилировался с ошибками — НЕ сохраняю (ассет на диске цел)."),
+				Spec.AssetName);
+			++FailCount;
+			continue;
+		}
+
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			Spec.PackageName, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("DROPDEAD: %s не сохранился (%s)."), Spec.AssetName, *Filename);
+			++FailCount;
+			continue;
+		}
+		++SavedCount;
+		UE_LOG(LogGenerateWbp, Display, TEXT("DROPDEAD OK: %s сохранён."), Spec.AssetName);
+	}
+
+	UE_LOG(LogGenerateWbp, Display,
+		TEXT("DROPDEAD ИТОГ: удалено кубиков %d, сохранено ассетов %d, ошибок %d."),
+		RemovedTotal, SavedCount, FailCount);
 	return FailCount > 0 ? 1 : 0;
 }
 

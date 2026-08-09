@@ -164,10 +164,10 @@ protected:
 	virtual FReply NativeOnTouchStarted(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
 	virtual FReply NativeOnTouchEnded(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
 
-	// Б6: игрок вправе передумать — переключатель согласия прямо в паузе (источник истины
-	// `docs/contrary-survivor/soglasie-i-politika.md`, раздел 2, правило 5).
-	UFUNCTION()
-	void HandleConsentClicked();
+	// Переключатель согласия из паузы УБРАН решением Рината 08-08 (согласие спрашивается
+	// только на экране согласия при первом запуске). Обработчик и кубики удалены совсем
+	// 08-09: невидимая кнопка оставалась в ассете и мешала — она лежала ровно под новой
+	// «В главное меню» и валила проверку раскладки. Отзыв согласия живёт на экране согласия.
 
 	// Б6: строка «Политика конфиденциальности». Адрес живёт в настройке проекта; пока он
 	// пуст, нажатие ничего не делает и пустую страницу не открывает.
@@ -245,13 +245,7 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MainMenuText;
 
-	// Б6: переключатель согласия, строка политики и мелкий номер версии сборки.
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UButton> ConsentButton;
-
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> ConsentText;
-
+	// Б6: строка политики и мелкий номер версии сборки (переключатель согласия отсюда убран).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> PolicyButton;
 

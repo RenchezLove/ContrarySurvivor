@@ -30,9 +30,9 @@ void UPauseMenuWidget::NativeOnInitialized()
 	if (bDesignerTree)
 	{
 		// Переключатель согласия из паузы УБРАН (ТЗ Рината 08-08): согласие ставится только
-		// на стартовом экране согласия, в паузе его быть не должно. Кубики ConsentButton/
-		// ConsentText в предупреждениях больше не ждём — их отсутствие в WBP законно, а если
-		// они там остались, код их прячет ниже.
+		// на экране согласия. 08-09 его кубики удалены отовсюду — из кода, из кодового
+		// дерева, из контрактов и из живого ассета (режим генератора -dropdead), поэтому
+		// в списке ожидаемых их нет и быть не должно.
 		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
 		{
 			{ TitleText, TEXT("TitleText") },
@@ -67,12 +67,9 @@ void UPauseMenuWidget::NativeOnInitialized()
 	{
 		ResumeButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleResumeClicked);
 	}
-	// ТЗ Рината 08-08: переключатель согласия в паузе не нужен. Кнопку НЕ подключаем и
-	// прячем оба её кубика, если они пришли из WBP_PauseMenu — отзыв согласия теперь только
-	// на стартовом экране согласия. Сам код HandleConsentClicked/RefreshConsentAndVersion
-	// оставлен рабочим для строки политики и номера версии (они в паузе остаются).
-	if (ConsentButton) { ConsentButton->SetVisibility(ESlateVisibility::Collapsed); }
-	if (ConsentText)   { ConsentText->SetVisibility(ESlateVisibility::Collapsed); }
+	// ТЗ Рината 08-08: переключателя согласия в паузе нет. 08-09 кубики удалены и из кода,
+	// и из живого ассета: невидимая кнопка продолжала лежать в панели ровно под новой
+	// «В главное меню» и валила проверку раскладки. Отзыв согласия — на экране согласия.
 	if (PolicyButton)
 	{
 		PolicyButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandlePolicyClicked);
@@ -416,15 +413,6 @@ void UPauseMenuWidget::HandleMainMenuClicked()
 	bConfirmingMainMenu = false;
 	ApplyNormalLabels();
 	OnMainMenuRequested.Broadcast();
-}
-
-void UPauseMenuWidget::HandleConsentClicked()
-{
-	if (UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this))
-	{
-		Consent->SetConsent(!Consent->IsConsentGranted());
-	}
-	RefreshConsentAndVersion();
 }
 
 void UPauseMenuWidget::HandlePolicyClicked()
