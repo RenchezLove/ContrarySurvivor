@@ -4,12 +4,20 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: диагностика ряда голода (задача Г 08-08)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // открыто ли главное меню
 #include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
 #include "ARangedWeapon.h" // патроны только у дальнобоя (#5, как Canvas DrawPlayerStats)
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h" // GetParent() в диагностике ряда голода (наследование для каста к UWidget)
 #include "Components/ProgressBar.h"
 #include "Components/Widget.h"
+
+ESlateVisibility UPlayerStatsWidget::VisibilityForMainMenu(bool bMainMenuOnScreen)
+{
+	// Меню на экране — панели статов там не место: Collapsed (не рисуется и места не занимает).
+	// Меню закрылось — панель возвращается сама следующим же кадром.
+	return bMainMenuOnScreen ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible;
+}
 
 void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
@@ -22,6 +30,23 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 	if (!Stats)
 	{
 		return;
+	}
+
+	// Дефект с телефона 08-09: при открытом ГЛАВНОМ МЕНЮ поверх него оставались полосы
+	// здоровья/голода/жажды и деньги — игровой интерфейс не должен лезть в меню. Панель
+	// прячется целиком, пока меню (и открытый поверх него экран настроек) на экране, и
+	// возвращается сама, как только меню закрылось. Приём тот же, что у трекера квеста:
+	// виджет спрашивает состояние сам, а не ждёт, что кто-то не забудет его дёрнуть.
+	const AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC);
+	const ESlateVisibility WantedVisibility =
+		VisibilityForMainMenu(CSPC && CSPC->IsMainMenuOnScreen());
+	if (GetVisibility() != WantedVisibility)
+	{
+		SetVisibility(WantedVisibility);
+	}
+	if (WantedVisibility == ESlateVisibility::Collapsed)
+	{
+		return; // панель скрыта — считать и переписывать её содержимое незачем
 	}
 
 	const float SurvivalMax = FMath::Max(Stats->GetSurvivalMax(), 1.0f);

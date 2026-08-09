@@ -12,6 +12,8 @@ class UBorder;
 class UTextBlock;
 class USizeBox;
 class UWidget;
+class UImage;     // фон и логотип меню (переделка 08-09)
+class UTexture2D; // мягкие ссылки на картинку фона и логотип в FStartScreenStyle
 
 /**
  * Настройки главного меню (волна «Главное меню» 08-08, ADR-062).
@@ -69,9 +71,43 @@ struct FStartScreenStyle
 {
 	GENERATED_BODY()
 
-	// Затемнение экрана под панелью.
+	// --- Фон меню (переделка 08-09 по кадру с телефона). Спека: «Фон меню статичный, без
+	// анимаций». До переделки фоновой картинки не было вовсе, и сквозь полупрозрачное
+	// затемнение просвечивал живой мир игры — именно это Ринат и увидел на устройстве. ---
+
+	// Картинка фона на весь экран. Пусто — рисуем сплошную заливку BackgroundFallbackColor
+	// (меню остаётся рабочим и читаемым, пока художник готовит кадр). Мягкая ссылка —
+	// паттерн иконок проекта: нет ассета, значит просто не грузим, без падений.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Фон",
+		meta = (DisplayName = "Картинка фона (пусто — сплошная заливка)"))
+	TSoftObjectPtr<UTexture2D> BackgroundTexture;
+
+	// Фирменный тёмный цвет подложки иконки приложения (#271D14) в линейном виде, каким его
+	// ждёт движок. Заливка НЕПРОЗРАЧНАЯ: сквозь меню не должно быть видно игру.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Фон",
+		meta = (DisplayName = "Цвет заливки, если картинки нет"))
+	FLinearColor BackgroundFallbackColor = FLinearColor(0.0203f, 0.0132f, 0.0070f, 1.0f);
+
+	// Логотип игры слева (просьба Рината). Пусто — логотип не рисуется вовсе, раскладка не
+	// ломается: заголовок и кнопки остаются на своих местах.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Фон",
+		meta = (DisplayName = "Логотип игры (пусто — не показывать)"))
+	TSoftObjectPtr<UTexture2D> LogoTexture;
+
+	// Затемнение нижней части экрана, чтобы мелкие строки версии и политики читались на
+	// любой картинке. Доля высоты экрана и непрозрачность у самого низа.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Фон",
+		meta = (DisplayName = "Высота затемнения снизу (доля экрана)", ClampMin = "0.0", ClampMax = "1.0"))
+	float BottomShadeHeightFraction = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Фон",
+		meta = (DisplayName = "Непрозрачность затемнения у нижнего края", ClampMin = "0.0", ClampMax = "1.0"))
+	float BottomShadeOpacity = 0.75f;
+
+	// Затемнение поверх фона. По умолчанию ПРОЗРАЧНОЕ: непрозрачность даёт сам фон, а этот
+	// слой нужен только чтобы ловить касания мимо кнопок (модальный барьер).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
-	FLinearColor DimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.7f);
+	FLinearColor DimColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 	// Золотой кант панели и тёмный фон панели (палитра модалок HUD, как у меню паузы).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
@@ -157,6 +193,33 @@ struct FStartScreenStyle
 	// Габарит кнопки под палец (SizeBox: у UButton 5.5 нет SetPadding).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FVector2D ButtonSize = FVector2D(280.0f, 58.0f);
+
+	// --- Раскладка «логотип слева, кнопки справа» (просьба Рината 08-09: телефон лежит
+	// горизонтально, кнопки должны попадать под большой палец правой руки). Поля действуют
+	// ТОЛЬКО для кодового дерева-фолбэка; в живом WBP раскладку двигает владелец мышкой. ---
+
+	// Размер логотипа, точек. Логотип прижат к ЛЕВОМУ краю и центрирован по высоте.
+	// Дефолт квадратный под присланный логотип «МАРЕВО» (картинка 1000x1000, сама надпись
+	// занимает примерно центральную треть высоты — поэтому квадрат берём с запасом, иначе
+	// надпись на телефоне выйдет мелкой).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
+		meta = (DisplayName = "Размер логотипа"))
+	FVector2D LogoSize = FVector2D(420.0f, 420.0f);
+
+	// Отступ логотипа от левого края экрана, точек.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
+		meta = (DisplayName = "Отступ логотипа от левого края"))
+	float LogoLeftMargin = 56.0f;
+
+	// Отступ столбика кнопок от ПРАВОГО края экрана, точек.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
+		meta = (DisplayName = "Отступ кнопок от правого края"))
+	float ButtonsRightMargin = 64.0f;
+
+	// Вертикальный зазор между кнопками, точек.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen|Раскладка",
+		meta = (DisplayName = "Зазор между кнопками", ClampMin = "0.0"))
+	float ButtonSpacing = 12.0f;
 };
 
 /**
@@ -220,6 +283,13 @@ public:
 	// «Сообщество»: пустой/пробельный адрес в конфиге — пункт спрятан целиком.
 	static ESlateVisibility CommunityVisibilityFor(const FString& CommunityUrl);
 
+	// Логотип: текстура не назначена — пункт не рисуется вовсе (раскладка при этом цела).
+	static ESlateVisibility LogoVisibilityFor(const TSoftObjectPtr<UTexture2D>& LogoTexture);
+
+	// Нужна ли сплошная заливка вместо картинки (переделка 08-09): картинки нет — да.
+	// Фон обязан быть непрозрачным в любом случае, сквозь меню игру видно быть не должно.
+	static bool ShouldFillBackgroundWithColor(const TSoftObjectPtr<UTexture2D>& BackgroundTexture);
+
 	// --- Обработчики кнопок. ПУБЛИЧНЫЕ намеренно: их зовут и клики кнопок, и headless-тесты
 	// меню (живой Slate в Automation-тестах проекта не поднимается — паттерн DeathScreenWidget). ---
 
@@ -270,6 +340,11 @@ private:
 	// Кнопка меню с подписью, обёрнутая в SizeBox тач-размера, добавленная в колонку.
 	UButton* MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName);
 
+	// Геометрия кодового дерева по полям стиля: размер и отступ логотипа, отступ колонки
+	// кнопок от правого края, зазор между кнопками, полосы затемнения внизу. Только для
+	// кодового пути — в живом WBP раскладку двигает владелец.
+	void ApplyCodeTreeLayout(const FStartScreenStyle& Style);
+
 	// Подписи панели/кнопок и видимость пунктов для текущего режима (обычный выбор либо
 	// переспрос «Новая игра»: на время переспроса лишние пункты меню прячутся, остаются две
 	// кнопки «Отмена»/«Да, начать заново»). При кодовом дереве заодно ставит шрифт/цвет;
@@ -303,6 +378,14 @@ private:
 	bool bHasSave = true;
 
 	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
+
+	// Фон на весь экран: картинка либо сплошная заливка (переделка 08-09).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> BackgroundImage;
+
+	// Логотип игры слева. Текстуры нет — кубик схлопнут.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> LogoImage;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> DimBorder;
@@ -353,6 +436,12 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> VersionText;
+
+	// Ступенчатое затемнение нижней части экрана (несколько полос с растущей непрозрачностью):
+	// в UMG готового виджета-градиента нет, а заводить ради этого материал-ассет — лишняя
+	// зависимость. На тёмном фоне ступени не видны, зато работает на любом экране без ассетов.
+	UPROPERTY()
+	TArray<TObjectPtr<UBorder>> BottomShadeBands;
 
 	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()

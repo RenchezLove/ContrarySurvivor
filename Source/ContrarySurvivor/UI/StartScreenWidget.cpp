@@ -12,7 +12,10 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
+#include "Components/Image.h"   // фон и логотип меню (переделка 08-09)
+#include "Styling/SlateBrush.h" // кисть сплошной заливки фона
 #include "Components/SizeBox.h"
+#include "Engine/Texture2D.h"   // TSoftObjectPtr<UTexture2D> в полях стиля
 #include "HAL/PlatformProcess.h" // FPlatformProcess::LaunchURL (пункт «Сообщество»)
 #include "Styling/CoreStyle.h"
 
@@ -54,6 +57,7 @@ void UStartScreenWidget::NativeOnInitialized()
 	{
 		struct { const UWidget* W; const TCHAR* Name; } Expected[] =
 		{
+			{ BackgroundImage, TEXT("BackgroundImage") }, { LogoImage, TEXT("LogoImage") },
 			{ TitleText, TEXT("TitleText") }, { SubtitleText, TEXT("SubtitleText") },
 			{ ContinueButton, TEXT("ContinueButton") }, { ContinueText, TEXT("ContinueText") },
 			{ NewGameButton, TEXT("NewGameButton") }, { NewGameText, TEXT("NewGameText") },
@@ -125,7 +129,32 @@ void UStartScreenWidget::BuildCodeTree()
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("StartRoot"));
 	WidgetTree->RootWidget = Root;
 
-	// Затемнение на весь экран. Visible — ловит хит-тест, чтобы клик мимо кнопок не ушёл в мир.
+	// --- Слой 1: фон на весь экран (картинка либо сплошная заливка). Кладём ПЕРВЫМ, чтобы
+	// он оказался под всем остальным. Живое содержимое ставит ApplyStyle. ---
+	BackgroundImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BackgroundImage"));
+	if (UCanvasPanelSlot* BackgroundSlot = Root->AddChildToCanvas(BackgroundImage))
+	{
+		BackgroundSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+		BackgroundSlot->SetOffsets(FMargin(0.0f));
+	}
+
+	// --- Слой 2: ступенчатое затемнение к низу, чтобы мелкие строки внизу читались на любой
+	// картинке. Полосы кладём снизу вверх с убывающей непрозрачностью (высоту и силу задаёт
+	// ApplyStyle: она зависит от полей стиля). ---
+	constexpr int32 ShadeBandCount = 6;
+	BottomShadeBands.Reset();
+	for (int32 BandIndex = 0; BandIndex < ShadeBandCount; ++BandIndex)
+	{
+		UBorder* Band = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),
+			FName(*FString::Printf(TEXT("BottomShade%d"), BandIndex)));
+		// Полосы — чистая декорация: касания сквозь них должны доходить до затемнения ниже.
+		Band->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Root->AddChildToCanvas(Band);
+		BottomShadeBands.Add(Band);
+	}
+
+	// --- Слой 3: прозрачный барьер на весь экран. Visible — ловит хит-тест, чтобы клик мимо
+	// кнопок не ушёл в мир. Непрозрачность даёт фон под ним, а не этот слой. ---
 	DimBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DimBorder"));
 	if (UCanvasPanelSlot* DimmerSlot = Root->AddChildToCanvas(DimBorder))
 	{
@@ -133,12 +162,20 @@ void UStartScreenWidget::BuildCodeTree()
 		DimmerSlot->SetOffsets(FMargin(0.0f));
 	}
 
-	// Панель по центру — двойная рамка в палитре HUD (как меню паузы/окно ежедневной награды).
+	// --- Слой 4: логотип игры СЛЕВА, по центру высоты (просьба Рината 08-09). Размер и
+	// отступ — из стиля; текстуры нет, значит кубик схлопнут и место не занимает. ---
+	LogoImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("LogoImage"));
+	LogoImage->SetVisibility(ESlateVisibility::Collapsed);
+	Root->AddChildToCanvas(LogoImage);
+
+	// --- Слой 5: столбик кнопок СПРАВА, прижат к правому краю и центрирован по высоте.
+	// Привязка именно к краю, а не фиксированная точка от центра: экраны у телефонов разной
+	// формы, и раскладка обязана переживать другое соотношение сторон (требование лида). ---
 	FrameBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StartFrame"));
 	FrameBorder->SetPadding(FMargin(2.0f));
 
 	PanelBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StartPanel"));
-	PanelBorder->SetPadding(FMargin(36.0f, 26.0f));
+	PanelBorder->SetPadding(FMargin(28.0f, 22.0f));
 	FrameBorder->SetContent(PanelBorder);
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("StartColumn"));
@@ -208,12 +245,15 @@ void UStartScreenWidget::BuildCodeTree()
 		VersionSlot->SetHorizontalAlignment(HAlign_Center);
 	}
 
+	// Колонка прижата к ПРАВОМУ краю (якорь 1 по X) и центрирована по высоте: на телефоне в
+	// альбомной ориентации кнопки попадают под большой палец правой руки. Точный отступ от
+	// края ставит ApplyStyle (поле стиля), размер — по содержимому.
 	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
 	{
-		PanelSlot->SetAnchors(FAnchors(0.5f, 0.45f));
-		PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		PanelSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+		PanelSlot->SetAlignment(FVector2D(1.0f, 0.5f));
 		PanelSlot->SetAutoSize(true);
-		PanelSlot->SetPosition(FVector2D::ZeroVector);
+		PanelSlot->SetPosition(FVector2D(-64.0f, 0.0f));
 	}
 }
 
@@ -221,10 +261,48 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 {
 	CachedStyle = Style;
 
+	// --- Фон и логотип применяются В ОБОИХ путях, включая дерево из дизайнера. Это не
+	// оформление, а ДАННЫЕ: какую картинку показывать, задаёт поле настроек (картинку готовит
+	// Ринат и подставляет туда же), а непрозрачность фона — требование спеки «фон меню
+	// статичный», нарушение которого игрок уже увидел на телефоне. ---
+	if (BackgroundImage)
+	{
+		if (ShouldFillBackgroundWithColor(Style.BackgroundTexture))
+		{
+			// Картинки нет — сплошная фирменная заливка. Кисть без текстуры красится
+			// собственным цветом, поэтому фон остаётся полностью непрозрачным.
+			FSlateBrush FillBrush;
+			FillBrush.DrawAs = ESlateBrushDrawType::Image;
+			FillBrush.TintColor = FSlateColor(Style.BackgroundFallbackColor);
+			BackgroundImage->SetBrush(FillBrush);
+		}
+		else
+		{
+			BackgroundImage->SetBrushFromSoftTexture(Style.BackgroundTexture, /*bMatchSize=*/false);
+			// Тинт сбрасываем в белый: иначе картинка ушла бы в цвет заливки.
+			BackgroundImage->SetBrushTintColor(FSlateColor(FLinearColor::White));
+		}
+		BackgroundImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+
+	if (LogoImage)
+	{
+		const ESlateVisibility LogoVisibility = LogoVisibilityFor(Style.LogoTexture);
+		if (LogoVisibility != ESlateVisibility::Collapsed)
+		{
+			LogoImage->SetBrushFromSoftTexture(Style.LogoTexture, /*bMatchSize=*/false);
+		}
+		LogoImage->SetVisibility(LogoVisibility);
+	}
+
 	// Дерево владельца из WBP_StartScreen: цвета/шрифты/размеры — его, код не перекрашивает
 	// (ТЗ Рината 08-07). Тексты переключаются ниже — они зависят от режима переспроса.
 	if (!bDesignerTree)
 	{
+		// Геометрию фоновых кубиков и колонки ставим только в кодовом дереве: в живом ассете
+		// всё это двигает владелец мышкой, и код обязан держать руки при себе.
+		ApplyCodeTreeLayout(Style);
+
 		if (DimBorder)    { DimBorder->SetBrushColor(Style.DimColor); }
 		if (FrameBorder)  { FrameBorder->SetBrushColor(Style.FrameColor); }
 		if (PanelBorder)  { PanelBorder->SetBrushColor(Style.PanelColor); }
@@ -419,6 +497,20 @@ ESlateVisibility UStartScreenWidget::CommunityVisibilityFor(const FString& Commu
 		? ESlateVisibility::Collapsed : ESlateVisibility::Visible;
 }
 
+ESlateVisibility UStartScreenWidget::LogoVisibilityFor(const TSoftObjectPtr<UTexture2D>& LogoTexture)
+{
+	// Логотипа игры отдельной картинкой в проекте пока нет: пустое поле обязано означать
+	// «просто не рисуем», а не пустой прямоугольник посреди меню.
+	return LogoTexture.IsNull() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible;
+}
+
+bool UStartScreenWidget::ShouldFillBackgroundWithColor(const TSoftObjectPtr<UTexture2D>& BackgroundTexture)
+{
+	// Картинки нет — красим сплошным фирменным цветом. Прозрачным фон не остаётся НИКОГДА:
+	// спека требует статичный фон, а игрок на телефоне увидел сквозь меню живую игру.
+	return BackgroundTexture.IsNull();
+}
+
 void UStartScreenWidget::SetRowVisibility(UWidget* Widget, ESlateVisibility InVisibility)
 {
 	if (!Widget)
@@ -433,6 +525,76 @@ void UStartScreenWidget::SetRowVisibility(UWidget* Widget, ESlateVisibility InVi
 		Row = Box;
 	}
 	Row->SetVisibility(InVisibility);
+}
+
+void UStartScreenWidget::ApplyCodeTreeLayout(const FStartScreenStyle& Style)
+{
+	// Логотип: прижат к ЛЕВОМУ краю, центр по высоте. Отступ и размер — из стиля.
+	if (LogoImage)
+	{
+		if (UCanvasPanelSlot* LogoSlot = Cast<UCanvasPanelSlot>(LogoImage->Slot))
+		{
+			LogoSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
+			LogoSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+			LogoSlot->SetPosition(FVector2D(Style.LogoLeftMargin, 0.0f));
+			LogoSlot->SetSize(Style.LogoSize);
+		}
+	}
+
+	// Колонка кнопок: прижата к ПРАВОМУ краю на заданный отступ.
+	if (FrameBorder)
+	{
+		if (UCanvasPanelSlot* PanelSlot = Cast<UCanvasPanelSlot>(FrameBorder->Slot))
+		{
+			PanelSlot->SetAnchors(FAnchors(1.0f, 0.5f, 1.0f, 0.5f));
+			PanelSlot->SetAlignment(FVector2D(1.0f, 0.5f));
+			PanelSlot->SetPosition(FVector2D(-FMath::Max(0.0f, Style.ButtonsRightMargin), 0.0f));
+		}
+	}
+
+	// Зазор между пунктами колонки.
+	for (USizeBox* Box : ButtonBoxes)
+	{
+		if (Box)
+		{
+			if (UVerticalBoxSlot* BoxSlot = Cast<UVerticalBoxSlot>(Box->Slot))
+			{
+				BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, FMath::Max(0.0f, Style.ButtonSpacing)));
+			}
+		}
+	}
+
+	// Затемнение к низу: полосы одинаковой высоты, непрозрачность растёт к нижнему краю.
+	// Самая нижняя полоса — заданной силы, верхняя — почти прозрачная.
+	const int32 BandCount = BottomShadeBands.Num();
+	const float ShadeFraction = FMath::Clamp(Style.BottomShadeHeightFraction, 0.0f, 1.0f);
+	for (int32 BandIndex = 0; BandIndex < BandCount; ++BandIndex)
+	{
+		UBorder* Band = BottomShadeBands[BandIndex];
+		if (!Band)
+		{
+			continue;
+		}
+		// Доля высоты экрана: полосы идут снизу вверх, каждая занимает равную часть зоны.
+		const float BandHeight = (BandCount > 0) ? ShadeFraction / BandCount : 0.0f;
+		const float BandTop = 1.0f - BandHeight * (BandIndex + 1);
+		const float BandBottom = 1.0f - BandHeight * BandIndex;
+
+		// Сила: у самой нижней полосы (индекс 0) максимум, дальше линейно к нулю.
+		const float BandAlpha = (BandCount > 0)
+			? Style.BottomShadeOpacity * (1.0f - static_cast<float>(BandIndex) / BandCount)
+			: 0.0f;
+		Band->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, FMath::Clamp(BandAlpha, 0.0f, 1.0f)));
+
+		if (UCanvasPanelSlot* BandSlot = Cast<UCanvasPanelSlot>(Band->Slot))
+		{
+			BandSlot->SetAnchors(FAnchors(0.0f, BandTop, 1.0f, BandBottom));
+			BandSlot->SetOffsets(FMargin(0.0f));
+		}
+		// Нулевая зона затемнения — полос не видно вовсе.
+		Band->SetVisibility(ShadeFraction > 0.0f && Style.BottomShadeOpacity > 0.0f
+			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
 }
 
 UButton* UStartScreenWidget::MakeMenuButton(UVerticalBox* Column, const FText& Label, const FName& BaseName)

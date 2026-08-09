@@ -2217,20 +2217,83 @@ namespace
 		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
 		Tree->RootWidget = Root;
 
-		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
+		// --- Фон на весь экран. По умолчанию — сплошная заливка фирменным тёмным цветом
+		// подложки иконки приложения (#271D14 в линейном виде). Картинку подставляет поле
+		// настроек «Картинка фона» — код (UStartScreenWidget::ApplyStyle) кладёт её сюда сам.
+		// Фон НЕПРОЗРАЧНЫЙ: до переделки его не было вовсе, и сквозь меню на телефоне была
+		// видна живая игра, что расходится со спекой «фон меню статичный». ---
+		const FLinearColor BrandDark(0.0203f, 0.0132f, 0.0070f, 1.0f);
+		UImage* Background = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BackgroundImage"));
+		{
+			FSlateBrush BackgroundBrush;
+			BackgroundBrush.TintColor = FSlateColor(BrandDark);
+			Background->SetBrush(BackgroundBrush);
+		}
+		Background->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Background->bIsVariable = true;
+		CanvasStretch(Root, Background, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
 
-		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.45f),
-			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(480.0f, 560.0f), 0.97f);
+		// --- Затемнение к низу, чтобы мелкие строки версии и политики читались на любой
+		// картинке. Готового виджета-градиента в UMG нет, материал-ассет ради этого заводить
+		// не хочется — кладём несколько полос с растущей вниз непрозрачностью. На тёмном фоне
+		// ступени не видны, а работает на экране любой формы. ---
+		constexpr int32 ShadeBandCount = 6;
+		constexpr float ShadeHeightFraction = 0.35f;
+		constexpr float ShadeMaxOpacity = 0.75f;
+		for (int32 BandIndex = 0; BandIndex < ShadeBandCount; ++BandIndex)
+		{
+			const float BandHeight = ShadeHeightFraction / ShadeBandCount;
+			const float BandTop = 1.0f - BandHeight * (BandIndex + 1);
+			const float BandBottom = 1.0f - BandHeight * BandIndex;
+			const float BandAlpha = ShadeMaxOpacity * (1.0f - static_cast<float>(BandIndex) / ShadeBandCount);
+
+			UBorder* Band = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(),
+				FName(*FString::Printf(TEXT("BottomShade%d"), BandIndex)));
+			Band->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, BandAlpha));
+			Band->SetVisibility(ESlateVisibility::HitTestInvisible);
+			Band->bIsVariable = true;
+			CanvasStretch(Root, Band, FAnchors(0.0f, BandTop, 1.0f, BandBottom), FMargin(0.0f));
+		}
+
+		// Барьер касаний на весь экран: сам прозрачный (непрозрачность даёт фон выше), но
+		// ловит тапы мимо кнопок, чтобы они не уходили в игру.
+		MakeDimLayer(Tree, Root, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+
+		// --- Логотип игры СЛЕВА (просьба Рината 08-09). Текстуру подставляет поле настроек;
+		// пока её нет, код прячет кубик целиком, а в ассете он остаётся видимым — владельцу
+		// нужно за что-то браться мышкой. ---
+		UImage* Logo = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("LogoImage"));
+		{
+			FSlateBrush LogoBrush;
+			LogoBrush.TintColor = FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f, 0.25f));
+			Logo->SetBrush(LogoBrush);
+		}
+		Logo->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Logo->bIsVariable = true;
+		if (UCanvasPanelSlot* LogoSlot = Root->AddChildToCanvas(Logo))
+		{
+			LogoSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
+			LogoSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+			LogoSlot->SetPosition(FVector2D(56.0f, 0.0f));
+			// Квадрат под присланный логотип «МАРЕВО» (1000x1000, надпись — центральная треть).
+			LogoSlot->SetSize(FVector2D(420.0f, 420.0f));
+		}
+
+		// --- Столбик кнопок СПРАВА: телефон лежит горизонтально, кнопки должны попадать под
+		// большой палец правой руки. Привязка к ПРАВОМУ краю (якорь 1 по X) и к середине по
+		// высоте — раскладка переживает экран другой формы, а не рассыпается. ---
+		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(1.0f, 0.5f, 1.0f, 0.5f),
+			FVector2D(1.0f, 0.5f), FVector2D(-64.0f, 0.0f), FVector2D(380.0f, 470.0f), 0.82f);
 
 		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
 			NSLOCTEXT("StartScreenWidget", "TitleText", "С ВОЗВРАЩЕНИЕМ"),
-			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 24, TEXT("Bold"));
+			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 22, TEXT("Bold"));
 		Title->bIsVariable = true;
-		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 26.0f));
+		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 18.0f));
 
 		UTextBlock* Subtitle = MakeText(Tree, Roboto, TEXT("SubtitleText"),
 			NSLOCTEXT("StartScreenWidget", "SubtitleText", "Найдено сохранение прошлой игры."),
-			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 15, TEXT("Regular"));
+			FLinearColor(0.85f, 0.85f, 0.85f, 1.0f), 14, TEXT("Regular"));
 		Subtitle->SetAutoWrapText(true);
 		Subtitle->SetJustification(ETextJustify::Center);
 		Subtitle->bIsVariable = true;
@@ -2238,8 +2301,8 @@ namespace
 		{
 			SubtitleSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
 			SubtitleSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-			SubtitleSlot->SetPosition(FVector2D(0.0f, 72.0f));
-			SubtitleSlot->SetSize(FVector2D(400.0f, 44.0f));
+			SubtitleSlot->SetPosition(FVector2D(0.0f, 48.0f));
+			SubtitleSlot->SetSize(FVector2D(320.0f, 38.0f));
 		}
 
 		// Подписи кнопок — образцы: живые ставит код (стиль контроллера; «Продолжить»/«Новая
@@ -2251,21 +2314,22 @@ namespace
 			UButton* Button = MakeGreyButton(Tree, FName(ButtonName));
 			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption, DarkCaption, 19);
 			PlaceCenteredButton(Panel, Button, 0.0f, FVector2D(0.5f, 0.0f),
-				FVector2D(0.0f, Y), FVector2D(280.0f, 58.0f));
+				FVector2D(0.0f, Y), FVector2D(300.0f, 58.0f));
 		};
 		AddMenuButton(TEXT("ContinueButton"), TEXT("ContinueText"),
-			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 126.0f);
+			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 100.0f);
 		AddMenuButton(TEXT("NewGameButton"), TEXT("NewGameText"),
-			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 196.0f);
+			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 170.0f);
 		AddMenuButton(TEXT("SettingsButton"), TEXT("SettingsText"),
-			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 266.0f);
+			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 240.0f);
 		AddMenuButton(TEXT("CommunityButton"), TEXT("CommunityText"),
-			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 336.0f);
+			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 310.0f);
 		AddMenuButton(TEXT("ExitButton"), TEXT("ExitText"),
-			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 406.0f);
+			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 380.0f);
 
-		// Низ (спека: «мелким шрифтом, не кнопками»): ссылка политики — прозрачная кнопка,
-		// видна только подпись (приём WBP_Consent); под ней строка версии (живой текст ставит код).
+		// Низ ЭКРАНА (спека: «мелким шрифтом, не кнопками»). Лежат не в панели, а прямо на
+		// фоне — по центру нижнего края, на затемнении, чтобы читались при любой картинке.
+		// Ссылка политики — прозрачная кнопка, видна только подпись (приём WBP_Consent).
 		UButton* Policy = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PolicyButton"));
 		Policy->SetBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 		Policy->bIsVariable = true;
@@ -2275,12 +2339,12 @@ namespace
 		PolicyCaption->SetJustification(ETextJustify::Center);
 		PolicyCaption->bIsVariable = true;
 		Policy->SetContent(PolicyCaption);
-		CanvasCentered(Panel, Policy, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -36.0f));
+		CanvasCentered(Root, Policy, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -34.0f));
 
 		UTextBlock* Version = MakeText(Tree, Roboto, TEXT("VersionText"), TEXT("0.0.0"),
 			FLinearColor(0.6f, 0.6f, 0.6f, 1.0f), 12, TEXT("Regular"));
 		Version->bIsVariable = true;
-		CanvasCentered(Panel, Version, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -12.0f));
+		CanvasCentered(Root, Version, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -12.0f));
 		return true;
 	}
 
@@ -2869,7 +2933,8 @@ namespace
 			  TEXT("DoubleButton"), TEXT("DoubleText"), TEXT("DoubleSubText") } },
 		{ TEXT("/Game/UI/WBP_StartScreen"), TEXT("WBP_StartScreen"),
 			TEXT("/Script/ContrarySurvivor.StartScreenWidget"), &BuildStartScreen,
-			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			{ TEXT("BackgroundImage"), TEXT("LogoImage"),
+			  TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
@@ -3051,7 +3116,8 @@ namespace
 			  TEXT("DoubleLabels"), TEXT("DoubleText"), TEXT("DoubleSubText") } },
 		{ TEXT("WBP_StartScreen"),
 			{ },
-			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
+			{ TEXT("BackgroundImage"), TEXT("LogoImage"),
+			  TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("SubtitleText"),
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
@@ -4788,11 +4854,20 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		{ TEXT("WBP_PlayerStats"), true },
 		{ TEXT("WBP_Dialog"), true },
 		{ TEXT("WBP_Death"), true },
-		// ADR-062 (волна меню): ввод новых пунктов главного меню в живой ассет — точечной
-		// пересборкой `-rebuild -asset=WBP_StartScreen`. По git-истории ассета правок
-		// владельца в нём нет (единственный коммит — генерация ad93f73), так что терять
-		// нечего; перенос владельческих значений включён на будущее, как у остальных.
-		{ TEXT("WBP_StartScreen"), true },
+		// ADR-062 (волна меню): ввод главного меню в живой ассет — точечной пересборкой
+		// `-rebuild -asset=WBP_StartScreen`.
+		//
+		// ⛔ ПЕРЕНОС ЗНАЧЕНИЙ ВЛАДЕЛЬЦА ЗДЕСЬ ВЫКЛЮЧЕН — и включать обратно нельзя.
+		// Пересборка 08-09 с включённым переносом дала на телефоне разъехавшееся меню:
+		// старая геометрия ПЕРВОЙ версии экрана (двухкнопочной, коммит ad93f73) перетёрла
+		// новую раскладку из кода. Дословно из журнала `Saved/gl-startscreen-rebuild.log:214-216`:
+		// `PanelPlate: (0,0,480,560) -> (0,0,480,320)`, `ContinueButton: (0,126,280,58) -> (0,-100,280,58)`,
+		// `NewGameButton: (0,196,280,58) -> (0,-30,280,58)`. Новые пункты встали по коду, старые —
+		// по мёртвым значениям, и кнопки налезли друг на друга.
+		// Переносить в этом экране НЕЧЕГО: правок владельца в нём нет (единственный коммит —
+		// сама генерация). Раскладка меню живёт в коде (BuildStartScreen), и пересборка обязана
+		// класть её целиком. Остальные строки таблицы это НЕ затрагивает.
+		{ TEXT("WBP_StartScreen"), false },
 		// ADR-062 (подход 2 волны меню): экран настроек. Ассета ещё нет вовсе — первым
 		// прогоном его создаёт обычная генерация (-run=GenerateWbp), эта строка нужна для
 		// последующих точечных пересборок `-rebuild -asset=WBP_Settings`.

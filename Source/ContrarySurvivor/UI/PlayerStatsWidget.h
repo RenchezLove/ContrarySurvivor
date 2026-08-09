@@ -28,6 +28,11 @@ class CONTRARYSURVIVOR_API UPlayerStatsWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	// Видимость постоянной панели статов при открытом главном меню (дефект с телефона 08-09:
+	// поверх меню оставались полосы и деньги). Collapsed, а не Hidden: панель не должна ни
+	// рисоваться, ни занимать место. Чистое правило — гоняется автотестом.
+	static ESlateVisibility VisibilityForMainMenu(bool bMainMenuOnScreen);
+
 	// --- Настройки (Class Defaults WBP_PlayerStats; владение переехало из HUD — ADR-048) ---
 
 	// Форматы ЗНАЧЕНИЙ. Подстановки в фигурных скобках подставляет код, остальное — твой текст.

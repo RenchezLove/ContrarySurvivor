@@ -187,7 +187,14 @@ void AContrarySurvivorHUD::DrawHUD()
 			MaybeScheduleEndOfStoryFromSave(PlayerChar);
 
 			// ADR-048: при назначенном PlayerStatsWidgetClass статы рисует UMG-панель.
-			if (!PlayerStatsWidgetInstance)
+			// Дефект с телефона 08-09: поверх главного меню оставался игровой интерфейс.
+			// UMG-панель прячется сама (UPlayerStatsWidget::VisibilityForMainMenu), а здесь
+			// тот же гейт для запасного Canvas-пути — иначе при пустом слоте полосы снова
+			// оказались бы поверх меню.
+			const AContrarySurvivorPlayerController* MenuPC =
+				Cast<AContrarySurvivorPlayerController>(PC);
+			const bool bMainMenuOnScreen = MenuPC && MenuPC->IsMainMenuOnScreen();
+			if (!PlayerStatsWidgetInstance && !bMainMenuOnScreen)
 			{
 				DrawPlayerStats(PlayerChar);
 			}
