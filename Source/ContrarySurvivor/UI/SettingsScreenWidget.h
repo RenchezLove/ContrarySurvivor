@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h"
+#include "Styling/SlateTypes.h" // FSliderStyle — вид ползунков общий для кода и генератора
 #include "SettingsScreenWidget.generated.h"
 
 class UButton;
@@ -106,6 +107,21 @@ struct FSettingsTouchLayout
 		meta = (DisplayName = "Ширина кнопки переспроса", ClampMin = "1.0", DisplayPriority = "5"))
 	float ConfirmButtonWidth = 620.0f;
 
+	// --- Ползунки. Область нажатия у них та же, что у кнопок (высота строки), а вот САМА
+	// полоска остаётся тонкой на вид — палец жмёт по всей высоте строки, глаз видит аккуратную
+	// линию. Штатная полоска движка — 2 точки, на телефоне это волосок толщиной чуть больше
+	// одного пикселя: видно её плохо, поэтому задаём свою. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Толщина полоски ползунка", ClampMin = "1.0", DisplayPriority = "6"))
+	float SliderBarThickness = 14.0f;
+
+	// Сторона бегунка (кружка, который таскают). Отдельно от области нажатия: тянуть можно
+	// в любом месте строки, а бегунок просто должен быть хорошо виден.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Размеры",
+		meta = (DisplayName = "Размер бегунка", ClampMin = "1.0", DisplayPriority = "7"))
+	float SliderHandleSize = 56.0f;
+
 	// --- Кегли шрифтов. Прежние (24/17/15/17) на телефоне давали строку около миллиметра
 	// высотой: читать можно, попасть — нет. ---
 
@@ -181,6 +197,12 @@ public:
 	// по нему строит кодовое дерево, по нему же генератор кладёт размеры в живой ассет,
 	// и его же перебирает автотест по всему перечислению элементов.
 	static FVector2D TouchBoxFor(const FSettingsTouchLayout& Layout, EContrarySettingsControl Control);
+
+	// Вид ползунка: заметная полоска и крупный бегунок. Область нажатия здесь ни при чём —
+	// её задаёт габаритная коробка вокруг ползунка (TouchBoxFor), а ползунок движка ловит
+	// касание по ВСЕЙ своей площади (SSlider::OnMouseButtonDown переводит точку касания в
+	// значение по всей отведённой геометрии). Одно место правды на оба пути, как и размеры.
+	static FSliderStyle MakeSliderStyle(const FSettingsTouchLayout& Layout);
 
 	// «Сообщить об ошибке»: пустой/пробельный адрес в конфиге — пункт спрятан целиком
 	// (то же правило, что у «Сообщества» главного меню — ADR-062).

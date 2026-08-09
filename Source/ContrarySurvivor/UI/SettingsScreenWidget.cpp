@@ -83,6 +83,27 @@ FVector2D USettingsScreenWidget::TouchBoxFor(const FSettingsTouchLayout& Layout,
 	}
 }
 
+FSliderStyle USettingsScreenWidget::MakeSliderStyle(const FSettingsTouchLayout& Layout)
+{
+	// Берём штатный вид движка и правим только толщину полоски и размер бегунка: цвета и
+	// картинки остаются родными, чтобы ползунок не выбивался из остального интерфейса.
+	FSliderStyle Style = FCoreStyle::Get().GetWidgetStyle<FSliderStyle>("Slider");
+	Style.SetBarThickness(FMath::Max(1.0f, Layout.SliderBarThickness));
+
+	const FVector2D HandleSize(FMath::Max(1.0f, Layout.SliderHandleSize),
+		FMath::Max(1.0f, Layout.SliderHandleSize));
+	FSlateBrush Normal = Style.NormalThumbImage;
+	Normal.ImageSize = HandleSize;
+	FSlateBrush Hovered = Style.HoveredThumbImage;
+	Hovered.ImageSize = HandleSize;
+	FSlateBrush Disabled = Style.DisabledThumbImage;
+	Disabled.ImageSize = HandleSize;
+	Style.SetNormalThumbImage(Normal);
+	Style.SetHoveredThumbImage(Hovered);
+	Style.SetDisabledThumbImage(Disabled);
+	return Style;
+}
+
 ESlateVisibility USettingsScreenWidget::ReportBugVisibilityFor(const FString& BugReportUrl)
 {
 	return BugReportUrl.TrimStartAndEnd().IsEmpty()
@@ -699,6 +720,7 @@ USlider* USettingsScreenWidget::MakeRowSlider(UVerticalBox* Column, const FName&
 
 	USlider* Slider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), BaseName);
 	Slider->SetStepSize(0.1f);
+	Slider->SetWidgetStyle(MakeSliderStyle(TouchLayout)); // заметная полоска и крупный бегунок
 	SliderBox->SetContent(Slider);
 	if (UVerticalBoxSlot* SliderSlot = Column->AddChildToVerticalBox(SliderBox))
 	{
@@ -805,6 +827,7 @@ void USettingsScreenWidget::BuildCodeTree()
 		ResolutionSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("ResolutionSlider"));
 		// Шаг ползунка — ровно шаг спеки (10% от 50 до 100 = пять шагов на всю длину).
 		ResolutionSlider->SetStepSize(1.0f / 5.0f);
+		ResolutionSlider->SetWidgetStyle(MakeSliderStyle(TouchLayout));
 		ResBox->SetContent(ResolutionSlider);
 		if (UVerticalBoxSlot* ResSliderSlot = Column->AddChildToVerticalBox(ResBox))
 		{

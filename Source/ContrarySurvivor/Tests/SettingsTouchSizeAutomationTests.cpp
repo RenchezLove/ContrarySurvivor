@@ -113,6 +113,20 @@ bool FSettingsEveryControlFitsFingerTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("Зазор (%.0f) не меньше половины высоты элемента «%s» (%.0f)"),
 			Layout.RowGap, *Name, Box.Y * 0.5f), Layout.RowGap >= Box.Y * 0.5f);
 	}
+
+	// Ползунок: область нажатия у него та же, что у кнопки-строки (проверена перебором выше),
+	// а сама полоска остаётся тонкой на вид — но НЕ волоском. Штатные 2 точки движка на этом
+	// телефоне дают чуть больше одного пикселя: видно плохо, поэтому толщину задаём свою.
+	const FSliderStyle SliderStyle = USettingsScreenWidget::MakeSliderStyle(Layout);
+	TestEqual(TEXT("Толщина полоски ползунка взята из поля"),
+		SliderStyle.BarThickness, Layout.SliderBarThickness);
+	TestTrue(TEXT("Полоска ползунка толще штатного волоска в 2 точки"),
+		SliderStyle.BarThickness > 2.0f);
+	TestTrue(TEXT("Полоска ползунка тоньше половины строки — она не превращается в брусок"),
+		SliderStyle.BarThickness < Layout.MinTouchSize * 0.5f);
+	TestEqual(TEXT("Размер бегунка взят из поля"),
+		static_cast<float>(SliderStyle.NormalThumbImage.ImageSize.X), Layout.SliderHandleSize);
+	TestTrue(TEXT("Бегунок заметный"), Layout.SliderHandleSize >= 24.0f);
 	return true;
 }
 

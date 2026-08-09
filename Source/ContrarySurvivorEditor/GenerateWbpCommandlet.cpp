@@ -2576,6 +2576,8 @@ namespace
 			Box->bIsVariable = true;
 
 			USlider* Slider = Tree->ConstructWidget<USlider>(USlider::StaticClass(), FName(Name));
+			// Полоска заметная, бегунок крупный — вид берётся тем же методом, что в запаске.
+			Slider->SetWidgetStyle(USettingsScreenWidget::MakeSliderStyle(Layout));
 			Slider->bIsVariable = true;
 			Box->SetContent(Slider);
 
@@ -4490,11 +4492,15 @@ namespace
 			}
 			// Габарит держит коробка-обёртка (у кнопки и ползунка своего размера нет).
 			USizeBox* Box = Cast<USizeBox>(Widget->GetParent());
+			// ⚠ В журнал коммандлета русские буквы у лида приходят вопросительными знаками
+			// (кодировка вывода), поэтому в КАЖДОЙ строке провала дублируем суть короткой
+			// латинской сводкой вида `size=WxH need>=N`. Без неё 08-09 разбор ушёл по ложному
+			// следу: из `44 ... 86` прочиталось «высота 44», хотя речь была про ЗАЗОР.
 			if (!Box || !Box->IsWidthOverride() || !Box->IsHeightOverride())
 			{
 				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — у элемента '%s' нет габаритной коробки с заданным размером: под палец он не рассчитан."),
-					AssetName, Entry.WidgetName);
+					TEXT("VERIFY FAIL: %s — у элемента '%s' нет габаритной коробки с заданным размером: под палец он не рассчитан. [%s: no size box]"),
+					AssetName, Entry.WidgetName, Entry.WidgetName);
 				bOk = false;
 				continue;
 			}
@@ -4503,8 +4509,9 @@ namespace
 			if (Width + KINDA_SMALL_NUMBER < Threshold || Height + KINDA_SMALL_NUMBER < Threshold)
 			{
 				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — элемент '%s' мельче порога под палец: %.0fx%.0f при нужных %.0f (это 9 мм на экране 1600x720 при 320 точках на дюйм)."),
-					AssetName, Entry.WidgetName, Width, Height, Threshold);
+					TEXT("VERIFY FAIL: %s — элемент '%s' мельче порога под палец: %.0fx%.0f при нужных %.0f (это 9 мм на экране 1600x720 при 320 точках на дюйм). [%s: size=%.0fx%.0f need>=%.0f]"),
+					AssetName, Entry.WidgetName, Width, Height, Threshold,
+					Entry.WidgetName, Width, Height, Threshold);
 				bOk = false;
 				continue;
 			}
@@ -4516,8 +4523,9 @@ namespace
 				if (GapBelow + KINDA_SMALL_NUMBER < Height * 0.5f)
 				{
 					UE_LOG(LogGenerateWbp, Error,
-						TEXT("VERIFY FAIL: %s — под элементом '%s' зазор %.0f, а нужно не меньше половины его высоты (%.0f)."),
-						AssetName, Entry.WidgetName, GapBelow, Height * 0.5f);
+						TEXT("VERIFY FAIL: %s — под элементом '%s' зазор снизу %.0f, а нужно не меньше %.0f (это половина его высоты %.0f; сама высота в порядке). [%s: gap=%.0f need>=%.0f height=%.0f]"),
+						AssetName, Entry.WidgetName, GapBelow, Height * 0.5f, Height,
+						Entry.WidgetName, GapBelow, Height * 0.5f, Height);
 					bOk = false;
 				}
 			}
@@ -4549,8 +4557,9 @@ namespace
 			if (FontSize < Layout.ButtonFontSize)
 			{
 				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — у подписи '%s' кегль %d, а положено не меньше %d: кнопка крупная, а надпись на ней мелкая."),
-					AssetName, CaptionName, FontSize, Layout.ButtonFontSize);
+					TEXT("VERIFY FAIL: %s — у подписи '%s' кегль %d, а положено не меньше %d: кнопка крупная, а надпись на ней мелкая. [%s: font=%d need>=%d]"),
+					AssetName, CaptionName, FontSize, Layout.ButtonFontSize,
+					CaptionName, FontSize, Layout.ButtonFontSize);
 				bOk = false;
 			}
 		}
