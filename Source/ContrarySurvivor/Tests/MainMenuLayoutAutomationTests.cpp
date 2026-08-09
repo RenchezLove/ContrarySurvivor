@@ -69,6 +69,16 @@ bool FMenuLogoVisibilityTest::RunTest(const FString& Parameters)
 	const TSoftObjectPtr<UTexture2D> SomeTexture(FSoftObjectPath(TEXT("/Game/UI/Logo/T_GameLogo.T_GameLogo")));
 	TestEqual(TEXT("С текстурой логотип виден и касания не перехватывает"),
 		UStartScreenWidget::LogoVisibilityFor(SomeTexture), ESlateVisibility::HitTestInvisible);
+
+	// Размер ячейки обязан держать пропорцию картинки, иначе надпись растянет. Живая
+	// текстура «МАРЕВО» обрезана по надписи: 1024 на 360, это примерно 2.84 к 1.
+	// Тест ловит будущую поломку «поменяли ширину, забыли пересчитать высоту».
+	const FStartScreenStyle DefaultStyle;
+	TestTrue(TEXT("Высота логотипа задана"), DefaultStyle.LogoSize.Y > 0.0f);
+	const float Aspect = DefaultStyle.LogoSize.X / DefaultStyle.LogoSize.Y;
+	TestTrue(FString::Printf(
+		TEXT("Пропорция ячейки логотипа совпадает с картинкой: сейчас %.2f к 1, надо около 2.84"), Aspect),
+		FMath::IsNearlyEqual(Aspect, 1024.0f / 360.0f, 0.05f));
 	return true;
 }
 

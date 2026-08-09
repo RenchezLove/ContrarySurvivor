@@ -301,6 +301,11 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 		LogoImage->SetVisibility(LogoVisibility);
 	}
 
+	// Размер ячейки логотипа — в обоих путях (см. обоснование у ApplyLogoCellSize): это
+	// пропорция картинки, а не вкусовая раскладка. Благодаря этому Ринат крутит размер прямо
+	// на ассете контроллера и видит результат без пересборки окна генератором.
+	ApplyLogoCellSize(Style);
+
 	// Дерево владельца из WBP_StartScreen: цвета/шрифты/размеры — его, код не перекрашивает
 	// (ТЗ Рината 08-07). Тексты переключаются ниже — они зависят от режима переспроса.
 	if (!bDesignerTree)
@@ -533,9 +538,25 @@ void UStartScreenWidget::SetRowVisibility(UWidget* Widget, ESlateVisibility InVi
 	Row->SetVisibility(InVisibility);
 }
 
+void UStartScreenWidget::ApplyLogoCellSize(const FStartScreenStyle& Style)
+{
+	// Размер логотипа — единственная геометрия, которую код ставит и в дизайнерском дереве
+	// (обоснование — у объявления метода: это пропорция картинки, а не раскладка). Нулевой
+	// или отрицательный размер игнорируем: он спрятал бы логотип молча, а поле правит человек.
+	if (!LogoImage || Style.LogoSize.X <= 0.0f || Style.LogoSize.Y <= 0.0f)
+	{
+		return;
+	}
+	if (UCanvasPanelSlot* LogoSlot = Cast<UCanvasPanelSlot>(LogoImage->Slot))
+	{
+		LogoSlot->SetSize(Style.LogoSize);
+	}
+}
+
 void UStartScreenWidget::ApplyCodeTreeLayout(const FStartScreenStyle& Style)
 {
-	// Логотип: прижат к ЛЕВОМУ краю, центр по высоте. Отступ и размер — из стиля.
+	// Логотип: прижат к ЛЕВОМУ краю, центр по высоте. Размер ставит ApplyLogoCellSize —
+	// он общий для обоих путей, здесь только привязка и отступ кодового дерева.
 	if (LogoImage)
 	{
 		if (UCanvasPanelSlot* LogoSlot = Cast<UCanvasPanelSlot>(LogoImage->Slot))
@@ -543,7 +564,6 @@ void UStartScreenWidget::ApplyCodeTreeLayout(const FStartScreenStyle& Style)
 			LogoSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
 			LogoSlot->SetAlignment(FVector2D(0.0f, 0.5f));
 			LogoSlot->SetPosition(FVector2D(Style.LogoLeftMargin, 0.0f));
-			LogoSlot->SetSize(Style.LogoSize);
 		}
 	}
 
