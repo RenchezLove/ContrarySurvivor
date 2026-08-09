@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "PlayerStatsWidget.generated.h"
 
 class UTextBlock;
@@ -21,17 +21,33 @@ class UWidget;
  * — отдельные статичные TextBlock'и в дизайнере, код их не биндит и не трогает.
  * Формат значения — FText с ИМЕНОВАННЫМИ подстановками (порядок слов в языках разный),
  * склейка через FText::Format, числа через FText::AsNumber.
+ *
+ * Скрытие на время главного меню — через базу USelfHidingWidget и ТОЛЬКО извне
+ * (AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel). Почему не сама из NativeTick —
+ * см. комментарий у ApplyMainMenuGate: панель, свернувшая саму себя, теряет тик навсегда.
  */
 UCLASS()
-class CONTRARYSURVIVOR_API UPlayerStatsWidget : public UUserWidget
+class CONTRARYSURVIVOR_API UPlayerStatsWidget : public USelfHidingWidget
 {
 	GENERATED_BODY()
 
 public:
-	// Видимость постоянной панели статов при открытом главном меню (дефект с телефона 08-09:
-	// поверх меню оставались полосы и деньги). Collapsed, а не Hidden: панель не должна ни
-	// рисоваться, ни занимать место. Чистое правило — гоняется автотестом.
-	static ESlateVisibility VisibilityForMainMenu(bool bMainMenuOnScreen);
+	// Показать/спрятать панель на время главного меню (дефект с телефона 08-09: поверх меню
+	// оставались полосы и деньги).
+	//
+	// ⛔ Зовётся ТОЛЬКО ИЗВНЕ — каждый кадр из AContrarySurvivorHUD::DrawHUD и разом в момент
+	// открытия/закрытия меню из контроллера. Сама панель отвечать за это НЕ МОЖЕТ: Slate
+	// тикает только отрисовываемые виджеты (UE 5.5: SWidget::Paint — единственное место
+	// вызова Tick; в режиме инвалидации FSlateInvalidationRoot::PaintFastPath_UpdateNextWidget
+	// пропускает невидимые), поэтому SetVisibility(Collapsed) на самом UUserWidget убивает
+	// его собственный NativeTick и панель уже никогда не разворачивается обратно. Именно так
+	// панель статов пропала с телефона 08-09 (регресс правки ee20959): в журнале живой сессии
+	// диагностика панели напечаталась ровно один раз — в кадре 0, до открытия меню.
+	// Прячется СОДЕРЖИМОЕ (корень дерева), сам виджет остаётся живым и тикающим.
+	void ApplyMainMenuGate(bool bMainMenuOnScreen);
+
+	// Видно ли сейчас содержимое панели (для диагностики HUD и автотестов).
+	bool IsStatsContentVisible() const { return IsContentVisible(); }
 
 	// --- Настройки (Class Defaults WBP_PlayerStats; владение переехало из HUD — ADR-048) ---
 

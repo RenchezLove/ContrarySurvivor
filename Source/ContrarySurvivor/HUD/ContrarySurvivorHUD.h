@@ -125,6 +125,13 @@ public:
 	// создаются один раз на старте, если их слоты назначены.
 	virtual void BeginPlay() override;
 
+	// Показать/спрятать панель статов по признаку «главное меню на экране»
+	// (AContrarySurvivorPlayerController::IsMainMenuOnScreen). Единственный хозяин этого
+	// решения: панель сама себя прятать НЕ может (свернувший себя виджет теряет тик —
+	// см. UPlayerStatsWidget::ApplyMainMenuGate). Зовётся каждый кадр из DrawHUD и разом
+	// из контроллера в момент открытия/закрытия меню и настроек. Повторный вызов бесплатен.
+	void ApplyMainMenuGateToStatsPanel();
+
 	// --- Экран инвентаря (Фаза 4, GDD §7.4) — immediate-mode, без UMG/.uasset ---
 
 	// Открыть/закрыть/переключить экран инвентаря. Вызывается контроллером по клавише.
@@ -1298,6 +1305,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UPlayerStatsWidget> PlayerStatsWidgetInstance;
+
+	// Диагностика панели статов (регресс 08-09 «полос и денег нет вовсе»): пишет живое
+	// состояние панели в журнал при КАЖДОЙ его смене и раз в секунду поверх этого — чтобы
+	// телефонная сессия показывала не один кадр 0, а всю картину до и после меню.
+	void LogStatsPanelDiagnostics(bool bMainMenuOnScreen);
+	FString StatsPanelLastSnapshot;
+	double StatsPanelLastLogTime = -1000.0;
 
 	UPROPERTY()
 	TObjectPtr<UQuestTrackerWidget> QuestTrackerWidgetInstance;

@@ -34,6 +34,8 @@
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
 #include "ContrarySurvivor/Save/ContrarySaveGame.h" // флаги сценки/сообщения конца сюжета (Build 1.2)
 #include "ContrarySurvivor/UI/EndOfStoryWidget.h"   // плашка конца сюжета (Build 1.2)
+#include "Blueprint/WidgetTree.h" // корень дерева панели статов в диагностике
+#include "Components/Widget.h"     // видимость/геометрия кубиков в диагностике
 #include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
 #include "TimerManager.h"     // таймер задержки сообщения конца сюжета
 #include "UObject/ConstructorHelpers.h" // Д2: мягкий FClassFinder WBP_EndOfStory
@@ -87,9 +89,75 @@ void AContrarySurvivorHUD::BeginPlay()
 	}
 }
 
+void AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel()
+{
+	const AContrarySurvivorPlayerController* CSPC =
+		Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController());
+	const bool bMainMenuOnScreen = CSPC && CSPC->IsMainMenuOnScreen();
+
+	if (PlayerStatsWidgetInstance)
+	{
+		PlayerStatsWidgetInstance->ApplyMainMenuGate(bMainMenuOnScreen);
+	}
+
+	LogStatsPanelDiagnostics(bMainMenuOnScreen);
+}
+
+void AContrarySurvivorHUD::LogStatsPanelDiagnostics(bool bMainMenuOnScreen)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Живое (не игровое) время: идёт и на паузе, а меню как раз ставит мир на паузу.
+	const double Now = World->GetRealTimeSeconds();
+
+	auto Describe = [](const UWidget* W) -> FString
+	{
+		if (!W)
+		{
+			return TEXT("НЕТ");
+		}
+		const FVector2D Size = W->GetCachedGeometry().GetLocalSize();
+		return FString::Printf(TEXT("vis=%d geom=%.0fx%.0f"),
+			static_cast<int32>(W->GetVisibility()), Size.X, Size.Y);
+	};
+
+	// Корень дерева панели — именно его прячет гейт (сам виджет обязан оставаться видимым
+	// для Slate, иначе перестанет тикать).
+	const UWidget* ContentRoot = (PlayerStatsWidgetInstance && PlayerStatsWidgetInstance->WidgetTree)
+		? PlayerStatsWidgetInstance->WidgetTree->RootWidget.Get()
+		: nullptr;
+
+	const FString Snapshot = FString::Printf(
+		TEXT("menu=%d панель=%s содержимое=%s путь=%s panel[%s] content[%s] parent[%s]"),
+		bMainMenuOnScreen ? 1 : 0,
+		PlayerStatsWidgetInstance ? TEXT("есть") : TEXT("НЕТ"),
+		(PlayerStatsWidgetInstance && PlayerStatsWidgetInstance->IsStatsContentVisible()) ? TEXT("видно") : TEXT("спрятано"),
+		PlayerStatsWidgetInstance ? TEXT("UMG") : (bMainMenuOnScreen ? TEXT("никто(меню)") : TEXT("Canvas")),
+		*Describe(PlayerStatsWidgetInstance),
+		*Describe(ContentRoot),
+		*Describe(PlayerStatsWidgetInstance ? PlayerStatsWidgetInstance->GetParent() : nullptr));
+
+	// Пишем при каждой СМЕНЕ состояния (в том числе сразу после закрытия меню) и раз в
+	// секунду поверх этого — регресс 08-09 доказан именно тем, что строка не появлялась.
+	if (!Snapshot.Equals(StatsPanelLastSnapshot) || (Now - StatsPanelLastLogTime) >= 1.0)
+	{
+		StatsPanelLastSnapshot = Snapshot;
+		StatsPanelLastLogTime = Now;
+		UE_LOG(LogQA, Display, TEXT("QA: STATS-PANEL %s"), *Snapshot);
+	}
+}
+
 void AContrarySurvivorHUD::DrawHUD()
 {
 	Super::DrawHUD();
+
+	// Гейт панели статов — ДО любых ранних выходов: панель обязана вернуться после меню,
+	// даже если в этом кадре нет холста или мира-игрока.
+	ApplyMainMenuGateToStatsPanel();
 
 	UWorld* World = GetWorld();
 	if (!World || !Canvas)
@@ -188,9 +256,9 @@ void AContrarySurvivorHUD::DrawHUD()
 
 			// ADR-048: при назначенном PlayerStatsWidgetClass статы рисует UMG-панель.
 			// Дефект с телефона 08-09: поверх главного меню оставался игровой интерфейс.
-			// UMG-панель прячется сама (UPlayerStatsWidget::VisibilityForMainMenu), а здесь
-			// тот же гейт для запасного Canvas-пути — иначе при пустом слоте полосы снова
-			// оказались бы поверх меню.
+			// UMG-панель прячет ApplyMainMenuGateToStatsPanel выше, а здесь тот же гейт для
+			// запасного Canvas-пути — иначе при пустом слоте полосы снова оказались бы
+			// поверх меню. Canvas-путь самовосстанавливается сам: DrawHUD идёт каждый кадр.
 			const AContrarySurvivorPlayerController* MenuPC =
 				Cast<AContrarySurvivorPlayerController>(PC);
 			const bool bMainMenuOnScreen = MenuPC && MenuPC->IsMainMenuOnScreen();

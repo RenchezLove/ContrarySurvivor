@@ -21,6 +21,7 @@
 
 #include "ContrarySurvivor/UI/StartScreenWidget.h"
 #include "ContrarySurvivor/UI/PlayerStatsWidget.h"
+#include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "Engine/Texture2D.h"
 
 static constexpr EAutomationTestFlags MenuLayoutTestFlags =
@@ -89,12 +90,16 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStatsPanelHiddenUnderMenuTest,
 
 bool FStatsPanelHiddenUnderMenuTest::RunTest(const FString& Parameters)
 {
-	// Дефект с телефона: поверх главного меню оставались полосы здоровья, голода, жажды и
-	// деньги. Collapsed, а не Hidden — панель не должна ни рисоваться, ни занимать место.
-	TestEqual(TEXT("Меню на экране — панель статов скрыта целиком"),
-		UPlayerStatsWidget::VisibilityForMainMenu(true), ESlateVisibility::Collapsed);
-	TestEqual(TEXT("Меню закрылось — панель вернулась"),
-		UPlayerStatsWidget::VisibilityForMainMenu(false), ESlateVisibility::HitTestInvisible);
+	// Дефект с телефона 08-09: поверх главного меню оставались полосы здоровья, голода,
+	// жажды и деньги. Первое лечение (ee20959) вышло регрессом — панель сворачивала САМА
+	// СЕБЯ и после закрытия меню не возвращалась вообще, потому что свернувший себя виджет
+	// перестаёт получать тик (UE 5.5: Tick зовётся только из SWidget::Paint, а в режиме
+	// инвалидации FSlateInvalidationRoot::PaintFastPath_UpdateNextWidget пропускает
+	// невидимые). Контракт: панель обязана наследовать базу самоскрытия, которая прячет
+	// СОДЕРЖИМОЕ, а не сам виджет. Живой сценарий «спрятали — вернули» — в
+	// ContrarySurvivor.StatsPanelGate.
+	TestTrue(TEXT("Панель статов прячется через базу USelfHidingWidget, а не собой"),
+		UPlayerStatsWidget::StaticClass()->IsChildOf(USelfHidingWidget::StaticClass()));
 	return true;
 }
 

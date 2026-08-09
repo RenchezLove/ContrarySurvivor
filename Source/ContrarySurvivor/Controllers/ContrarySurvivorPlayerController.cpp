@@ -556,6 +556,12 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 	bStartScreenOpen = true;
 	bUIClickConsumed = false;
 
+	// Игровой интерфейс убираем с экрана сразу, не дожидаясь следующего кадра HUD.
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->ApplyMainMenuGateToStatsPanel();
+	}
+
 	if (TouchControlsLayer)
 	{
 		TouchControlsLayer->SetLayerEnabled(false);
@@ -583,6 +589,13 @@ void AContrarySurvivorPlayerController::CloseStartScreen()
 	}
 	bStartScreenOpen = false;
 	bUIClickConsumed = false;
+
+	// Возвращаем панель статов ТУТ ЖЕ. Ждать, что панель вернётся сама, нельзя: свернувший
+	// себя виджет не тикает (регресс 08-09 — полос, голода, жажды и денег не было вовсе).
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->ApplyMainMenuGateToStatsPanel();
+	}
 
 	if (StartScreenWidget)
 	{
@@ -685,6 +698,12 @@ void AContrarySurvivorPlayerController::OpenSettingsScreen()
 	bSettingsScreenOpen = true;
 	bUIClickConsumed = false;
 
+	// Настройки — часть «меню на экране»: гейт панели статов пересчитываем сразу.
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->ApplyMainMenuGateToStatsPanel();
+	}
+
 	if (TouchControlsLayer)
 	{
 		TouchControlsLayer->SetLayerEnabled(false);
@@ -715,6 +734,12 @@ void AContrarySurvivorPlayerController::CloseSettingsScreen()
 	}
 	bSettingsScreenOpen = false;
 	bUIClickConsumed = false;
+
+	// Под настройками штатно остаётся главное меню — гейт пересчитываем, а не «включаем».
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->ApplyMainMenuGateToStatsPanel();
+	}
 
 	if (SettingsScreenWidget)
 	{
