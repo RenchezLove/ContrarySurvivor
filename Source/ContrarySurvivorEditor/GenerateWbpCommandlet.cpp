@@ -6073,37 +6073,51 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 				bOk = false;
 				continue;
 			}
-			// Кубик обязан быть ИМЕНОВАННОЙ ПЕРЕМЕННОЙ окна: без этого его не выбрать в
-			// дизайнере и не настроить (требование Рината 08-09 «сделай их настраиваемыми»).
-			if (!Found->bIsVariable)
-			{
-				UE_LOG(LogGenerateWbp, Error,
-					TEXT("VERIFY FAIL: %s — кубик '%s' не заведён переменной окна: в редакторе его не выбрать и не настроить. [%s: not a variable]"),
-					Spec.AssetName, Cube, Cube);
-				bOk = false;
-			}
 		}
 
-		// Окно отдано владельцу: раскладку он двигает мышкой. Проверяем только СОСТАВ (выше),
-		// а положение, размеры и замки — не наше дело, иначе прогон будет ругаться на его
-		// собственную настройку. Заодно подсказываем, если элемент заперт в контейнере с
-		// автоматической раскладкой: оттуда его мышкой не подвинуть (жалоба про «пунктирную
-		// сетку»), но это предупреждение, а не ошибка — вдруг владелец так и задумал.
+		// --- Окно отдано владельцу: он правит раскладку мышкой. Проверяем только СОСТАВ
+		// (выше) и то, что реально мешает эту раскладку править. Положение и размеры не наше
+		// дело — иначе прогон ругался бы на собственную настройку Рината.
+		//
+		// ⚠ ЧТО ИМЕННО МЕШАЕТ ВЫБРАТЬ ЭЛЕМЕНТ МЫШКОЙ (сверено с движком, а не по здравому
+		// смыслу): ЗАМОК дизайнера и «глазик» — только они выкидывают виджет из сетки выделения
+		// (наш же разбор SDesignerView выше в этом файле). Признак «заведён переменной»
+		// (bIsVariable) к выделению отношения НЕ имеет: редактор берёт его лишь для того, чтобы
+		// создать переменную-член для графа (WidgetBlueprintCompiler.cpp:598-620), и в коде
+		// дизайнера не встречается вовсе. Поэтому замок — ошибка, а «не переменная» — всего лишь
+		// замечание: настроить такой элемент мышкой можно, просто из графа к нему не обратиться.
 		if (Spec.bOwnerOwned)
 		{
 			for (const TCHAR* Cube : Spec.ExpectedCubes)
 			{
 				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(Cube)) : nullptr;
-				const UPanelWidget* Parent = Found ? Found->GetParent() : nullptr;
+				if (!Found)
+				{
+					continue; // о пропаже уже сказано выше
+				}
+				if (Found->IsLockedInDesigner())
+				{
+					UE_LOG(LogGenerateWbp, Error,
+						TEXT("VERIFY FAIL: %s — кубик '%s' замкнут в дизайнере: владелец не сможет его выделить и настроить. [%s: locked]"),
+						Spec.AssetName, Cube, Cube);
+					bOk = false;
+				}
+				const UPanelWidget* Parent = Found->GetParent();
 				if (Parent && !Parent->IsA<UCanvasPanel>())
 				{
 					UE_LOG(LogGenerateWbp, Warning,
 						TEXT("VERIFY %s: '%s' лежит в контейнере %s с автоматической раскладкой — мышкой его не подвинуть. [%s: parent=%s]"),
 						Spec.AssetName, Cube, *Parent->GetClass()->GetName(), Cube, *Parent->GetClass()->GetName());
 				}
+				if (!Found->bIsVariable)
+				{
+					UE_LOG(LogGenerateWbp, Warning,
+						TEXT("VERIFY %s: '%s' не заведён переменной окна — настроить мышкой можно, но из графа к нему не обратиться. [%s: not a variable]"),
+						Spec.AssetName, Cube, Cube);
+				}
 			}
 			UE_LOG(LogGenerateWbp, Display,
-				TEXT("VERIFY %s: окно отдано владельцу — проверен только состав (%d кубиков), к положению и размеру не придираемся."),
+				TEXT("VERIFY %s: окно отдано владельцу — проверен состав (%d кубиков) и что ни один не замкнут; к положению и размеру не придираемся."),
 				Spec.AssetName, static_cast<int32>(Spec.ExpectedCubes.size()));
 			FailCount += bOk ? 0 : 1;
 			continue;
