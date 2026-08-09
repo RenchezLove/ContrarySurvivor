@@ -485,7 +485,12 @@ void AContrarySurvivorPlayerController::StartPauseMusic()
 	USoundBase* Music = PauseMusic.LoadSynchronous();
 	if (!Music)
 	{
-		UE_LOG(LogQA, Warning, TEXT("QA: трек паузы не загрузился ('%s') — пауза будет без музыки"),
+		// Так и вышло на телефоне 08-09: трека в собранном пакете не оказалось вовсе.
+		// Причина типовая, поэтому пишем сразу и её: на МЯГКУЮ ссылку упаковщик не смотрит,
+		// и папку со звуком нужно перечислить в списке обязательной упаковки
+		// (Config/DefaultGame.ini, «Additional Asset Directories to Cook»).
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: трек паузы не загрузился ('%s') — пауза будет без музыки. Если в редакторе он есть, а в собранной игре нет — проверь, что его папка перечислена в списке обязательной упаковки. [pause-music: load failed]"),
 			*PauseMusic.ToString());
 		return;
 	}
@@ -688,12 +693,29 @@ void AContrarySurvivorPlayerController::ApplyWorldAudioGate()
 	LastWorldAudioSweepTime = Now;
 
 	int32 MutedNow = 0;
+	int32 FoundInWorld = 0;
+	int32 SkippedUi = 0;
+	int32 SkippedSilent = 0;
+	int32 SkippedAlreadyPaused = 0;
 	for (TObjectIterator<UAudioComponent> It; It; ++It)
 	{
 		UAudioComponent* Sound = *It;
 		if (!IsValid(Sound) || Sound->GetWorld() != World)
 		{
 			continue; // чужой мир (редактор, другой уровень) — не наше дело
+		}
+		++FoundInWorld;
+		if (Sound->bIsUISound)
+		{
+			++SkippedUi;
+		}
+		else if (!Sound->IsPlaying())
+		{
+			++SkippedSilent;
+		}
+		else if (Sound->bIsPaused)
+		{
+			++SkippedAlreadyPaused;
 		}
 		if (!ShouldSilenceWorldSound(Sound->bIsUISound != 0, Sound->IsPlaying(), Sound->bIsPaused != 0))
 		{
@@ -704,10 +726,20 @@ void AContrarySurvivorPlayerController::ApplyWorldAudioGate()
 		++MutedNow;
 	}
 
-	if (MutedNow > 0)
+	// Разбор ночной сессии 08-09: заглушение отработало, но НИ ОДНОГО звука не нашло
+	// («звуки мира возвращены после меню (0 шт.)»), а птицы у Рината пели. Значит эмбиент
+	// звучит не через аудиокомпонент этого мира — сам список кандидатов и говорит, почему.
+	// Печатаем срез: сколько компонентов вообще нашлось в мире и по какой причине каждый
+	// пропущен. Строка идёт только при СМЕНЕ картины, спама не будет.
+	const FString Snapshot = FString::Printf(
+		TEXT("найдено %d, заглушено %d, пропущено: интерфейсных %d, молчащих %d, уже на паузе %d"),
+		FoundInWorld, MutedNow, SkippedUi, SkippedSilent, SkippedAlreadyPaused);
+	if (!Snapshot.Equals(WorldAudioLastSnapshot))
 	{
-		UE_LOG(LogQA, Display, TEXT("QA: на время меню заглушены звуки мира (%d шт., всего удержано %d)"),
-			MutedNow, MutedWorldSounds.Num());
+		WorldAudioLastSnapshot = Snapshot;
+		UE_LOG(LogQA, Display,
+			TEXT("QA: WORLD-AUDIO под меню: %s [world-audio: found=%d muted=%d ui=%d silent=%d paused=%d]"),
+			*Snapshot, FoundInWorld, MutedNow, SkippedUi, SkippedSilent, SkippedAlreadyPaused);
 	}
 	bWorldAudioMutedByMenu = true;
 }
