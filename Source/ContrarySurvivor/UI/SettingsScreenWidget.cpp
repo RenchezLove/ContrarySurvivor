@@ -703,7 +703,8 @@ USlider* USettingsScreenWidget::MakeRowSlider(UVerticalBox* Column, const FName&
 	if (UVerticalBoxSlot* SliderSlot = Column->AddChildToVerticalBox(SliderBox))
 	{
 		SliderSlot->SetHorizontalAlignment(HAlign_Center);
-		SliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, 0.0f));
+		// Зазор снизу — ПОЛНЫЙ, как у кнопок (проверка живого окна поймала половинный).
+		SliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, TouchLayout.RowGap));
 	}
 
 	OutValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
@@ -808,7 +809,7 @@ void USettingsScreenWidget::BuildCodeTree()
 		if (UVerticalBoxSlot* ResSliderSlot = Column->AddChildToVerticalBox(ResBox))
 		{
 			ResSliderSlot->SetHorizontalAlignment(HAlign_Center);
-			ResSliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, 0.0f));
+			ResSliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, TouchLayout.RowGap));
 		}
 	}
 

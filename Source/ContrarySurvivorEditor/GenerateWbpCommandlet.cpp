@@ -49,6 +49,7 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // -hudslots: слоты UMG-классов HUD (ADR-048)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // -hudslots 08-07: слоты окон контроллера
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
+#include "ContrarySurvivor/UI/IntroObjectiveWidget.h" // строка задачи вступления: вид берём у самого окна
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h" // FSettingsTouchLayout: размеры «под палец» — одно место правды
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
@@ -1215,6 +1216,51 @@ namespace
 			PlateSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
 			PlateSlot->SetAlignment(FVector2D(0.5f, 1.0f));
 			PlateSlot->SetPosition(FVector2D(0.0f, -140.0f));
+			PlateSlot->SetAutoSize(true);
+		}
+		return true;
+	}
+
+	// ----------------------------------------------------------------------
+	// WBP_IntroObjective — строка задачи вступления вверху по центру (переезд с холста
+	// 08-09, просьба Рината «все окна на WBP»). Вид повторяет прежнюю отрисовку холста
+	// (AContrarySurvivorHUD::DrawIntroObjective): плашка и цвет как у трекера задания.
+	// Текст живой ставит код (UIntroObjectiveWidget), здесь образец.
+	// ----------------------------------------------------------------------
+	bool BuildIntroObjective(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// Значения по умолчанию берём у самого окна: правка поля в C++ и пересборка ассета
+		// дают один и тот же вид, расхождению взяться неоткуда.
+		const UIntroObjectiveWidget* Defaults = GetDefault<UIntroObjectiveWidget>();
+		const FLinearColor PlateColor = Defaults ? Defaults->PlateColor : FLinearColor(0.0f, 0.0f, 0.0f, 0.55f);
+		const FLinearColor TextColor = Defaults ? Defaults->ObjectiveColor : FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
+		const int32 FontSize = Defaults ? Defaults->ObjectiveFontSize : 34;
+		const float TopMargin = Defaults ? Defaults->TopMargin : 64.0f;
+
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ObjectivePlate"));
+		Plate->SetBrushColor(PlateColor);
+		Plate->SetPadding(FMargin(18.0f, 8.0f));
+		Plate->SetHorizontalAlignment(HAlign_Center);
+		Plate->SetVerticalAlignment(VAlign_Center);
+		Plate->bIsVariable = true;
+
+		UTextBlock* Objective = MakeText(Tree, Roboto, TEXT("ObjectiveText"),
+			NSLOCTEXT("Intro", "ObjGoVillage", "Впереди деревня. Дойти до неё."),
+			TextColor, FontSize, TEXT("Bold"));
+		Objective->SetJustification(ETextJustify::Center);
+		Objective->bIsVariable = true;
+		Plate->SetContent(Objective);
+
+		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+		{
+			PlateSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+			PlateSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			PlateSlot->SetPosition(FVector2D(0.0f, TopMargin));
 			PlateSlot->SetAutoSize(true);
 		}
 		return true;
@@ -2536,7 +2582,10 @@ namespace
 			if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
 			{
 				BoxSlot->SetHorizontalAlignment(HAlign_Center);
-				BoxSlot->SetPadding(FMargin(0.0f, Layout.RowGap * 0.25f, 0.0f, Layout.RowGap * 0.5f));
+				// Зазор снизу — ПОЛНЫЙ, как у кнопок. Половинного не хватает: проверка окна
+				// поймала это на первой же живой пересборке (44 при нужных 86), а под
+				// ползунком строкой ниже стоит следующий элемент, в который уходил бы промах.
+				BoxSlot->SetPadding(FMargin(0.0f, Layout.RowGap * 0.25f, 0.0f, Layout.RowGap));
 			}
 			return Slider;
 		};
@@ -3023,6 +3072,10 @@ namespace
 		{ TEXT("/Game/UI/WBP_InteractPrompt"), TEXT("WBP_InteractPrompt"),
 			TEXT("/Script/ContrarySurvivor.InteractPromptWidget"), &BuildInteractPrompt,
 			{ TEXT("PromptText") } },
+		// Строка задачи вступления (08-09): последний игровой экран, живший только холстом.
+		{ TEXT("/Game/UI/WBP_IntroObjective"), TEXT("WBP_IntroObjective"),
+			TEXT("/Script/ContrarySurvivor.IntroObjectiveWidget"), &BuildIntroObjective,
+			{ TEXT("ObjectivePlate"), TEXT("ObjectiveText") } },
 		// Build 1.2.1: обёртки SliderQtyAmmoRow в контракте больше нет (текст пересчёта
 		// лежит в своём канвас-слоте, код прячет его напрямую); золотая кнопка теперь
 		// строится в BuildShop — её кубики вошли в контракт.
@@ -4470,11 +4523,44 @@ namespace
 			}
 		}
 
+		// Кегль подписей на кнопках. Проверяем отдельно, потому что размер кнопки и размер
+		// букв на ней теряются по-разному: 08-09 пересборка с включённым переносом значений
+		// владельца принесла из старого ассета мелкий шрифт (16 вместо 36), кнопки при этом
+		// остались крупными — глазами в логе такое не поймать, а на телефоне подпись нечитаема.
+		static const TCHAR* const Captions[] =
+		{
+			TEXT("PresetLowText"), TEXT("PresetMediumText"), TEXT("PresetHighText"), TEXT("PresetAutoText"),
+			TEXT("ResolutionMinusText"), TEXT("ResolutionPlusText"),
+			TEXT("FrameLimitText"), TEXT("FpsCounterText"), TEXT("VibrationText"),
+			TEXT("ReportBugText"), TEXT("ResetProgressText"), TEXT("CloseText"),
+			TEXT("ConfirmYesText"), TEXT("ConfirmNoText"),
+		};
+		for (const TCHAR* CaptionName : Captions)
+		{
+			UTextBlock* Caption = Cast<UTextBlock>(WBP->WidgetTree->FindWidget(FName(CaptionName)));
+			if (!Caption)
+			{
+				UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — подписи '%s' в окне нет."),
+					AssetName, CaptionName);
+				bOk = false;
+				continue;
+			}
+			const int32 FontSize = Caption->GetFont().Size;
+			if (FontSize < Layout.ButtonFontSize)
+			{
+				UE_LOG(LogGenerateWbp, Error,
+					TEXT("VERIFY FAIL: %s — у подписи '%s' кегль %d, а положено не меньше %d: кнопка крупная, а надпись на ней мелкая."),
+					AssetName, CaptionName, FontSize, Layout.ButtonFontSize);
+				bOk = false;
+			}
+		}
+
 		if (bOk)
 		{
 			UE_LOG(LogGenerateWbp, Display,
-				TEXT("VERIFY %s: все %d управляющих элементов не мельче %.0f точек интерфейса (9 мм на телефоне), зазоры не меньше половины высоты."),
-				AssetName, static_cast<int32>(UE_ARRAY_COUNT(Controls)), Threshold);
+				TEXT("VERIFY %s: все %d управляющих элементов не мельче %.0f точек интерфейса (9 мм на телефоне), зазоры не меньше половины высоты, кегль всех %d подписей не меньше %d."),
+				AssetName, static_cast<int32>(UE_ARRAY_COUNT(Controls)), Threshold,
+				static_cast<int32>(UE_ARRAY_COUNT(Captions)), Layout.ButtonFontSize);
 		}
 		return bOk;
 	}
@@ -5469,10 +5555,18 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		// сама генерация). Раскладка меню живёт в коде (BuildStartScreen), и пересборка обязана
 		// класть её целиком. Остальные строки таблицы это НЕ затрагивает.
 		{ TEXT("WBP_StartScreen"), false },
-		// ADR-062 (подход 2 волны меню): экран настроек. Ассета ещё нет вовсе — первым
-		// прогоном его создаёт обычная генерация (-run=GenerateWbp), эта строка нужна для
-		// последующих точечных пересборок `-rebuild -asset=WBP_Settings`.
-		{ TEXT("WBP_Settings"), true },
+		// ADR-062 (подход 2 волны меню): экран настроек, точечная пересборка
+		// `-rebuild -asset=WBP_Settings`.
+		//
+		// ⛔ ПЕРЕНОС ЗНАЧЕНИЙ ВЛАДЕЛЬЦА ВЫКЛЮЧЕН (08-09, разбор перед волной «под палец»).
+		// Причина ровно та же, что у главного меню строкой выше, только пострадали бы не
+		// координаты, а КЕГЛИ: перенос копирует у одноимённых подписей свойство Font
+		// (CollectOwnerStyleProps), а в старом ассете лежат прежние мелкие 24/17/15/16 —
+		// пересборка молча вернула бы их поверх новых 52/42/34/36, и на телефоне всё
+		// осталось бы таким же мелким. Переносить здесь НЕЧЕГО: правок владельца в этом
+		// окне нет (единственный коммит ассета — сама генерация, c4b6753), а вид и размеры
+		// живут в коде (BuildSettings + FSettingsTouchLayout).
+		{ TEXT("WBP_Settings"), false },
 	};
 
 	int32 FailCount = 0;
@@ -5636,6 +5730,8 @@ static const FCdoSlotSpec GCdoSlots[] =
 		TEXT("LimpIndicatorWidgetClass"), TEXT("/Game/UI/WBP_LimpIndicator.WBP_LimpIndicator_C") },
 	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
 		TEXT("MockAdWidgetClass"), TEXT("/Game/UI/WBP_MockAd.WBP_MockAd_C") },
+	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
+		TEXT("IntroObjectiveWidgetClass"), TEXT("/Game/UI/WBP_IntroObjective.WBP_IntroObjective_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
 		TEXT("StartScreenWidgetClass"), TEXT("/Game/UI/WBP_StartScreen.WBP_StartScreen_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
@@ -5654,7 +5750,7 @@ static const TCHAR* GHudWidgetSlotNames[] =
 	TEXT("DeathWidgetClass"), TEXT("PlayerStatsWidgetClass"), TEXT("QuestTrackerWidgetClass"),
 	TEXT("InteractPromptWidgetClass"), TEXT("CorpseLootWidgetClass"),
 	TEXT("DailyRewardWidgetClass"), TEXT("ConsentWidgetClass"), TEXT("OnboardingHintWidgetClass"),
-	TEXT("LimpIndicatorWidgetClass"), TEXT("MockAdWidgetClass"),
+	TEXT("LimpIndicatorWidgetClass"), TEXT("MockAdWidgetClass"), TEXT("IntroObjectiveWidgetClass"),
 };
 
 // Загрузить BP по пути и вернуть CDO его generated-класса (nullptr при любой беде, лог пишется).
