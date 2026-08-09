@@ -221,8 +221,16 @@ bool FCombatWeaponDamageTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Knife CDO"), KnifeCDO);
 	if (!PistolCDO || !KnifeCDO) { return false; }
 
-	TestEqual(TEXT("Pistol damage 25"), PistolCDO->GetDamage(), 25.0f);
-	TestEqual(TEXT("Knife damage 40"), KnifeCDO->GetDamage(), 40.0f);
+	// ⚠ ТОЧНЫЕ ЧИСЛА ЗДЕСЬ НЕ ДЕРЖИМ (решение лида 08-09): урон — предмет настройки, Ринат
+	// крутит его сам, и тест, падающий на каждой его правке, приведёт лишь к тому, что тесты
+	// перестанут читать. Проверяем то, что действительно должно быть верно всегда: урон
+	// проставлен, положителен и в разумных пределах. Игровой смысл (за сколько ударов падает
+	// волк, сколько укусов держит игрок) держит ContrarySurvivor.MeleeWolfBalance — он
+	// переживает подкрутку чисел и ловит именно перекос баланса.
+	TestTrue(TEXT("Урон пистолета проставлен и разумен"),
+		PistolCDO->GetDamage() > 0.0f && PistolCDO->GetDamage() <= 200.0f);
+	TestTrue(TEXT("Урон ножа проставлен и разумен"),
+		KnifeCDO->GetDamage() > 0.0f && KnifeCDO->GetDamage() <= 200.0f);
 
 	return true;
 }
