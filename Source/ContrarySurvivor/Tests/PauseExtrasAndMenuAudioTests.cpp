@@ -21,6 +21,10 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"
 #include "ContrarySurvivor/UI/StartScreenWidget.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/WorldSettings.h"
 
 static constexpr EAutomationTestFlags PauseExtrasTestFlags =
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter;
@@ -84,6 +88,61 @@ bool FMenuWorldAudioSelectionTest::RunTest(const FString& Parameters)
 	// Совсем безнадёжный случай — тоже мимо.
 	TestFalse(TEXT("Интерфейсный и молчащий — мимо"),
 		AContrarySurvivorPlayerController::ShouldSilenceWorldSound(true, false, true));
+	return true;
+}
+
+// --- 3. Лесной фон молчит, пока на экране меню -----------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAmbienceSilencedUnderMenuTest,
+	"ContrarySurvivor.MenuAudio.AmbienceSilencedUnderMenu", PauseExtrasTestFlags)
+
+bool FAmbienceSilencedUnderMenuTest::RunTest(const FString& Parameters)
+{
+	// Живая сессия 08-09: птицы пели поверх меню, потому что лесной фон заведён через
+	// SpawnSound2D и считается ЗВУКОМ ИНТЕРФЕЙСА — общий отбор звуков мира его намеренно
+	// пропускает. Теперь фон глушится напрямую по ссылке, и это правило держит тест.
+	if (!GEngine)
+	{
+		return false;
+	}
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, /*bInformEngineOfWorld=*/false);
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+	FWorldContext& Ctx = GEngine->CreateNewWorldContext(EWorldType::Game);
+	Ctx.SetCurrentWorld(World);
+	const FURL URL;
+	World->InitializeActorsForPlay(URL);
+	World->BeginPlay();
+	if (AWorldSettings* WorldSettings = World->GetWorldSettings())
+	{
+		WorldSettings->NotifyBeginPlay();
+	}
+
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		APlayerCharacter* Player = World->SpawnActor<APlayerCharacter>(
+			APlayerCharacter::StaticClass(), FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator, Params);
+		if (TestNotNull(TEXT("Игрок в тестовом мире создан"), Player))
+		{
+			TestFalse(TEXT("По умолчанию лес звучит"), Player->IsAmbienceSilenced());
+
+			Player->SetAmbienceSilenced(true);
+			TestTrue(TEXT("Меню на экране — лес молчит"), Player->IsAmbienceSilenced());
+
+			// Повторная просьба ничего не ломает: гейт зовётся по каждому событию.
+			Player->SetAmbienceSilenced(true);
+			TestTrue(TEXT("Повторная просьба состояние не портит"), Player->IsAmbienceSilenced());
+
+			Player->SetAmbienceSilenced(false);
+			TestFalse(TEXT("Меню закрылось — лес вернулся"), Player->IsAmbienceSilenced());
+		}
+	}
+
+	GEngine->DestroyWorldContext(World);
+	World->DestroyWorld(/*bInformEngineOfWorld=*/false);
 	return true;
 }
 

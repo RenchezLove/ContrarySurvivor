@@ -357,6 +357,25 @@ void APlayerCharacter::StartAmbience()
         1.0f, 0.0f, nullptr, false, /*bAutoDestroy=*/false);
 }
 
+bool APlayerCharacter::SetAmbienceSilenced(bool bSilenced)
+{
+    if (bSilenced == bAmbienceSilenced)
+    {
+        return false; // уже в нужном состоянии — молчим и ничего не трогаем
+    }
+    bAmbienceSilenced = bSilenced;
+
+    if (!AmbienceComponent)
+    {
+        return false; // фон ещё не заведён (или уже уничтожен) — вернёмся к этому позже
+    }
+
+    // Ставим на паузу, а не останавливаем: при возврате лес продолжится с того же места,
+    // а не начнётся заново с первой птицы.
+    AmbienceComponent->SetPaused(bSilenced);
+    return true;
+}
+
 void APlayerCharacter::ApplyAudioSettings()
 {
     // Зацикленные звуки уже играют — им громкость меняем прямо на компоненте
