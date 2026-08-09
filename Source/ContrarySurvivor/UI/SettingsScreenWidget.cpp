@@ -17,7 +17,6 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
-#include "Engine/UserInterfaceSettings.h" // масштаб интерфейса от размера экрана (порог «под палец»)
 #include "HAL/PlatformProcess.h" // FPlatformProcess::LaunchURL («Сообщить об ошибке»)
 #include "Styling/CoreStyle.h"
 
@@ -41,68 +40,6 @@ namespace
 // ---------------------------------------------------------------------------
 // Чистые правила
 // ---------------------------------------------------------------------------
-
-float USettingsScreenWidget::MinTouchPointsFor(float Millimeters, float ScreenDpi, FIntPoint ViewportSize)
-{
-	// Физический размер -> точки экрана: миллиметры делим на 25.4 (дюйм) и умножаем на плотность.
-	const float DevicePixels = (Millimeters / 25.4f) * FMath::Max(ScreenDpi, 1.0f);
-
-	// Точки экрана -> точки интерфейса: движок множит наши точки на масштаб, который сам
-	// считает по размеру вьюпорта (правило и кривая из настроек проекта). Спрашиваем его,
-	// а не держим свою копию кривой — иначе расчёт разъедется с игрой при первой же правке.
-	float UiScale = 1.0f;
-	if (const UUserInterfaceSettings* UiSettings = GetDefault<UUserInterfaceSettings>())
-	{
-		UiScale = UiSettings->GetDPIScaleBasedOnSize(ViewportSize);
-	}
-	return DevicePixels / FMath::Max(UiScale, 0.01f);
-}
-
-FVector2D USettingsScreenWidget::TouchBoxFor(const FSettingsTouchLayout& Layout, EContrarySettingsControl Control)
-{
-	const float Side = FMath::Max(Layout.MinTouchSize, 1.0f);
-	const float Wide = FMath::Max(Layout.RowWidth, Side);
-
-	switch (Control)
-	{
-	// Кнопки шага масштаба — с одним знаком внутри («−» и «+»), поэтому квадратные:
-	// узкими их делать нельзя, палец должен попадать по обеим сторонам.
-	case EContrarySettingsControl::ResolutionMinus:
-	case EContrarySettingsControl::ResolutionPlus:
-		return FVector2D(Side, Side);
-
-	// Кнопки переспроса стоят парой в своём окошке — им своя ширина.
-	case EContrarySettingsControl::ConfirmYes:
-	case EContrarySettingsControl::ConfirmNo:
-		return FVector2D(FMath::Max(Layout.ConfirmButtonWidth, Side), Side);
-
-	// Всё остальное — строки во всю ширину списка: и кнопки-переключатели, и ползунки.
-	// Ползунку высота нужна не меньше, чем кнопке: тянуть его надо тем же пальцем.
-	default:
-		return FVector2D(Wide, Side);
-	}
-}
-
-FSliderStyle USettingsScreenWidget::MakeSliderStyle(const FSettingsTouchLayout& Layout)
-{
-	// Берём штатный вид движка и правим только толщину полоски и размер бегунка: цвета и
-	// картинки остаются родными, чтобы ползунок не выбивался из остального интерфейса.
-	FSliderStyle Style = FCoreStyle::Get().GetWidgetStyle<FSliderStyle>("Slider");
-	Style.SetBarThickness(FMath::Max(1.0f, Layout.SliderBarThickness));
-
-	const FVector2D HandleSize(FMath::Max(1.0f, Layout.SliderHandleSize),
-		FMath::Max(1.0f, Layout.SliderHandleSize));
-	FSlateBrush Normal = Style.NormalThumbImage;
-	Normal.ImageSize = HandleSize;
-	FSlateBrush Hovered = Style.HoveredThumbImage;
-	Hovered.ImageSize = HandleSize;
-	FSlateBrush Disabled = Style.DisabledThumbImage;
-	Disabled.ImageSize = HandleSize;
-	Style.SetNormalThumbImage(Normal);
-	Style.SetHoveredThumbImage(Hovered);
-	Style.SetDisabledThumbImage(Disabled);
-	return Style;
-}
 
 ESlateVisibility USettingsScreenWidget::ReportBugVisibilityFor(const FString& BugReportUrl)
 {
@@ -657,25 +594,24 @@ UTextBlock* USettingsScreenWidget::MakeSectionHeader(UVerticalBox* Column, const
 {
 	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
 	Header->SetText(Caption);
-	Header->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, TouchLayout.HeaderFontSize)));
+	Header->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Layout.HeaderFontSize)));
 	Header->SetColorAndOpacity(FSlateColor(TitleColor));
 	if (UVerticalBoxSlot* HeaderSlot = Column->AddChildToVerticalBox(Header))
 	{
-		HeaderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap, 0.0f, TouchLayout.RowGap * 0.25f));
+		HeaderSlot->SetPadding(FMargin(0.0f, Layout.SectionGap, 0.0f, Layout.RowGap * 0.75f));
 	}
 	return Header;
 }
 
 UButton* USettingsScreenWidget::MakeRowButton(UVerticalBox* Column, const FName& BaseName,
-	const FText& Caption, TObjectPtr<UTextBlock>& OutCaption, EContrarySettingsControl Control)
+	const FText& Caption, TObjectPtr<UTextBlock>& OutCaption)
 {
 	// SizeBox задаёт габарит под палец (у UButton 5.5 нет SetPadding) — и он же прячется,
 	// когда строка не нужна (иначе в колонке осталось бы пустое место).
-	const FVector2D BoxSize = TouchBoxFor(TouchLayout, Control);
 	USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Box"))));
-	Box->SetWidthOverride(BoxSize.X);
-	Box->SetHeightOverride(BoxSize.Y);
+	Box->SetWidthOverride(Layout.RowButtonSize.X);
+	Box->SetHeightOverride(Layout.RowButtonSize.Y);
 	ButtonBoxes.Add(Box);
 
 	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), BaseName);
@@ -684,7 +620,7 @@ UButton* USettingsScreenWidget::MakeRowButton(UVerticalBox* Column, const FName&
 	OutCaption = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Label"))));
 	OutCaption->SetText(Caption);
-	OutCaption->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, TouchLayout.ButtonFontSize)));
+	OutCaption->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Layout.ButtonFontSize)));
 	OutCaption->SetColorAndOpacity(FSlateColor(ButtonTextColor));
 	OutCaption->SetJustification(ETextJustify::Center);
 	Button->SetContent(OutCaption);
@@ -692,50 +628,35 @@ UButton* USettingsScreenWidget::MakeRowButton(UVerticalBox* Column, const FName&
 	if (UVerticalBoxSlot* BoxSlot = Column->AddChildToVerticalBox(Box))
 	{
 		BoxSlot->SetHorizontalAlignment(HAlign_Center);
-		// Зазор снизу — не меньше половины высоты строки: промах мимо кнопки должен уходить
-		// в пустоту, а не в соседний переключатель.
-		BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap));
+		BoxSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
 	}
 	return Button;
 }
 
 USlider* USettingsScreenWidget::MakeRowSlider(UVerticalBox* Column, const FName& BaseName,
-	const FText& Label, TObjectPtr<UTextBlock>& OutValueText, EContrarySettingsControl Control)
+	const FText& Label, TObjectPtr<UTextBlock>& OutValueText)
 {
 	UTextBlock* LabelText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Caption"))));
 	LabelText->SetText(Label);
-	LabelText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, TouchLayout.LabelFontSize)));
+	LabelText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Layout.LabelFontSize)));
 	LabelText->SetColorAndOpacity(FSlateColor(LabelColor));
 	Column->AddChildToVerticalBox(LabelText);
 
-	// Ползунок тоже в габаритной коробке: тянуть его надо тем же пальцем, что жать кнопки,
-	// а собственная высота USlider — тонкая полоска в пару миллиметров.
-	const FVector2D BoxSize = TouchBoxFor(TouchLayout, Control);
-	USizeBox* SliderBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-		FName(*(BaseName.ToString() + TEXT("Box"))));
-	SliderBox->SetWidthOverride(BoxSize.X);
-	SliderBox->SetHeightOverride(BoxSize.Y);
-	ButtonBoxes.Add(SliderBox);
-
 	USlider* Slider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), BaseName);
 	Slider->SetStepSize(0.1f);
-	Slider->SetWidgetStyle(MakeSliderStyle(TouchLayout)); // заметная полоска и крупный бегунок
-	SliderBox->SetContent(Slider);
-	if (UVerticalBoxSlot* SliderSlot = Column->AddChildToVerticalBox(SliderBox))
+	if (UVerticalBoxSlot* SliderSlot = Column->AddChildToVerticalBox(Slider))
 	{
-		SliderSlot->SetHorizontalAlignment(HAlign_Center);
-		// Зазор снизу — ПОЛНЫЙ, как у кнопок (проверка живого окна поймала половинный).
-		SliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, TouchLayout.RowGap));
+		SliderSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 2.0f));
 	}
 
 	OutValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
 		FName(*(BaseName.ToString() + TEXT("Value"))));
-	OutValueText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, TouchLayout.LabelFontSize)));
+	OutValueText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Layout.LabelFontSize)));
 	OutValueText->SetColorAndOpacity(FSlateColor(ValueColor));
 	if (UVerticalBoxSlot* ValueSlot = Column->AddChildToVerticalBox(OutValueText))
 	{
-		ValueSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap));
+		ValueSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 	}
 	return Slider;
 }
@@ -772,130 +693,111 @@ void USettingsScreenWidget::BuildCodeTree()
 
 	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
 	TitleText->SetText(LOCTEXT("Title", "НАСТРОЙКИ"));
-	TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, TouchLayout.TitleFontSize)));
+	TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Layout.TitleFontSize)));
 	TitleText->SetColorAndOpacity(FSlateColor(TitleColor));
 	if (UVerticalBoxSlot* TitleSlot = Column->AddChildToVerticalBox(TitleText))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Center);
-		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap * 0.5f));
+		TitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 	}
-
-	// Мелкая строка-подпись (не элемент управления): один вид на все такие строки.
-	auto MakeInfoLine = [this, Column](const FName& Name, const FLinearColor& Color) -> UTextBlock*
-	{
-		UTextBlock* Line = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
-		Line->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, TouchLayout.LabelFontSize)));
-		Line->SetColorAndOpacity(FSlateColor(Color));
-		if (UVerticalBoxSlot* LineSlot = Column->AddChildToVerticalBox(Line))
-		{
-			LineSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap * 0.25f));
-		}
-		return Line;
-	};
 
 	// --- Картинка ---
 	GraphicsHeaderText = MakeSectionHeader(Column, TEXT("GraphicsHeaderText"), LOCTEXT("GraphicsHeader", "Картинка"));
 
-	PresetValueText = MakeInfoLine(TEXT("PresetValueText"), ValueColor);
+	PresetValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PresetValueText"));
+	PresetValueText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Layout.LabelFontSize)));
+	PresetValueText->SetColorAndOpacity(FSlateColor(ValueColor));
+	if (UVerticalBoxSlot* PresetSlot = Column->AddChildToVerticalBox(PresetValueText))
+	{
+		PresetSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+	}
 
 	PresetLowButton = MakeRowButton(Column, TEXT("PresetLowButton"),
-		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Low), PresetLowText,
-		EContrarySettingsControl::PresetLow);
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Low), PresetLowText);
 	PresetMediumButton = MakeRowButton(Column, TEXT("PresetMediumButton"),
-		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Medium), PresetMediumText,
-		EContrarySettingsControl::PresetMedium);
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Medium), PresetMediumText);
 	PresetHighButton = MakeRowButton(Column, TEXT("PresetHighButton"),
-		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::High), PresetHighText,
-		EContrarySettingsControl::PresetHigh);
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::High), PresetHighText);
 	PresetAutoButton = MakeRowButton(Column, TEXT("PresetAutoButton"),
-		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Auto), PresetAutoText,
-		EContrarySettingsControl::PresetAuto);
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Auto), PresetAutoText);
 
 	ResolutionLabelText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ResolutionLabelText"));
 	ResolutionLabelText->SetText(LOCTEXT("ResolutionRow", "Масштаб разрешения"));
-	ResolutionLabelText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, TouchLayout.LabelFontSize)));
+	ResolutionLabelText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Layout.LabelFontSize)));
 	ResolutionLabelText->SetColorAndOpacity(FSlateColor(LabelColor));
 	Column->AddChildToVerticalBox(ResolutionLabelText);
 
+	ResolutionSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("ResolutionSlider"));
+	// Шаг ползунка — ровно шаг спеки (10% от 50 до 100 = пять шагов на всю длину).
+	ResolutionSlider->SetStepSize(1.0f / 5.0f);
+	if (UVerticalBoxSlot* ResSliderSlot = Column->AddChildToVerticalBox(ResolutionSlider))
 	{
-		const FVector2D ResBoxSize = TouchBoxFor(TouchLayout, EContrarySettingsControl::ResolutionSlider);
-		USizeBox* ResBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("ResolutionSliderBox"));
-		ResBox->SetWidthOverride(ResBoxSize.X);
-		ResBox->SetHeightOverride(ResBoxSize.Y);
-		ButtonBoxes.Add(ResBox);
-
-		ResolutionSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("ResolutionSlider"));
-		// Шаг ползунка — ровно шаг спеки (10% от 50 до 100 = пять шагов на всю длину).
-		ResolutionSlider->SetStepSize(1.0f / 5.0f);
-		ResolutionSlider->SetWidgetStyle(MakeSliderStyle(TouchLayout));
-		ResBox->SetContent(ResolutionSlider);
-		if (UVerticalBoxSlot* ResSliderSlot = Column->AddChildToVerticalBox(ResBox))
-		{
-			ResSliderSlot->SetHorizontalAlignment(HAlign_Center);
-			ResSliderSlot->SetPadding(FMargin(0.0f, TouchLayout.RowGap * 0.25f, 0.0f, TouchLayout.RowGap));
-		}
+		ResSliderSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 2.0f));
 	}
 
-	ResolutionValueText = MakeInfoLine(TEXT("ResolutionValueText"), ValueColor);
+	ResolutionValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ResolutionValueText"));
+	ResolutionValueText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Layout.LabelFontSize)));
+	ResolutionValueText->SetColorAndOpacity(FSlateColor(ValueColor));
+	Column->AddChildToVerticalBox(ResolutionValueText);
 
 	// Кнопки шага рядом с ползунком: на телефоне точное попадание пальцем в шаг ползунка
-	// неудобно, а шаг фиксированный — «−» и «+» дают его гарантированно. Они квадратные
-	// (в них один знак), но сторона у них та же, что высота строки — палец попадает.
-	ResolutionMinusButton = MakeRowButton(Column, TEXT("ResolutionMinusButton"), LOCTEXT("Minus", "−"),
-		ResolutionMinusText, EContrarySettingsControl::ResolutionMinus);
-	ResolutionPlusButton = MakeRowButton(Column, TEXT("ResolutionPlusButton"), LOCTEXT("Plus", "+"),
-		ResolutionPlusText, EContrarySettingsControl::ResolutionPlus);
+	// неудобно, а шаг фиксированный — «−» и «+» дают его гарантированно.
+	ResolutionMinusButton = MakeRowButton(Column, TEXT("ResolutionMinusButton"), LOCTEXT("Minus", "−"), ResolutionMinusText);
+	ResolutionPlusButton = MakeRowButton(Column, TEXT("ResolutionPlusButton"), LOCTEXT("Plus", "+"), ResolutionPlusText);
+	// Кнопки шага — квадратные, а не во всю строку (в них один знак).
+	auto ShrinkToSmall = [this](UButton* Button)
+	{
+		if (Button)
+		{
+			if (USizeBox* Box = Cast<USizeBox>(Button->GetParent()))
+			{
+				Box->SetWidthOverride(Layout.SmallButtonSize.X);
+				Box->SetHeightOverride(Layout.SmallButtonSize.Y);
+			}
+		}
+	};
+	ShrinkToSmall(ResolutionMinusButton);
+	ShrinkToSmall(ResolutionPlusButton);
 
-	FrameLimitButton = MakeRowButton(Column, TEXT("FrameLimitButton"), FText::GetEmpty(), FrameLimitText,
-		EContrarySettingsControl::FrameLimit);
-	FpsCounterButton = MakeRowButton(Column, TEXT("FpsCounterButton"), FText::GetEmpty(), FpsCounterText,
-		EContrarySettingsControl::FpsCounter);
+	FrameLimitButton = MakeRowButton(Column, TEXT("FrameLimitButton"), FText::GetEmpty(), FrameLimitText);
+	FpsCounterButton = MakeRowButton(Column, TEXT("FpsCounterButton"), FText::GetEmpty(), FpsCounterText);
 
 	// --- Звук ---
 	SoundHeaderText = MakeSectionHeader(Column, TEXT("SoundHeaderText"), LOCTEXT("SoundHeader", "Звук"));
-	MusicSlider = MakeRowSlider(Column, TEXT("MusicSlider"), LOCTEXT("MusicRow", "Громкость музыки"),
-		MusicValueText, EContrarySettingsControl::MusicSlider);
-	EffectsSlider = MakeRowSlider(Column, TEXT("EffectsSlider"), LOCTEXT("EffectsRow", "Громкость эффектов"),
-		EffectsValueText, EContrarySettingsControl::EffectsSlider);
+	MusicSlider = MakeRowSlider(Column, TEXT("MusicSlider"), LOCTEXT("MusicRow", "Громкость музыки"), MusicValueText);
+	EffectsSlider = MakeRowSlider(Column, TEXT("EffectsSlider"), LOCTEXT("EffectsRow", "Громкость эффектов"), EffectsValueText);
 
 	// --- Управление ---
 	ControlsHeaderText = MakeSectionHeader(Column, TEXT("ControlsHeaderText"), LOCTEXT("ControlsHeader", "Управление"));
 	SensitivitySlider = MakeRowSlider(Column, TEXT("SensitivitySlider"),
-		LOCTEXT("SensitivityRow", "Чувствительность управления"), SensitivityValueText,
-		EContrarySettingsControl::SensitivitySlider);
+		LOCTEXT("SensitivityRow", "Чувствительность управления"), SensitivityValueText);
 	OpacitySlider = MakeRowSlider(Column, TEXT("OpacitySlider"),
-		LOCTEXT("OpacityRow", "Прозрачность экранных кнопок"), OpacityValueText,
-		EContrarySettingsControl::OpacitySlider);
-	VibrationButton = MakeRowButton(Column, TEXT("VibrationButton"), FText::GetEmpty(), VibrationText,
-		EContrarySettingsControl::Vibration);
+		LOCTEXT("OpacityRow", "Прозрачность экранных кнопок"), OpacityValueText);
+	VibrationButton = MakeRowButton(Column, TEXT("VibrationButton"), FText::GetEmpty(), VibrationText);
 
 	// --- Прочее ---
 	MiscHeaderText = MakeSectionHeader(Column, TEXT("MiscHeaderText"), LOCTEXT("MiscHeader", "Прочее"));
-	ReportBugButton = MakeRowButton(Column, TEXT("ReportBugButton"), LOCTEXT("ReportBug", "Сообщить об ошибке"),
-		ReportBugText, EContrarySettingsControl::ReportBug);
+	ReportBugButton = MakeRowButton(Column, TEXT("ReportBugButton"), LOCTEXT("ReportBug", "Сообщить об ошибке"), ReportBugText);
 
 	ReportBugHintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ReportBugHintText"));
 	ReportBugHintText->SetAutoWrapText(true);
-	ReportBugHintText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, TouchLayout.LabelFontSize - 4)));
+	ReportBugHintText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 12));
 	ReportBugHintText->SetColorAndOpacity(FSlateColor(LabelColor));
 	if (UVerticalBoxSlot* HintSlot = Column->AddChildToVerticalBox(ReportBugHintText))
 	{
-		HintSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap * 0.5f));
+		HintSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, Layout.RowGap));
 	}
 
 	ResetProgressButton = MakeRowButton(Column, TEXT("ResetProgressButton"),
-		LOCTEXT("ResetProgress", "Сбросить прогресс"), ResetProgressText,
-		EContrarySettingsControl::ResetProgress);
-	CloseButton = MakeRowButton(Column, TEXT("CloseButton"), LOCTEXT("Close", "Назад"), CloseText,
-		EContrarySettingsControl::Close);
+		LOCTEXT("ResetProgress", "Сбросить прогресс"), ResetProgressText);
+	CloseButton = MakeRowButton(Column, TEXT("CloseButton"), LOCTEXT("Close", "Назад"), CloseText);
 
 	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
 	{
 		PanelSlot->SetAnchors(FAnchors(0.5f, 0.5f));
 		PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		PanelSlot->SetPosition(FVector2D::ZeroVector);
-		// Прокрутка требует ограниченной высоты — размер окна берём из настроек «под палец».
-		PanelSlot->SetSize(TouchLayout.PanelSize);
+		PanelSlot->SetSize(Layout.PanelSize); // прокрутка требует ограниченной высоты
 	}
 
 	// --- Панель двойного переспроса поверх экрана (по умолчанию спрятана) ---
@@ -910,17 +812,15 @@ void USettingsScreenWidget::BuildCodeTree()
 	ConfirmTitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ConfirmTitleText"));
 	ConfirmTitleText->SetAutoWrapText(true);
 	ConfirmTitleText->SetJustification(ETextJustify::Center);
-	ConfirmTitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, TouchLayout.HeaderFontSize)));
+	ConfirmTitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Layout.HeaderFontSize)));
 	ConfirmTitleText->SetColorAndOpacity(FSlateColor(TitleColor));
 	if (UVerticalBoxSlot* ConfirmTitleSlot = ConfirmColumn->AddChildToVerticalBox(ConfirmTitleText))
 	{
 		ConfirmTitleSlot->SetHorizontalAlignment(HAlign_Center);
-		ConfirmTitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TouchLayout.RowGap * 0.5f));
+		ConfirmTitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
 	}
-	ConfirmYesButton = MakeRowButton(ConfirmColumn, TEXT("ConfirmYesButton"), FText::GetEmpty(), ConfirmYesText,
-		EContrarySettingsControl::ConfirmYes);
-	ConfirmNoButton = MakeRowButton(ConfirmColumn, TEXT("ConfirmNoButton"), LOCTEXT("ResetNo", "Отмена"), ConfirmNoText,
-		EContrarySettingsControl::ConfirmNo);
+	ConfirmYesButton = MakeRowButton(ConfirmColumn, TEXT("ConfirmYesButton"), FText::GetEmpty(), ConfirmYesText);
+	ConfirmNoButton = MakeRowButton(ConfirmColumn, TEXT("ConfirmNoButton"), LOCTEXT("ResetNo", "Отмена"), ConfirmNoText);
 
 	if (UCanvasPanelSlot* ConfirmSlot = Root->AddChildToCanvas(ConfirmPanel))
 	{
