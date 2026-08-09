@@ -19,6 +19,7 @@
 #include "ContrarySurvivor/UI/PlayerStatsWidget.h"     // ADR-048: постоянная панель статов
 #include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // ADR-048: постоянный трекер квеста
 #include "ContrarySurvivor/UI/InteractPromptWidget.h"  // ADR-048: постоянная подсказка E
+#include "ContrarySurvivor/UI/IntroObjectiveWidget.h"  // ADR-048: строка задачи вступления (08-09)
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"      // Build 1.2.1 (А1): окно обыска трупа
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): контейнер лута трупа
 #include "AArmor.h"               // EArmorSlot, AArmor
@@ -85,6 +86,19 @@ void AContrarySurvivorHUD::BeginPlay()
 		if (InteractPromptWidgetInstance)
 		{
 			InteractPromptWidgetInstance->AddToViewport(/*ZOrder=*/5);
+		}
+	}
+	// Строка задачи вступления (переезд с холста 08-09): слот назначен — окно владельца из
+	// WBP_IntroObjective, пусто — тот же класс с кодовым деревом (приём окна обыска трупа).
+	// Строка задачи нужна игроку с первых минут, оставлять её выключенной из-за пустого
+	// слота нельзя.
+	if (!IntroObjectiveWidgetInstance)
+	{
+		IntroObjectiveWidgetInstance = CreateWidget<UIntroObjectiveWidget>(PC,
+			IntroObjectiveWidgetClass ? IntroObjectiveWidgetClass.Get() : UIntroObjectiveWidget::StaticClass());
+		if (IntroObjectiveWidgetInstance)
+		{
+			IntroObjectiveWidgetInstance->AddToViewport(/*ZOrder=*/5);
 		}
 	}
 }
@@ -247,7 +261,13 @@ void AContrarySurvivorHUD::DrawHUD()
 
 			// Build 1 интро: задача сверху по центру + стрелка на деревню (активны только пока
 			// контроллер их выставил во время интро; после — пусто, ничего не рисуется).
-			DrawIntroObjective();
+			// ADR-048: строку задачи теперь рисует живое окно (UIntroObjectiveWidget), холст
+			// остаётся запаской на случай, если окно почему-то не создалось. Стрелка —
+			// отметка на игровом мире, а не окно: она была и остаётся кодом.
+			if (!IntroObjectiveWidgetInstance)
+			{
+				DrawIntroObjective();
+			}
 			DrawIntroDirectionMarker();
 
 			// Build 1.2: страховка сообщения конца сюжета — разовая проверка флагов сейва

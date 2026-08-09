@@ -228,6 +228,10 @@ public:
 	// Задача интро вверху по центру («Впереди деревня…» → «Найти старосту…»).
 	void SetIntroObjective(const FText& Text) { IntroObjectiveText = Text; }
 
+	// Текущая задача вступления. Её читает живое окно UIntroObjectiveWidget каждый кадр —
+	// само окно ничего не помнит, источник правды один и тот же для окна и для холста.
+	const FText& GetIntroObjective() const { return IntroObjectiveText; }
+
 	// Актор-цель стрелки-направления интро (центр деревни / староста). Реюз маркеров NPC.
 	void SetIntroDirectionTarget(AActor* Target) { IntroDirectionTarget = Target; }
 
@@ -607,6 +611,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "7"))
 	TSubclassOf<UInteractPromptWidget> InteractPromptWidgetClass;
+
+	// Строка задачи вступления вверху по центру (WBP_IntroObjective, переезд с холста 08-09).
+	// ОСОБЕННОСТЬ, как у окна обыска трупа: пустой слот НЕ оставляет игрока без строки —
+	// окно создаётся прямо из C++-класса UIntroObjectiveWidget с кодовым деревом.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "9"))
+	TSubclassOf<class UIntroObjectiveWidget> IntroObjectiveWidgetClass;
 
 	// Окно обыска трупа (WBP_CorpseLoot, Build 1.2.1 ТЗ А1). ОСОБЕННОСТЬ: Canvas-пути у
 	// этого окна нет — пустой слот означает создание виджета прямо из C++-класса
@@ -1318,6 +1328,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UInteractPromptWidget> InteractPromptWidgetInstance;
+
+	UPROPERTY()
+	TObjectPtr<class UIntroObjectiveWidget> IntroObjectiveWidgetInstance;
 
 	bool IsUmgDeathActive() const;
 
