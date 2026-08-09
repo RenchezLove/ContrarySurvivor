@@ -424,6 +424,22 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (DisplayPriority = "1"))
 	FPauseMenuStyle PauseMenuStyle;
 
+	// --- Музыка меню паузы (просьба Рината 08-09: в паузе должен играть трек «The Zone») ---
+
+	// Трек, играющий по кругу, пока открыта пауза. Ссылка МЯГКАЯ: у трека включена подгрузка
+	// по ходу воспроизведения, и держать его в памяти телефона всё время игры незачем —
+	// подтягиваем в момент открытия паузы. Пустое поле означает «музыки в паузе нет».
+	// Зацикливание берётся у самого звука (в ассете оно включено), здесь его не дублируем.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Музыка",
+		meta = (DisplayName = "Трек в паузе (пусто — без музыки)", DisplayPriority = "1"))
+	TSoftObjectPtr<class USoundBase> PauseMusic =
+		TSoftObjectPtr<class USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/Music/S_Music_TheZone.S_Music_TheZone")));
+
+	// Громкость трека паузы: 1 — как записан, 0.5 — вдвое тише.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Музыка",
+		meta = (DisplayName = "Громкость трека в паузе", ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "2"))
+	float PauseMusicVolume = 1.0f;
+
 	// Стиль стартового экрана «Продолжить»/«Новая игра» (Б3) — тот же паттерн настройки
 	// без пересборки, что у меню паузы.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen", meta = (DisplayPriority = "1"))
@@ -867,6 +883,15 @@ private:
 
 	// Признак «мир сейчас заглушен нами» — чтобы не пересчитывать состояние каждый кадр.
 	bool bWorldAudioMutedByMenu = false;
+
+	// Играющий трек паузы (создаётся при открытии, останавливается при закрытии). Держим
+	// ссылкой, иначе сборщик мусора унесёт звук прямо во время игры.
+	UPROPERTY()
+	TObjectPtr<class UAudioComponent> PauseMusicComponent;
+
+	// Завести и остановить музыку паузы (зовут OpenPauseMenu/ClosePauseMenu).
+	void StartPauseMusic();
+	void StopPauseMusic();
 
 	// Когда в последний раз проверяли мир на новые звуки (живое время, идёт и на паузе).
 	double LastWorldAudioSweepTime = -1000.0;

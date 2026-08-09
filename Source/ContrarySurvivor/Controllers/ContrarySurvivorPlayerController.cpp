@@ -21,9 +21,8 @@
 #include "Components/CapsuleComponent.h"              // QA: halfHeight капсулы (телепорт V)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "Components/AudioComponent.h" // заглушение звуков мира на время меню (08-09)
+#include "Sound/SoundBase.h"                 // трек музыки паузы (мягкая ссылка)
 #include "UObject/UObjectIterator.h"    // обход живых звуков мира
-#include "Components/AudioComponent.h" // заглушение звуков мира на время меню (08-09)
-#include "UObject/UObjectIterator.h"           // обход живых звуков мира
 #include "ContrarySurvivor/Actors/ShopTypes.h"          // FShopEntry (каталог в OnQABuyCheapest, A2)
 #include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
@@ -448,6 +447,9 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 	bPauseMenuOpen = true;
 	bUIClickConsumed = false;
 
+	// Музыка паузы: звучит по кругу, пока панель на экране (просьба Рината 08-09).
+	StartPauseMusic();
+
 	// Тач-слой прячем: стик не рисуется поверх затемнения, зажатый стик сбрасывается.
 	if (TouchControlsLayer)
 	{
@@ -467,6 +469,52 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu OPEN (world paused)"));
 }
 
+void AContrarySurvivorPlayerController::StartPauseMusic()
+{
+	if (PauseMusic.IsNull())
+	{
+		return; // поле пустое — музыки в паузе нет, это допустимая настройка
+	}
+	if (PauseMusicComponent && PauseMusicComponent->IsPlaying())
+	{
+		return; // уже играет (пауза могла открыться поверх другой модалки)
+	}
+
+	// Подтягиваем звук в момент открытия паузы: ссылка мягкая, потому что у трека включена
+	// подгрузка по ходу воспроизведения и держать его в памяти телефона всю игру незачем.
+	USoundBase* Music = PauseMusic.LoadSynchronous();
+	if (!Music)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: трек паузы не загрузился ('%s') — пауза будет без музыки"),
+			*PauseMusic.ToString());
+		return;
+	}
+
+	// SpawnSound2D — ровно то, что нужно на паузе: звук плоский (без привязки к точке мира)
+	// и помечается движком как ЗВУК ИНТЕРФЕЙСА (GameplayStatics.cpp:1669). Именно поэтому он
+	// продолжает звучать при остановленном мире: на паузе движок глушит только звуки самого
+	// мира (FAudioDevice::HandlePause, AudioDevice.cpp:4438 — звуки интерфейса не трогает).
+	// Зацикливание берётся из самого ассета звука.
+	PauseMusicComponent = UGameplayStatics::SpawnSound2D(this, Music,
+		FMath::Max(0.0f, PauseMusicVolume), /*PitchMultiplier=*/1.0f, /*StartTime=*/0.0f,
+		/*ConcurrencySettings=*/nullptr, /*bPersistAcrossLevelTransition=*/false,
+		/*bAutoDestroy=*/false);
+
+	UE_LOG(LogQA, Display, TEXT("QA: музыка паузы включена ('%s', громкость %.2f)"),
+		*Music->GetName(), PauseMusicVolume);
+}
+
+void AContrarySurvivorPlayerController::StopPauseMusic()
+{
+	if (!PauseMusicComponent)
+	{
+		return;
+	}
+	PauseMusicComponent->Stop();
+	PauseMusicComponent = nullptr; // создан с bAutoDestroy=false — освобождаем ссылку сами
+	UE_LOG(LogQA, Display, TEXT("QA: музыка паузы выключена"));
+}
+
 void AContrarySurvivorPlayerController::ClosePauseMenu()
 {
 	if (!bPauseMenuOpen)
@@ -475,6 +523,8 @@ void AContrarySurvivorPlayerController::ClosePauseMenu()
 	}
 	bPauseMenuOpen = false;
 	bUIClickConsumed = false;
+
+	StopPauseMusic();
 
 	if (PauseMenuWidget)
 	{
