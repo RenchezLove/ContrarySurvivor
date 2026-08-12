@@ -154,6 +154,9 @@ void USupportAuthorWidget::NativeOnInitialized()
 
 void USupportAuthorWidget::BuildCodeTree()
 {
+	// Отметка «дерево наше» — по ней и только по ней ApplyStyle решает, что можно красить.
+	bCodeTreeBuilt = true;
+
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("SupportRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -286,8 +289,13 @@ void USupportAuthorWidget::ApplyStyle(const FSupportAuthorStyle& Style)
 	if (CloseText)       { CloseText->SetText(Style.CloseText); }
 	if (ThanksText)      { ThanksText->SetText(Style.ThanksText); }
 
-	// Дерево из дизайнера красит владелец мышкой — код туда не лезет.
-	if (bDesignerTree)
+	// ⛔ ДАЛЬШЕ — ТОЛЬКО ОФОРМЛЕНИЕ, И ТОЛЬКО ДЛЯ ДЕРЕВА, КОТОРОЕ ПОСТРОИЛИ МЫ САМИ.
+	// Окно отдано владельцу: его цвета, кегли, размеры и положения ставит Ринат мышкой, и они
+	// обязаны пережить запуск игры. Проверяем именно «мы это построили», а не «это дизайнер»:
+	// признак дерева из дизайнера ставится в NativeOnInitialized, а движок 5.5 зовёт её только
+	// при живом игровом контексте (UserWidget.cpp:159-163), тогда как ApplyStyle владелец зовёт
+	// сразу после создания окна. Не построили сами — не трогаем ничего, кроме текстов выше.
+	if (!bCodeTreeBuilt)
 	{
 		return;
 	}

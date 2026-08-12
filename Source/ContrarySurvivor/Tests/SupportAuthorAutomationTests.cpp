@@ -33,6 +33,10 @@
 #include "UInventoryComponent.h"
 #include "Blueprint/UserWidget.h"    // CreateWidget: окно из живого ассета дизайнера
 #include "Components/Widget.h"       // перебор полей-кубиков по типу
+#include "Components/Border.h"       // снимок цвета подложки
+#include "Components/Button.h"       // снимок заливки кнопки
+#include "Components/CanvasPanelSlot.h" // снимок положения и размера в холсте
+#include "Components/TextBlock.h"    // снимок цвета, кегля и текста подписей
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/WorldSettings.h"
@@ -353,6 +357,244 @@ bool FSupportDesignerAssetBindsToCodeTest::RunTest(const FString& Parameters)
 	}
 
 	SupportAuthorTestWorld::Destroy(World);
+	return true;
+}
+
+// --- 9. Правки владельца мышкой переживают запуск игры ---------------------------------------
+//
+// Окно отдано владельцу: Ринат двигает и красит его элементы мышкой. Значит на дереве из
+// дизайнера код НЕ имеет права трогать ни геометрию, ни цвета, ни шрифты — иначе первый же
+// запуск игры молча вернёт всё к своим значениям, и вся ручная настройка пропадёт. Тексты —
+// наоборот, обязаны приезжать из настроек: это данные задания издателя, а не оформление.
+//
+// Проверяем самым честным способом: снимаем состояние живого ассета, зовём ApplyStyle со
+// стилем, у которого ВСЁ другое, и сверяем снимки.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportOwnerEditsSurviveApplyStyleTest,
+	"ContrarySurvivor.SupportAuthor.OwnerEditsSurviveApplyStyle", SupportAuthorTestFlags)
+
+bool FSupportOwnerEditsSurviveApplyStyleTest::RunTest(const FString& Parameters)
+{
+	UClass* AssetClass = StaticLoadClass(USupportAuthorWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_SupportAuthor.WBP_SupportAuthor_C"));
+	if (!TestNotNull(TEXT("Ассет окна загрузился"), AssetClass))
+	{
+		return false;
+	}
+	UWorld* World = SupportAuthorTestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	USupportAuthorWidget* Widget = CreateWidget<USupportAuthorWidget>(World, AssetClass);
+	if (TestNotNull(TEXT("Окно из готового ассета создалось"), Widget))
+	{
+		// Снимок «до»: положение и размер каждого элемента в холсте.
+		struct FGeometrySnapshot
+		{
+			FName Name;
+			FVector2D Position = FVector2D::ZeroVector;
+			FVector2D Size = FVector2D::ZeroVector;
+		};
+		const TCHAR* CanvasCubes[] =
+		{
+			TEXT("PanelPlate"), TEXT("TitleText"), TEXT("MessageText"),
+			TEXT("WatchAdButton"), TEXT("SupportLinkButton"), TEXT("CloseButton"), TEXT("ThanksText"),
+		};
+		TArray<FGeometrySnapshot> Before;
+		for (const TCHAR* CubeName : CanvasCubes)
+		{
+			UWidget* Cube = Widget->GetWidgetFromName(FName(CubeName));
+			if (!TestNotNull(*FString::Printf(TEXT("Кубик «%s» есть в окне"), CubeName), Cube))
+			{
+				continue;
+			}
+			UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Cube->Slot);
+			if (!TestNotNull(*FString::Printf(
+				TEXT("Кубик «%s» лежит прямо в холсте — иначе мышкой его не подвинуть"), CubeName),
+				CanvasSlot))
+			{
+				continue;
+			}
+			Before.Add({ FName(CubeName), CanvasSlot->GetPosition(), CanvasSlot->GetSize() });
+		}
+		TestEqual(TEXT("Сняли геометрию всех элементов холста"),
+			Before.Num(), static_cast<int32>(UE_ARRAY_COUNT(CanvasCubes)));
+
+		// Снимок «до»: оформление. Берём по одному представителю каждого вида.
+		UTextBlock* Title = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("TitleText")));
+		UBorder* Plate = Cast<UBorder>(Widget->GetWidgetFromName(TEXT("PanelPlate")));
+		UButton* WatchAd = Cast<UButton>(Widget->GetWidgetFromName(TEXT("WatchAdButton")));
+		if (!Title || !Plate || !WatchAd)
+		{
+			AddError(TEXT("Не нашлись элементы для снимка оформления"));
+			SupportAuthorTestWorld::Destroy(World);
+			return false;
+		}
+		const FLinearColor TitleColorBefore = Title->GetColorAndOpacity().GetSpecifiedColor();
+		// ⚠ Кегль шрифта в движке 5.5 — ДРОБНОЕ число (FSlateFontInfo::Size, float), а не целое.
+		const float TitleFontSizeBefore = Title->GetFont().Size;
+		const FLinearColor PlateColorBefore = Plate->GetBrushColor();
+		const FLinearColor WatchFillBefore = WatchAd->GetStyle().Normal.TintColor.GetSpecifiedColor();
+
+		// Стиль, у которого НЕ СОВПАДАЕТ НИЧЕГО: и цвета, и размеры, и шрифты, и тексты.
+		FSupportAuthorStyle Alien;
+		Alien.TitleColor = FLinearColor(1.0f, 0.0f, 1.0f, 1.0f);
+		Alien.MessageColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f);
+		Alien.PanelColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
+		Alien.FrameColor = FLinearColor(0.0f, 0.0f, 1.0f, 1.0f);
+		Alien.ButtonFillColor = FLinearColor(0.0f, 1.0f, 1.0f, 1.0f);
+		Alien.ButtonTextColor = FLinearColor(1.0f, 1.0f, 0.0f, 1.0f);
+		Alien.TitleFontSize = 99;
+		Alien.MessageFontSize = 98;
+		Alien.ButtonFontSize = 97;
+		Alien.ButtonSize = FVector2D(123.0f, 456.0f);
+		Alien.WindowWidth = 1234.0f;
+		Alien.TitleText = FText::FromString(TEXT("ЗАГОЛОВОК ИЗ НАСТРОЕК"));
+		Alien.WatchAdText = FText::FromString(TEXT("ПОДПИСЬ ИЗ НАСТРОЕК"));
+
+		Widget->ApplyStyle(Alien);
+
+		// Геометрия обязана остаться ровно той же — до последней точки.
+		for (const FGeometrySnapshot& Snapshot : Before)
+		{
+			UWidget* Cube = Widget->GetWidgetFromName(Snapshot.Name);
+			UCanvasPanelSlot* CanvasSlot = Cube ? Cast<UCanvasPanelSlot>(Cube->Slot) : nullptr;
+			if (!CanvasSlot)
+			{
+				continue;
+			}
+			TestEqual(*FString::Printf(TEXT("«%s» остался на своём месте"), *Snapshot.Name.ToString()),
+				CanvasSlot->GetPosition(), Snapshot.Position);
+			TestEqual(*FString::Printf(TEXT("«%s» остался прежнего размера"), *Snapshot.Name.ToString()),
+				CanvasSlot->GetSize(), Snapshot.Size);
+		}
+
+		// Оформление тоже: код не перекрашивает окно владельца и не меняет кегли.
+		TestEqual(TEXT("Цвет заголовка не тронут"),
+			Title->GetColorAndOpacity().GetSpecifiedColor(), TitleColorBefore);
+		TestEqual(TEXT("Кегль заголовка не тронут"), Title->GetFont().Size, TitleFontSizeBefore);
+		TestEqual(TEXT("Цвет подложки не тронут"), Plate->GetBrushColor(), PlateColorBefore);
+		TestEqual(TEXT("Заливка кнопки не тронута"),
+			WatchAd->GetStyle().Normal.TintColor.GetSpecifiedColor(), WatchFillBefore);
+
+		// А вот тексты приехать ОБЯЗАНЫ: это данные задания издателя, а не оформление.
+		if (UTextBlock* WatchCaption = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("WatchAdText"))))
+		{
+			TestEqual(TEXT("Подпись кнопки приехала из настроек"),
+				WatchCaption->GetText().ToString(), Alien.WatchAdText.ToString());
+		}
+		TestEqual(TEXT("Заголовок приехал из настроек"),
+			Title->GetText().ToString(), Alien.TitleText.ToString());
+	}
+
+	SupportAuthorTestWorld::Destroy(World);
+	return true;
+}
+
+// --- 10. «Кнопки нет вовсе» работает и в окне из дизайнера ------------------------------------
+//
+// Побочное следствие плоского холста: положения там фиксированные, поэтому спрятанная кнопка
+// просмотра САМА не подтянет вторую вверх — на её месте осталась бы дыра, а условие задания
+// требует, чтобы окно осталось с одной кнопкой, без пустого места. Поэтому вторая кнопка
+// переезжает на место первой и возвращается назад, когда ролик снова готов.
+//
+// ⚠ Родное место кнопки снимается ОДИН раз, до первого переезда: возврат обязан класть её
+// туда, куда её поставил владелец мышкой, а не туда, где она оказалась после переезда.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportNoGapWhenWatchAdHiddenTest,
+	"ContrarySurvivor.SupportAuthor.NoEmptyGapWhenWatchAdHidden", SupportAuthorTestFlags)
+
+bool FSupportNoGapWhenWatchAdHiddenTest::RunTest(const FString& Parameters)
+{
+	UClass* AssetClass = StaticLoadClass(USupportAuthorWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_SupportAuthor.WBP_SupportAuthor_C"));
+	if (!TestNotNull(TEXT("Ассет окна загрузился"), AssetClass))
+	{
+		return false;
+	}
+	UWorld* World = SupportAuthorTestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	USupportAuthorWidget* Widget = CreateWidget<USupportAuthorWidget>(World, AssetClass);
+	if (TestNotNull(TEXT("Окно из готового ассета создалось"), Widget))
+	{
+		UWidget* WatchAd = Widget->GetWidgetFromName(TEXT("WatchAdButton"));
+		UWidget* Link = Widget->GetWidgetFromName(TEXT("SupportLinkButton"));
+		UCanvasPanelSlot* WatchSlot = WatchAd ? Cast<UCanvasPanelSlot>(WatchAd->Slot) : nullptr;
+		UCanvasPanelSlot* LinkSlot = Link ? Cast<UCanvasPanelSlot>(Link->Slot) : nullptr;
+
+		if (TestNotNull(TEXT("Кнопка просмотра лежит в холсте"), WatchSlot)
+			&& TestNotNull(TEXT("Кнопка ссылки лежит в холсте"), LinkSlot))
+		{
+			const FVector2D WatchHome = WatchSlot->GetPosition();
+			const FVector2D LinkHome = LinkSlot->GetPosition();
+
+			// Порядок из задания: просмотр рекламы стоит ВЫШЕ второй кнопки.
+			TestTrue(TEXT("«Посмотреть рекламу» стоит выше «Другие способы поддержать»"),
+				WatchHome.Y < LinkHome.Y);
+
+			// Ролик не готов: кнопки нет вовсе, а вторая занимает её место — дыры не остаётся.
+			Widget->SetAdAvailable(false);
+			TestEqual(TEXT("Кнопки просмотра нет вовсе"),
+				WatchAd->GetVisibility(), ESlateVisibility::Collapsed);
+			TestEqual(TEXT("Вторая кнопка заняла освободившееся место — пустого места нет"),
+				LinkSlot->GetPosition(), WatchHome);
+
+			// Ролик снова готов: обе кнопки на своих родных местах.
+			Widget->SetAdAvailable(true);
+			TestEqual(TEXT("Кнопка просмотра вернулась"),
+				WatchAd->GetVisibility(), ESlateVisibility::Visible);
+			TestEqual(TEXT("Вторая кнопка вернулась на своё родное место"),
+				LinkSlot->GetPosition(), LinkHome);
+			TestEqual(TEXT("Кнопка просмотра со своего места не двигалась"),
+				WatchSlot->GetPosition(), WatchHome);
+
+			// Повторный круг: место не «уползает» от того, что его пересчитали дважды.
+			Widget->SetAdAvailable(false);
+			Widget->SetAdAvailable(true);
+			TestEqual(TEXT("После второго круга вторая кнопка всё там же"),
+				LinkSlot->GetPosition(), LinkHome);
+		}
+	}
+
+	SupportAuthorTestWorld::Destroy(World);
+	return true;
+}
+
+// --- 11. Пропал ассет — окно всё равно собирается кодом --------------------------------------
+//
+// Кодовая запаска остаётся на своём месте: если ассет потеряется или слот окажется пуст,
+// игрок обязан увидеть работающее окно, а не пустоту.
+//
+// ⚠ ЧТО ИМЕННО ЗДЕСЬ ПРОВЕРЯЕТСЯ, а что нет. Проверяется ВЫБОР класса — та часть, которая
+// может сломаться молча (кто-нибудь однажды уберёт запасную ветку, и при пустом слоте окно
+// просто не создастся). САМА сборка дерева кодом headless НЕ проверяется и проверена быть не
+// может: движок 5.5 зовёт NativeOnInitialized только при живом игровом контексте
+// (UserWidget.cpp:159-163), которого у тестового мира нет. Это к живой проверке на устройстве.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportCodeFallbackChosenTest,
+	"ContrarySurvivor.SupportAuthor.CodeFallbackChosenWhenAssetMissing", SupportAuthorTestFlags)
+
+bool FSupportCodeFallbackChosenTest::RunTest(const FString& Parameters)
+{
+	// Слот пуст (ассета нет или его не назначили) — берём C++-класс, а не ничего.
+	TestEqual(TEXT("Слот пуст — окно собирается кодом"),
+		AContrarySurvivorPlayerController::ResolveSupportWidgetClass(nullptr),
+		USupportAuthorWidget::StaticClass());
+
+	// Ассет на месте — берём его, запаска в это не вмешивается.
+	UClass* AssetClass = StaticLoadClass(USupportAuthorWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_SupportAuthor.WBP_SupportAuthor_C"));
+	if (TestNotNull(TEXT("Ассет окна загрузился"), AssetClass))
+	{
+		TestEqual(TEXT("Ассет назначен — берём его"),
+			AContrarySurvivorPlayerController::ResolveSupportWidgetClass(AssetClass), AssetClass);
+	}
 	return true;
 }
 

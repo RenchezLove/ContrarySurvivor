@@ -1255,6 +1255,13 @@ void AContrarySurvivorPlayerController::HandleSettingsResetProgress()
 //   • ролик не готов — кнопки просмотра нет вовсе, окно остаётся с одной кнопкой.
 // ---------------------------------------------------------------------------
 
+UClass* AContrarySurvivorPlayerController::ResolveSupportWidgetClass(UClass* AssignedClass)
+{
+	// ⛔ Запаску НЕ выбрасывать: пропал ассет или не заполнен слот — окно собирается кодом
+	// (USupportAuthorWidget::BuildCodeTree), и игрок видит рабочее окно, а не пустоту.
+	return AssignedClass ? AssignedClass : USupportAuthorWidget::StaticClass();
+}
+
 void AContrarySurvivorPlayerController::HandleMainMenuSupportRequested()
 {
 	OpenSupportScreen(UAnalyticsSubsystem::SupportSourceMainMenu());
@@ -1276,7 +1283,7 @@ void AContrarySurvivorPlayerController::OpenSupportScreen(const FString& Source)
 	{
 		// Слот назначен — окно из готового ассета; пуст — кодовое дерево-запаска.
 		SupportScreenWidget = CreateWidget<USupportAuthorWidget>(this,
-			SupportWidgetClass ? SupportWidgetClass.Get() : USupportAuthorWidget::StaticClass());
+			ResolveSupportWidgetClass(SupportWidgetClass));
 		if (!SupportScreenWidget)
 		{
 			// Окно не создалось — молча остаёмся там, где были. Игру не блокируем.

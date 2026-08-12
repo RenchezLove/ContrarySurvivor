@@ -3313,12 +3313,20 @@ namespace
 		// Раскладка плоская, каждый элемент — прямой ребёнок холста: требование Рината
 		// «чтобы всё легко двигалось мышкой, без пунктирной таблицы-подложки». Подробности —
 		// в шапке BuildSupportAuthor.
+		//
+		// ⛔ ОТДАНО ВЛАДЕЛЬЦУ (решение 12.08.2026): Ринат правит это окно мышкой, поэтому
+		// генератор его больше НЕ пересобирает и НЕ перезаписывает даже с -force. Создать с
+		// нуля он его может (это случай «файла нет вовсе»), дополнять — только -augment.
+		// Проверка -verify по такому окну смотрит ровно то, что и есть критерий приёмки:
+		// весь ли состав на месте и не замкнут ли какой-нибудь элемент в дизайнере (замок —
+		// единственное, что реально мешает выделить элемент мышкой).
 		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"),
 			TEXT("/Script/ContrarySurvivor.SupportAuthorWidget"), &BuildSupportAuthor,
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("MessageText"),
 			  TEXT("WatchAdButton"), TEXT("WatchAdText"),
 			  TEXT("SupportLinkButton"), TEXT("SupportLinkText"),
-			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") } },
+			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") },
+			/*bOwnerOwned=*/true },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -3863,6 +3871,9 @@ namespace
 			{ TEXT("WidthBox"), TEXT("Plate"), TEXT("IndicatorText") } },
 		// Окно «Поддержать автора»: замков нет вовсе — двигать и настраивать мышкой можно
 		// каждый элемент, включая подписи внутри кнопок (прямое требование Рината 12.08.2026).
+		// ⚠ Пока окно отдано владельцу, эта запись не работает: проверка таких окон уходит по
+		// своей ветке раньше (там своя, более строгая проверка замков). Держим её записанной на
+		// случай, если окно однажды заберут обратно — так же, как у паузы и настроек.
 		{ TEXT("WBP_SupportAuthor"),
 			{ },
 			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("MessageText"),
