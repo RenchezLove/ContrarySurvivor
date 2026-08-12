@@ -138,6 +138,14 @@ void USupportAuthorWidget::NativeOnInitialized()
 		CloseButton->OnClicked.AddDynamic(this, &USupportAuthorWidget::HandleCloseClicked);
 	}
 
+	// Строка благодарности всегда стартует спрятанной — в ОБОИХ путях. В готовом окне она
+	// намеренно оставлена видимой, чтобы владельцу было за что взяться мышкой в дизайнере
+	// (тот же приём, что у логотипа главного меню), поэтому прячем её здесь, а не в ассете.
+	if (ThanksText)
+	{
+		ThanksText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
 	if (!bDesignerTree)
 	{
 		ApplyStyle(CachedStyle);
@@ -221,9 +229,9 @@ void USupportAuthorWidget::BuildCodeTree()
 	}
 
 	// Строка благодарности — под кнопками, спрятана до просмотра ролика.
+	// Прятать её здесь не нужно: это делает NativeOnInitialized сразу для обоих путей.
 	ThanksText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ThanksText"));
 	ThanksText->SetJustification(ETextJustify::Center);
-	ThanksText->SetVisibility(ESlateVisibility::Collapsed);
 	if (UVerticalBoxSlot* ThanksSlot = Column->AddChildToVerticalBox(ThanksText))
 	{
 		ThanksSlot->SetHorizontalAlignment(HAlign_Center);
@@ -330,7 +338,34 @@ void USupportAuthorWidget::ApplyStyle(const FSupportAuthorStyle& Style)
 void USupportAuthorWidget::SetAdAvailable(bool bInAdAvailable)
 {
 	bAdAvailable = bInAdAvailable;
-	SetRowVisibility(WatchAdButton, WatchAdVisibilityFor(ShouldShowWatchAdButton(bAdAvailable)));
+	const bool bShowWatchAd = ShouldShowWatchAdButton(bAdAvailable);
+	SetRowVisibility(WatchAdButton, WatchAdVisibilityFor(bShowWatchAd));
+	ApplySingleButtonLayout(bShowWatchAd);
+}
+
+void USupportAuthorWidget::ApplySingleButtonLayout(bool bWatchAdVisible)
+{
+	// В кодовом дереве-запаске кнопки лежат в вертикальном ящике: он смыкается сам, слоты у
+	// кнопок не канвасные, и двигать здесь нечего. В окне из дизайнера — наоборот.
+	UCanvasPanelSlot* LinkSlot = SupportLinkButton
+		? Cast<UCanvasPanelSlot>(SupportLinkButton->Slot) : nullptr;
+	UCanvasPanelSlot* WatchSlot = WatchAdButton
+		? Cast<UCanvasPanelSlot>(WatchAdButton->Slot) : nullptr;
+	if (!LinkSlot || !WatchSlot)
+	{
+		return;
+	}
+
+	// Родное место запоминаем один раз и только до первого сдвига.
+	if (!bSupportLinkHomeSaved)
+	{
+		SupportLinkHomePosition = LinkSlot->GetPosition();
+		bSupportLinkHomeSaved = true;
+	}
+
+	// Кнопка просмотра стоит ВЫШЕ (порядок задан заданием и менять его нельзя), поэтому её
+	// место — это и есть «на одну строку выше»: отдельной арифметики не нужно.
+	LinkSlot->SetPosition(bWatchAdVisible ? SupportLinkHomePosition : WatchSlot->GetPosition());
 }
 
 void USupportAuthorWidget::ShowThanks()

@@ -53,6 +53,7 @@
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h" // родительский класс окна настроек
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
+#include "ContrarySurvivor/UI/SupportAuthorWidget.h" // FSupportAuthorStyle + вид кнопок окна поддержки
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
@@ -2964,6 +2965,162 @@ namespace
 		return true;
 	}
 
+	// ----------------------------------------------------------------------
+	// WBP_SupportAuthor — окно «Поддержать автора» (задание издателя; вид одобрен Ринатом
+	// живьём 12.08.2026, повторяем его один в один).
+	//
+	// ⛔ РАСКЛАДКА ПЛОСКАЯ, БЕЗ ЕДИНОЙ ОБЁРТКИ — это прямое требование Рината: «чтобы там всё
+	// легко мышкой и клавиатурой настраивалось и двигалось (без пунктирной таблицы-подложки,
+	// которая всё блокирует)». Пунктирную сетку в дизайнере и запрет таскать элементы мышкой
+	// даёт КОНТЕЙНЕР С АВТОРАСКЛАДКОЙ (VerticalBox/HorizontalBox/SizeBox): положение ребёнка
+	// там считает родитель, поэтому мышке двигать нечего. Поэтому здесь:
+	//   • каждый элемент — прямой ребёнок корневого холста со своим положением и размером;
+	//   • ни VerticalBox, ни HorizontalBox, ни SizeBox;
+	//   • затемнение и подложка окна — СОСЕДНИЕ элементы на дне холста, а не родители
+	//     остальных (они лежат первыми, значит рисуются ниже и выделению не мешают).
+	// Единственное вложение, которое остаётся, — подпись ВНУТРИ своей кнопки: иначе спрятанная
+	// кнопка оставила бы подпись висеть в воздухе (ловушка скрытия, урок AmmoRow). Так устроены
+	// подписи кнопок во всех окнах проекта.
+	//
+	// Кубики названы ровно так, как объявлены поля BindWidgetOptional в USupportAuthorWidget:
+	// разойдись имена — привязка молча не сойдётся и окно приедет пустым.
+	//
+	// Все цвета, размеры, шрифты и тексты берутся из FSupportAuthorStyle по умолчанию и из
+	// USupportAuthorWidget::MakeSupportButtonStyle — то есть из ТОГО ЖЕ места, что и одобренная
+	// кодовая запаска. Своего вкуса здесь нет ни в одном значении.
+	// ----------------------------------------------------------------------
+	bool BuildSupportAuthor(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+		const FSupportAuthorStyle Style; // одобренный вид: одно место правды на код и ассет
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		Tree->RootWidget = Root;
+
+		// --- Дно холста: затемнение и подложка. Оба добавляются ПЕРВЫМИ, поэтому рисуются
+		// ниже содержимого и в дизайнере не перехватывают щелчок по кнопкам. ---
+
+		// Затемнение на весь экран. Visible (не HitTestInvisible): в игре оно ловит касания
+		// мимо окна, чтобы они не уходили в мир.
+		MakeDimLayer(Tree, Root, Style.DimColor);
+
+		// Подложка окна: заливка + золотой кант одной кистью. Отдельной рамки-родителя нет —
+		// кант рисует сама кисть, вкладывать ради него второй Border не нужно.
+		const FVector2D WindowSize(680.0f, 420.0f);
+		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
+		Plate->SetBrush(MakeRoundedBrush(Style.PanelColor, 6.0f, Style.FrameColor, 2.0f));
+		Plate->SetPadding(FMargin(0.0f));
+		Plate->bIsVariable = true;
+		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
+		{
+			PlateSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+			PlateSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			PlateSlot->SetPosition(FVector2D::ZeroVector);
+			PlateSlot->SetSize(WindowSize);
+		}
+
+		// --- Содержимое. Все элементы привязаны к СЕРЕДИНЕ экрана теми же якорями, что и
+		// подложка: раскладка переживает экран другой формы, а не рассыпается. Координаты
+		// отсчитываются от центра, поэтому левый край содержимого отрицательный. ---
+		//
+		// Поля внутри окна повторяют одобренную запаску: 28 точек по бокам и 24 сверху/снизу
+		// (в запаске это были отступы Border'ов 2+26 и 2+22).
+		constexpr float PadX = 28.0f;
+		constexpr float PadY = 24.0f;
+		const float ContentLeft = -0.5f * WindowSize.X + PadX;          // -312
+		const float ContentRight = 0.5f * WindowSize.X - PadX;          //  312
+		const float ContentWidth = ContentRight - ContentLeft;          //  624
+		const float ContentTop = -0.5f * WindowSize.Y + PadY;           // -186
+
+		// Кладёт элемент в холст по прямоугольнику, отсчитанному от центра экрана.
+		auto PlaceCentered = [&](UWidget* Widget, const FVector2D& Pos, const FVector2D& Size)
+		{
+			if (UCanvasPanelSlot* Slot = Root->AddChildToCanvas(Widget))
+			{
+				Slot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+				Slot->SetAlignment(FVector2D::ZeroVector);
+				Slot->SetPosition(Pos);
+				Slot->SetSize(Size);
+			}
+		};
+
+		// Крестик закрытия — первая строка, прижат к правому краю содержимого. Квадрат 48 на 48:
+		// нижняя граница области нажатия под палец (требование Б8), её же держит код окна.
+		const float CloseSize = USupportAuthorWidget::GetMinTouchSizePx();
+		UButton* Close = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
+		Close->SetStyle(USupportAuthorWidget::MakeSupportButtonStyle(Style));
+		Close->bIsVariable = true;
+		SetUnlockedCaption(Tree, Roboto, Close, TEXT("CloseText"), Style.CloseText,
+			Style.ButtonTextColor, Style.ButtonFontSize);
+		PlaceCentered(Close, FVector2D(ContentRight - CloseSize, ContentTop),
+			FVector2D(CloseSize, CloseSize));
+
+		// Заголовок. Размер задан явно (а не по содержимому), чтобы владельцу было за что
+		// взяться мышкой; по центру строку держит выключка, а не контейнер.
+		const float TitleTop = ContentTop + CloseSize + 6.0f;
+		constexpr float TitleHeight = 32.0f;
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"), Style.TitleText,
+			Style.TitleColor, Style.TitleFontSize, TEXT("Bold"));
+		Title->SetJustification(ETextJustify::Center);
+		Title->bIsVariable = true;
+		PlaceCentered(Title, FVector2D(ContentLeft, TitleTop), FVector2D(ContentWidth, TitleHeight));
+
+		// Пояснение. Переносится по словам: строка длинная, в одну не влезает.
+		const float MessageTop = TitleTop + TitleHeight + 14.0f;
+		constexpr float MessageHeight = 52.0f;
+		UTextBlock* Message = MakeText(Tree, Roboto, TEXT("MessageText"), Style.MessageText,
+			Style.MessageColor, Style.MessageFontSize, TEXT("Regular"));
+		Message->SetJustification(ETextJustify::Center);
+		Message->SetAutoWrapText(true);
+		Message->bIsVariable = true;
+		PlaceCentered(Message, FVector2D(ContentLeft, MessageTop), FVector2D(ContentWidth, MessageHeight));
+
+		// ⛔ ДВЕ КНОПКИ ОКНА. Порядок менять нельзя (условие задания): сначала «Посмотреть
+		// рекламу», под ней «Другие способы поддержать». Размер и стиль у них ОДИН И ТОТ ЖЕ —
+		// оба берутся из одних и тех же полей, разойтись им нечем.
+		const FVector2D ButtonSize(
+			FMath::Max(USupportAuthorWidget::GetMinTouchSizePx(), Style.ButtonSize.X),
+			FMath::Max(USupportAuthorWidget::GetMinTouchSizePx(), Style.ButtonSize.Y));
+		const float ButtonLeft = -0.5f * ButtonSize.X; // обе кнопки по центру окна
+		const float WatchTop = MessageTop + MessageHeight + 22.0f;
+		const float LinkTop = WatchTop + ButtonSize.Y + 12.0f;
+
+		auto AddWindowButton = [&](const FName& ButtonName, const FName& TextName,
+			const FText& Caption, float Top)
+		{
+			UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), ButtonName);
+			Button->SetStyle(USupportAuthorWidget::MakeSupportButtonStyle(Style));
+			Button->bIsVariable = true;
+			SetUnlockedCaption(Tree, Roboto, Button, TextName, Caption,
+				Style.ButtonTextColor, Style.ButtonFontSize);
+			PlaceCentered(Button, FVector2D(ButtonLeft, Top), ButtonSize);
+		};
+		AddWindowButton(TEXT("WatchAdButton"), TEXT("WatchAdText"), Style.WatchAdText, WatchTop);
+		AddWindowButton(TEXT("SupportLinkButton"), TEXT("SupportLinkText"), Style.SupportLinkText, LinkTop);
+
+		// Строка благодарности после просмотра. В АССЕТЕ оставлена видимой, чтобы владельцу
+		// было за что взяться мышкой (тот же приём, что у логотипа главного меню и кнопки
+		// заглушки ролика); на живом экране её прячет код окна и показывает только после
+		// досмотренного ролика.
+		const float ThanksTop = LinkTop + ButtonSize.Y + 12.0f;
+		UTextBlock* Thanks = MakeText(Tree, Roboto, TEXT("ThanksText"), Style.ThanksText,
+			Style.TitleColor, Style.MessageFontSize, TEXT("Regular"));
+		Thanks->SetJustification(ETextJustify::Center);
+		Thanks->bIsVariable = true;
+		PlaceCentered(Thanks, FVector2D(ContentLeft, ThanksTop), FVector2D(ContentWidth, 24.0f));
+
+		// Самопроверка раскладки: содержимое обязано помещаться в подложку. Ловится здесь, а не
+		// глазами на телефоне.
+		const float ContentBottom = ThanksTop + 24.0f;
+		if (ContentBottom > 0.5f * WindowSize.Y - PadY + KINDA_SMALL_NUMBER)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("BUILD WBP_SupportAuthor: содержимое кончается на %.0f, а нижнее поле окна на %.0f — окно надо сделать выше."),
+				ContentBottom, 0.5f * WindowSize.Y - PadY);
+		}
+		return true;
+	}
+
 	// ======================================================================
 	// Таблица ассетов
 	// ======================================================================
@@ -3152,6 +3309,16 @@ namespace
 			TEXT("/Script/ContrarySurvivor.MockAdWidget"), &BuildMockAd,
 			{ TEXT("DimBorder"), TEXT("TitleText"), TEXT("PlacementText"),
 			  TEXT("CountdownText"), TEXT("CloseButton"), TEXT("CloseText") } },
+		// Окно «Поддержать автора» (задание издателя; вид одобрен Ринатом живьём 12.08.2026).
+		// Раскладка плоская, каждый элемент — прямой ребёнок холста: требование Рината
+		// «чтобы всё легко двигалось мышкой, без пунктирной таблицы-подложки». Подробности —
+		// в шапке BuildSupportAuthor.
+		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"),
+			TEXT("/Script/ContrarySurvivor.SupportAuthorWidget"), &BuildSupportAuthor,
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("MessageText"),
+			  TEXT("WatchAdButton"), TEXT("WatchAdText"),
+			  TEXT("SupportLinkButton"), TEXT("SupportLinkText"),
+			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -3694,6 +3861,14 @@ namespace
 		{ TEXT("WBP_LimpIndicator"),
 			{ },
 			{ TEXT("WidthBox"), TEXT("Plate"), TEXT("IndicatorText") } },
+		// Окно «Поддержать автора»: замков нет вовсе — двигать и настраивать мышкой можно
+		// каждый элемент, включая подписи внутри кнопок (прямое требование Рината 12.08.2026).
+		{ TEXT("WBP_SupportAuthor"),
+			{ },
+			{ TEXT("DimBorder"), TEXT("PanelPlate"), TEXT("TitleText"), TEXT("MessageText"),
+			  TEXT("WatchAdButton"), TEXT("WatchAdText"),
+			  TEXT("SupportLinkButton"), TEXT("SupportLinkText"),
+			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") } },
 		{ TEXT("WBP_MockAd"),
 			{ },
 			{ TEXT("DimBorder"), TEXT("TitleText"), TEXT("PlacementText"),
@@ -5800,6 +5975,11 @@ static const FCdoSlotSpec GCdoSlots[] =
 		TEXT("IntroScreenWidgetClass"), TEXT("/Game/UI/WBP_Intro.WBP_Intro_C") },
 	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
 		TEXT("PauseMenuWidgetClass"), TEXT("/Game/UI/WBP_PauseMenu.WBP_PauseMenu_C") },
+	// Окно «Поддержать автора» (12.08.2026). Без заполненного слота окно молча живёт на
+	// кодовом запасном дереве, и правка ассета мышкой в игре не видна — ровно та беда, ради
+	// которой этот список и заведён.
+	{ GPcBlueprintPackage, GPcBlueprintPath, &AContrarySurvivorPlayerController::StaticClass,
+		TEXT("SupportWidgetClass"), TEXT("/Game/UI/WBP_SupportAuthor.WBP_SupportAuthor_C") },
 };
 
 // Печать-пруф: все слоты UMG-классов HUD (стабильный формат — срезы «до/после» сравниваются

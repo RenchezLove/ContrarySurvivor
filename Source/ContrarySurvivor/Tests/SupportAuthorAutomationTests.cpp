@@ -31,9 +31,12 @@
 #include "ContrarySurvivor/UI/StartScreenWidget.h"
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h"
 #include "UInventoryComponent.h"
+#include "Blueprint/UserWidget.h"    // CreateWidget: окно из живого ассета дизайнера
+#include "Components/Widget.h"       // перебор полей-кубиков по типу
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/WorldSettings.h"
+#include "UObject/UnrealType.h"      // FObjectPropertyBase: проверка привязки с обеих сторон
 
 static constexpr EAutomationTestFlags SupportAuthorTestFlags =
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter;
@@ -288,6 +291,68 @@ bool FSupportAnalyticsNamesTest::RunTest(const FString& Parameters)
 	// Имя точки показа согласовано с рекламным кабинетом — менять нельзя.
 	TestEqual(TEXT("Имя четвёртой точки показа"),
 		AdPlacements::SupportAuthor.ToString(), FString(TEXT("support_author")));
+	return true;
+}
+
+// --- 8. Готовое окно из дизайнера реально привязывается к коду -------------------------------
+//
+// Самая дорогая ошибка этой волны: имена кубиков в ассете разошлись бы с именами полей
+// BindWidgetOptional — привязка молча не сходится, и окно приезжает игроку ПУСТЫМ, без единой
+// жалобы в журнале. Поэтому проверяем с ОБЕИХ сторон разом: поднимаем живой ассет
+// /Game/UI/WBP_SupportAuthor и требуем, чтобы каждое поле-кубик оказалось не пустым.
+//
+// Проверка идёт перебором самих полей класса, а не списком имён в тесте: заведут новый кубик —
+// он попадёт под проверку сам, и о нём нельзя будет забыть.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportDesignerAssetBindsToCodeTest,
+	"ContrarySurvivor.SupportAuthor.DesignerAssetBindsToCode", SupportAuthorTestFlags)
+
+bool FSupportDesignerAssetBindsToCodeTest::RunTest(const FString& Parameters)
+{
+	UClass* AssetClass = StaticLoadClass(USupportAuthorWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_SupportAuthor.WBP_SupportAuthor_C"));
+	if (!TestNotNull(TEXT("Ассет окна /Game/UI/WBP_SupportAuthor загрузился"), AssetClass))
+	{
+		return false;
+	}
+
+	UWorld* World = SupportAuthorTestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	USupportAuthorWidget* Widget = CreateWidget<USupportAuthorWidget>(World, AssetClass);
+	if (TestNotNull(TEXT("Окно из готового ассета создалось"), Widget))
+	{
+		int32 CheckedCubes = 0;
+		for (TFieldIterator<FObjectPropertyBase> It(USupportAuthorWidget::StaticClass()); It; ++It)
+		{
+			FObjectPropertyBase* Prop = *It;
+			if (!Prop->PropertyClass || !Prop->PropertyClass->IsChildOf(UWidget::StaticClass()))
+			{
+				continue;
+			}
+#if WITH_EDITOR
+			// Кубики привязки помечены в заголовке meta = (BindWidgetOptional). Поля без этой
+			// пометки (рамка и подложка кодовой запаски) в готовом окне пустые по замыслу.
+			if (!Prop->HasMetaData(TEXT("BindWidgetOptional")))
+			{
+				continue;
+			}
+#endif
+			++CheckedCubes;
+			TestNotNull(*FString::Printf(
+				TEXT("Кубик «%s» нашёлся в готовом окне (иначе имена в ассете и в коде разошлись)"),
+				*Prop->GetName()),
+				Prop->GetObjectPropertyValue_InContainer(Widget));
+		}
+		// Если перебор вдруг не нашёл ни одного поля, тест обязан упасть, а не молча зазеленеть.
+		TestTrue(TEXT("Кубики для проверки нашлись"), CheckedCubes > 0);
+		AddInfo(FString::Printf(TEXT("Проверено кубиков привязки: %d"), CheckedCubes));
+	}
+
+	SupportAuthorTestWorld::Destroy(World);
 	return true;
 }
 
