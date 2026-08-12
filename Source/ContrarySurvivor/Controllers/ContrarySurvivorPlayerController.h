@@ -14,6 +14,7 @@
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle (стиль меню паузы — поле контроллера)
 #include "ContrarySurvivor/UI/StartScreenWidget.h"  // FStartScreenStyle (Б3: стиль стартового экрана)
 #include "ContrarySurvivor/Debug/QADebug.h"         // CONTRARY_WITH_QA_CHEATS: отладочных клавиш нет в Shipping
+#include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h" // EContraryWorldEntryIntent (намерение перехода в мир)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
@@ -210,12 +211,58 @@ public:
 	// установки ЛИБО при найденном сейве (сейв сам доказывает прошлый запуск).
 	static bool ShouldShowMainMenuOnLaunch(bool bLaunchedBefore, bool bHasSave);
 
+	// --- Загрузочный уровень (переезд запуска, ADR-067 п.5) ---
+
+	// Идёт ли игра сейчас на пустом загрузочном уровне (там нет ни персонажа, ни мира).
+	bool IsOnBootLevel() const { return bOnBootLevel; }
+
+	// Чистое правило загрузочного уровня (покрыто автотестом): что делать при этом запуске.
+	// Самый первый запуск после установки — сразу везти игрока в мир новой игрой, меню он не
+	// увидит вовсе. Любой следующий — показать главное меню и в мир пока не ехать (намерение
+	// «нет» означает «остаёмся в меню, решение за игроком»).
+	static EContraryWorldEntryIntent BootIntentForLaunch(bool bLaunchedBefore, bool bHasSave);
+
+	// Совпадает ли открытая сейчас карта с записанным адресом уровня. Адрес допускается писать
+	// и полным («/Game/Maps/L_Boot»), и коротким именем («L_Boot») — сравниваем короткие имена.
+	// Чистая, без живого мира: поэтому её и гоняет автотест.
+	static bool IsSameLevel(const FString& CurrentShortName, FName LevelPath);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 
 	// Каждый кадр поддерживает авто-лок на ближайшей живой цели (см. UpdateAutoTarget).
 	virtual void Tick(float DeltaTime) override;
+
+	// --- Загрузочный уровень (переезд запуска, ADR-067 п.5) ---
+
+	// Кадровый шаг решения на загрузочном уровне: дождаться ответа про сбор данных, ровно один
+	// раз спросить «был ли уже запуск», и либо открыть главное меню, либо сразу везти в мир.
+	void UpdateBootFlow();
+
+	// Уехать в игровой мир с явным намерением («новая игра» или «продолжить»).
+	void TravelToGameWorld(EContraryWorldEntryIntent Intent);
+
+	// Вернуться на загрузочный уровень (кнопка «Главное меню» в паузе): мир выгружается целиком,
+	// в памяти телефона от него ничего не остаётся.
+	void TravelToBootLevel();
+
+	// «Продолжить» и «Новая игра», нажатые на ЗАГРУЗОЧНОМ уровне: там нет персонажа, поэтому
+	// грузить и стирать сохранение приходится напрямую, а не через него.
+	void HandleBootContinue();
+	void HandleBootNewGame();
+
+	// Адрес загрузочного уровня. Держится полем, а не строкой в трёх местах: по нему и узнаётся,
+	// что игра идёт на загрузочном уровне, и на него же возвращает кнопка «Главное меню».
+	// Писать можно и полным адресом, и коротким именем — сравнение понимает оба вида.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Загрузочный уровень",
+		meta = (DisplayName = "Загрузочный уровень", DisplayPriority = "1"))
+	FName BootLevelPath = TEXT("/Game/Maps/L_Boot");
+
+	// Адрес игрового уровня, куда едет игрок после выбора в меню.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Загрузочный уровень",
+		meta = (DisplayName = "Игровой уровень", DisplayPriority = "2"))
+	FName GameWorldLevelPath = TEXT("/Game/Maps/L_World_C");
 
 	// --- Главное меню (ADR-062; выросло из стартового экрана Б3) ---
 
@@ -801,6 +848,15 @@ protected:
 	void TrySelectTarget();
 
 private:
+	// --- Загрузочный уровень (переезд запуска, ADR-067 п.5) ---
+
+	// Игра идёт на загрузочном уровне. Считается ОДИН раз в BeginPlay по имени текущей карты.
+	bool bOnBootLevel = false;
+
+	// Решение «меню или сразу в мир» на загрузочном уровне уже принято. Признак «игра уже
+	// запускалась» нельзя спрашивать дважды: он не читается, а ставится в момент чтения.
+	bool bBootDecisionMade = false;
+
 	bool IsSprinting = false;
 
 	// QA: дебаунс тумблера god-mode (J). Отчёт тестера «GODMODE сам выключился сразу после

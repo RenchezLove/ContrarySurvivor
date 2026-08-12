@@ -45,9 +45,12 @@
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h"       // Экран настроек (ADR-062, подход 2)
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // применение настроек при запуске
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
+#include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // ждём ли ответа про сбор данных (загрузочный уровень)
+#include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h"   // намерение перехода в мир (ADR-067 п.5)
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
+#include "Misc/PackageName.h"                                // короткое имя уровня из полного адреса
 
 // Пространство имён переводов для литералов этого файла (ADR-050): подписи тач-кнопок.
 #define LOCTEXT_NAMESPACE "ContrarySurvivorPlayerController"
@@ -86,6 +89,17 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 void AContrarySurvivorPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// На каком уровне мы оказались — узнаём ОДИН раз и запоминаем (ADR-067 п.5). Имя карты
+	// берём без служебной приставки редактора, иначе запуск из редактора не узнал бы сам себя.
+	bOnBootLevel = IsSameLevel(
+		UGameplayStatics::GetCurrentLevelName(this, /*bRemovePrefixString=*/true), BootLevelPath);
+	if (bOnBootLevel)
+	{
+		UE_LOG(LogQA, Display,
+			TEXT("QA: запуск на загрузочном уровне '%s' — мир не грузим, решение примем на месте"),
+			*BootLevelPath.ToString());
+	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
@@ -131,7 +145,8 @@ void AContrarySurvivorPlayerController::BeginPlay()
 #else
 	const bool bWantTouchLayer = bEnableTouchControls;
 #endif
-	if (bWantTouchLayer)
+	// На загрузочном уровне экранные кнопки не нужны: управлять нечем, персонажа нет.
+	if (bWantTouchLayer && !bOnBootLevel)
 	{
 		UClass* TouchLayerClass = TouchControlsWidgetClass
 			? TouchControlsWidgetClass.Get()
@@ -382,6 +397,12 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 
 void AContrarySurvivorPlayerController::OnTogglePauseMenu()
 {
+	// На загрузочном уровне ставить на паузу нечего: мира нет. Кнопка «назад» на телефоне и
+	// клавиша Esc здесь просто молчат, иначе поверх главного меню открылась бы пауза без игры.
+	if (bOnBootLevel)
+	{
+		return;
+	}
 	// Пока не решено «Продолжить»/«Новая игра» — меню паузы поверх стартового экрана не нужно.
 	if (bStartScreenOpen)
 	{
@@ -576,6 +597,20 @@ void AContrarySurvivorPlayerController::HandlePauseMainMenu()
 	// уже переспросил сам (спека, раздел «Поведение паузы»).
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu -> MAIN MENU"));
 
+	// Переезд запуска (ADR-067 п.5): «Главное меню» из паузы теперь ВОЗВРАЩАЕТ на загрузочный
+	// уровень, а не открывает меню поверх живого мира. Иначе весь мир остался бы в памяти
+	// телефона — а это ровно половина смысла всей работы.
+	// Музыку меню на этом переходе не удерживаем намеренно: мир выгружается вместе со звуком,
+	// и трек всё равно оборвётся — заведётся он заново уже на загрузочном уровне.
+	if (!BootLevelPath.IsNone() && !bOnBootLevel)
+	{
+		ClosePauseMenu();
+		TravelToBootLevel();
+		return;
+	}
+
+	// Запасной путь (адрес загрузочного уровня стёрли в настройках либо мы уже на нём) —
+	// прежнее поведение: меню открывается поверх текущего уровня.
 	// Музыка НЕ обрывается на этом переходе: между закрытием паузы и открытием меню на один
 	// шаг не открыто ни то, ни другое, и гейт остановил бы трек, а меню завело бы его заново
 	// с начала. Держим его на время перехода (просьба Рината: пусть продолжает играть).
@@ -595,9 +630,152 @@ void AContrarySurvivorPlayerController::HandlePauseQuit()
 }
 
 // ---------------------------------------------------------------------------
+// Загрузочный уровень (переезд запуска, ADR-067 п.5).
+//
+// Смысл: раньше игра стартовала прямо на игровой карте, поэтому телефон грузил лес и деревню
+// ДО главного меню — были слышны птицы, тратились время и батарея. Теперь запуск идёт на
+// пустом уровне L_Boot, а мир грузится только после «Продолжить» или «Новая игра».
+//
+// ⛔ Решение «первый это запуск после установки или нет» принимается ЗДЕСЬ и ровно один раз:
+// признак «игра уже запускалась» не читается, а ставится в момент чтения. Дальше в мир едет
+// явное намерение через UGameFlowSubsystem, и мировой контроллер заново ничего не решает.
+// ---------------------------------------------------------------------------
+
+bool AContrarySurvivorPlayerController::IsSameLevel(const FString& CurrentShortName, FName LevelPath)
+{
+	if (LevelPath.IsNone() || CurrentShortName.IsEmpty())
+	{
+		return false;
+	}
+	// Короткое имя из адреса: «/Game/Maps/L_Boot» -> «L_Boot», «L_Boot» -> «L_Boot».
+	const FString Short = FPackageName::GetShortName(LevelPath.ToString());
+	return CurrentShortName.Equals(Short, ESearchCase::IgnoreCase);
+}
+
+EContraryWorldEntryIntent AContrarySurvivorPlayerController::BootIntentForLaunch(
+	bool bLaunchedBefore, bool bHasSave)
+{
+	// Правило то же, что и до переезда (ADR-062): главное меню показывается со второго запуска
+	// после установки либо когда найдено сохранение. Изменился только смысл ответа «меню не
+	// нужно»: теперь это «сразу везём игрока в мир новой игрой», а не «играем вступление тут же».
+	return ShouldShowMainMenuOnLaunch(bLaunchedBefore, bHasSave)
+		? EContraryWorldEntryIntent::None
+		: EContraryWorldEntryIntent::NewGame;
+}
+
+void AContrarySurvivorPlayerController::UpdateBootFlow()
+{
+	if (bBootDecisionMade)
+	{
+		return; // решение уже принято, дальше распоряжается либо меню, либо переезд в мир
+	}
+
+	// Согласие на сбор данных спрашивается раньше всего остального. Пока игрок не ответил,
+	// главное меню не открываем: два окна друг поверх друга ему показывать нельзя. Ожидание
+	// конечно при любом раскладе — подсистема сама сдаётся, если экрана так и не появилось.
+	if (const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this))
+	{
+		if (Consent->IsWaitingForPlayerAnswer())
+		{
+			return;
+		}
+	}
+
+	bBootDecisionMade = true; // ровно один раз за запуск
+
+	bool bLaunchedBefore = false;
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		// ⚠ Этот вызов не спрашивает, а ПОМЕЧАЕТ запуск. Второй раз за игру звать его нельзя.
+		bLaunchedBefore = Analytics->MarkLaunchAndCheckWasLaunchedBefore();
+	}
+	const bool bHasSave = APlayerCharacter::HasDefaultSaveGame();
+
+	const EContraryWorldEntryIntent Intent = BootIntentForLaunch(bLaunchedBefore, bHasSave);
+	UE_LOG(LogQA, Display,
+		TEXT("QA: загрузочный уровень — игра запускалась раньше: %s, сохранение есть: %s -> %s"),
+		bLaunchedBefore ? TEXT("да") : TEXT("нет"),
+		bHasSave ? TEXT("да") : TEXT("нет"),
+		Intent == EContraryWorldEntryIntent::None ? TEXT("главное меню") : TEXT("сразу в мир"));
+
+	if (Intent == EContraryWorldEntryIntent::None)
+	{
+		OpenStartScreen();
+		return;
+	}
+
+	// Самый первый запуск после установки: меню игрок не видит вовсе, едем прямо в мир.
+	TravelToGameWorld(EContraryWorldEntryIntent::NewGame);
+}
+
+void AContrarySurvivorPlayerController::TravelToGameWorld(EContraryWorldEntryIntent Intent)
+{
+	if (UGameFlowSubsystem* Flow = UGameFlowSubsystem::Get(this))
+	{
+		Flow->SetWorldEntryIntent(Intent);
+	}
+	else
+	{
+		// Намерение передать некому — мир примет решение сам, по прежнему правилу. Хуже, но не
+		// смертельно: игрок в любом случае попадёт в игру.
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: намерение перехода передать некому — мир решит по-старому"));
+	}
+
+	// Паузу снимаем ПЕРЕД переездом: на загрузочном уровне её мог поставить экран согласия или
+	// само меню, а ехать в мир с остановленным временем незачем.
+	if (IsPaused())
+	{
+		SetPause(false);
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: едем в игровой мир '%s' (%s)"),
+		*GameWorldLevelPath.ToString(), *UGameFlowSubsystem::IntentToString(Intent));
+	UGameplayStatics::OpenLevel(this, GameWorldLevelPath);
+}
+
+void AContrarySurvivorPlayerController::TravelToBootLevel()
+{
+	// Возврат в главное меню из паузы: мир выгружается целиком, в памяти телефона от него
+	// ничего не остаётся. Намерение обнуляем — решение снова за игроком.
+	if (UGameFlowSubsystem* Flow = UGameFlowSubsystem::Get(this))
+	{
+		Flow->SetWorldEntryIntent(EContraryWorldEntryIntent::None);
+	}
+
+	if (IsPaused())
+	{
+		SetPause(false);
+	}
+
+	UE_LOG(LogQA, Display, TEXT("QA: возвращаемся на загрузочный уровень '%s'"),
+		*BootLevelPath.ToString());
+	UGameplayStatics::OpenLevel(this, BootLevelPath);
+}
+
+void AContrarySurvivorPlayerController::HandleBootContinue()
+{
+	// «Продолжить» на загрузочном уровне: персонажа тут нет, поэтому сохранение не грузим —
+	// его загрузит уже родившийся персонаж в мире, получив намерение «продолжить».
+	CloseStartScreen();
+	TravelToGameWorld(EContraryWorldEntryIntent::Continue);
+}
+
+void AContrarySurvivorPlayerController::HandleBootNewGame()
+{
+	// «Новая игра» на загрузочном уровне: персонажа нет, поэтому стираем слот сохранения
+	// напрямую. Живые статы приводить к стартовым не нужно — персонаж в новом мире родится
+	// заново и сам возьмёт значения новой игры, потому что сохранения уже не будет.
+	CloseStartScreen();
+	APlayerCharacter::DeleteDefaultSaveGame();
+	TravelToGameWorld(EContraryWorldEntryIntent::NewGame);
+}
+
+// ---------------------------------------------------------------------------
 // Главное меню (ADR-062, спека glavnoe-menu-spec.md; выросло из стартового экрана Б3):
-// показывается со ВТОРОГО запуска игры (решает MaybeStartIntro). Паттерн — точная копия
-// меню паузы (SetPause + барьер виджета), см. OpenPauseMenu/ClosePauseMenu выше.
+// показывается со ВТОРОГО запуска игры (на загрузочном уровне — UpdateBootFlow, при запуске
+// прямо на игровой карте — MaybeStartIntro). Паттерн — точная копия меню паузы
+// (SetPause + барьер виджета), см. OpenPauseMenu/ClosePauseMenu выше.
 // ---------------------------------------------------------------------------
 
 void AContrarySurvivorPlayerController::OpenStartScreen()
@@ -614,14 +792,32 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 			StartScreenWidgetClass ? StartScreenWidgetClass.Get() : UStartScreenWidget::StaticClass());
 		if (!StartScreenWidget)
 		{
-			// Виджет не создался — не блокируем игру навсегда, откатываемся к обычной новой игре.
+			// Виджет не создался — не блокируем игру навсегда. На загрузочном уровне запускать
+			// нечего (мира нет), поэтому просто везём игрока в мир новой игрой.
 			UE_LOG(LogQA, Warning, TEXT("QA: start screen widget creation failed — falling back to new game"));
-			StartNewGameFlow();
+			if (bOnBootLevel)
+			{
+				TravelToGameWorld(EContraryWorldEntryIntent::NewGame);
+			}
+			else
+			{
+				StartNewGameFlow();
+			}
 			return;
 		}
 		StartScreenWidget->ApplyStyle(StartScreenStyle); // стиль с контроллера (EditAnywhere) поверх дефолтов
-		StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenContinue);
-		StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenNewGame);
+		// На загрузочном уровне персонажа нет, поэтому «Продолжить» и «Новая игра» ведут себя
+		// иначе: сохранение не грузится и не стирается через персонажа, а в мир едет намерение.
+		if (bOnBootLevel)
+		{
+			StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleBootContinue);
+			StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleBootNewGame);
+		}
+		else
+		{
+			StartScreenWidget->OnContinueRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenContinue);
+			StartScreenWidget->OnNewGameRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenNewGame);
+		}
 		StartScreenWidget->OnExitRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenExit);
 		// Подход 2 волны меню: обработчик появился — и вместе с ним появился сам пункт
 		// «Настройки». Виджет держит пункт спрятанным, пока OnSettingsRequested никем не
@@ -631,8 +827,11 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 
 	// Наличие сейва освежаем при КАЖДОМ открытии (меню без сейва: «Продолжить» не
 	// показывается вовсе, «Новая игра» стартует без переспроса — спека).
+	// ⛔ На загрузочном уровне персонажа нет вовсе, и спрашивать наличие сохранения у него
+	// нельзя — иначе пункт «Продолжить» пропал бы у ВСЕХ. Там спрашиваем сам слот сохранения.
 	APlayerCharacter* MenuPawn = Cast<APlayerCharacter>(GetPawn());
-	StartScreenWidget->SetHasSave(MenuPawn && MenuPawn->HasSaveGame());
+	const bool bMenuHasSave = MenuPawn ? MenuPawn->HasSaveGame() : APlayerCharacter::HasDefaultSaveGame();
+	StartScreenWidget->SetHasSave(bMenuHasSave);
 
 	// Z=70: выше меню паузы (60) и интро (50) — при интро экран не появляется, запас на будущее.
 	StartScreenWidget->AddToViewport(/*ZOrder=*/70);
@@ -664,7 +863,7 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 	bShowMouseCursor = true;
 
 	UE_LOG(LogQA, Display, TEXT("QA: start screen OPEN (has save: %s, world paused)"),
-		(MenuPawn && MenuPawn->HasSaveGame()) ? TEXT("yes") : TEXT("no"));
+		bMenuHasSave ? TEXT("yes") : TEXT("no"));
 }
 
 bool AContrarySurvivorPlayerController::ShouldSilenceWorldSound(bool bIsUISound, bool bIsPlaying, bool bAlreadyPaused)
@@ -995,6 +1194,12 @@ void AContrarySurvivorPlayerController::HandleSettingsResetProgress()
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
 		PlayerChar->ResetToNewGame();
+	}
+	else
+	{
+		// Загрузочный уровень: персонажа нет, поэтому стираем слот напрямую — иначе кнопка
+		// «Стереть прогресс» в настройках, открытых из главного меню, не делала бы ничего.
+		APlayerCharacter::DeleteDefaultSaveGame();
 	}
 	UE_LOG(LogQA, Display, TEXT("QA: settings RESET PROGRESS — save wiped"));
 
@@ -2211,6 +2416,16 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Загрузочный уровень (ADR-067 п.5): мира нет, персонажа нет, интерфейса игры нет. Всё, что
+	// контроллер обычно делает для игры — квесты, авто-цель, поиск интерактивов — здесь молчит,
+	// поэтому дальше по функции мы просто не идём. Остаётся одно дело: принять решение и увезти
+	// игрока либо в меню, либо сразу в мир.
+	if (bOnBootLevel)
+	{
+		UpdateBootFlow();
+		return;
+	}
+
 	// Интро (Build 1): один раз решаем и запускаем (когда появилась пешка), затем ведём по фазам.
 	if (!bIntroChecked)
 	{
@@ -2269,6 +2484,41 @@ void AContrarySurvivorPlayerController::MaybeStartIntro()
 	}
 	bIntroChecked = true; // решение принимаем ровно один раз
 
+	// Переезд запуска (ADR-067 п.5): если игрок приехал сюда с загрузочного уровня, решение
+	// уже принято ТАМ, и здесь мы ему просто подчиняемся. Заново спрашивать «был ли уже
+	// запуск» нельзя: этот вопрос не читает признак, а ставит его, и самый первый запуск
+	// после установки тихо сломался бы — игрок увидел бы меню поверх мира.
+	EContraryWorldEntryIntent Intent = EContraryWorldEntryIntent::None;
+	if (UGameFlowSubsystem* Flow = UGameFlowSubsystem::Get(this))
+	{
+		Intent = Flow->ConsumeWorldEntryIntent(); // намерение одноразовое, сразу сбрасываем
+	}
+
+	if (Intent == EContraryWorldEntryIntent::Continue)
+	{
+		// «Продолжить»: грузим сохранение целиком, вступление не играет (Б3, замечание 9).
+		const bool bLoaded = PlayerChar->LoadGameForContinue();
+		UE_LOG(LogQA, Display, TEXT("QA: приехали в мир по намерению «продолжить» (%s)"),
+			bLoaded ? TEXT("сохранение загружено") : TEXT("загрузить не вышло — стартуем как есть"));
+		if (bLoaded)
+		{
+			// Загрузились посреди этапа вступления — задача и стрелка обязаны вернуться.
+			ResumeIntroObjectiveAfterContinue();
+		}
+		return;
+	}
+
+	if (Intent == EContraryWorldEntryIntent::NewGame)
+	{
+		// «Новая игра»: сохранение уже стёрто на загрузочном уровне, играем полное вступление.
+		UE_LOG(LogQA, Display, TEXT("QA: приехали в мир по намерению «новая игра»"));
+		StartNewGameFlow();
+		return;
+	}
+
+	// ⛔ ЗАПАСНОЙ ПУТЬ: намерения нет. Так выглядит запуск прямо на игровой карте (кнопка Play
+	// в редакторе — основной способ работы), и поведение здесь обязано остаться ровно прежним.
+	//
 	// Волна «Главное меню» (ADR-062, спека glavnoe-menu-spec.md): самый первый запуск после
 	// установки идёт сразу во вступление, со второго и всех последующих запусков игра
 	// открывается главным меню. Признак запуска живёт в памяти на установку (слот

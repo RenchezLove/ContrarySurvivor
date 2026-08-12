@@ -65,6 +65,10 @@ void UDataConsentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	UE_LOG(LogTemp, Display, TEXT("Consent: игрок ещё не отвечал - ждём готовности экрана, чтобы спросить"));
 
+	// С этого момента мы ждём ответа игрока. Главное меню на загрузочном уровне не откроется,
+	// пока не ответит (ADR-067 п.5): два окна друг поверх друга игроку показывать нельзя.
+	bWaitingForPlayerAnswer = true;
+
 	// Показать окно прямо здесь нельзя: на этом шаге ещё нет ни вьюпорта, ни контроллера
 	// игрока. Ждём их короткими шагами и показываем при первой возможности. Тикер движка
 	// принимает именно функцию (UE 5.5, Ticker.h:56), поэтому оборачиваем вызов лямбдой —
@@ -135,12 +139,17 @@ bool UDataConsentSubsystem::TryShowConsentScreen(float /*DeltaTime*/)
 
 	UGameInstance* GI = GetGameInstance();
 	APlayerController* PC = GI ? GI->GetFirstLocalPlayerController() : nullptr;
-	if (!PC || !PC->IsLocalController() || !GI->GetGameViewportClient())
+	const bool bScreenReady = PC && PC->IsLocalController() && GI->GetGameViewportClient() != nullptr;
+	if (!bScreenReady)
 	{
-		if (++WaitSteps >= DataConsentLocal::MaxWaitSteps)
+		++WaitSteps;
+		if (!ShouldKeepWaitingForScreen(bScreenReady, WaitSteps, DataConsentLocal::MaxWaitSteps))
 		{
 			UE_LOG(LogTemp, Warning,
 				TEXT("Consent: экран так и не появился - спросить согласие не удалось, статистика остаётся молчать"));
+			// Ожидание конечно: сдались — значит больше никого не держим (иначе главное меню
+			// на загрузочном уровне не открылось бы никогда).
+			bWaitingForPlayerAnswer = false;
 			return false; // прекращаем ожидание, согласия по-прежнему нет
 		}
 		return true; // ещё не готовы — ждём следующий шаг
@@ -157,10 +166,28 @@ bool UDataConsentSubsystem::TryShowConsentScreen(float /*DeltaTime*/)
 			ConsentClass = Hud->ConsentWidgetClass;
 		}
 	}
+	else if (const UDataConsentSettings* WidgetSettings = UDataConsentSettings::Get())
+	{
+		// Игрового интерфейса нет — так выглядит ЗАГРУЗОЧНЫЙ уровень (ADR-067 п.5), а именно на
+		// нём экран согласия теперь и показывается при первом запуске. Без этой ветки игрок
+		// увидел бы не нарисованное в редакторе окно, а простую кодовую заглушку.
+		if (UClass* FromSettings = WidgetSettings->ConsentWidgetAssetPath.TryLoadClass<UUserWidget>())
+		{
+			ConsentClass = FromSettings;
+		}
+		else if (WidgetSettings->ConsentWidgetAssetPath.IsValid())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("Consent: окно согласия '%s' не нашлось - показываем простое окно, собранное кодом"),
+				*WidgetSettings->ConsentWidgetAssetPath.ToString());
+		}
+	}
 	ConsentWidget = CreateWidget<UConsentScreenWidget>(PC, ConsentClass);
 	if (!ConsentWidget)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Consent: не удалось создать экран согласия"));
+		// Спросить не вышло — никого больше не держим (ожидание обязано быть конечным).
+		bWaitingForPlayerAnswer = false;
 		return false;
 	}
 
@@ -196,6 +223,9 @@ bool UDataConsentSubsystem::TryShowConsentScreen(float /*DeltaTime*/)
 
 void UDataConsentSubsystem::CloseConsentScreen()
 {
+	// Окно закрыто — ответа больше не ждём (в том числе когда игру просто выключают).
+	bWaitingForPlayerAnswer = false;
+
 	if (!ConsentWidget)
 	{
 		return;
@@ -253,6 +283,24 @@ void UDataConsentSubsystem::HandleDeclined()
 void UDataConsentSubsystem::HandlePolicyRequested()
 {
 	OpenPrivacyPolicy();
+}
+
+bool UDataConsentSubsystem::ShouldWaitForConsentAnswer(bool bScreenOnScreen, bool bWaitingForScreen)
+{
+	// Ждём, пока окно висит на экране либо пока мы ещё ловим момент, чтобы его показать.
+	return bScreenOnScreen || bWaitingForScreen;
+}
+
+bool UDataConsentSubsystem::ShouldKeepWaitingForScreen(bool bScreenReady, int32 StepsDone, int32 MaxSteps)
+{
+	// Экран готов — ждать больше нечего. Шагов израсходовано не меньше предела — сдаёмся:
+	// без этого условия ожидание стало бы вечным и главное меню не открылось бы никогда.
+	return !bScreenReady && StepsDone < MaxSteps;
+}
+
+int32 UDataConsentSubsystem::GetMaxScreenWaitSteps()
+{
+	return DataConsentLocal::MaxWaitSteps;
 }
 
 bool UDataConsentSubsystem::HasPrivacyPolicyUrl() const

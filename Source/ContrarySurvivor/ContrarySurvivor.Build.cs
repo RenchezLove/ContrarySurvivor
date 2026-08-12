@@ -19,7 +19,12 @@ public class ContrarySurvivor : ModuleRules
 		// Slate/SlateCore — стили текста UMG-виджетов (FCoreStyle) этапа F.
 		// RenderCore — счётчики GGameThreadTime/GRenderThreadTime (RenderTimer.h), RHI — GGPUFrameTime
 		// (RHIGlobals.h). Нужны замеру времён кадра в ContrarySurvivorStatics; без них падает компоновка.
-		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore", "RenderCore", "RHI" });
+		// EngineSettings — UGameMapsSettings: карта по умолчанию и правило «какой режим игры
+		// достаётся уровню по началу его имени». Нужен автотесту переезда запуска (ADR-067 п.5):
+		// строку настройки легко написать с опечаткой, и тогда загрузочный уровень тихо получил
+		// бы обычный режим игры вместе с персонажем и лесом. Engine тянет этот модуль публично,
+		// но для СВЯЗЫВАНИЯ его всё равно нужно назвать здесь явно (иначе LNK2019).
+		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore", "RenderCore", "RHI", "EngineSettings" });
 
 		// Этап F3 (ADR-038): аналитика GameAnalytics. Подключаем ТОЛЬКО если плагин лежит в
 		// Plugins/ проекта — иначе код собирается с WITH_GAMEANALYTICS=0 и аналитика тихо

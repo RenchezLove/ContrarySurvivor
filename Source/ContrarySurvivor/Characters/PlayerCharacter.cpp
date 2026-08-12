@@ -1862,18 +1862,54 @@ void APlayerCharacter::PlayVibration(float Intensity, float Duration) const
 
 bool APlayerCharacter::HasSaveGame() const
 {
+    // Одно место правды на всю игру: статическая проверка ниже. Живому персонажу остаётся
+    // только подставить СВОЙ слот (слот — параметр персонажа, а не константа).
+    return HasSaveGameInSlot(SaveSlotName, SaveUserIndex);
+}
+
+bool APlayerCharacter::HasSaveGameInSlot(const FString& SlotName, int32 UserIndex)
+{
     // Б3: файл слота — это ещё не «есть что продолжать». FlushPlayTime создаёт файл уже через
     // минуту игры (пишет ТОЛЬКО накопитель времени через LoadOrCreateSaveObject/WriteSaveObject,
     // bHasData у такого объекта остаётся false), поэтому смотрим на признак РЕАЛЬНЫХ данных
     // (bHasData=true ставит только настоящий SaveGame(), т.е. автосейв костра/пере-сейв смерти),
     // а не на голый факт существования файла.
-    if (!UGameplayStatics::DoesSaveGameExist(SaveSlotName, SaveUserIndex))
+    if (!UGameplayStatics::DoesSaveGameExist(SlotName, UserIndex))
     {
         return false;
     }
     const UContrarySaveGame* Save = Cast<UContrarySaveGame>(
-        UGameplayStatics::LoadGameFromSlot(SaveSlotName, SaveUserIndex));
+        UGameplayStatics::LoadGameFromSlot(SlotName, UserIndex));
     return Save && Save->bHasData;
+}
+
+FString APlayerCharacter::GetDefaultSaveSlotName()
+{
+    // Значение из умолчаний класса — второй раз строкой имя слота не пишем.
+    const APlayerCharacter* Defaults = GetDefault<APlayerCharacter>();
+    return Defaults ? Defaults->SaveSlotName : FString(TEXT("ContrarySave"));
+}
+
+int32 APlayerCharacter::GetDefaultSaveUserIndex()
+{
+    const APlayerCharacter* Defaults = GetDefault<APlayerCharacter>();
+    return Defaults ? Defaults->SaveUserIndex : 0;
+}
+
+bool APlayerCharacter::HasDefaultSaveGame()
+{
+    return HasSaveGameInSlot(GetDefaultSaveSlotName(), GetDefaultSaveUserIndex());
+}
+
+void APlayerCharacter::DeleteSaveInSlot(const FString& SlotName, int32 UserIndex)
+{
+    UGameplayStatics::DeleteGameInSlot(SlotName, UserIndex);
+    UE_LOG(LogQA, Display, TEXT("QA: слот сохранения '%s' стёрт"), *SlotName);
+}
+
+void APlayerCharacter::DeleteDefaultSaveGame()
+{
+    DeleteSaveInSlot(GetDefaultSaveSlotName(), GetDefaultSaveUserIndex());
 }
 
 UContrarySaveGame* APlayerCharacter::LoadOrCreateSaveObject() const
@@ -1971,7 +2007,7 @@ void APlayerCharacter::ResetToNewGame()
     // статы к стартовым значениям новой игры. Отдельная функция нужна потому, что BeginPlay уже
     // отработал раньше решения игрока: HasSaveGame() тогда была true (сейв ещё существовал), и
     // ветка «новая игра» (половина HP/голода/жажды) в BeginPlay не сработала.
-    UGameplayStatics::DeleteGameInSlot(SaveSlotName, SaveUserIndex);
+    DeleteSaveInSlot(SaveSlotName, SaveUserIndex);
 
     if (Stats)
     {

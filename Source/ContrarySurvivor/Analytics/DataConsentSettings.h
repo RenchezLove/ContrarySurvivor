@@ -45,6 +45,16 @@ public:
 		meta = (DisplayName = "Оформление и тексты экрана", DisplayPriority = "3"))
 	FConsentScreenStyle ConsentScreenStyle;
 
+	// Готовое окно согласия, нарисованное в редакторе. Нужно с тех пор, как игра запускается на
+	// пустом загрузочном уровне (ADR-067 п.5): игрового интерфейса там нет, а раньше окно
+	// согласия бралось именно с него. Порядок выбора окна такой: сначала настройка на интерфейсе
+	// игры (если интерфейс есть), затем эта строка, и только потом простое окно, собранное кодом.
+	// Пусто — окно собирается кодом; тексты в обоих случаях берутся отсюда же, из настроек.
+	UPROPERTY(Config, EditAnywhere, Category = "Экран согласия",
+		meta = (DisplayName = "Готовое окно согласия (нужно на загрузочном уровне)", DisplayPriority = "8"))
+	FSoftClassPath ConsentWidgetAssetPath =
+		FSoftClassPath(TEXT("/Game/UI/WBP_Consent.WBP_Consent_C"));
+
 	// Подпись строки политики в меню паузы.
 	UPROPERTY(Config, EditAnywhere, Category = "Меню паузы",
 		meta = (DisplayName = "Подпись строки политики в паузе", DisplayPriority = "4"))
