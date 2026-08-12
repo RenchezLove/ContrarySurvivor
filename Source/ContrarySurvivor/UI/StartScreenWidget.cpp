@@ -33,6 +33,12 @@ FString UMainMenuSettings::GetBugReportUrl()
 	return Settings ? Settings->BugReportUrl.TrimStartAndEnd() : FString();
 }
 
+FString UMainMenuSettings::GetSupportPostUrl()
+{
+	const UMainMenuSettings* Settings = GetDefault<UMainMenuSettings>();
+	return Settings ? Settings->SupportPostUrl.TrimStartAndEnd() : FString();
+}
+
 FString UMainMenuSettings::GetEffectiveBugReportUrl()
 {
 	// Решение game-lead 08-09: канал у нас один, поэтому отдельный адрес для отчётов об
@@ -62,6 +68,7 @@ void UStartScreenWidget::NativeOnInitialized()
 			{ ContinueButton, TEXT("ContinueButton") }, { ContinueText, TEXT("ContinueText") },
 			{ NewGameButton, TEXT("NewGameButton") }, { NewGameText, TEXT("NewGameText") },
 			{ SettingsButton, TEXT("SettingsButton") }, { SettingsText, TEXT("SettingsText") },
+			{ SupportButton, TEXT("SupportButton") }, { SupportText, TEXT("SupportText") },
 			{ CommunityButton, TEXT("CommunityButton") }, { CommunityText, TEXT("CommunityText") },
 			{ ExitButton, TEXT("ExitButton") }, { ExitText, TEXT("ExitText") },
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
@@ -94,6 +101,10 @@ void UStartScreenWidget::NativeOnInitialized()
 	if (SettingsButton)
 	{
 		SettingsButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleSettingsClicked);
+	}
+	if (SupportButton)
+	{
+		SupportButton->OnClicked.AddDynamic(this, &UStartScreenWidget::HandleSupportClicked);
 	}
 	if (CommunityButton)
 	{
@@ -199,30 +210,41 @@ void UStartScreenWidget::BuildCodeTree()
 		SubtitleSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 22.0f));
 	}
 
-	ContinueButton = MakeMenuButton(Column, Defaults.ContinueText, TEXT("ContinueButton"));
-	if (ContinueButton)
+	// Пункты меню строятся СТРОГО по списку GetMenuRowOrder — он и есть источник правды о
+	// порядке (задание издателя: «Поддержать автора» после «Настройки» и перед «Сообщество»).
+	// Тот же список проверяет автотест, поэтому порядок нельзя поменять здесь незаметно.
+	for (const FName& RowName : GetMenuRowOrder())
 	{
-		ContinueText = Cast<UTextBlock>(ContinueButton->GetContent());
-	}
-	NewGameButton = MakeMenuButton(Column, Defaults.NewGameText, TEXT("NewGameButton"));
-	if (NewGameButton)
-	{
-		NewGameText = Cast<UTextBlock>(NewGameButton->GetContent());
-	}
-	SettingsButton = MakeMenuButton(Column, Defaults.SettingsText, TEXT("SettingsButton"));
-	if (SettingsButton)
-	{
-		SettingsText = Cast<UTextBlock>(SettingsButton->GetContent());
-	}
-	CommunityButton = MakeMenuButton(Column, Defaults.CommunityText, TEXT("CommunityButton"));
-	if (CommunityButton)
-	{
-		CommunityText = Cast<UTextBlock>(CommunityButton->GetContent());
-	}
-	ExitButton = MakeMenuButton(Column, Defaults.ExitText, TEXT("ExitButton"));
-	if (ExitButton)
-	{
-		ExitText = Cast<UTextBlock>(ExitButton->GetContent());
+		if (RowName == TEXT("ContinueButton"))
+		{
+			ContinueButton = MakeMenuButton(Column, Defaults.ContinueText, RowName);
+			ContinueText = ContinueButton ? Cast<UTextBlock>(ContinueButton->GetContent()) : nullptr;
+		}
+		else if (RowName == TEXT("NewGameButton"))
+		{
+			NewGameButton = MakeMenuButton(Column, Defaults.NewGameText, RowName);
+			NewGameText = NewGameButton ? Cast<UTextBlock>(NewGameButton->GetContent()) : nullptr;
+		}
+		else if (RowName == TEXT("SettingsButton"))
+		{
+			SettingsButton = MakeMenuButton(Column, Defaults.SettingsText, RowName);
+			SettingsText = SettingsButton ? Cast<UTextBlock>(SettingsButton->GetContent()) : nullptr;
+		}
+		else if (RowName == TEXT("SupportButton"))
+		{
+			SupportButton = MakeMenuButton(Column, Defaults.SupportText, RowName);
+			SupportText = SupportButton ? Cast<UTextBlock>(SupportButton->GetContent()) : nullptr;
+		}
+		else if (RowName == TEXT("CommunityButton"))
+		{
+			CommunityButton = MakeMenuButton(Column, Defaults.CommunityText, RowName);
+			CommunityText = CommunityButton ? Cast<UTextBlock>(CommunityButton->GetContent()) : nullptr;
+		}
+		else if (RowName == TEXT("ExitButton"))
+		{
+			ExitButton = MakeMenuButton(Column, Defaults.ExitText, RowName);
+			ExitText = ExitButton ? Cast<UTextBlock>(ExitButton->GetContent()) : nullptr;
+		}
 	}
 
 	// Низ панели (спека: «мелким шрифтом, не кнопками»): ссылка политики — прозрачная кнопка,
@@ -342,6 +364,9 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 		StyleMenuButton(ContinueButton, /*bPrimary=*/true);
 		StyleMenuButton(NewGameButton, false);
 		StyleMenuButton(SettingsButton, false);
+		// «Поддержать автора» красится ровно как соседние пункты: задание издателя прямо
+		// запрещает выделять его цветом или делать крупнее соседей.
+		StyleMenuButton(SupportButton, false);
 		StyleMenuButton(CommunityButton, false);
 		StyleMenuButton(ExitButton, false);
 
@@ -401,6 +426,7 @@ void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 	StyleButtonLabel(ContinueText, Style.ContinueText, /*bPrimary=*/true);
 	StyleButtonLabel(NewGameText, Style.NewGameText, false);
 	StyleButtonLabel(SettingsText, Style.SettingsText, false);
+	StyleButtonLabel(SupportText, Style.SupportText, false);
 	StyleButtonLabel(CommunityText, Style.CommunityText, false);
 	StyleButtonLabel(ExitText, Style.ExitText, false);
 
@@ -454,6 +480,7 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 	// остальные пункты меню прячутся, чтобы случайный тап рядом не увёл с вопроса о стирании.
 	SetRowVisibility(ContinueButton, ESlateVisibility::Visible); // переспрос идёт только поверх сейва
 	SetRowVisibility(SettingsButton, ESlateVisibility::Collapsed);
+	SetRowVisibility(SupportButton, ESlateVisibility::Collapsed);
 	SetRowVisibility(CommunityButton, ESlateVisibility::Collapsed);
 	SetRowVisibility(ExitButton, ESlateVisibility::Collapsed);
 }
@@ -482,6 +509,12 @@ void UStartScreenWidget::ApplyMenuRowVisibility()
 	// спрятан целиком; появится сам, как только привязка появится (каркас вызова готов).
 	SetRowVisibility(SettingsButton, OnSettingsRequested.IsBound()
 		? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+	// «Поддержать автора» виден ВСЕГДА — ни порога по времени, ни условий в настройках у него
+	// нет (задание издателя). В отличие от «Сообщества», пустой адрес его не прячет: кнопка
+	// показа рекламы работает и без адреса записи, а спрятать пункт целиком значило бы отнять
+	// у игрока единственную добровольную точку поддержки.
+	SetRowVisibility(SupportButton, SupportVisibilityFor());
 
 	// «Сообщество» видно только при непустом адресе в конфиге (спека).
 	SetRowVisibility(CommunityButton, CommunityVisibilityFor(UMainMenuSettings::GetCommunityUrl()));
@@ -583,6 +616,26 @@ FButtonStyle UStartScreenWidget::MakeMenuButtonStyle(const FStartScreenStyle& St
 	Result.NormalPadding = FMargin(0.0f);
 	Result.PressedPadding = FMargin(0.0f);
 	return Result;
+}
+
+ESlateVisibility UStartScreenWidget::SupportVisibilityFor()
+{
+	// Задание издателя: пункт доступен всегда, без порогов и условий.
+	return ESlateVisibility::Visible;
+}
+
+TArray<FName> UStartScreenWidget::GetMenuRowOrder()
+{
+	// Порядок сверху вниз. ⛔ «Поддержать автора» стоит строго после «Настройки» и перед
+	// «Сообщество» — это дословное требование задания издателя, менять нельзя.
+	return TArray<FName>{
+		TEXT("ContinueButton"),
+		TEXT("NewGameButton"),
+		TEXT("SettingsButton"),
+		TEXT("SupportButton"),
+		TEXT("CommunityButton"),
+		TEXT("ExitButton"),
+	};
 }
 
 bool UStartScreenWidget::ShouldFillBackgroundWithColor(const TSoftObjectPtr<UTexture2D>& BackgroundTexture)
@@ -758,6 +811,12 @@ void UStartScreenWidget::HandleSettingsClicked()
 {
 	// Виджет только сообщает: что открывать — решает владелец (контроллер, подход 2).
 	OnSettingsRequested.Broadcast();
+}
+
+void UStartScreenWidget::HandleSupportClicked()
+{
+	// Виджет только сообщает: окно «Поддержать автора» открывает владелец (контроллер).
+	OnSupportRequested.Broadcast();
 }
 
 void UStartScreenWidget::HandleCommunityClicked()

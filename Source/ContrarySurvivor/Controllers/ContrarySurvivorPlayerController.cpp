@@ -43,6 +43,8 @@
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"            // Этап G: меню паузы
 #include "ContrarySurvivor/UI/StartScreenWidget.h"          // Главное меню (ADR-062; вырос из стартового экрана Б3)
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h"       // Экран настроек (ADR-062, подход 2)
+#include "ContrarySurvivor/UI/SupportAuthorWidget.h"        // Окно «Поддержать автора» (задание издателя)
+#include "ContrarySurvivor/Ads/AdService.h"                 // показ ролика в окне «Поддержать автора»
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // применение настроек при запуске
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // ждём ли ответа про сбор данных (загрузочный уровень)
@@ -51,6 +53,7 @@
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
 #include "Misc/PackageName.h"                                // короткое имя уровня из полного адреса
+#include "Camera/PlayerCameraManager.h"                       // чёрный кадр на загрузочном уровне
 
 // Пространство имён переводов для литералов этого файла (ADR-050): подписи тач-кнопок.
 #define LOCTEXT_NAMESPACE "ContrarySurvivorPlayerController"
@@ -99,6 +102,15 @@ void AContrarySurvivorPlayerController::BeginPlay()
 		UE_LOG(LogQA, Display,
 			TEXT("QA: запуск на загрузочном уровне '%s' — мир не грузим, решение примем на месте"),
 			*BootLevelPath.ToString());
+
+		// Кадр делаем ЧЁРНЫМ (решение game-lead 08-12): пустая сцена с небом читается как
+		// поломка, чёрный кадр — как обычная загрузка. Затемнение камеры кладётся поверх
+		// трёхмерной сцены, но ПОД окнами интерфейса (LocalPlayer.cpp:753 движка 5.5 — цвет
+		// уходит в OverlayColor вида), поэтому главное меню и экран согласия поверх него видны.
+		if (PlayerCameraManager)
+		{
+			PlayerCameraManager->SetManualCameraFade(1.0f, FLinearColor::Black, /*bInFadeAudio=*/false);
+		}
 	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
@@ -397,6 +409,19 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 
 void AContrarySurvivorPlayerController::OnTogglePauseMenu()
 {
+	// ⛔ ПОРЯДОК ПРОВЕРОК ВАЖЕН. Окно «Поддержать автора» лежит выше всех прочих, поэтому оно
+	// проверяется ПЕРВЫМ — раньше даже загрузочного уровня: окно открывается и оттуда, из
+	// главного меню, и закрыть его игрок обязан суметь.
+	//
+	// Окно закрывается кнопкой «Назад» на телефоне и клавишей Esc на компьютере — это
+	// требование задания издателя. Отдельной обработки кнопки «Назад» заводить не пришлось:
+	// в проекте она уже привязана к этому же действию (Config/DefaultInput.ini, строка
+	// Key=Android_Back у действия PauseMenu), и точно так же здесь закрывается окно обыска трупа.
+	if (bSupportScreenOpen)
+	{
+		CloseSupportScreen();
+		return;
+	}
 	// На загрузочном уровне ставить на паузу нечего: мира нет. Кнопка «назад» на телефоне и
 	// клавиша Esc здесь просто молчат, иначе поверх главного меню открылась бы пауза без игры.
 	if (bOnBootLevel)
@@ -453,6 +478,8 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 		// Просьба Рината 08-09: настройки открываются и из паузы — тем же методом, что из
 		// главного меню. Пункт в панели появляется САМ по факту этой привязки.
 		PauseMenuWidget->OnSettingsRequested.AddUObject(this, &AContrarySurvivorPlayerController::OpenSettingsScreen);
+		// Задание издателя: вторая точка входа в окно «Поддержать автора» — из паузы.
+		PauseMenuWidget->OnSupportRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandlePauseSupportRequested);
 	}
 
 	// Есть ли что терять — решает игрок-персонаж (сравнивает заработанное с последним
@@ -823,6 +850,8 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 		// «Настройки». Виджет держит пункт спрятанным, пока OnSettingsRequested никем не
 		// привязан (UStartScreenWidget::ApplyMenuRowVisibility), правок виджета не потребовалось.
 		StartScreenWidget->OnSettingsRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleStartScreenSettings);
+		// Задание издателя: пункт «Поддержать автора» между «Настройки» и «Сообщество».
+		StartScreenWidget->OnSupportRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleMainMenuSupportRequested);
 	}
 
 	// Наличие сейва освежаем при КАЖДОМ открытии (меню без сейва: «Продолжить» не
@@ -1210,6 +1239,218 @@ void AContrarySurvivorPlayerController::HandleSettingsResetProgress()
 	{
 		StartScreenWidget->SetHasSave(false);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Окно «Поддержать автора» (задание издателя, решение Рината 11.08.2026).
+//
+// Добровольная точка показа рекламы, куда игрок приходит САМ. Дословно из задания: «Ни один
+// экран её не навязывает, она не прерывает игру и ничего не даёт взамен». Открывается ровно
+// двумя пунктами — в главном меню и в меню паузы; окно при этом ОДНО на оба входа.
+//
+// ⛔ Три условия, которые нельзя нарушать:
+//   • порог по игровому времени (правило РИ-29, AdGating::IsAdGatePassed) к этой точке НЕ
+//     применяется и здесь не проверяется вовсе;
+//   • за просмотр ролика игроку НИЧЕГО не начисляется;
+//   • ролик не готов — кнопки просмотра нет вовсе, окно остаётся с одной кнопкой.
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::HandleMainMenuSupportRequested()
+{
+	OpenSupportScreen(UAnalyticsSubsystem::SupportSourceMainMenu());
+}
+
+void AContrarySurvivorPlayerController::HandlePauseSupportRequested()
+{
+	OpenSupportScreen(UAnalyticsSubsystem::SupportSourcePause());
+}
+
+void AContrarySurvivorPlayerController::OpenSupportScreen(const FString& Source)
+{
+	if (bSupportScreenOpen)
+	{
+		return;
+	}
+
+	if (!SupportScreenWidget)
+	{
+		// Слот назначен — окно из готового ассета; пуст — кодовое дерево-запаска.
+		SupportScreenWidget = CreateWidget<USupportAuthorWidget>(this,
+			SupportWidgetClass ? SupportWidgetClass.Get() : USupportAuthorWidget::StaticClass());
+		if (!SupportScreenWidget)
+		{
+			// Окно не создалось — молча остаёмся там, где были. Игру не блокируем.
+			UE_LOG(LogQA, Warning, TEXT("QA: окно «Поддержать автора» не создалось — остаёмся в меню"));
+			return;
+		}
+		SupportScreenWidget->ApplyStyle(SupportScreenStyle);
+		SupportScreenWidget->OnWatchAdRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleSupportWatchAd);
+		SupportScreenWidget->OnSupportLinkRequested.AddUObject(this, &AContrarySurvivorPlayerController::HandleSupportLink);
+		SupportScreenWidget->OnCloseRequested.AddUObject(this, &AContrarySurvivorPlayerController::CloseSupportScreen);
+	}
+
+	// Готовность ролика перечитываем при КАЖДОМ открытии: между показами окна ролик мог и
+	// загрузиться, и разгрузиться. Порог по времени тут не спрашиваем намеренно.
+	const IAdService* Ads = AdService::Get(this);
+	const bool bAdReady = Ads && Ads->IsRewardedReady();
+	SupportScreenWidget->SetAdAvailable(bAdReady);
+	SupportScreenWidget->SetAdInProgress(false);
+
+	// Z=78: выше экрана настроек (75) и главного меню (70), ниже экрана согласия (90).
+	SupportScreenWidget->AddToViewport(/*ZOrder=*/78);
+
+	bSupportScreenOpen = true;
+	bUIClickConsumed = false;
+
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->SetLayerEnabled(false);
+	}
+
+	// Окно может открыться и поверх уже стоящей паузы (из меню), и из живой игры — во втором
+	// случае паузу ставим сами и сами же снимаем. Чужую паузу не трогаем никогда.
+	bPausedBySupportScreen = !IsPaused();
+	if (bPausedBySupportScreen)
+	{
+		SetPause(true);
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordSupportWindowOpened(Source);
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: окно «Поддержать автора» открыто (откуда: %s, ролик готов: %s)"),
+		*Source, bAdReady ? TEXT("да") : TEXT("нет"));
+}
+
+void AContrarySurvivorPlayerController::CloseSupportScreen()
+{
+	if (!bSupportScreenOpen)
+	{
+		return;
+	}
+	bSupportScreenOpen = false;
+	bUIClickConsumed = false;
+
+	if (SupportScreenWidget)
+	{
+		SupportScreenWidget->RemoveFromParent();
+	}
+
+	if (bPausedBySupportScreen)
+	{
+		SetPause(false);
+		bPausedBySupportScreen = false;
+	}
+
+	// Слой экранных кнопок и игровой ввод возвращаем только если под окном не осталось другого
+	// модального окна (штатно под ним лежит главное меню или пауза — они остаются открытыми).
+	if (TouchControlsLayer && !IsAnyModalUIOpen())
+	{
+		TouchControlsLayer->SetLayerEnabled(true);
+	}
+	if (!IsAnyModalUIOpen())
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: окно «Поддержать автора» закрыто"));
+}
+
+void AContrarySurvivorPlayerController::HandleSupportWatchAd()
+{
+	IAdService* Ads = AdService::Get(this);
+	if (!Ads || !Ads->IsRewardedReady())
+	{
+		// Ролик разгрузился между показом кнопки и нажатием — честно убираем кнопку.
+		if (SupportScreenWidget)
+		{
+			SupportScreenWidget->SetAdAvailable(false);
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: «Поддержать автора» — ролик не готов, кнопку убрали"));
+		return;
+	}
+
+	if (SupportScreenWidget)
+	{
+		SupportScreenWidget->SetAdInProgress(true);
+	}
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordSupportAdStarted();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: «Поддержать автора» — показываем ролик"));
+
+	Ads->ShowRewarded(AdPlacements::SupportAuthor,
+		FSimpleDelegate::CreateUObject(this, &AContrarySurvivorPlayerController::HandleSupportAdSuccess),
+		FSimpleDelegate::CreateUObject(this, &AContrarySurvivorPlayerController::HandleSupportAdFail));
+}
+
+void AContrarySurvivorPlayerController::HandleSupportAdSuccess()
+{
+	if (SupportScreenWidget)
+	{
+		SupportScreenWidget->SetAdInProgress(false);
+		// ⛔ НИКАКОЙ НАГРАДЫ: ни монет, ни предметов, ни бонусов. Дословно из задания —
+		// «награда превращает её в обычную ежедневку и убивает замер». Всё, что происходит
+		// после ролика, — короткое спасибо в этом же окне.
+		SupportScreenWidget->ShowThanks();
+		// Ролик мог разгрузиться после показа — освежаем видимость кнопки честно.
+		const IAdService* Ads = AdService::Get(this);
+		SupportScreenWidget->SetAdAvailable(Ads && Ads->IsRewardedReady());
+	}
+
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordSupportAdCompleted();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: «Поддержать автора» — ролик досмотрен, награды нет (так и задумано)"));
+}
+
+void AContrarySurvivorPlayerController::HandleSupportAdFail()
+{
+	// Задание: «Ролик упал с ошибкой после начала — показать то же спасибо». Игрок не должен
+	// страдать из-за проблем рекламной сети. Событие «досмотрен» при этом НЕ шлём: замер
+	// обязан считать реальные досмотры, а не наши утешения.
+	if (SupportScreenWidget)
+	{
+		SupportScreenWidget->SetAdInProgress(false);
+		SupportScreenWidget->ShowThanks();
+		const IAdService* Ads = AdService::Get(this);
+		SupportScreenWidget->SetAdAvailable(Ads && Ads->IsRewardedReady());
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: «Поддержать автора» — ролик не доиграл, показали то же спасибо"));
+}
+
+void AContrarySurvivorPlayerController::HandleSupportLink()
+{
+	// Адрес живёт ТОЛЬКО в настройках проекта, в коде его нет. Платёжных реквизитов в игре
+	// нет ни в каком виде — всё это на внешней странице.
+	const FString Url = UMainMenuSettings::GetSupportPostUrl();
+	if (Url.IsEmpty())
+	{
+		// Пустую страницу игроку не показываем — тот же приём, что у политики и «Сообщества».
+		UE_LOG(LogQA, Display,
+			TEXT("QA: «Другие способы поддержать» — адрес в настройках не задан, открывать нечего"));
+		return;
+	}
+
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordSupportLinkOpened();
+	}
+
+	FString Error;
+	FPlatformProcess::LaunchURL(*Url, nullptr, &Error);
+	UE_LOG(LogQA, Display, TEXT("QA: «Другие способы поддержать» — открыт адрес '%s'%s%s"),
+		*Url, Error.IsEmpty() ? TEXT("") : TEXT(", ошибка: "), *Error);
 }
 
 bool AContrarySurvivorPlayerController::ShouldShowMainMenuOnLaunch(bool bLaunchedBefore, bool bHasSave)

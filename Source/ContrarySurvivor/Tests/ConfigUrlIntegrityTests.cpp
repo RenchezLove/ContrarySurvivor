@@ -73,6 +73,7 @@ bool FConfigUrlsAreWholeTest::RunTest(const FString& Parameters)
 	{
 		{ TEXT("«Сообщество» в главном меню и в паузе"), UMainMenuSettings::GetCommunityUrl() },
 		{ TEXT("«Сообщить об ошибке» на экране настроек"), UMainMenuSettings::GetBugReportUrl() },
+		{ TEXT("«Другие способы поддержать» в окне «Поддержать автора»"), UMainMenuSettings::GetSupportPostUrl() },
 		{ TEXT("«Политика конфиденциальности»"), Consent ? Consent->PrivacyPolicyUrl.TrimStartAndEnd() : FString() },
 		{ TEXT("канал на карточке конца сюжета"), UEndOfStorySettings::GetChannelUrl() },
 	};

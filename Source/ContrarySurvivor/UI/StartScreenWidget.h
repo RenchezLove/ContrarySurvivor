@@ -50,6 +50,19 @@ public:
 	// Собственный адрес отчётов об ошибках, как он записан в конфиге (без запасного пути).
 	static FString GetBugReportUrl();
 
+	// Адрес записи «Другие способы поддержать» — вторая кнопка окна «Поддержать автора»
+	// (задание издателя, решение Рината 11.08.2026). Адрес живёт ТОЛЬКО здесь, в коде его нет.
+	// ⛔ В конфиге писать строго В КАВЫЧКАХ: без них движок обрезает адрес на двойном слэше
+	// и в игру приезжает «https:» (ConfigCacheIni.cpp:1776-1780 движка 5.5).
+	// ⛔ Платёжных реквизитов в игре нет ни в каком виде — ни номера карты, ни телефона,
+	// ни ссылки на оплату. Всё это живёт на внешней странице, куда ведёт этот адрес.
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Главное меню",
+		meta = (DisplayName = "Адрес записи «Другие способы поддержать»"))
+	FString SupportPostUrl;
+
+	// Готовый адрес записи о поддержке (без лишних пробелов) либо пустая строка.
+	static FString GetSupportPostUrl();
+
 	// Адрес, по которому реально уходит «Сообщить об ошибке»: свой, а если его нет — адрес
 	// сообщества. Пусто — только когда не заполнено ни то, ни другое.
 	static FString GetEffectiveBugReportUrl();
@@ -149,6 +162,13 @@ struct FStartScreenStyle
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FText SettingsText = NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки");
+
+	// Пункт «Поддержать автора» (задание издателя, решение Рината 11.08.2026). Стоит строго
+	// после «Настройки» и перед «Сообщество». Дословно из задания: «Не выделять цветом, не
+	// анимировать, не делать крупнее соседей: это не главное действие в меню» — поэтому
+	// отдельных полей вида у него нет, он берёт ровно те же, что и соседние пункты.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
+	FText SupportText = NSLOCTEXT("StartScreenWidget", "SupportText", "Поддержать автора");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Start Screen")
 	FText CommunityText = NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество");
@@ -307,6 +327,9 @@ public:
 	// «Настройки» — владелец открывает экран настроек (подход 2; пока вход-заглушка).
 	FSimpleMulticastDelegate OnSettingsRequested;
 
+	// «Поддержать автора» — владелец открывает одноимённое окно (задание издателя).
+	FSimpleMulticastDelegate OnSupportRequested;
+
 	// «Выход» — владелец закрывает игру.
 	FSimpleMulticastDelegate OnExitRequested;
 
@@ -328,6 +351,18 @@ public:
 
 	// «Продолжить»: без сейва — Collapsed (пункта нет вовсе, место не занимает), с сейвом — Visible.
 	static ESlateVisibility ContinueVisibilityFor(bool bInHasSave);
+
+	// «Поддержать автора» виден ВСЕГДА: у этого пункта нет ни порога по времени, ни условий
+	// в настройках — дословно из задания издателя, «Кнопка доступна всегда».
+	static ESlateVisibility SupportVisibilityFor();
+
+	// Порядок пунктов главного меню сверху вниз. ОДНО место правды: по этому списку строится
+	// кодовое дерево-запаска, и его же проверяет автотест. Порядок задан издателем: пункт
+	// «Поддержать автора» стоит строго после «Настройки» и перед «Сообщество».
+	//
+	// ⚠ На готовое окно из дизайнера этот список НЕ влияет: там порядок строк задаёт владелец
+	// мышкой. Он держит только запаску, собираемую кодом.
+	static TArray<FName> GetMenuRowOrder();
 
 	// Переспрос «Новая игра» нужен только поверх существующего сейва.
 	static bool ShouldConfirmNewGame(bool bInHasSave);
@@ -372,6 +407,10 @@ public:
 
 	UFUNCTION()
 	void HandleSettingsClicked();
+
+	// «Поддержать автора»: просто просит владельца открыть окно. Ничего не решает сам.
+	UFUNCTION()
+	void HandleSupportClicked();
 
 	// «Сообщество»: открывает адрес из конфига во внешнем браузере (пункт виден только при
 	// непустом адресе, так что пустой адрес сюда штатно не попадает).
@@ -490,6 +529,13 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SettingsText;
+
+	// Задание издателя: «Поддержать автора» между «Настройки» и «Сообщество».
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SupportButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SupportText;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> CommunityButton;

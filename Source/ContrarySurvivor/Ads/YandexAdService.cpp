@@ -384,13 +384,18 @@ FString UYandexAdService::GetAdUnitIdForPlacement(FName Placement) const
 	{
 		return AdUnitIdDailyDouble;
 	}
+	if (Placement == AdPlacements::SupportAuthor && !AdUnitIdSupportAuthor.IsEmpty())
+	{
+		return AdUnitIdSupportAuthor;
+	}
 	return RewardedAdUnitId;
 }
 
 TArray<FString> UYandexAdService::GetConfiguredAdUnitIds() const
 {
 	TArray<FString> Units;
-	const FName AllPlacements[] = { AdPlacements::DeathBackpack, AdPlacements::ShopSellBonus, AdPlacements::DailyDouble };
+	const FName AllPlacements[] = { AdPlacements::DeathBackpack, AdPlacements::ShopSellBonus,
+		AdPlacements::DailyDouble, AdPlacements::SupportAuthor };
 	for (const FName& Placement : AllPlacements)
 	{
 		const FString Unit = GetAdUnitIdForPlacement(Placement);
@@ -464,6 +469,10 @@ FString UYandexAdService::PlacementToAnalyticsPoint(FName Placement)
 	if (Placement == AdPlacements::DailyDouble)
 	{
 		return TEXT("daily");
+	}
+	if (Placement == AdPlacements::SupportAuthor)
+	{
+		return TEXT("support");
 	}
 	return TEXT("unknown");
 }

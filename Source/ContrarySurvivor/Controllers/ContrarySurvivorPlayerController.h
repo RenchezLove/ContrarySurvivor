@@ -13,6 +13,7 @@
 #include "ContrarySurvivor/UI/TouchControlsTypes.h" // FTouchButtonSettings (настройки тач-кнопок, этап G)
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle (стиль меню паузы — поле контроллера)
 #include "ContrarySurvivor/UI/StartScreenWidget.h"  // FStartScreenStyle (Б3: стиль стартового экрана)
+#include "ContrarySurvivor/UI/SupportAuthorWidget.h" // FSupportAuthorStyle (окно «Поддержать автора»)
 #include "ContrarySurvivor/Debug/QADebug.h"         // CONTRARY_WITH_QA_CHEATS: отладочных клавиш нет в Shipping
 #include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h" // EContraryWorldEntryIntent (намерение перехода в мир)
 #include "ContrarySurvivorPlayerController.generated.h"
@@ -26,6 +27,7 @@ class UTouchControlsWidget;
 class UPauseMenuWidget;
 class UStartScreenWidget;                  // Б3: экран «Продолжить»/«Новая игра», строится кодом
 class USettingsScreenWidget;               // Подход 2 волны меню: экран настроек (ADR-062)
+class USupportAuthorWidget;                // Окно «Поддержать автора» (задание издателя 11.08.2026)
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
@@ -161,7 +163,7 @@ public:
 	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
 	// смерти/меню паузы/стартовый экран Б3). Нужно UDailyRewardComponent: возвращать GameOnly
 	// после окна награды можно только если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bSettingsScreenOpen; }
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bSettingsScreenOpen || bSupportScreenOpen; }
 
 	// Показано ли сейчас ГЛАВНОЕ МЕНЮ (само меню либо открытый поверх него экран настроек).
 	// Дефект с телефона 08-09: поверх меню оставался игровой интерфейс — полосы здоровья,
@@ -226,6 +228,36 @@ public:
 	// и полным («/Game/Maps/L_Boot»), и коротким именем («L_Boot») — сравниваем короткие имена.
 	// Чистая, без живого мира: поэтому её и гоняет автотест.
 	static bool IsSameLevel(const FString& CurrentShortName, FName LevelPath);
+
+	// --- Окно «Поддержать автора» (задание издателя, решение Рината 11.08.2026) ---
+	// Методы ПУБЛИЧНЫЕ намеренно: их зовут и кнопки окна, и автотесты (живой Slate в тестах
+	// проекта не поднимается — тот же приём, что у обработчиков UStartScreenWidget).
+
+	// Открывает окно поверх текущего экрана. Source — откуда пришли, для замера: имена берутся
+	// у подсистемы статистики (главное меню либо пауза). Окно открывается ТОЛЬКО отсюда, по
+	// нажатию игрока: сама игра его не показывает никогда, напоминаний и всплытий нет.
+	void OpenSupportScreen(const FString& Source);
+	void CloseSupportScreen();
+
+	// Открыто ли окно прямо сейчас (для автотестов и владельца).
+	bool IsSupportScreenOpen() const { return bSupportScreenOpen; }
+
+	// Пункты, которые ведут в это окно (привязываются к обоим меню — окно одно и то же).
+	void HandleMainMenuSupportRequested();
+	void HandlePauseSupportRequested();
+
+	// «Посмотреть рекламу» в окне: показываем ролик существующим механизмом.
+	// ⛔ Порог по игровому времени (правило РИ-29) здесь НЕ проверяется — игрок пришёл сам.
+	void HandleSupportWatchAd();
+
+	// Ролик досмотрен либо упал с ошибкой после начала: в обоих случаях показываем одно и то
+	// же короткое спасибо. ⛔ Награду игроку НЕ выдаём ни в одном из случаев — именно это и
+	// проверяет автотест, поднимая живого персонажа и сверяя его состояние до и после.
+	void HandleSupportAdSuccess();
+	void HandleSupportAdFail();
+
+	// «Другие способы поддержать»: открываем адрес из настроек системным способом.
+	void HandleSupportLink();
 
 protected:
 	virtual void BeginPlay() override;
@@ -505,6 +537,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings Screen", meta = (DisplayPriority = "0"))
 	TSubclassOf<USettingsScreenWidget> SettingsScreenWidgetClass;
+
+	// Окно «Поддержать автора»: пусто — окно собирается кодом, назначен готовый ассет — вид
+	// правится в дизайнере. Ассет делает оператор, код его не создаёт.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Поддержать автора", meta = (DisplayPriority = "0"))
+	TSubclassOf<USupportAuthorWidget> SupportWidgetClass;
+
+	// Оформление и тексты окна «Поддержать автора». Тексты дословно из задания издателя.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Поддержать автора", meta = (DisplayPriority = "1"))
+	FSupportAuthorStyle SupportScreenStyle;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro", meta = (DisplayPriority = "0"))
 	TSubclassOf<UIntroScreenWidget> IntroScreenWidgetClass;
@@ -925,6 +966,18 @@ private:
 	// Паузу мира поставил САМ экран настроек (а не меню под ним). Только в этом случае
 	// закрытие настроек снимает паузу — иначе «Назад» оживил бы мир под открытым меню.
 	bool bPausedBySettingsScreen = false;
+
+	// Открыто ли окно «Поддержать автора». Оно модальное, как экран настроек, и открывается
+	// поверх главного меню либо поверх паузы.
+	bool bSupportScreenOpen = false;
+
+	// Паузу мира поставило САМО это окно (а не меню под ним) — только тогда закрытие её снимет.
+	bool bPausedBySupportScreen = false;
+
+	// Виджет окна «Поддержать автора»: создаётся лениво при первом открытии и дальше
+	// переиспользуется (готовность ролика перечитывается при каждом показе).
+	UPROPERTY()
+	TObjectPtr<USupportAuthorWidget> SupportScreenWidget;
 
 	// Экранный тач-слой (этап G): создаётся в BeginPlay на Android или при bEnableTouchControls.
 	// null — слой выключен.

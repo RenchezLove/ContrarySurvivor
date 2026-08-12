@@ -125,7 +125,32 @@ public:
 	// за установку. TotalSteps — сколько шагов в обучении всего (едет в value).
 	void RecordTutorialCompleted(int32 TotalSteps);
 
+	// --- Окно «Поддержать автора» (задание издателя, решение Рината 11.08.2026). Четыре
+	// события задания ложатся в ту же иерархию, что и остальные, а источник открытия окна
+	// едет СЕГМЕНТОМ имени — так же, как причина непоказа у рекламных точек
+	// (ad:...:not_shown:{reason}). Числового значения у этих событий нет: считать в них нечего,
+	// а один параметр GA всё равно принимает только числом.
+	//
+	// СООТВЕТСТВИЕ ИМЁН для сверки метрик издателем (имя задания -> событие GA):
+	//   support_window_opened -> support:window_opened:{main_menu|pause}
+	//   support_ad_started    -> support:ad_started
+	//   support_ad_completed  -> support:ad_completed
+	//   support_link_opened   -> support:link_opened
+	void RecordSupportWindowOpened(const FString& Source);
+	void RecordSupportAdStarted();
+	void RecordSupportAdCompleted();
+	void RecordSupportLinkOpened();
+
+	// Откуда открыли окно — латинские имена источников одним местом (их же проверяют автотесты).
+	static FString SupportSourceMainMenu() { return TEXT("main_menu"); }
+	static FString SupportSourcePause()    { return TEXT("pause"); }
+
 	// --- Имена событий одним местом: тем же кодом строит отправка и проверяют автотесты. ---
+	static FString MakeSupportWindowOpenedEventId(const FString& Source);
+	static FString MakeSupportAdStartedEventId();
+	static FString MakeSupportAdCompletedEventId();
+	static FString MakeSupportLinkOpenedEventId();
+
 	static FString MakeFirstLaunchEventId();
 	static FString MakeTutorialStepEventId(const FString& StepId);
 	static FString MakeTutorialCompletedEventId();

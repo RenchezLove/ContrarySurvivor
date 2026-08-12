@@ -187,6 +187,48 @@ void UAnalyticsSubsystem::RecordAdNotShown(const FString& Point, const FString& 
 		*SanitizeEventPart(Point), *SanitizeEventPart(Reason)));
 }
 
+// --- Окно «Поддержать автора» (задание издателя, решение Рината 11.08.2026) ---
+
+FString UAnalyticsSubsystem::MakeSupportWindowOpenedEventId(const FString& Source)
+{
+	return FString::Printf(TEXT("support:window_opened:%s"), *SanitizeEventPart(Source));
+}
+
+FString UAnalyticsSubsystem::MakeSupportAdStartedEventId()
+{
+	return TEXT("support:ad_started");
+}
+
+FString UAnalyticsSubsystem::MakeSupportAdCompletedEventId()
+{
+	return TEXT("support:ad_completed");
+}
+
+FString UAnalyticsSubsystem::MakeSupportLinkOpenedEventId()
+{
+	return TEXT("support:link_opened");
+}
+
+void UAnalyticsSubsystem::RecordSupportWindowOpened(const FString& Source)
+{
+	SendDesignEvent(MakeSupportWindowOpenedEventId(Source));
+}
+
+void UAnalyticsSubsystem::RecordSupportAdStarted()
+{
+	SendDesignEvent(MakeSupportAdStartedEventId());
+}
+
+void UAnalyticsSubsystem::RecordSupportAdCompleted()
+{
+	SendDesignEvent(MakeSupportAdCompletedEventId());
+}
+
+void UAnalyticsSubsystem::RecordSupportLinkOpened()
+{
+	SendDesignEvent(MakeSupportLinkOpenedEventId());
+}
+
 void UAnalyticsSubsystem::RecordShopSellCompleted(float Amount)
 {
 	SendDesignEvent(TEXT("shop:sell_completed"), Amount, /*bWithValue=*/true);

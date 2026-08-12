@@ -79,6 +79,12 @@ struct FPauseMenuStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
 	FText CommunityText = NSLOCTEXT("PauseMenuWidget", "CommunityText", "Сообщество");
 
+	// Пункт «Поддержать автора» (задание издателя, решение Рината 11.08.2026): вторая точка
+	// входа в то же окно, что и из главного меню. Стоит рядом со строками «Сообщество» и
+	// «Политика конфиденциальности» и оформлен так же, как они — выделять его нельзя.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu")
+	FText SupportText = NSLOCTEXT("PauseMenuWidget", "SupportText", "Поддержать автора");
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu", meta = (ClampMin = "8"))
 	int32 ButtonFontSize = 19;
 
@@ -145,6 +151,10 @@ public:
 	// привязки: не привязан — не показывается (тот же приём, что в главном меню).
 	FSimpleMulticastDelegate OnSettingsRequested;
 
+	// «Поддержать автора» — владелец открывает ТО ЖЕ окно, что и из главного меню
+	// (AContrarySurvivorPlayerController::OpenSupportScreen). Второго окна не заводится.
+	FSimpleMulticastDelegate OnSupportRequested;
+
 	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
 	// с дефолтами). Зовёт контроллер сразу после создания виджета (OpenPauseMenu).
 	void ApplyStyle(const FPauseMenuStyle& Style);
@@ -181,6 +191,10 @@ public:
 	// что у пункта главного меню (UMainMenuSettings::GetCommunityUrl) — второго не заводим.
 	UFUNCTION()
 	void HandleCommunityClicked();
+
+	// «Поддержать автора» — просто просит владельца открыть окно. Ничего не решает сам.
+	UFUNCTION()
+	void HandleSupportClicked();
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -289,6 +303,13 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CommunityText;
+
+	// Задание издателя: вторая точка входа в окно «Поддержать автора».
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SupportButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SupportText;
 
 	// Б6: строка политики и мелкий номер версии сборки (переключатель согласия отсюда убран).
 	UPROPERTY(meta = (BindWidgetOptional))

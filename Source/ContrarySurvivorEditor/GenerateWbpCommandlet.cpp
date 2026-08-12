@@ -2346,7 +2346,12 @@ namespace
 		const FStartScreenStyle MenuStyle;
 		const FVector2D ButtonSize = MenuStyle.ButtonSize;
 		const float ButtonStep = ButtonSize.Y + MenuStyle.ButtonSpacing;
-		constexpr int32 MenuButtonCount = 5;
+		// Число пунктов берём из ОДНОГО источника правды о порядке — UStartScreenWidget::
+		// GetMenuRowOrder. Тот же список строит кодовое дерево-запаску и проверяет автотест
+		// ContrarySurvivor.SupportAuthor.MenuRowStandsBetweenSettingsAndCommunity, поэтому
+		// добавить пункт в одном месте и забыть про другое уже нельзя.
+		const TArray<FName> MenuRows = UStartScreenWidget::GetMenuRowOrder();
+		const int32 MenuButtonCount = MenuRows.Num();
 		// Столбик центрирован по высоте экрана (как на макете): верх первой кнопки — на
 		// половину всей высоты столбика выше середины.
 		const float ColumnTop = -0.5f * (MenuButtonCount * ButtonSize.Y
@@ -2384,13 +2389,13 @@ namespace
 
 		// Подписи кнопок — образцы: живые ставит код (стиль контроллера; «Продолжить»/«Новая
 		// игра» ещё и переключаются переспросом ApplyChoiceLabels/ApplyConfirmLabels).
-		auto AddMenuButton = [&](const TCHAR* ButtonName, const TCHAR* TextName,
+		auto AddMenuButton = [&](const FName& ButtonName, const FName& TextName,
 			const FText& Caption, int32 Index, bool bPrimary)
 		{
-			UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), FName(ButtonName));
+			UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), ButtonName);
 			Button->SetStyle(UStartScreenWidget::MakeMenuButtonStyle(MenuStyle, bPrimary));
 			Button->bIsVariable = true;
-			SetUnlockedCaption(Tree, Roboto, Button, FName(TextName), Caption,
+			SetUnlockedCaption(Tree, Roboto, Button, TextName, Caption,
 				UStartScreenWidget::MenuButtonTextColor(MenuStyle, bPrimary), MenuStyle.ButtonFontSize);
 			if (UCanvasPanelSlot* ButtonSlot = Root->AddChildToCanvas(Button))
 			{
@@ -2400,16 +2405,40 @@ namespace
 				ButtonSlot->SetSize(ButtonSize);
 			}
 		};
-		AddMenuButton(TEXT("ContinueButton"), TEXT("ContinueText"),
-			NSLOCTEXT("StartScreenWidget", "ContinueText", "Продолжить"), 0, /*bPrimary=*/true);
-		AddMenuButton(TEXT("NewGameButton"), TEXT("NewGameText"),
-			NSLOCTEXT("StartScreenWidget", "NewGameText", "Новая игра"), 1, false);
-		AddMenuButton(TEXT("SettingsButton"), TEXT("SettingsText"),
-			NSLOCTEXT("StartScreenWidget", "SettingsText", "Настройки"), 2, false);
-		AddMenuButton(TEXT("CommunityButton"), TEXT("CommunityText"),
-			NSLOCTEXT("StartScreenWidget", "CommunityText", "Сообщество"), 3, false);
-		AddMenuButton(TEXT("ExitButton"), TEXT("ExitText"),
-			NSLOCTEXT("StartScreenWidget", "ExitText", "Выход"), 4, false);
+		// Пункты ставим СТРОГО в порядке GetMenuRowOrder: он один и тот же у ассета, у кодовой
+		// запаски и у автотеста. Подписи берём из настроек по умолчанию — там ровно те же
+		// строки, и второго места правды не заводится.
+		//
+		// ⛔ Выделен видом ТОЛЬКО «Продолжить». «Поддержать автора» идёт обычным пунктом, как
+		// его соседи: дословно из задания издателя — «Не выделять цветом, не анимировать, не
+		// делать крупнее соседей: это не главное действие в меню».
+		for (int32 RowIndex = 0; RowIndex < MenuRows.Num(); ++RowIndex)
+		{
+			const FName ButtonName = MenuRows[RowIndex];
+			// Имя кубика подписи = имя кнопки с «Button» на конце, заменённым на «Text»
+			// (в проекте так у всех пунктов меню).
+			FString CaptionCubeName = ButtonName.ToString();
+			CaptionCubeName.RemoveFromEnd(TEXT("Button"));
+			CaptionCubeName += TEXT("Text");
+			const FName TextName(*CaptionCubeName);
+
+			FText Caption;
+			if (ButtonName == TEXT("ContinueButton"))      { Caption = MenuStyle.ContinueText; }
+			else if (ButtonName == TEXT("NewGameButton"))  { Caption = MenuStyle.NewGameText; }
+			else if (ButtonName == TEXT("SettingsButton")) { Caption = MenuStyle.SettingsText; }
+			else if (ButtonName == TEXT("SupportButton"))  { Caption = MenuStyle.SupportText; }
+			else if (ButtonName == TEXT("CommunityButton")){ Caption = MenuStyle.CommunityText; }
+			else if (ButtonName == TEXT("ExitButton"))     { Caption = MenuStyle.ExitText; }
+			else
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("BUILD WBP_StartScreen: для пункта '%s' нет подписи — пункт добавлен в GetMenuRowOrder, а сюда его не завели."),
+					*ButtonName.ToString());
+			}
+
+			AddMenuButton(ButtonName, TextName, Caption, RowIndex,
+				/*bPrimary=*/ButtonName == TEXT("ContinueButton"));
+		}
 
 		// Низ ЭКРАНА (спека: «мелким шрифтом, не кнопками»). Лежат не в панели, а прямо на
 		// фоне — по центру нижнего края, на затемнении, чтобы читались при любой картинке.
@@ -3054,6 +3083,10 @@ namespace
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
+			  // Задание издателя 11.08.2026: пункт «Поддержать автора» стоит СТРОГО между
+			  // «Настройки» и «Сообщество». Здесь это список состава (порядок в нём роли не
+			  // играет), сам порядок задаётся в BuildStartScreen по GetMenuRowOrder.
+			  TEXT("SupportButton"), TEXT("SupportText"),
 			  TEXT("CommunityButton"), TEXT("CommunityText"),
 			  TEXT("ExitButton"), TEXT("ExitText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
@@ -3099,6 +3132,10 @@ namespace
 			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
 			  TEXT("CommunityButton"), TEXT("CommunityText"),
+			  // Задание издателя 11.08.2026: строка «Поддержать автора» рядом с «Сообщество» и
+			  // «Политика конфиденциальности». Окно ОТДАНО ВЛАДЕЛЬЦУ — сюда строка приезжает
+			  // только режимом -augment (AugmentPauseMenuSupport), пересборка запрещена.
+			  TEXT("SupportButton"), TEXT("SupportText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
 			  TEXT("VersionText") },
 			/*bOwnerOwned=*/true },
@@ -3603,6 +3640,7 @@ namespace
 			  TEXT("ContinueButton"), TEXT("ContinueText"),
 			  TEXT("NewGameButton"), TEXT("NewGameText"),
 			  TEXT("SettingsButton"), TEXT("SettingsText"),
+			  TEXT("SupportButton"), TEXT("SupportText"),
 			  TEXT("CommunityButton"), TEXT("CommunityText"),
 			  TEXT("ExitButton"), TEXT("ExitText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("VersionText") } },
@@ -4381,6 +4419,105 @@ namespace
 		UE_LOG(LogGenerateWbp, Display,
 			TEXT("AUGMENT %s: добавлены пункты «Настройки» и «Сообщество», нижние пункты сдвинуты на %.0f, панель подросла на столько же."),
 			Name, Shift);
+	}
+
+	// WBP_PauseMenu, задание издателя 11.08.2026: строка «Поддержать автора» рядом с
+	// «Сообщество» и «Политика конфиденциальности».
+	//
+	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ (bOwnerOwned в таблице генератора): пересобирать его нельзя даже
+	// с -force, иначе сотрётся ручная настройка. Поэтому строку добавляем ДОПОЛНЕНИЕМ — тем же
+	// приёмом, каким сюда приехали «Настройки» и «Сообщество».
+	//
+	// Идемпотентно: строка уже есть — выходим молча, второй кнопки повторный прогон не заводит.
+	void AugmentPauseMenuSupport(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_PauseMenu");
+		if (Tree->FindWidget(TEXT("SupportButton")))
+		{
+			return; // уже добавлено — режим идемпотентный
+		}
+
+		// Встаём сразу под «Сообщество» и берём у него размер, привязку и выравнивание: новый
+		// пункт не должен отличаться от соседей ничем (условие задания — не выделять его).
+		UWidget* Anchor = Tree->FindWidget(TEXT("CommunityButton"));
+		UCanvasPanelSlot* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
+		UCanvasPanel* Parent = Anchor ? Cast<UCanvasPanel>(Anchor->GetParent()) : nullptr;
+		if (!AnchorSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: кнопка CommunityButton не найдена в канвас-слоте — некуда пристроить «Поддержать автора»."),
+				Name);
+			return;
+		}
+
+		const FVector2D AnchorSize = AnchorSlot->GetSize();
+		const FVector2D AnchorPos = AnchorSlot->GetPosition();
+		const FAnchors AnchorAnchors = AnchorSlot->GetAnchors();
+
+		// Шаг между пунктами берём из ЖИВОГО ассета — расстояние от «Настройки» до «Сообщество».
+		// Владелец мог развести пункты по-своему, и новая строка обязана встать с тем же
+		// зазором, а не с зашитым в код. Не вышло измерить — запасной вариант как у соседей.
+		float Step = AnchorSize.Y + 12.0f;
+		if (UWidget* Above = Tree->FindWidget(TEXT("SettingsButton")))
+		{
+			if (UCanvasPanelSlot* AboveSlot = Cast<UCanvasPanelSlot>(Above->Slot))
+			{
+				const float LiveStep = AnchorPos.Y - AboveSlot->GetPosition().Y;
+				if (LiveStep > KINDA_SMALL_NUMBER)
+				{
+					Step = LiveStep;
+				}
+			}
+		}
+
+		// Пункты ниже «Сообщество» сдвигаем на одну строку. Двигаем ТОЛЬКО привязанные к тому
+		// же краю: строка версии привязана к низу панели, её трогать нельзя — уедет за край.
+		for (int32 Index = 0; Index < Parent->GetChildrenCount(); ++Index)
+		{
+			UWidget* Child = Parent->GetChildAt(Index);
+			UCanvasPanelSlot* ChildSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+			if (!ChildSlot || Child == Anchor)
+			{
+				continue;
+			}
+			if (!FMath::IsNearlyEqual(ChildSlot->GetAnchors().Minimum.Y, AnchorAnchors.Minimum.Y))
+			{
+				continue; // привязан к другому краю — не наш случай
+			}
+			if (ChildSlot->GetPosition().Y > AnchorPos.Y + KINDA_SMALL_NUMBER)
+			{
+				ChildSlot->SetPosition(ChildSlot->GetPosition() + FVector2D(0.0f, Step));
+			}
+		}
+
+		// Панель подросла на ту же строку, иначе нижние пункты вывалятся за её край.
+		if (UWidget* Plate = Tree->FindWidget(TEXT("PanelPlate")))
+		{
+			if (UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(Plate->Slot))
+			{
+				PlateSlot->SetSize(PlateSlot->GetSize() + FVector2D(0.0f, Step));
+			}
+		}
+
+		// ⛔ Вид ровно как у соседей: та же серая кнопка, тот же кегль, тот же цвет подписи.
+		// Дословно из задания издателя — пункт не выделяется и не делается крупнее соседей.
+		UObject* Roboto = LoadRobotoFont();
+		UButton* Support = MakeGreyButton(Tree, TEXT("SupportButton"));
+		SetUnlockedCaption(Tree, Roboto, Support, TEXT("SupportText"),
+			NSLOCTEXT("PauseMenuWidget", "SupportText", "Поддержать автора"),
+			FLinearColor(0.05f, 0.05f, 0.05f, 1.0f), 19);
+		if (UCanvasPanelSlot* SupportSlot = Parent->AddChildToCanvas(Support))
+		{
+			SupportSlot->SetAnchors(AnchorAnchors);
+			SupportSlot->SetAlignment(AnchorSlot->GetAlignment());
+			SupportSlot->SetSize(AnchorSize);
+			SupportSlot->SetPosition(AnchorPos + FVector2D(0.0f, Step));
+		}
+		bChanged = true;
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлен пункт «Поддержать автора» под «Сообщество», нижние пункты сдвинуты на %.0f, панель подросла на столько же."),
+			Name, Step);
 	}
 
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
@@ -5557,6 +5694,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Волна 08-09: «Настройки» и «Сообщество» в паузе + подпись политики, которая не
 		// помещалась. Отдельной записью со своей проверкой «уже сделано» — как у WBP_Shop.
 		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuExtras },
+		// Задание издателя 11.08.2026: строка «Поддержать автора». Отдельной записью со своей
+		// проверкой «уже сделано» — иначе повторный прогон завёл бы вторую такую же строку.
+		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuSupport },
 	};
 
 	int32 FailCount = 0;

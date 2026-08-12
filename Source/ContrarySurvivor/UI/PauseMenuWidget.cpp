@@ -42,6 +42,7 @@ void UPauseMenuWidget::NativeOnInitialized()
 			{ MainMenuButton, TEXT("MainMenuButton") }, { MainMenuText, TEXT("MainMenuText") },
 			{ SettingsButton, TEXT("SettingsButton") }, { SettingsText, TEXT("SettingsText") },
 			{ CommunityButton, TEXT("CommunityButton") }, { CommunityText, TEXT("CommunityText") },
+			{ SupportButton, TEXT("SupportButton") }, { SupportText, TEXT("SupportText") },
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
 			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
 			{ VersionText, TEXT("VersionText") },
@@ -93,6 +94,10 @@ void UPauseMenuWidget::NativeOnInitialized()
 	if (CommunityButton)
 	{
 		CommunityButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleCommunityClicked);
+	}
+	if (SupportButton)
+	{
+		SupportButton->OnClicked.AddDynamic(this, &UPauseMenuWidget::HandleSupportClicked);
 	}
 
 	if (!bDesignerTree)
@@ -170,6 +175,14 @@ void UPauseMenuWidget::BuildCodeTree()
 	if (CommunityButton)
 	{
 		CommunityText = Cast<UTextBlock>(CommunityButton->GetContent());
+	}
+
+	// Задание издателя: «Поддержать автора» стоит рядом со строками «Сообщество» и «Политика
+	// конфиденциальности» и в том же стиле — своего вида у пункта нет.
+	SupportButton = MakeMenuButton(Column, Defaults.SupportText, TEXT("SupportButton"));
+	if (SupportButton)
+	{
+		SupportText = Cast<UTextBlock>(SupportButton->GetContent());
 	}
 
 	PolicyButton = MakeMenuButton(Column, FText::GetEmpty(), TEXT("PolicyButton"));
@@ -371,6 +384,10 @@ void UPauseMenuWidget::ApplyNormalLabels()
 	{
 		CommunityText->SetText(CachedStyle.CommunityText);
 	}
+	if (SupportText && !bDesignerTree)
+	{
+		SupportText->SetText(CachedStyle.SupportText);
+	}
 
 	// «Настройки» появляются САМИ по факту привязки обработчика владельцем (тот же приём, что
 	// в главном меню): не привязано — пункта нет, чтобы в панели не висела мёртвая кнопка.
@@ -381,6 +398,10 @@ void UPauseMenuWidget::ApplyNormalLabels()
 	// игру — берём его у главного меню, второго адреса и второго правила не заводим.
 	SetRowVisibility(CommunityButton,
 		UStartScreenWidget::CommunityVisibilityFor(UMainMenuSettings::GetCommunityUrl()));
+
+	// «Поддержать автора» виден ВСЕГДА — правило то же, что в главном меню, и берём мы его
+	// оттуда же, чтобы два места не разошлись.
+	SetRowVisibility(SupportButton, UStartScreenWidget::SupportVisibilityFor());
 
 	// Возвращаем ровно ту видимость, которая была ДО вопроса, и только если прятали её мы.
 	// Иначе выход из переспроса «показал» бы пункты, которые владелец сам скрыл в дизайнере.
@@ -495,6 +516,14 @@ void UPauseMenuWidget::HandleCommunityClicked()
 	FPlatformProcess::LaunchURL(*Url, nullptr, &Error);
 	UE_LOG(LogQA, Display, TEXT("QA: pause menu COMMUNITY pressed, url '%s'%s%s"),
 		*Url, Error.IsEmpty() ? TEXT("") : TEXT(", error: "), *Error);
+}
+
+void UPauseMenuWidget::HandleSupportClicked()
+{
+	// Виджет только сообщает: окно «Поддержать автора» открывает владелец (контроллер).
+	// Окно ровно то же, что открывается из главного меню — второго не заводится.
+	UE_LOG(LogQA, Display, TEXT("QA: pause menu SUPPORT AUTHOR pressed"));
+	OnSupportRequested.Broadcast();
 }
 
 // --- Модальный барьер: события мимо кнопок не идут дальше в мир ---
