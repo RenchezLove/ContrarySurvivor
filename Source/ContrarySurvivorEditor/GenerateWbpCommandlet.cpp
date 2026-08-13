@@ -54,6 +54,7 @@
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h" // родительский класс окна настроек
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h" // FSupportAuthorStyle + вид кнопок окна поддержки
+#include "ContrarySurvivor/UI/ConsentScreenWidget.h" // FConsentScreenStyle: формулировки согласия одним местом
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
@@ -2667,6 +2668,12 @@ namespace
 	{
 		UObject* Roboto = LoadRobotoFont();
 
+		// ⛔ ФОРМУЛИРОВКИ СОГЛАСИЯ БЕРЁМ ИЗ ОДНОГО МЕСТА — из настроек экрана
+		// (FConsentScreenStyle), а не переписываем строки сюда второй раз. Раньше они лежали
+		// здесь копией, и правка текста в коде до ассета не доезжала: именно так в ассете
+		// пережила себя AppMetrica, убранная из игры требованием издателя 13.08.2026.
+		const FConsentScreenStyle Texts;
+
 		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
 		Tree->RootWidget = Root;
 
@@ -2675,8 +2682,7 @@ namespace
 		UCanvasPanel* Panel = MakeModalPlate(Tree, Root, FAnchors(0.5f, 0.5f),
 			FVector2D(0.5f, 0.5f), FVector2D::ZeroVector, FVector2D(960.0f, 560.0f), 0.98f);
 
-		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"),
-			NSLOCTEXT("ConsentScreenWidget", "TitleText", "Пара слов перед началом"),
+		UTextBlock* Title = MakeText(Tree, Roboto, TEXT("TitleText"), Texts.TitleText,
 			FLinearColor(1.0f, 0.85f, 0.2f, 1.0f), 24, TEXT("Bold"));
 		Title->bIsVariable = true;
 		CanvasCentered(Panel, Title, 0.0f, FVector2D(0.5f, 0.0f), FVector2D(0.0f, 24.0f));
@@ -2696,15 +2702,9 @@ namespace
 				ParagraphSlot->SetSize(FVector2D(900.0f, Height));
 			}
 		};
-		AddParagraph(TEXT("Body1Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText1",
-			"Игра бесплатная и живёт за счёт рекламы. Чтобы реклама работала, а я понимал, где игроку тяжело, игра передаёт обезличенные сведения: модель телефона, версию системы, язык, страну, рекламный идентификатор устройства и игровые события — например, начало игры, смерть, покупку в магазине, просмотр рекламного ролика."),
-			76.0f, 110.0f);
-		AddParagraph(TEXT("Body2Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText2",
-			"Этим занимаются рекламная сеть Яндекса, AppMetrica и GameAnalytics. Имя, телефон, почта, контакты и точное местоположение НЕ собираются никогда."),
-			196.0f, 60.0f);
-		AddParagraph(TEXT("Body3Text"), NSLOCTEXT("ConsentScreenWidget", "BodyText3",
-			"Если не согласиться, играть можно точно так же: статистика отключится, а реклама станет неперсональной."),
-			266.0f, 50.0f);
+		AddParagraph(TEXT("Body1Text"), Texts.BodyText1, 76.0f, 110.0f);
+		AddParagraph(TEXT("Body2Text"), Texts.BodyText2, 196.0f, 60.0f);
+		AddParagraph(TEXT("Body3Text"), Texts.BodyText3, 266.0f, 50.0f);
 
 		UButton* Accept = MakeGreyButton(Tree, TEXT("AcceptButton"));
 		SetUnlockedCaption(Tree, Roboto, Accept, TEXT("AcceptText"),
