@@ -45,6 +45,11 @@ public:
 	// Смерть игрока.
 	void RecordPlayerDeath();
 
+	// ПРЕДЛОЖЕНИЕ квеста игроку (сводное ТЗ издателя 13.08, задача 3): начало воронки
+	// «предложен -> принят -> сдан». Уходит РОВНО ОДИН РАЗ на квест — сторож стоит в
+	// UQuestComponent, потому что сам вызов OfferQuest идёт каждый кадр отрисовки диалога.
+	void RecordQuestOffered(FName QuestId);
+
 	// Взятие квеста (QuestId — латинский стабильный id, напр. KillWolves).
 	void RecordQuestAccepted(FName QuestId);
 
@@ -136,20 +141,50 @@ public:
 	//   support_ad_started    -> support:ad_started
 	//   support_ad_completed  -> support:ad_completed
 	//   support_link_opened   -> support:link_opened
+	//
+	// Сводное ТЗ издателя 13.08 (задача 3) — три датчика к тем же воронкам:
+	//   quest_offered         -> quest:offered:{QuestId}
+	//   support_ad_offered    -> support:ad_offered      (окно открыто, ролик готов)
+	//   support_ad_not_shown  -> support:ad_not_shown:no_ad (окно открыто, ролика нет)
+	//   support_ad_dismissed  -> support:ad_dismissed    (игрок закрыл ролик без награды)
+	// ⚠ support:ad_dismissed — это ОТКАЗ ИГРОКА, а не сбой техники: технический сбой показа
+	// рекламная служба по требованию издателя засчитывает как успех (награда выдаётся) и
+	// шлёт про него своё событие ad:support:failed — семейство ad:*:failed не трогаем.
 	void RecordSupportWindowOpened(const FString& Source);
 	void RecordSupportAdStarted();
 	void RecordSupportAdCompleted();
 	void RecordSupportLinkOpened();
 
+	// Окно поддержки открыто: ролик предложен (кнопка показана) либо предлагать было нечего.
+	// ОДНА точка на оба исхода намеренно — условие обязано совпадать с видимостью кнопки
+	// (USupportAuthorWidget::ShouldShowWatchAdButton), а два отдельных вызова со временем
+	// разъезжаются.
+	void RecordSupportAdOffer(bool bAdReady);
+
+	// Игрок закрыл ролик, не досмотрев (награды нет).
+	void RecordSupportAdDismissed();
+
 	// Откуда открыли окно — латинские имена источников одним местом (их же проверяют автотесты).
 	static FString SupportSourceMainMenu() { return TEXT("main_menu"); }
 	static FString SupportSourcePause()    { return TEXT("pause"); }
+
+	// Причина, по которой ролик в окне поддержки не предложен (сегмент имени события).
+	static FString SupportAdReasonNoAd() { return TEXT("no_ad"); }
 
 	// --- Имена событий одним местом: тем же кодом строит отправка и проверяют автотесты. ---
 	static FString MakeSupportWindowOpenedEventId(const FString& Source);
 	static FString MakeSupportAdStartedEventId();
 	static FString MakeSupportAdCompletedEventId();
 	static FString MakeSupportLinkOpenedEventId();
+
+	static FString MakeQuestOfferedEventId(FName QuestId);
+	static FString MakeSupportAdOfferedEventId();
+	static FString MakeSupportAdNotShownEventId(const FString& Reason);
+	static FString MakeSupportAdDismissedEventId();
+
+	// Имя события открытия окна по готовности ролика — тем же кодом шлёт RecordSupportAdOffer
+	// и проверяет автотест (готов -> support:ad_offered, нет -> support:ad_not_shown:no_ad).
+	static FString MakeSupportAdOfferEventId(bool bAdReady);
 
 	static FString MakeFirstLaunchEventId();
 	static FString MakeTutorialStepEventId(const FString& StepId);

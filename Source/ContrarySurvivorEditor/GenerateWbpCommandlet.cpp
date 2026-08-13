@@ -4706,6 +4706,85 @@ namespace
 			Name, Step);
 	}
 
+	// WBP_SupportAuthor, решение Рината 13.08.2026: строка благодарности после ролика — это
+	// одно слово «Спасибо», и сам кубик обязан быть в ассете. Ринат правил окно мышкой и
+	// строку из него удалил (коммит 37dd9d8) — из-за этого код окна не находил свой кубик и
+	// падали две проверки имён. Возвращаем кубик и приводим текст к новой правде.
+	//
+	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ (bOwnerOwned в таблице генератора): пересобирать его нельзя,
+	// ТОЛЬКО дополнением. Прочих ручных правок не касаемся — трогаем ровно один кубик.
+	//
+	// Идемпотентно: кубик на месте и текст верный — прогон ничего не меняет и не сохраняет.
+	void AugmentSupportAuthorThanks(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_SupportAuthor");
+		const FSupportAuthorStyle Style; // одно место правды на код и ассет
+		UObject* Roboto = LoadRobotoFont();
+
+		// Кубик на месте — сверяем только текст (его в игре всё равно ставит код окна, но в
+		// дизайнере владелец должен видеть то же слово).
+		if (UTextBlock* Existing = Cast<UTextBlock>(Tree->FindWidget(TEXT("ThanksText"))))
+		{
+			if (!Existing->GetText().EqualTo(Style.ThanksText))
+			{
+				Existing->SetText(Style.ThanksText);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: строка благодарности приведена к «%s»."),
+					Name, *Style.ThanksText.ToString());
+			}
+			return;
+		}
+
+		// Кубика нет — ставим его обратно под нижнюю кнопку окна, взяв геометрию у ЖИВОГО
+		// ассета: владелец мог двигать кнопки, и строка обязана встать относительно них, а
+		// не по зашитым в код числам.
+		UWidget* Anchor = Tree->FindWidget(TEXT("SupportLinkButton"));
+		UCanvasPanelSlot* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
+		UCanvasPanel* Parent = Anchor ? Cast<UCanvasPanel>(Anchor->GetParent()) : nullptr;
+		if (!AnchorSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: кнопка SupportLinkButton не найдена в канвас-слоте — некуда вернуть строку благодарности."),
+				Name);
+			return;
+		}
+
+		// Ширину строки берём у пояснения (оно тянется на всё содержимое окна), а если его
+		// нет — у самой кнопки. Высота строки прежняя, 24 точки.
+		FVector2D TextSize(AnchorSlot->GetSize().X, 24.0f);
+		float TextLeft = AnchorSlot->GetPosition().X;
+		if (UWidget* Message = Tree->FindWidget(TEXT("MessageText")))
+		{
+			if (UCanvasPanelSlot* MessageSlot = Cast<UCanvasPanelSlot>(Message->Slot))
+			{
+				TextSize.X = MessageSlot->GetSize().X;
+				TextLeft = MessageSlot->GetPosition().X;
+			}
+		}
+
+		UTextBlock* Thanks = MakeText(Tree, Roboto, TEXT("ThanksText"), Style.ThanksText,
+			Style.TitleColor, Style.MessageFontSize, TEXT("Regular"));
+		Thanks->SetJustification(ETextJustify::Center);
+		Thanks->bIsVariable = true;
+
+		// В АССЕТЕ строка видимая — владельцу нужно за что-то браться мышкой; в игре её
+		// прячет код окна и показывает только после досмотренного ролика.
+		if (UCanvasPanelSlot* ThanksSlot = Parent->AddChildToCanvas(Thanks))
+		{
+			ThanksSlot->SetAnchors(AnchorSlot->GetAnchors());
+			ThanksSlot->SetAlignment(AnchorSlot->GetAlignment());
+			ThanksSlot->SetPosition(FVector2D(TextLeft,
+				AnchorSlot->GetPosition().Y + AnchorSlot->GetSize().Y + 12.0f));
+			ThanksSlot->SetSize(TextSize);
+		}
+		bChanged = true;
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: строка благодарности возвращена под нижнюю кнопку, текст «%s»."),
+			Name, *Style.ThanksText.ToString());
+	}
+
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
 	// добавить кубик WeaponIconImage, если его ещё нет. Позиция берётся со слота кнопки
 	// ОРУЖИЕ: куда владелец её передвинул, туда встанет и иконка.
@@ -5883,6 +5962,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Задание издателя 11.08.2026: строка «Поддержать автора». Отдельной записью со своей
 		// проверкой «уже сделано» — иначе повторный прогон завёл бы вторую такую же строку.
 		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuSupport },
+		// Решение Рината 13.08.2026: вернуть строку благодарности в окно поддержки и оставить
+		// в ней одно слово «Спасибо». Окно отдано владельцу — только дополнением.
+		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"), &AugmentSupportAuthorThanks },
 	};
 
 	int32 FailCount = 0;

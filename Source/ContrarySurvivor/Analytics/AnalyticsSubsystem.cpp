@@ -148,6 +148,16 @@ void UAnalyticsSubsystem::RecordPlayerDeath()
 	SendDesignEvent(TEXT("player:death"));
 }
 
+FString UAnalyticsSubsystem::MakeQuestOfferedEventId(FName QuestId)
+{
+	return FString::Printf(TEXT("quest:offered:%s"), *SanitizeEventPart(QuestId.ToString()));
+}
+
+void UAnalyticsSubsystem::RecordQuestOffered(FName QuestId)
+{
+	SendDesignEvent(MakeQuestOfferedEventId(QuestId));
+}
+
 void UAnalyticsSubsystem::RecordQuestAccepted(FName QuestId)
 {
 	SendDesignEvent(FString::Printf(TEXT("quest:accept:%s"), *SanitizeEventPart(QuestId.ToString())));
@@ -227,6 +237,41 @@ void UAnalyticsSubsystem::RecordSupportAdCompleted()
 void UAnalyticsSubsystem::RecordSupportLinkOpened()
 {
 	SendDesignEvent(MakeSupportLinkOpenedEventId());
+}
+
+// --- Сводное ТЗ издателя 13.08 (задача 3): предложение ролика и отказ от него ---
+
+FString UAnalyticsSubsystem::MakeSupportAdOfferedEventId()
+{
+	return TEXT("support:ad_offered");
+}
+
+FString UAnalyticsSubsystem::MakeSupportAdNotShownEventId(const FString& Reason)
+{
+	return FString::Printf(TEXT("support:ad_not_shown:%s"), *SanitizeEventPart(Reason));
+}
+
+FString UAnalyticsSubsystem::MakeSupportAdDismissedEventId()
+{
+	return TEXT("support:ad_dismissed");
+}
+
+FString UAnalyticsSubsystem::MakeSupportAdOfferEventId(bool bAdReady)
+{
+	// Ролик готов — предложили; не готов — единственная возможная причина «нечего показывать»
+	// (порог времени к этой точке не применяется по условию задания об окне поддержки).
+	return bAdReady ? MakeSupportAdOfferedEventId()
+		: MakeSupportAdNotShownEventId(SupportAdReasonNoAd());
+}
+
+void UAnalyticsSubsystem::RecordSupportAdOffer(bool bAdReady)
+{
+	SendDesignEvent(MakeSupportAdOfferEventId(bAdReady));
+}
+
+void UAnalyticsSubsystem::RecordSupportAdDismissed()
+{
+	SendDesignEvent(MakeSupportAdDismissedEventId());
 }
 
 void UAnalyticsSubsystem::RecordShopSellCompleted(float Amount)

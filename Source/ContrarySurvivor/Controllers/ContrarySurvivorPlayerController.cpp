@@ -1331,6 +1331,12 @@ void AContrarySurvivorPlayerController::OpenSupportScreen(const FString& Source)
 	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
 	{
 		Analytics->RecordSupportWindowOpened(Source);
+
+		// Датчик «ролик предложен» (сводное ТЗ издателя 13.08, задача 3): ровно один раз на
+		// открытие окна — дальше по этой функции пройти нельзя, пока окно не закроют
+		// (bSupportScreenOpen в начале). Передаём ТУ ЖЕ готовность ролика, по которой только
+		// что решили показывать кнопку, — датчик и кнопка разойтись не могут.
+		Analytics->RecordSupportAdOffer(bAdReady);
 	}
 	UE_LOG(LogQA, Display, TEXT("QA: окно «Поддержать автора» открыто (откуда: %s, ролик готов: %s)"),
 		*Source, bAdReady ? TEXT("да") : TEXT("нет"));
@@ -1432,6 +1438,16 @@ void AContrarySurvivorPlayerController::HandleSupportAdFail()
 		SupportScreenWidget->ShowThanks();
 		const IAdService* Ads = AdService::Get(this);
 		SupportScreenWidget->SetAdAvailable(Ads && Ads->IsRewardedReady());
+	}
+
+	// Датчик «отказ от ролика» (сводное ТЗ издателя 13.08, задача 3). Сюда приходит ТОЛЬКО
+	// показ без награды, то есть игрок закрыл ролик сам: технический сбой рекламная служба по
+	// требованию издателя засчитывает как успех и уводит в ветку успеха, попутно отправляя своё
+	// событие ad:support:failed (UYandexAdService: ShowFailed и сторож времени зовут
+	// FinishShow с наградой). Поэтому отказ игрока и сбой техники в замере не смешиваются.
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordSupportAdDismissed();
 	}
 	UE_LOG(LogQA, Display, TEXT("QA: «Поддержать автора» — ролик не доиграл, показали то же спасибо"));
 }

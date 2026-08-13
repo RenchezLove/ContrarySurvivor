@@ -119,7 +119,28 @@ void UQuestComponent::OfferQuest(const FQuest& Quest)
 		*Added.QuestId.ToString(), Added.TargetCount, *Added.KillTargetTag.ToString(),
 		Added.RequiredItemCount, *Added.RequiredItemName);
 
+	// Датчик «квест предложен» — начало воронки квеста (сводное ТЗ издателя 13.08, задача 3).
+	// Строго один раз на квест: сторож стоит выше журнала, потому что OfferQuest зовётся
+	// каждый кадр отрисовки диалога, а журнал может быть очищен загрузкой/новой игрой.
+	if (MarkQuestOfferedForAnalytics(Added.QuestId))
+	{
+		if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+		{
+			Analytics->RecordQuestOffered(Added.QuestId);
+		}
+	}
+
 	OnQuestChanged.Broadcast(Added);
+}
+
+bool UQuestComponent::MarkQuestOfferedForAnalytics(FName QuestId)
+{
+	if (QuestId.IsNone() || AnalyticsOfferedQuests.Contains(QuestId))
+	{
+		return false;
+	}
+	AnalyticsOfferedQuests.Add(QuestId);
+	return true;
 }
 
 bool UQuestComponent::AcceptQuest(FName QuestId)

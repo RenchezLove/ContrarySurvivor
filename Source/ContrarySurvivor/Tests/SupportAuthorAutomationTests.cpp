@@ -598,4 +598,19 @@ bool FSupportCodeFallbackChosenTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// --- Текст благодарности: одно слово (решение Рината 13.08.2026) -----------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportThanksTextTest,
+	"ContrarySurvivor.SupportAuthor.ThanksTextIsSingleWord", SupportAuthorTestFlags)
+
+bool FSupportThanksTextTest::RunTest(const FString& Parameters)
+{
+	// Дословно из решения владельца: «Оставь просто "Спасибо", без "...это реально помогает"».
+	// Одно место правды на код, кодовую запаску и ассет — поле стиля.
+	const FSupportAuthorStyle Defaults;
+	TestEqual(TEXT("После ролика окно говорит одно слово"),
+		Defaults.ThanksText.ToString(), FString(TEXT("Спасибо")));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

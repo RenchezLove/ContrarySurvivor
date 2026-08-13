@@ -60,9 +60,10 @@ struct FSupportAuthorStyle
 	FText SupportLinkText = NSLOCTEXT("SupportAuthorWidget", "SupportLink", "Другие способы поддержать");
 
 	// Строка после просмотра ролика. Показывается В ЭТОМ ЖЕ окне: отдельное окно поверх окна
-	// задание запрещает.
+	// задание запрещает. Текст сокращён до одного слова по решению Рината 13.08.2026
+	// (дословно: «Оставь просто "Спасибо", без "...это реально помогает"»).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Поддержать автора|Тексты")
-	FText ThanksText = NSLOCTEXT("SupportAuthorWidget", "Thanks", "Спасибо. Это правда помогает.");
+	FText ThanksText = NSLOCTEXT("SupportAuthorWidget", "Thanks", "Спасибо");
 
 	// Подпись крестика закрытия.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Поддержать автора|Тексты")
