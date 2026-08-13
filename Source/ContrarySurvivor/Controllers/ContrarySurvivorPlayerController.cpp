@@ -1296,7 +1296,7 @@ void AContrarySurvivorPlayerController::OpenSupportScreen(const FString& Source)
 		SupportScreenWidget->OnCloseRequested.AddUObject(this, &AContrarySurvivorPlayerController::CloseSupportScreen);
 	}
 
-	// Подсказка «новый ролик будет готов через 30–60 секунд» живёт от конца ролика до закрытия
+	// Подсказка «новый ролик будет готов через несколько секунд» живёт от конца ролика до закрытия
 	// окна. При открытии — сброс: без готового ролика окно обязано быть просто с одной кнопкой
 	// (требование издателя), объяснение положено только сразу после просмотра.
 	SupportScreenWidget->ResetNextAdHint();
