@@ -193,6 +193,10 @@ public:
 	// прямо из C++-класса (кодовое дерево-фолбэк UCorpseLootWidget), окно работает без ассета.
 	void SetCorpseLootOpen(bool bOpen, class UCorpseLootComponent* Corpse);
 
+	// То же по ГРУППЕ тел (издатель 11.08.2026, п.3.1): одно нажатие — одно окно, в нём
+	// содержимое всех необысканных тел рядом. Версия выше — частный случай с одним телом.
+	void SetCorpseLootGroupOpen(bool bOpen, const TArray<class UCorpseLootComponent*>& Corpses);
+
 	// Окно обыска на экране? (виджет существует и в вьюпорте)
 	bool IsCorpseLootOpen() const;
 

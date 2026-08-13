@@ -866,9 +866,21 @@ bool AContrarySurvivorHUD::IsUmgShopActive() const
 
 void AContrarySurvivorHUD::SetCorpseLootOpen(bool bOpen, UCorpseLootComponent* Corpse)
 {
+	// Одиночный контейнер (мешок-пикап и прежние вызовы) — группа из одного элемента.
+	TArray<UCorpseLootComponent*> One;
+	if (Corpse)
+	{
+		One.Add(Corpse);
+	}
+	SetCorpseLootGroupOpen(bOpen, One);
+}
+
+void AContrarySurvivorHUD::SetCorpseLootGroupOpen(bool bOpen, const TArray<UCorpseLootComponent*>& Corpses)
+{
 	// Build 1.2.1 (ТЗ А1): окно обыска трупа. Canvas-пути нет: пустой слот класса —
 	// создаём прямо из C++-класса (кодовое дерево-фолбэк UCorpseLootWidget).
-	if (bOpen && Corpse)
+	// Издатель 11.08.2026 п.3.1: в окно уходит вся ГРУППА тел, а не одно тело.
+	if (bOpen && Corpses.Num() > 0)
 	{
 		APlayerController* PC = GetOwningPlayerController();
 		APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
@@ -902,7 +914,7 @@ void AContrarySurvivorHUD::SetCorpseLootOpen(bool bOpen, UCorpseLootComponent* C
 		}
 		if (CorpseLootWidgetInstance)
 		{
-			CorpseLootWidgetInstance->InitCorpseLoot(Corpse, PlayerChar);
+			CorpseLootWidgetInstance->InitCorpseLootGroup(Corpses, PlayerChar);
 			if (!CorpseLootWidgetInstance->IsInViewport())
 			{
 				// Z=30: модальные окна (магазин/диалог) — тот же слой.

@@ -2516,14 +2516,23 @@ void AContrarySurvivorPlayerController::OnInteract()
 		case EInteractKind::Corpse:
 		{
 			// Build 1.2.1 (ТЗ А1): труп врага с лутом — открываем окно обыска.
-			if (CurrentInteractActor)
+			// Издатель 11.08.2026 п.3.1: одно нажатие открывает содержимое ВСЕХ необысканных
+			// тел рядом, а не только ближайшего. Группа уже посчитана в Tick; если её нет
+			// (вызов в обход подсказки), считаем прямо здесь от подсвеченного тела.
+			TArray<UCorpseLootComponent*> Group;
+			for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : CurrentCorpseGroup)
 			{
-				if (UCorpseLootComponent* Corpse =
-					CurrentInteractActor->FindComponentByClass<UCorpseLootComponent>())
+				if (UCorpseLootComponent* Member = Ptr.Get())
 				{
-					OpenCorpseLoot(Corpse);
+					Group.Add(Member);
 				}
 			}
+			if (Group.Num() == 0)
+			{
+				Group = UCorpseLootComponent::CollectSearchableGroup(
+					CurrentInteractActor, CorpseGroupSearchRadius);
+			}
+			OpenCorpseLootGroup(Group);
 			break;
 		}
 		default:
@@ -2578,8 +2587,19 @@ void AContrarySurvivorPlayerController::CloseShop()
 
 void AContrarySurvivorPlayerController::OpenCorpseLoot(UCorpseLootComponent* Corpse)
 {
-	// Build 1.2.1 (ТЗ А1): окно обыска трупа — модалка по образцу OpenShop.
-	if (!Corpse || bCorpseLootOpen)
+	// Одиночный контейнер (мешок-пикап и прежние вызовы) — группа из одного элемента.
+	if (!Corpse)
+	{
+		return;
+	}
+	OpenCorpseLootGroup(TArray<UCorpseLootComponent*>({ Corpse }));
+}
+
+void AContrarySurvivorPlayerController::OpenCorpseLootGroup(const TArray<UCorpseLootComponent*>& InCorpses)
+{
+	// Build 1.2.1 (ТЗ А1): окно обыска трупа — модалка по образцу OpenShop. Издатель
+	// 11.08.2026 п.3.1: ОДНО окно на всю группу тел, второй кнопки и второго окна нет.
+	if (InCorpses.Num() == 0 || bCorpseLootOpen)
 	{
 		return;
 	}
@@ -2589,7 +2609,7 @@ void AContrarySurvivorPlayerController::OpenCorpseLoot(UCorpseLootComponent* Cor
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
-		CSHUD->SetCorpseLootOpen(true, Corpse);
+		CSHUD->SetCorpseLootGroupOpen(true, InCorpses);
 	}
 
 	FInputModeGameAndUI Mode;
@@ -2598,8 +2618,8 @@ void AContrarySurvivorPlayerController::OpenCorpseLoot(UCorpseLootComponent* Cor
 	SetInputMode(Mode);
 	bShowMouseCursor = true;
 
-	UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot window OPEN ('%s')"),
-		*GetNameSafe(Corpse->GetOwner()));
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot window OPEN ('%s', тел в группе: %d)"),
+		*GetNameSafe(InCorpses[0] ? InCorpses[0]->GetOwner() : nullptr), InCorpses.Num());
 }
 
 void AContrarySurvivorPlayerController::CloseCorpseLoot()
@@ -3157,6 +3177,7 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 {
 	CurrentInteractActor = nullptr;
 	CurrentInteractKind = EInteractKind::None;
+	CurrentCorpseGroup.Reset();
 
 	// Пока открыт модальный экран (вкл. экран смерти и стартовый экран Б3) — подсказку не предлагаем.
 	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bStartScreenOpen)
@@ -3235,6 +3256,18 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
+	// Группа тел под одно нажатие (издатель 11.08.2026, п.3.1). Считается ОТ ПОДСВЕЧЕННОГО
+	// ТЕЛА, а не от игрока, и только для тел: ящики и мешки в реестре обыскиваемых тел не
+	// стоят, поэтому в группу не попадают («Действие распространяется только на тела»).
+	if (CurrentInteractKind == EInteractKind::Corpse)
+	{
+		for (UCorpseLootComponent* Member :
+			UCorpseLootComponent::CollectSearchableGroup(CurrentInteractActor, CorpseGroupSearchRadius))
+		{
+			CurrentCorpseGroup.Add(Member);
+		}
+	}
+
 	// Этап F (онбординг): первый доступный подбор — подсказка «Нажми E...». Зовётся каждый
 	// тик, но TryShowHint проверяет флаг в памяти и после первого показа — no-op.
 	if (CurrentInteractKind == EInteractKind::Pickup)
@@ -3291,14 +3324,38 @@ FText AContrarySurvivorPlayerController::FormatInteractPrompt(const FText& Forma
 	return FText::Format(Format, Args);
 }
 
+FText AContrarySurvivorPlayerController::FormatCorpseGroupAction(const FText& Format,
+	const FText& ActionText, int32 CorpseCount)
+{
+	// Дословно из задания (п.3.1): «Когда тело одно — просто Обыскать, без числа в скобках».
+	if (CorpseCount <= 1 || ActionText.IsEmpty() || Format.IsEmpty())
+	{
+		return ActionText;
+	}
+
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("Action"), ActionText);
+	// Без разбивки разрядов: это счёт тел, а не денежная сумма.
+	Args.Add(TEXT("Count"), FText::AsNumber(CorpseCount, &FNumberFormattingOptions::DefaultNoGrouping()));
+	return FText::Format(Format, Args);
+}
+
 FText AContrarySurvivorPlayerController::GetInteractPromptDisplayText() const
 {
 	const APickup* NearPickup = (CurrentInteractKind == EInteractKind::Pickup)
 		? Cast<APickup>(CurrentInteractActor) : nullptr;
 	const bool bSearchWindow = NearPickup && NearPickup->UsesSearchWindow();
 
-	return FormatInteractPrompt(InteractPromptFormat,
-		GetInteractActionText(CurrentInteractKind, bSearchWindow), GetInteractHowText());
+	FText ActionText = GetInteractActionText(CurrentInteractKind, bSearchWindow);
+
+	// Групповой обыск (п.3.1): подсказка называет число тел — «Обыскать (4) — E». Мешка и
+	// ящика это не касается: у них группы нет.
+	if (CurrentInteractKind == EInteractKind::Corpse)
+	{
+		ActionText = FormatCorpseGroupAction(InteractPromptCorpseGroupFormat, ActionText, GetCorpseGroupCount());
+	}
+
+	return FormatInteractPrompt(InteractPromptFormat, ActionText, GetInteractHowText());
 }
 
 FString AContrarySurvivorPlayerController::GetInteractPromptText() const

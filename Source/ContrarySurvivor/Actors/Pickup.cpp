@@ -60,6 +60,13 @@ APickup::APickup()
 	// Build 1.2.2: контейнер содержимого — тот же класс, что носит труп врага, поэтому
 	// мешок открывает уже существующее окно обыска, а не своё второе.
 	LootContainer = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("LootContainer"));
+	if (LootContainer)
+	{
+		// «Уход в землю» — поведение ТЕЛА (издатель 11.08.2026, п.3.2). Мешок/ящик так не
+		// делает: обчищенный пикап уничтожает себя сам (HandleLootChanged), а размещённый
+		// на карте контейнер вообще остаётся лежать.
+		LootContainer->bSinkWhenSearched = false;
+	}
 }
 
 void APickup::BeginPlay()

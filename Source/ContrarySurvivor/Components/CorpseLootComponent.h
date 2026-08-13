@@ -7,6 +7,7 @@
 #include "CorpseLootComponent.generated.h"
 
 class AMasterInventoryItem;
+class USkeletalMeshComponent;
 
 /**
  * Контейнер обыскиваемого лута (Build 1.2.1, ТЗ А1 «Обыск трупов»; Build 1.2.2 — ещё и
@@ -29,6 +30,14 @@ class AMasterInventoryItem;
  * (bRegisterSearchable=false): его контроллер и так находит перебором APickup, а вторая
  * регистрация дала бы один и тот же мешок двумя интерактивами. Предметы-лут — скрытые
  * акторы-данные; не забранные к EndPlay уничтожаются.
+ *
+ * ЗАДАНИЕ ИЗДАТЕЛЯ 11.08.2026 (групповой обыск тел) добавило сюда две вещи:
+ *  - п.3.1 «обыск всей кучи одним нажатием»: CollectSearchableGroup — тела рядом с
+ *    подсвеченным телом, которые уйдут в одно окно обыска. Реестр обыскиваемых и есть
+ *    граница «только тела»: ящики, схроны и мешки в нём не стоят;
+ *  - п.3.2 «обысканное тело меняется на вид»: опустевшее ТЕЛО уходит в землю и исчезает
+ *    (StartSearchedSink), а мешок-пикап — нет (у него bSinkWhenSearched выключен, он и
+ *    так уничтожает себя сам по OnLootChanged).
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class CONTRARYSURVIVOR_API UCorpseLootComponent : public UActorComponent
@@ -88,7 +97,54 @@ public:
 		return SearchableCorpses;
 	}
 
+	// --- Группа тел под одно нажатие «Обыскать» (издатель 11.08.2026, п.3.1) ---
+
+	// Все НЕобысканные тела в радиусе GroupRadius ОТ ЯКОРЯ (тела, которое подсветила
+	// подсказка) — включая сам якорь, он идёт первым. Расстояние меряется от якоря один
+	// раз, цепочек «от тела к телу» НЕТ (решение game-lead): иначе одно нажатие выгребало
+	// бы половину локации. Ящики/схроны/мешки сюда не попадают — они не стоят в реестре
+	// обыскиваемых тел. Функция чистая (только реестр и расстояния) — проверяется
+	// автотестом без живой сцены.
+	static TArray<UCorpseLootComponent*> CollectSearchableGroup(const AActor* AnchorActor, float GroupRadius);
+
+	// --- Обысканное тело уходит в землю (издатель 11.08.2026, п.3.2) ---
+
+	// Выключатель для контейнеров, которые телами не являются: мешок-пикап исчезает своим
+	// путём (APickup::HandleLootChanged), ему погружение не нужно.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (DisplayPriority = "1",
+		DisplayName = "Обысканное тело уходит в землю",
+		ToolTip = "Только для ТЕЛ. У мешка-пикапа выключено: он исчезает сам, когда его обчистили."))
+	bool bSinkWhenSearched = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "2",
+		DisplayName = "Пауза перед уходом в землю (сек)",
+		ToolTip = "Сколько тело лежит обысканным, прежде чем начнёт опускаться."))
+	float SearchedSinkDelay = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "3",
+		DisplayName = "Длительность ухода в землю (сек)"))
+	float SearchedSinkDuration = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "4",
+		DisplayName = "Глубина ухода в землю (см)"))
+	float SearchedSinkDepth = 150.0f;
+
+	// Тело обыскали до конца — запустить погружение. Зовётся само из TakeMoney/TakeItem;
+	// публично — для автотестов и для случая, когда лут вычерпали в обход окна.
+	void StartSearchedSink();
+
+	bool IsSinking() const { return bSinking; }
+
+	// Чистая математика погружения: на сколько сантиметров тело опустилось к моменту
+	// Elapsed. До Delay — ноль, дальше равномерно до Depth за Duration. Проверяется
+	// автотестом отдельно от живого мира.
+	static float GetSinkDepthAtTime(float Elapsed, float Delay, float Duration, float Depth);
+
 protected:
+	// Двигает уходящее в землю тело (тик включается только на время погружения).
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+		FActorComponentTickFunction* ThisTickFunction) override;
+
 	// Труп исчез (LifeSpan/конец мира): снять с реестра, уничтожить не забранные предметы.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -100,6 +156,19 @@ private:
 	// Предметы в трупе (скрытые акторы-данные; UPROPERTY — защита от GC до забора).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CorpseLoot", meta = (AllowPrivateAccess = "true"))
 	TArray<TObjectPtr<AMasterInventoryItem>> Items;
+
+	// Тело уходит в землю: идёт ли погружение, сколько прошло секунд и сколько сантиметров
+	// уже отработано (шаг считаем разницей — так тело не «дёргается» при просадке кадров).
+	bool bSinking = false;
+	float SinkElapsed = 0.0f;
+	float SinkAppliedDepth = 0.0f;
+
+	// Меш, упавший рэгдоллом: его физические тела живут в МИРОВЫХ координатах и за актором
+	// не едут, поэтому такому мешу двигаем сами тела. Пусто — меш обычный, хватит переноса актора.
+	TWeakObjectPtr<USkeletalMeshComponent> SinkRagdollMesh;
+
+	// Конец погружения: убрать тело и то, что к нему привязано (оружие в руке).
+	void FinishSearchedSink();
 
 	static TArray<TWeakObjectPtr<UCorpseLootComponent>> SearchableCorpses;
 };

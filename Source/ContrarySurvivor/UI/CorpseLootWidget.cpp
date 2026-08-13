@@ -160,30 +160,114 @@ void UCorpseLootWidget::BuildFallbackTree()
 
 void UCorpseLootWidget::InitCorpseLoot(UCorpseLootComponent* InCorpse, APlayerCharacter* InPlayer)
 {
-	Corpse = InCorpse;
+	// Одиночный контейнер (мешок-пикап, старые вызовы и тесты) — частный случай группы.
+	TArray<UCorpseLootComponent*> One;
+	if (InCorpse)
+	{
+		One.Add(InCorpse);
+	}
+	InitCorpseLootGroup(One, InPlayer);
+}
+
+void UCorpseLootWidget::InitCorpseLootGroup(const TArray<UCorpseLootComponent*>& InCorpses,
+	APlayerCharacter* InPlayer)
+{
+	Corpses.Reset();
+	for (UCorpseLootComponent* Member : InCorpses)
+	{
+		if (IsValid(Member))
+		{
+			Corpses.Add(Member);
+		}
+	}
 	Player = InPlayer;
 	bCloseRequested = false;
 
 	// Build 1.2.2: одно окно обслуживает и труп, и мешок-пикап, поэтому заголовок берём у
-	// самого контейнера. Пусто — остаётся собственный заголовок окна («Обыск трупа»).
+	// самого контейнера — у ПЕРВОГО, то есть у подсвеченного тела. Пусто — остаётся
+	// собственный заголовок окна («Обыск трупа»).
 	if (TitleText)
 	{
-		const FText ContainerTitle = InCorpse ? InCorpse->SearchTitle : FText::GetEmpty();
+		const UCorpseLootComponent* Anchor = Corpses.Num() > 0 ? Corpses[0].Get() : nullptr;
+		const FText ContainerTitle = Anchor ? Anchor->SearchTitle : FText::GetEmpty();
 		TitleText->SetText(ContainerTitle.IsEmpty() ? TitleLabel : ContainerTitle);
 	}
 
 	RefreshList();
 }
 
+TArray<UCorpseLootComponent*> UCorpseLootWidget::GetGroupCorpses() const
+{
+	TArray<UCorpseLootComponent*> Live;
+	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : Corpses)
+	{
+		if (UCorpseLootComponent* Member = Ptr.Get())
+		{
+			Live.Add(Member);
+		}
+	}
+	return Live;
+}
+
+float UCorpseLootWidget::GetGroupMoney() const
+{
+	float Total = 0.0f;
+	for (const UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		Total += Member->GetMoney();
+	}
+	return Total;
+}
+
+TArray<AMasterInventoryItem*> UCorpseLootWidget::GetGroupItems() const
+{
+	TArray<AMasterInventoryItem*> All;
+	for (const UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		All.Append(Member->GetLootItems());
+	}
+	return All;
+}
+
+bool UCorpseLootWidget::GroupHasLoot() const
+{
+	for (const UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		if (Member->HasLoot())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+UCorpseLootComponent* UCorpseLootWidget::FindItemHolder(const AMasterInventoryItem* Item) const
+{
+	if (!IsValid(Item))
+	{
+		return nullptr;
+	}
+	for (UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		if (Member->GetLootItems().Contains(Item))
+		{
+			return Member;
+		}
+	}
+	return nullptr;
+}
+
 void UCorpseLootWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	// Таймер трупа истёк под открытым окном — просим контроллер закрыть нас (один раз).
-	if (!bCloseRequested && !Corpse.IsValid())
+	// Все тела группы исчезли под открытым окном (истёк таймер / обысканное тело ушло в
+	// землю) — просим контроллер закрыть нас (один раз). Пока живо хоть одно тело, окно
+	// висит: игрок мог обыскать не всю кучу.
+	if (!bCloseRequested && GetGroupCorpses().Num() == 0)
 	{
 		bCloseRequested = true;
-		UE_LOG(LogQA, Display, TEXT("QA: CORPSE window - corpse expired, requesting close"));
+		UE_LOG(LogQA, Display, TEXT("QA: CORPSE window - all corpses gone, requesting close"));
 		OnCloseRequested.Broadcast();
 	}
 }
@@ -198,8 +282,7 @@ void UCorpseLootWidget::RefreshList()
 
 	LootList->ClearChildren();
 
-	UCorpseLootComponent* CorpsePtr = Corpse.Get();
-	if (!CorpsePtr || !WidgetTree || !TileWidgetClass)
+	if (GetGroupCorpses().Num() == 0 || !WidgetTree || !TileWidgetClass)
 	{
 		return;
 	}
@@ -226,22 +309,24 @@ void UCorpseLootWidget::RefreshList()
 	};
 
 	// Плитка денег — первой (дефолт Рината: деньги и предметы одним списком); цифра в
-	// углу иконки = сумма (у денег «штука» и есть монета).
-	if (CorpsePtr->GetMoney() > 0.0f)
+	// углу иконки = сумма (у денег «штука» и есть монета). При групповом обыске (издатель
+	// п.3.1) это деньги ВСЕЙ группы одной плиткой — содержимое лежит вперемешку.
+	const float GroupMoney = GetGroupMoney();
+	if (GroupMoney > 0.0f)
 	{
 		if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 		{
 			Tile->bMoneyTile = true;
 			UTexture2D* MoneyIcon = MoneyRowIcon.IsNull() ? nullptr : MoneyRowIcon.LoadSynchronous();
-			Tile->SetTileData(MoneyIcon, MoneyRowLabel, FMath::RoundToInt32(CorpsePtr->GetMoney()));
+			Tile->SetTileData(MoneyIcon, MoneyRowLabel, FMath::RoundToInt32(GroupMoney));
 			Tile->SetTileSize(TileSize, TileIconSize);
 			Tile->OnTileClicked.AddUObject(this, &UCorpseLootWidget::HandleTileTake);
 			AddTileToGrid(Tile);
 		}
 	}
 
-	// Предметы трупа: иконка + переводимое название + количество стака.
-	for (AMasterInventoryItem* Item : CorpsePtr->GetLootItems())
+	// Предметы всех тел группы: иконка + переводимое название + количество стака.
+	for (AMasterInventoryItem* Item : GetGroupItems())
 	{
 		if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 		{
@@ -256,8 +341,9 @@ void UCorpseLootWidget::RefreshList()
 		}
 	}
 
-	// Всё забрано — заглушка «Пусто» (труп лежит до таймера, окно не закрываем насильно).
-	if (!CorpsePtr->HasLoot())
+	// Вся группа пуста — заглушка «Пусто» (тела ещё лежат: обысканное уходит в землю не
+	// мгновенно, п.3.2 — окно не закрываем насильно).
+	if (!GroupHasLoot())
 	{
 		if (UTextBlock* Empty = WidgetTree
 			? WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass()) : nullptr)
@@ -271,26 +357,69 @@ void UCorpseLootWidget::RefreshList()
 	}
 }
 
-bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem)
+bool UCorpseLootWidget::CanBackpackAcceptItem(const AMasterInventoryItem* Item) const
 {
-	UCorpseLootComponent* CorpsePtr = Corpse.Get();
-	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
-	if (!CorpsePtr || !Inventory || !IsValid(TakenItem))
+	// ВМЕСТИМОСТИ у рюкзака сегодня НЕТ: UInventoryComponent::AddItem отказывает только на
+	// пустом указателе. Придумывать её здесь ЗАПРЕЩЕНО (решение game-lead), поэтому проверка
+	// честно отражает сегодняшнее правило — и остаётся единственным местом, куда встанет
+	// настоящая вместимость, когда её заведут. Отказ здесь = тело НЕ трогаем (п.3.4).
+	return IsValid(Item) && Player && Player->GetInventory() != nullptr;
+}
+
+bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem,
+	FCorpseLootTakenSummary* OutSummary)
+{
+	UCorpseLootComponent* Holder = FindItemHolder(TakenItem);
+	if (!Holder || !IsValid(TakenItem))
 	{
+		return false; // предмета уже нет в телах группы (двойной клик по устаревшей плитке)
+	}
+
+	// п.3.4: сперва спрашиваем рюкзак и только потом вынимаем из тела. Не влезло — тело
+	// остаётся полным, в землю не уходит, а игрок услышит об этом словами.
+	if (!CanBackpackAcceptItem(TakenItem))
+	{
+		if (OutSummary)
+		{
+			OutSummary->bBackpackRefused = true;
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: CORPSE рюкзак не принял '%s' — тело осталось полным"),
+			*TakenItem->GetItemDisplayText().ToString());
 		return false;
 	}
 
-	if (!CorpsePtr->TakeItem(TakenItem))
+	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	if (!Inventory)
 	{
-		return false; // предмета уже нет в трупе (двойной клик по устаревшей строке)
+		return false; // сюда не попасть: рюкзак проверен выше — страховка от правки гейта
+	}
+
+	// Название и количество снимаем ДО передачи: при слиянии стаков рюкзак уничтожает
+	// влившийся целиком актор (UInventoryComponent::AddItem), после этого читать нечего.
+	const FText TakenName = TakenItem->GetItemDisplayText();
+	const int32 TakenCount = FMath::Max(1, TakenItem->GetStackCount());
+	const bool bFirearm = Cast<ARangedWeapon>(TakenItem) != nullptr;
+
+	if (!Holder->TakeItem(TakenItem))
+	{
+		return false;
 	}
 
 	if (!Inventory->AddItem(TakenItem))
 	{
 		// В рюкзак не лёг (сегодня AddItem false только на null) — не оставляем сироту.
 		TakenItem->Destroy();
+		if (OutSummary)
+		{
+			OutSummary->bBackpackRefused = true;
+		}
 		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: предмет не лёг в рюкзак — уничтожен, чтобы не висел в мире"));
 		return false;
+	}
+
+	if (OutSummary)
+	{
+		OutSummary->AddItem(TakenName, TakenCount);
 	}
 
 	// ADR-063 п.2 (издатель, дословно: «любой полученный огнестрел падает в рюкзак, в боевой
@@ -298,33 +427,175 @@ bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem)
 	// заменить хорошее оружие на худшее. Ствол остаётся в рюкзаке (тот же поток, что покупка,
 	// 018b2fa); игроку — короткая всплывашка-подсказка тем же тостом, что подсказки
 	// онбординга (ShowTransientHint: одноразовость не ведётся, показывается на каждый ствол).
-	if (Cast<ARangedWeapon>(TakenItem))
+	// При ГРУППОВОМ обыске (OutSummary задан) отдельной всплывашки нет: напоминание уедет
+	// хвостом общей строки — «четыре сообщения подряд» запрещены заданием (п.3.3).
+	if (bFirearm)
 	{
-		if (UOnboardingComponent* Onboarding = Player->GetOnboarding())
+		if (OutSummary)
+		{
+			OutSummary->bFirearmTaken = true;
+		}
+		else if (UOnboardingComponent* Onboarding = Player->GetOnboarding())
 		{
 			FFormatNamedArguments Args;
-			Args.Add(TEXT("Item"), TakenItem->GetItemDisplayText());
+			Args.Add(TEXT("Item"), TakenName);
 			Onboarding->ShowTransientHint(FText::Format(FirearmPickupHintFormat, Args));
 		}
 		UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' с трупа лёг в РЮКЗАК (без автоэкипа, ADR-063)"),
-			*TakenItem->GetItemDisplayText().ToString());
+			*TakenName.ToString());
 	}
 	return true;
 }
 
-void UCorpseLootWidget::TakeMoneyToPlayer()
+float UCorpseLootWidget::TakeMoneyToPlayer()
 {
-	UCorpseLootComponent* CorpsePtr = Corpse.Get();
 	UStatsComponent* Stats = Player ? Player->FindComponentByClass<UStatsComponent>() : nullptr;
-	if (!CorpsePtr || !Stats)
+	if (!Stats)
+	{
+		return 0.0f;
+	}
+
+	// Деньги забираются со ВСЕХ тел группы разом (п.3.1): в окне они и лежат одной плиткой.
+	float Total = 0.0f;
+	for (UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		Total += Member->TakeMoney();
+	}
+	if (Total > 0.0f)
+	{
+		Stats->AddMoney(Total);
+	}
+	return Total;
+}
+
+void FCorpseLootTakenSummary::AddItem(const FText& Name, int32 Count)
+{
+	if (Count <= 0)
 	{
 		return;
 	}
-
-	const float Taken = CorpsePtr->TakeMoney();
-	if (Taken > 0.0f)
+	// Одинаковые названия складываются в одну запись: «4 шкуры волка», а не четыре строки.
+	for (TPair<FText, int32>& Entry : Items)
 	{
-		Stats->AddMoney(Taken);
+		if (Entry.Key.EqualTo(Name))
+		{
+			Entry.Value += Count;
+			return;
+		}
+	}
+	Items.Emplace(Name, Count);
+}
+
+FText UCorpseLootWidget::PickMoneyWord(int32 Amount, const FText& One, const FText& Few, const FText& Many)
+{
+	// Русский счёт: 1 монета, 2-4 монеты, 5 и больше — монет; 11-14 всегда «монет».
+	const int32 Abs = FMath::Abs(Amount);
+	const int32 LastTwo = Abs % 100;
+	if (LastTwo >= 11 && LastTwo <= 14)
+	{
+		return Many;
+	}
+	switch (Abs % 10)
+	{
+		case 1:           return One;
+		case 2: case 3: case 4: return Few;
+		default:          return Many;
+	}
+}
+
+FText UCorpseLootWidget::BuildTakenSummaryText(const FCorpseLootTakenSummary& Summary) const
+{
+	// п.3.3: ОДНА строка на весь групповой обыск («Получено: Шкура волка x4, 12 монет»),
+	// а не отдельное сообщение на каждый предмет.
+	if (Summary.IsEmpty())
+	{
+		return Summary.bBackpackRefused ? BackpackFullHint : FText::GetEmpty();
+	}
+
+	const FString Separator = TakenSummarySeparator.ToString();
+	FString List;
+
+	for (const TPair<FText, int32>& Entry : Summary.Items)
+	{
+		if (!List.IsEmpty())
+		{
+			List += Separator;
+		}
+		if (Entry.Value > 1)
+		{
+			FFormatNamedArguments ItemArgs;
+			ItemArgs.Add(TEXT("Name"), Entry.Key);
+			ItemArgs.Add(TEXT("Count"), FText::AsNumber(Entry.Value, &FNumberFormattingOptions::DefaultNoGrouping()));
+			List += FText::Format(TakenSummaryItemFormat, ItemArgs).ToString();
+		}
+		else
+		{
+			List += Entry.Key.ToString(); // одна штука — просто название, без «x1»
+		}
+	}
+
+	if (Summary.Money > 0)
+	{
+		if (!List.IsEmpty())
+		{
+			List += Separator;
+		}
+		FFormatNamedArguments MoneyArgs;
+		MoneyArgs.Add(TEXT("Count"), FText::AsNumber(Summary.Money, &FNumberFormattingOptions::DefaultNoGrouping()));
+		MoneyArgs.Add(TEXT("Word"), PickMoneyWord(Summary.Money, MoneyWordOne, MoneyWordFew, MoneyWordMany));
+		List += FText::Format(TakenSummaryMoneyFormat, MoneyArgs).ToString();
+	}
+
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("List"), FText::FromString(List));
+	FText Line = FText::Format(TakenSummaryFormat, Args);
+
+	// Хвост про огнестрел — в той же строке (ADR-063 п.2 живёт, второй всплывашки нет).
+	if (Summary.bFirearmTaken && !TakenSummaryFirearmSuffix.IsEmpty())
+	{
+		Line = FText::FromString(Line.ToString() + TakenSummaryFirearmSuffix.ToString());
+	}
+
+	// п.3.4: если рюкзак принял не всё — говорим об этом ТОЙ ЖЕ строкой.
+	if (Summary.bBackpackRefused)
+	{
+		FFormatNamedArguments FullArgs;
+		FullArgs.Add(TEXT("Summary"), Line);
+		Line = FText::Format(BackpackFullWithSummaryFormat, FullArgs);
+	}
+	return Line;
+}
+
+FCorpseLootTakenSummary UCorpseLootWidget::TakeAllFromGroup()
+{
+	FCorpseLootTakenSummary Summary;
+
+	// Деньги всей группы — одним движением (в окне они одна плитка).
+	Summary.Money = FMath::RoundToInt32(TakeMoneyToPlayer());
+
+	for (UCorpseLootComponent* Member : GetGroupCorpses())
+	{
+		// GetLootItems отдаёт КОПИЮ списка — забор из тела по ходу перебора безопасен.
+		for (AMasterInventoryItem* Item : Member->GetLootItems())
+		{
+			TakeItemToBackpack(Item, &Summary);
+		}
+	}
+	return Summary;
+}
+
+void UCorpseLootWidget::ShowTakenSummary(const FCorpseLootTakenSummary& Summary)
+{
+	UOnboardingComponent* Onboarding = Player ? Player->GetOnboarding() : nullptr;
+	if (!Onboarding)
+	{
+		return;
+	}
+	const FText Line = BuildTakenSummaryText(Summary);
+	if (!Line.IsEmpty())
+	{
+		// Способ показа — тот же, что уже используется в игре для подбора предметов (п.3.3).
+		Onboarding->ShowTransientHint(Line);
 	}
 }
 
@@ -341,25 +612,20 @@ void UCorpseLootWidget::HandleTileTake(UItemTileWidget* Tile)
 	}
 	else if (AMasterInventoryItem* TakenItem = Tile->Item.Get())
 	{
+		// Забор по одной плитке — прежнее поведение (в том числе всплывашка про огнестрел).
 		TakeItemToBackpack(TakenItem);
 	}
 
-	// Частичный обыск: остаток остаётся в трупе, список пересобирается по факту.
+	// Частичный обыск: остаток остаётся в телах, список пересобирается по факту.
 	RefreshList();
 }
 
 void UCorpseLootWidget::HandleTakeAllClicked()
 {
-	TakeMoneyToPlayer();
-
-	if (UCorpseLootComponent* CorpsePtr = Corpse.Get())
-	{
-		for (AMasterInventoryItem* Item : CorpsePtr->GetLootItems())
-		{
-			TakeItemToBackpack(Item);
-		}
-	}
-
+	// «Забрать всё» опустошает ВСЮ группу разом (издатель п.3.1, решение game-lead), а
+	// игрок получает ОДНУ строку о том, что упало в рюкзак (п.3.3).
+	const FCorpseLootTakenSummary Summary = TakeAllFromGroup();
+	ShowTakenSummary(Summary);
 	RefreshList();
 }
 

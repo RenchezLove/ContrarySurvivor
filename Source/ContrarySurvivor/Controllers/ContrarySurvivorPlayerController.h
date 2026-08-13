@@ -29,6 +29,7 @@ class UStartScreenWidget;                  // Б3: экран «Продолжи
 class USettingsScreenWidget;               // Подход 2 волны меню: экран настроек (ADR-062)
 class USupportAuthorWidget;                // Окно «Поддержать автора» (задание издателя 11.08.2026)
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
+class UCorpseLootComponent;               // контейнер обыска (группа тел под одно нажатие)
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
 // Фаза скриптового интро (Build 1, ТЗ раздел 2). Идёт по порядку; None — интро не играет.
@@ -92,6 +93,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CorpseLoot")
 	void OpenCorpseLoot(class UCorpseLootComponent* Corpse);
 
+	// Открыть окно обыска сразу по ГРУППЕ тел (издатель 11.08.2026, п.3.1: одно нажатие —
+	// содержимое всех необысканных тел рядом). Одиночный контейнер (мешок-пикап) — частный
+	// случай с одним элементом, его поведение не изменилось.
+	void OpenCorpseLootGroup(const TArray<class UCorpseLootComponent*>& InCorpses);
+
 	// Закрыть окно обыска (крестик / Esc / повторное E / труп исчез по таймеру).
 	UFUNCTION(BlueprintCallable, Category = "CorpseLoot")
 	void CloseCorpseLoot();
@@ -151,6 +157,15 @@ public:
 	// Склейка «действие — способ» по шаблону. Статическая и без состояния: та же математика
 	// проверяется автотестами для обоих способов управления.
 	static FText FormatInteractPrompt(const FText& Format, const FText& ActionText, const FText& HowText);
+
+	// Сколько тел заберёт одно нажатие «Обыскать» (издатель п.3.1). Считается в Tick вместе
+	// с выбором ближайшего интерактива; не у тела — ноль.
+	int32 GetCorpseGroupCount() const { return CurrentCorpseGroup.Num(); }
+
+	// Число тел в подписи действия: «Обыскать (4)» для кучи, «Обыскать» для одного тела
+	// (дословно из задания: «Когда тело одно — просто Обыскать, без числа в скобках»).
+	// Статическая и без состояния — проверяется автотестом вместе с остальной склейкой.
+	static FText FormatCorpseGroupAction(const FText& Format, const FText& ActionText, int32 CorpseCount);
 
 	// Чистое правило «Продолжить посреди интро-этапа»: баннер задачи и стрелку-указатель
 	// восстанавливаем, только когда интро в принципе включено и журнал квестов после загрузки
@@ -612,6 +627,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
 		meta = (DisplayName = "Действие: труп или мешок с вещами", DisplayPriority = "7"))
 	FText InteractPromptCorpseAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseAction", "Обыскать");
+
+	// Задание издателя 11.08.2026 п.3.1 (дословно: «Надпись показывает количество:
+	// Обыскать (4)»). {Action} — «Обыскать», {Count} — сколько тел заберёт одно нажатие.
+	// При одном теле шаблон НЕ применяется — подпись остаётся прежней.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: несколько тел сразу (число в скобках)", DisplayPriority = "8"))
+	FText InteractPromptCorpseGroupFormat = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseGroupFormat", "{Action} ({Count})");
 
 protected:
 
@@ -1095,6 +1117,18 @@ private:
 	// собственный overlap-триггер (NearbyTrader). DRAFT-тюнинг.
 	UPROPERTY(EditAnywhere, Category = "Interact")
 	float InteractRange = 300.0f;
+
+	// Радиус (см) ГРУППОВОГО обыска (издатель 11.08.2026, п.3.1): тела, что ближе этого
+	// расстояния ОТ ПОДСВЕЧЕННОГО тела, обыскиваются одним нажатием. Меряется от тела, а
+	// не от игрока, и цепочек «от тела к телу» нет — иначе одно нажатие выгребало бы
+	// половину локации (решение game-lead). Число вынесено в правку редактором для тюнинга.
+	UPROPERTY(EditAnywhere, Category = "Interact", meta = (ClampMin = "0.0",
+		DisplayName = "Обыск: радиус группы тел (см)"))
+	float CorpseGroupSearchRadius = 600.0f;
+
+	// Тела, которые заберёт текущее нажатие «Обыскать» (первое — подсвеченное). Считается
+	// в Tick рядом с выбором ближайшего интерактива; не у тела — пусто.
+	TArray<TWeakObjectPtr<UCorpseLootComponent>> CurrentCorpseGroup;
 
 	// Пересчитывает ближайший интерактив (пикап/торговец) для подсказки и действия по E.
 	void UpdateNearbyInteractable();
