@@ -107,7 +107,7 @@ void USupportAuthorWidget::NativeOnInitialized()
 			{ WatchAdButton, TEXT("WatchAdButton") }, { WatchAdText, TEXT("WatchAdText") },
 			{ SupportLinkButton, TEXT("SupportLinkButton") }, { SupportLinkText, TEXT("SupportLinkText") },
 			{ CloseButton, TEXT("CloseButton") }, { CloseText, TEXT("CloseText") },
-			{ ThanksText, TEXT("ThanksText") },
+			{ ThanksText, TEXT("ThanksText") }, { NextAdHintText, TEXT("NextAdHintText") },
 		};
 		for (const auto& Entry : Expected)
 		{
@@ -138,12 +138,16 @@ void USupportAuthorWidget::NativeOnInitialized()
 		CloseButton->OnClicked.AddDynamic(this, &USupportAuthorWidget::HandleCloseClicked);
 	}
 
-	// Строка благодарности всегда стартует спрятанной — в ОБОИХ путях. В готовом окне она
-	// намеренно оставлена видимой, чтобы владельцу было за что взяться мышкой в дизайнере
-	// (тот же приём, что у логотипа главного меню), поэтому прячем её здесь, а не в ассете.
+	// Строка благодарности и подсказка про следующий ролик всегда стартуют спрятанными — в
+	// ОБОИХ путях. В готовом окне они намеренно оставлены видимыми, чтобы владельцу было за
+	// что взяться мышкой в дизайнере (приём логотипа главного меню) — прячем здесь, не в ассете.
 	if (ThanksText)
 	{
 		ThanksText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (NextAdHintText)
+	{
+		NextAdHintText->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
 	if (!bDesignerTree)
@@ -241,6 +245,17 @@ void USupportAuthorWidget::BuildCodeTree()
 		ThanksSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
 	}
 
+	// Подсказка про следующий ролик — под благодарностью, спрятана по тому же правилу. Текст
+	// длинный, на ширине окна переносится — потому перенос и растяжка на всю ширину колонки.
+	NextAdHintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NextAdHintText"));
+	NextAdHintText->SetJustification(ETextJustify::Center);
+	NextAdHintText->SetAutoWrapText(true);
+	if (UVerticalBoxSlot* HintSlot = Column->AddChildToVerticalBox(NextAdHintText))
+	{
+		HintSlot->SetHorizontalAlignment(HAlign_Fill);
+		HintSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
+	}
+
 	// Окно по центру экрана, размер — по содержимому.
 	if (UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(FrameBorder))
 	{
@@ -288,6 +303,7 @@ void USupportAuthorWidget::ApplyStyle(const FSupportAuthorStyle& Style)
 	if (SupportLinkText) { SupportLinkText->SetText(Style.SupportLinkText); }
 	if (CloseText)       { CloseText->SetText(Style.CloseText); }
 	if (ThanksText)      { ThanksText->SetText(Style.ThanksText); }
+	if (NextAdHintText)  { NextAdHintText->SetText(Style.NextAdHintText); }
 
 	// ⛔ ДАЛЬШЕ — ТОЛЬКО ОФОРМЛЕНИЕ, И ТОЛЬКО ДЛЯ ДЕРЕВА, КОТОРОЕ ПОСТРОИЛИ МЫ САМИ.
 	// Окно отдано владельцу: его цвета, кегли, размеры и положения ставит Ринат мышкой, и они
@@ -341,6 +357,8 @@ void USupportAuthorWidget::ApplyStyle(const FSupportAuthorStyle& Style)
 	StyleLabel(SupportLinkText, Style.ButtonTextColor, Style.ButtonFontSize, true);
 	StyleLabel(CloseText, Style.ButtonTextColor, Style.ButtonFontSize, true);
 	StyleLabel(ThanksText, Style.TitleColor, Style.MessageFontSize, false);
+	// Вид подсказки — как у строки благодарности (решение лида: «как у "Спасибо"»).
+	StyleLabel(NextAdHintText, Style.TitleColor, Style.MessageFontSize, false);
 }
 
 void USupportAuthorWidget::SetAdAvailable(bool bInAdAvailable)
@@ -349,6 +367,9 @@ void USupportAuthorWidget::SetAdAvailable(bool bInAdAvailable)
 	const bool bShowWatchAd = ShouldShowWatchAdButton(bAdAvailable);
 	SetRowVisibility(WatchAdButton, WatchAdVisibilityFor(bShowWatchAd));
 	ApplySingleButtonLayout(bShowWatchAd);
+	// Готовность ролика — один из двух входов правила подсказки: кнопка вернулась — подсказка
+	// про её отсутствие обязана исчезнуть.
+	RefreshNextAdHint();
 }
 
 void USupportAuthorWidget::ApplySingleButtonLayout(bool bWatchAdVisible)
@@ -383,6 +404,34 @@ void USupportAuthorWidget::ShowThanks()
 		ThanksText->SetText(CachedStyle.ThanksText);
 		ThanksText->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
+	// Флаг ставим и без кубика благодарности: подсказка объясняет исчезнувшую кнопку, а кнопка
+	// исчезает независимо от того, нашлась ли в ассете строка «Спасибо».
+	bAdFinishedThisOpen = true;
+	RefreshNextAdHint();
+}
+
+bool USupportAuthorWidget::ShouldShowNextAdHint(bool bAdJustFinished, bool bAdReady)
+{
+	// Подсказка объясняет РОВНО одно: игрок только что смотрел ролик, а кнопка исчезла, потому
+	// что следующий ещё грузится. Кнопка на месте — объяснять нечего; ролика не было — окно
+	// открыто обычным способом, и лишняя строка запрещена (окно с одной кнопкой — не шуметь).
+	return bAdJustFinished && !bAdReady;
+}
+
+void USupportAuthorWidget::RefreshNextAdHint()
+{
+	if (NextAdHintText)
+	{
+		NextAdHintText->SetVisibility(ShouldShowNextAdHint(bAdFinishedThisOpen, bAdAvailable)
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Collapsed);
+	}
+}
+
+void USupportAuthorWidget::ResetNextAdHint()
+{
+	bAdFinishedThisOpen = false;
+	RefreshNextAdHint();
 }
 
 void USupportAuthorWidget::SetRowVisibility(UWidget* Widget, ESlateVisibility InVisibility)

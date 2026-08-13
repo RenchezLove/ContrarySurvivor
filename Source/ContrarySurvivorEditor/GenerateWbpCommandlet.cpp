@@ -4785,6 +4785,73 @@ namespace
 			Name, *Style.ThanksText.ToString());
 	}
 
+	// WBP_SupportAuthor, задача Рината 13.08.2026 (вторая): после ролика кнопка просмотра
+	// исчезает (следующий ещё не загружен), и игрок не понимает, куда она делась. Под строкой
+	// благодарности живёт подсказка «Новый ролик будет готов через 30–60 секунд — загляните в
+	// это окно ещё раз.» В игре её показывает код окна ТОЛЬКО вместе с благодарностью и только
+	// пока следующий ролик не готов (USupportAuthorWidget::ShouldShowNextAdHint); в ассете она
+	// видимая — владельцу нужно за что-то браться мышкой (приём ThanksText).
+	//
+	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ: пересобирать нельзя, ТОЛЬКО дополнением, трогаем ровно один
+	// кубик. Идемпотентно: кубик на месте и текст верный — прогон ничего не меняет.
+	void AugmentSupportAuthorNextAdHint(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_SupportAuthor");
+		const FSupportAuthorStyle Style; // одно место правды на код и ассет
+		UObject* Roboto = LoadRobotoFont();
+
+		// Кубик на месте — сверяем только текст (в игре его всё равно ставит код окна, но в
+		// дизайнере владелец должен видеть ту же фразу).
+		if (UTextBlock* Existing = Cast<UTextBlock>(Tree->FindWidget(TEXT("NextAdHintText"))))
+		{
+			if (!Existing->GetText().EqualTo(Style.NextAdHintText))
+			{
+				Existing->SetText(Style.NextAdHintText);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: подсказка про следующий ролик приведена к «%s»."),
+					Name, *Style.NextAdHintText.ToString());
+			}
+			return;
+		}
+
+		// Кубика нет — ставим под строку благодарности, взяв геометрию у ЖИВОГО ассета. Сама
+		// строка к этому моменту есть: её гарантирует AugmentSupportAuthorThanks, который стоит
+		// в таблице раньше и работает с тем же загруженным ассетом.
+		UWidget* Anchor = Tree->FindWidget(TEXT("ThanksText"));
+		UCanvasPanelSlot* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
+		UCanvasPanel* Parent = Anchor ? Cast<UCanvasPanel>(Anchor->GetParent()) : nullptr;
+		if (!AnchorSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: строка ThanksText не найдена в канвас-слоте — некуда ставить подсказку про следующий ролик."),
+				Name);
+			return;
+		}
+
+		UTextBlock* Hint = MakeText(Tree, Roboto, TEXT("NextAdHintText"), Style.NextAdHintText,
+			Style.TitleColor, Style.MessageFontSize, TEXT("Regular"));
+		Hint->SetJustification(ETextJustify::Center);
+		// Фраза длинная и на ширине окна переносится: перенос обязателен, высота — две строки.
+		// SetAutoWrapText пишет сохраняемое свойство (TextWidgetTypes.cpp:56), в ассет попадёт.
+		Hint->SetAutoWrapText(true);
+		Hint->bIsVariable = true;
+
+		if (UCanvasPanelSlot* HintSlot = Parent->AddChildToCanvas(Hint))
+		{
+			HintSlot->SetAnchors(AnchorSlot->GetAnchors());
+			HintSlot->SetAlignment(AnchorSlot->GetAlignment());
+			HintSlot->SetPosition(AnchorSlot->GetPosition()
+				+ FVector2D(0.0f, AnchorSlot->GetSize().Y + 8.0f));
+			HintSlot->SetSize(FVector2D(AnchorSlot->GetSize().X, 48.0f));
+		}
+		bChanged = true;
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: под строкой благодарности добавлена подсказка про следующий ролик."),
+			Name);
+	}
+
 	// WBP_Consent, требование издателя 13.08.2026: формулировки согласия в ассете обязаны
 	// совпадать с опубликованной политикой (из текста убрана AppMetrica).
 	//
@@ -6016,6 +6083,10 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Решение Рината 13.08.2026: вернуть строку благодарности в окно поддержки и оставить
 		// в ней одно слово «Спасибо». Окно отдано владельцу — только дополнением.
 		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"), &AugmentSupportAuthorThanks },
+		// Задача Рината 13.08.2026 (вторая): подсказка «новый ролик будет готов через 30–60
+		// секунд» под строкой благодарности. Отдельной записью со своей проверкой «уже сделано»;
+		// стоит ПОСЛЕ возврата самой строки — подсказка встаёт от её геометрии.
+		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"), &AugmentSupportAuthorNextAdHint },
 		// Требование издателя 13.08.2026: из текста согласия убрана AppMetrica. Пересборке
 		// это окно не подлежит (его нет в списке RebuildAssets) — правим только подписи.
 		{ TEXT("/Game/UI/WBP_Consent"),       TEXT("WBP_Consent"),       &AugmentConsentTexts },
