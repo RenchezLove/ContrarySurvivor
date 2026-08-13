@@ -4785,6 +4785,57 @@ namespace
 			Name, *Style.ThanksText.ToString());
 	}
 
+	// WBP_Consent, требование издателя 13.08.2026: формулировки согласия в ассете обязаны
+	// совпадать с опубликованной политикой (из текста убрана AppMetrica).
+	//
+	// Почему ДОПОЛНЕНИЕМ, а не пересборкой: окна согласия нет в списке разрешённых к
+	// пересборке (RebuildAssets) — и правильно, целиком его переписывать ради одной строки
+	// незачем. Трогаем РОВНО тексты четырёх подписей, раскладку и оформление не касаемся.
+	//
+	// На игрока это не влияет: UConsentScreenWidget::ApplyStyle ставит тексты абзацев всегда,
+	// в обоих путях. Правка нужна, чтобы в дизайнере не висел устаревший абзац.
+	//
+	// Идемпотентно: тексты совпали — прогон ничего не меняет.
+	void AugmentConsentTexts(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Consent");
+		const FConsentScreenStyle Texts; // одно место правды на код и ассет
+
+		struct FConsentLabel
+		{
+			const TCHAR* CubeName;
+			const FText& Text;
+		};
+		const FConsentLabel Labels[] =
+		{
+			{ TEXT("TitleText"), Texts.TitleText },
+			{ TEXT("Body1Text"), Texts.BodyText1 },
+			{ TEXT("Body2Text"), Texts.BodyText2 },
+			{ TEXT("Body3Text"), Texts.BodyText3 },
+		};
+
+		for (const FConsentLabel& Label : Labels)
+		{
+			UTextBlock* Block = Cast<UTextBlock>(Tree->FindWidget(Label.CubeName));
+			if (!Block)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: подпись «%s» в ассете не найдена — текст обновить не на чем."),
+					Name, Label.CubeName);
+				continue;
+			}
+			if (Block->GetText().EqualTo(Label.Text))
+			{
+				continue; // уже совпадает
+			}
+			Block->SetText(Label.Text);
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: подпись «%s» приведена к тексту из настроек экрана."),
+				Name, Label.CubeName);
+		}
+	}
+
 	// WBP_TouchControls: прежняя заплатка, перенесённая в общий вид без изменения поведения —
 	// добавить кубик WeaponIconImage, если его ещё нет. Позиция берётся со слота кнопки
 	// ОРУЖИЕ: куда владелец её передвинул, туда встанет и иконка.
@@ -5965,6 +6016,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Решение Рината 13.08.2026: вернуть строку благодарности в окно поддержки и оставить
 		// в ней одно слово «Спасибо». Окно отдано владельцу — только дополнением.
 		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"), &AugmentSupportAuthorThanks },
+		// Требование издателя 13.08.2026: из текста согласия убрана AppMetrica. Пересборке
+		// это окно не подлежит (его нет в списке RebuildAssets) — правим только подписи.
+		{ TEXT("/Game/UI/WBP_Consent"),       TEXT("WBP_Consent"),       &AugmentConsentTexts },
 	};
 
 	int32 FailCount = 0;
