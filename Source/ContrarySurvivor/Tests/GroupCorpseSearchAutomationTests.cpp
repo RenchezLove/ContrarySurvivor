@@ -26,6 +26,7 @@
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Characters/WolfCharacter.h" // тела в тестах — НАСТОЯЩИЕ трупы волков
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"
@@ -34,6 +35,7 @@
 #include "UInventoryComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/DamageEvents.h" // FDamageEvent (смертельный урон волку)
 #include "GameFramework/WorldSettings.h"
 
 static constexpr EAutomationTestFlags GroupSearchTestFlags =
@@ -88,6 +90,19 @@ namespace GroupSearchTestWorld
 		World->Tick(LEVELTICK_All, DeltaSeconds);
 	}
 
+	// Прогнать РОВНО столько игрового времени, сколько попросили. ⛔ Один кадр даёт максимум
+	// 0.4 с: мир режет шаг по MaxUndilatedFrameTime настроек мира (LevelTick.cpp:1352 ->
+	// AWorldSettings::FixupDeltaSeconds), поэтому «тикнуть на 1.2 с» одним вызовом нельзя —
+	// поймано прогоном 13.08, тело не успевало опуститься. Идём шагами по 0.2 с.
+	static void AdvanceWorld(UWorld* World, float Seconds)
+	{
+		const float Step = 0.2f;
+		for (float Passed = 0.0f; Passed < Seconds - KINDA_SMALL_NUMBER; Passed += Step)
+		{
+			TickWorld(World, FMath::Min(Step, Seconds - Passed));
+		}
+	}
+
 	template <typename T>
 	static T* Spawn(UWorld* World, const FVector& Loc = FVector(0.f, 0.f, 100.f))
 	{
@@ -115,31 +130,25 @@ namespace GroupSearchTestWorld
 		return Item;
 	}
 
-	// Тело: голый актор с контейнером обыска, внутри деньги и один предмет. Регистрация в
-	// реестре обыскиваемых ОБЯЗАТЕЛЬНА — именно по нему собирается группа.
-	static UCorpseLootComponent* SpawnBody(UWorld* World, const FVector& Loc,
-		float Money, EConsumableType ItemType)
+	// ТЕЛО = настоящий труп волка, полученный штатным путём: смертельный урон -> HandleDeath
+	// -> DropLoot кладёт шкуру и деньги В ТЕЛО и ставит его в реестр обыскиваемых.
+	// Голый AActor тут не годится: у него НЕТ корневого компонента, поэтому положение всегда
+	// читается как начало координат — расстояния до тел мерить нечем (поймано прогоном
+	// 13.08, первая версия этих тестов). Заодно контейнер приезжает так же, как в игре:
+	// созданным в конструкторе персонажа, а не прицепленным на ходу.
+	static UCorpseLootComponent* SpawnBody(UWorld* World, const FVector& Loc)
 	{
-		AActor* BodyActor = Spawn<AActor>(World, Loc);
-		UCorpseLootComponent* Body = BodyActor ? NewObject<UCorpseLootComponent>(BodyActor) : nullptr;
-		if (!Body)
+		AWolfCharacter* Wolf = Spawn<AWolfCharacter>(World, Loc);
+		if (!Wolf)
 		{
 			return nullptr;
 		}
-		Body->RegisterComponent();
-
-		TArray<AMasterInventoryItem*> Items;
-		if (AConsumableItem* Item = SpawnConsumable(World, ItemType, 1))
-		{
-			Items.Add(Item);
-		}
-		Body->InitLoot(Money, Items);
-		return Body;
+		Wolf->TakeDamage(1000.0f, FDamageEvent(), nullptr, nullptr);
+		return Wolf->FindComponentByClass<UCorpseLootComponent>();
 	}
 
-	// Сколько штук предмета с таким названием лежит в рюкзаке (стаки сливаются — считаем
-	// именно штуки, а не записи).
-	static int32 CountInBackpack(const UInventoryComponent* Inventory, const FString& ItemName)
+	// Сколько штук лежит в рюкзаке всего (стаки сливаются — считаем штуки, а не записи).
+	static int32 CountItemsInBackpack(const UInventoryComponent* Inventory)
 	{
 		int32 Count = 0;
 		if (!Inventory)
@@ -148,7 +157,7 @@ namespace GroupSearchTestWorld
 		}
 		for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
 		{
-			if (IsValid(Item) && Item->ItemName == ItemName)
+			if (IsValid(Item))
 			{
 				Count += Item->GetStackCount();
 			}
@@ -178,14 +187,10 @@ bool FGroupSearchFourBodiesTest::RunTest(const FString& Parameters)
 		UStatsComponent* Stats = Player ? Player->FindComponentByClass<UStatsComponent>() : nullptr;
 
 		// Куча: тело-якорь и ещё три в пределах 600 см от него (радиус группы по умолчанию).
-		UCorpseLootComponent* Anchor = GroupSearchTestWorld::SpawnBody(
-			World, FVector(1000.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
-		UCorpseLootComponent* Near1 = GroupSearchTestWorld::SpawnBody(
-			World, FVector(1200.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
-		UCorpseLootComponent* Near2 = GroupSearchTestWorld::SpawnBody(
-			World, FVector(1000.f, 400.f, 100.f), 10.0f, EConsumableType::Medkit);
-		UCorpseLootComponent* Near3 = GroupSearchTestWorld::SpawnBody(
-			World, FVector(1500.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
+		UCorpseLootComponent* Anchor = GroupSearchTestWorld::SpawnBody(World, FVector(1000.f, 0.f, 100.f));
+		UCorpseLootComponent* Near1 = GroupSearchTestWorld::SpawnBody(World, FVector(1200.f, 0.f, 100.f));
+		UCorpseLootComponent* Near2 = GroupSearchTestWorld::SpawnBody(World, FVector(1000.f, 400.f, 100.f));
+		UCorpseLootComponent* Near3 = GroupSearchTestWorld::SpawnBody(World, FVector(1500.f, 0.f, 100.f));
 
 		if (!Player || !Inventory || !Stats || !Anchor || !Near1 || !Near2 || !Near3)
 		{
@@ -202,7 +207,11 @@ bool FGroupSearchFourBodiesTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Первым в группе идёт подсвеченное тело"), Group[0] == Anchor);
 		}
 
+		// Деньги у волка случайные (5..15 на тело) — эталон берём с самих тел, а не выдумываем.
 		const float MoneyBefore = Stats->GetMoney();
+		const float MoneyInGroup = Anchor->GetMoney() + Near1->GetMoney()
+			+ Near2->GetMoney() + Near3->GetMoney();
+		const int32 ItemsBefore = GroupSearchTestWorld::CountItemsInBackpack(Inventory);
 
 		UCorpseLootWidget* Window = NewObject<UCorpseLootWidget>();
 		if (!TestNotNull(TEXT("Окно обыска создано"), Window))
@@ -220,18 +229,19 @@ bool FGroupSearchFourBodiesTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Третье тело пусто"), Near2->HasLoot());
 		TestFalse(TEXT("Четвёртое тело пусто"), Near3->HasLoot());
 
-		TestEqual(TEXT("Деньги всех четырёх тел ушли игроку"), Stats->GetMoney(), MoneyBefore + 40.0f);
-		TestEqual(TEXT("Все четыре аптечки лежат в рюкзаке"),
-			GroupSearchTestWorld::CountInBackpack(Inventory,
-				AConsumableItem::GetDefaultDisplayName(EConsumableType::Medkit)), 4);
+		TestEqual(TEXT("Деньги всех четырёх тел ушли игроку"), Stats->GetMoney(), MoneyBefore + MoneyInGroup);
+		TestEqual(TEXT("Все четыре шкуры лежат в рюкзаке"),
+			GroupSearchTestWorld::CountItemsInBackpack(Inventory), ItemsBefore + 4);
 
 		// Сводка складывает одинаковые названия в одну запись (п.3.3).
 		TestEqual(TEXT("В сводке одна запись предметов"), Summary.Items.Num(), 1);
 		if (Summary.Items.Num() == 1)
 		{
+			TestEqual(TEXT("В записи названа шкура волка"),
+				Summary.Items[0].Key.ToString(), TEXT("Шкура волка"));
 			TestEqual(TEXT("Штук в записи — четыре"), Summary.Items[0].Value, 4);
 		}
-		TestEqual(TEXT("В сводке деньги всей группы"), Summary.Money, 40);
+		TestEqual(TEXT("В сводке деньги всей группы"), Summary.Money, FMath::RoundToInt32(MoneyInGroup));
 		TestFalse(TEXT("Рюкзак принял всё"), Summary.bBackpackRefused);
 
 		// п.3.2: опустевшие тела сразу пошли в землю (исчезновение проверяет отдельный тест).
@@ -259,12 +269,9 @@ bool FGroupSearchRadiusTest::RunTest(const FString& Parameters)
 
 	{
 		APlayerCharacter* Player = GroupSearchTestWorld::Spawn<APlayerCharacter>(World);
-		UCorpseLootComponent* Anchor = GroupSearchTestWorld::SpawnBody(
-			World, FVector(0.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
-		UCorpseLootComponent* Inside = GroupSearchTestWorld::SpawnBody(
-			World, FVector(590.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
-		UCorpseLootComponent* Outside = GroupSearchTestWorld::SpawnBody(
-			World, FVector(900.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
+		UCorpseLootComponent* Anchor = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
+		UCorpseLootComponent* Inside = GroupSearchTestWorld::SpawnBody(World, FVector(590.f, 0.f, 100.f));
+		UCorpseLootComponent* Outside = GroupSearchTestWorld::SpawnBody(World, FVector(900.f, 0.f, 100.f));
 
 		if (!Player || !Anchor || !Inside || !Outside)
 		{
@@ -287,7 +294,8 @@ bool FGroupSearchRadiusTest::RunTest(const FString& Parameters)
 
 		TestFalse(TEXT("Ближнее тело обыскано"), Inside->HasLoot());
 		TestTrue(TEXT("Дальнее тело осталось нетронутым"), Outside->HasLoot());
-		TestEqual(TEXT("Деньги дальнего тела на месте"), Outside->GetMoney(), 10.0f);
+		TestTrue(TEXT("Деньги дальнего тела на месте"), Outside->GetMoney() > 0.0f);
+		TestEqual(TEXT("Шкура дальнего тела на месте"), Outside->GetLootItems().Num(), 1);
 		TestFalse(TEXT("Дальнее тело в землю не уходит"), Outside->IsSinking());
 	}
 
@@ -312,8 +320,7 @@ bool FGroupSearchIgnoresBoxTest::RunTest(const FString& Parameters)
 
 	{
 		APlayerCharacter* Player = GroupSearchTestWorld::Spawn<APlayerCharacter>(World);
-		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(
-			World, FVector(0.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
+		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
 
 		// Ящик: тот же контейнер, но на пикапе — в реестр обыскиваемых тел он не встаёт.
 		APickup* Box = GroupSearchTestWorld::Spawn<APickup>(World, FVector(200.f, 0.f, 100.f));
@@ -435,8 +442,7 @@ bool FGroupSearchSinkTest::RunTest(const FString& Parameters)
 	}
 
 	{
-		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(
-			World, FVector(0.f, 0.f, 500.f), 10.0f, EConsumableType::Medkit);
+		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 500.f));
 		AActor* BodyActor = Body ? Body->GetOwner() : nullptr;
 		if (!Body || !BodyActor)
 		{
@@ -459,20 +465,18 @@ bool FGroupSearchSinkTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Пустое тело пошло в землю"), Body->IsSinking());
 
-		// Пауза: тело ещё на месте.
-		GroupSearchTestWorld::TickWorld(World, 0.5f);
-		GroupSearchTestWorld::TickWorld(World, 0.4f);
+		// Пауза (1 с): тело ещё на месте.
+		GroupSearchTestWorld::AdvanceWorld(World, 0.8f);
 		TestTrue(TEXT("В паузе тело не двигалось"),
 			FMath::IsNearlyEqual(BodyActor->GetActorLocation().Z, StartZ, 0.01f));
 
-		// Середина спуска: тело заметно ниже, но ещё существует.
-		GroupSearchTestWorld::TickWorld(World, 1.1f);
+		// Середина спуска (всего 2 с = половина глубины): тело ниже, но ещё существует.
+		GroupSearchTestWorld::AdvanceWorld(World, 1.2f);
 		TestTrue(TEXT("Тело опускается"), BodyActor->GetActorLocation().Z < StartZ - 30.0f);
 		TestTrue(TEXT("В середине спуска тело ещё в мире"), IsValid(BodyActor));
 
-		// Конец: тело исчезло.
-		GroupSearchTestWorld::TickWorld(World, 1.2f);
-		GroupSearchTestWorld::TickWorld(World, 0.1f);
+		// Конец (всего 3.2 с > пауза 1 с + спуск 2 с): тело исчезло.
+		GroupSearchTestWorld::AdvanceWorld(World, 1.2f);
 		TestFalse(TEXT("Обысканное тело исчезло"), IsValid(BodyActor));
 	}
 
@@ -564,8 +568,7 @@ bool FGroupSearchBackpackRefusedTest::RunTest(const FString& Parameters)
 	}
 
 	{
-		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(
-			World, FVector(0.f, 0.f, 100.f), 10.0f, EConsumableType::Medkit);
+		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
 		UCorpseLootWidget* Window = NewObject<UCorpseLootWidget>();
 		if (!Body || !Window)
 		{

@@ -217,7 +217,7 @@ void UCorpseLootComponent::StartSearchedSink()
 	}
 
 	SetComponentTickEnabled(true);
-	UE_LOG(LogQA, Display, TEXT("QA: CORPSE searched -> sink started on '%s' (delay %.1f s, %.1f s, %.0f cm)"),
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE searched -> sink started on '%s' (пауза %.1f с, спуск %.1f с, глубина %.0f см)"),
 		*GetNameSafe(CorpseOwner), SearchedSinkDelay, SearchedSinkDuration, SearchedSinkDepth);
 }
 
