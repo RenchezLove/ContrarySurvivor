@@ -34,9 +34,18 @@
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // QA headless-тест погони: режим/дальность
 #include "NavigationSystem.h"  // QA headless-тест: проекция враг/игрок на навмеш (selfNav/targetNav)
 #include "TimerManager.h"      // QA headless-тест: таймер-сэмплинг
-#include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (J/U/B/O/N/V)
+#include "ContrarySurvivor/Debug/QADebug.h"              // QA debug-флаги/хелпер (T/Z/B/O/N)
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
+#include "BrainComponent.h"    // QA freeze (U): PauseLogic/ResumeLogic (на случай BT-врагов; у наших мозг — state-machine)
+#include "UnrealClient.h"      // QA screenshot (G): FScreenshotRequest
+#include "HAL/FileManager.h"   // QA screenshot (G): создание папки, проверка записи файла
+#include "Misc/Paths.h"        // QA screenshot (G): запасная папка снимков
+#if CONTRARY_WITH_QA_CHEATS && PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <ShlObj.h>            // QA screenshot (G): SHGetKnownFolderPath(FOLDERID_Desktop)
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "ContrarySurvivor/Retention/OnboardingComponent.h" // Этап F1: онбординг-подсказки
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Build 1: отложенное окно ежедневки (после интро-диалога)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"        // Этап G: виртуальный стик (Android)
@@ -262,15 +271,16 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// делают ничего, и удалять их незачем (в разработке они нужны).
 		// ==================================================================
 #if CONTRARY_WITH_QA_CHEATS
-		// QA-харнесс (Фаза 4 раунд 2): тест-действия F1-F4 + M (деньги; перевешено с F5 из-за
-		// вьюмода Shader Complexity) + T (телепорт к торговцу). Legacy ActionMapping,
+		// QA-харнесс (Фаза 4 раунд 2): тест-действия F1-F4 + K (деньги; перевешено с F5 из-за
+		// вьюмода Shader Complexity, затем с M — дебаг-клавиши Рината 2026-08-14) + M (телепорт
+		// к торговцу; раньше T, T занял god-mode). Legacy ActionMapping,
 		// Config/DefaultInput.ini. Дают автотестеру (Computer Use) проверять без `~`-консоли.
 		InputComponent->BindAction(TEXT("QAToggleDebugCam"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleDebugCamera);
 		InputComponent->BindAction(TEXT("QAGiveItems"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveItems);
 		InputComponent->BindAction(TEXT("QAEquipArmor"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestEquipArmor);
 		InputComponent->BindAction(TEXT("QAUnequipArmor"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestUnequipArmor);
 		InputComponent->BindAction(TEXT("QAGiveMoney"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveMoney);
-			// Тест-телепорт к торговцу (клавиша T) — обход блокировки волками для проверки купли/продажи.
+			// Тест-телепорт к торговцу (клавиша M) — обход блокировки волками для проверки купли/продажи.
 			InputComponent->BindAction(TEXT("QATeleportToTrader"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToTrader);
 
 		// QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами (тестер не кликает HUD в PIE).
@@ -280,7 +290,7 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		InputComponent->BindAction(TEXT("QASellFirst"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASellFirstItem);
 		InputComponent->BindAction(TEXT("QAClearSave"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAClearSave);
 
-		// QA-харнесс (Фаза 5): квесты/диалог на буквенных клавишах (Y/G/H/K), legacy ActionMapping.
+		// QA-харнесс (Фаза 5): квесты/диалог на буквенных клавишах (V/J/H/запятая), legacy ActionMapping.
 		InputComponent->BindAction(TEXT("QATeleportToElder"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToElder);
 		InputComponent->BindAction(TEXT("QAAcceptQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAAcceptQuest);
 		InputComponent->BindAction(TEXT("QATurnInQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATurnInQuest);
@@ -291,7 +301,7 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 			InputComponent->BindAction(TEXT("QAGiveWolfHides"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveWolfHides);
 			InputComponent->BindAction(TEXT("QAGiveNotebook"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveNotebook);
 
-		// QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay (J/U/B/O), legacy ActionMapping.
+		// QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay (T/Z/B/O), legacy ActionMapping.
 		InputComponent->BindAction(TEXT("QAGodMode"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleGodMode);
 		InputComponent->BindAction(TEXT("QAForceDrop"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleForceDrop);
 		InputComponent->BindAction(TEXT("QASpawnWolf"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASpawnTestWolf);
@@ -302,6 +312,12 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
 		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
+
+		// Дебаг-клавиши Рината (2026-08-14): G — скриншот на рабочий стол; Y — статы 100%;
+		// U — тумблер заморозки всех врагов.
+		InputComponent->BindAction(TEXT("QAScreenshot"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAScreenshot);
+		InputComponent->BindAction(TEXT("QAFullStats"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAFullStats);
+		InputComponent->BindAction(TEXT("QAFreezeEnemies"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies);
 #endif // CONTRARY_WITH_QA_CHEATS
 
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
@@ -1710,6 +1726,153 @@ void AContrarySurvivorPlayerController::OnQAKillPlayer()
 }
 
 // ---------------------------------------------------------------------------
+// Дебаг-клавиши Рината (2026-08-14): G — скриншот, Y — статы 100%, U — заморозка врагов
+// ---------------------------------------------------------------------------
+
+namespace
+{
+	// Папка снимков на рабочем столе Windows. Стол Рината перенаправлен в OneDrive, поэтому
+	// путь спрашиваем у системы: SHGetKnownFolderPath(FOLDERID_Desktop) учитывает
+	// перенаправление, а USERPROFILE\Desktop дал бы «не тот» стол. Идиома вызова — как в
+	// движке (WindowsPlatformProcess.cpp:1232: SHGetKnownFolderPath + CoTaskMemFree).
+	FString GetDesktopScreenshotDir()
+	{
+#if PLATFORM_WINDOWS
+		PWSTR RawPath = nullptr;
+		FString Desktop;
+		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &RawPath)) && RawPath)
+		{
+			Desktop = FString(RawPath);
+		}
+		if (RawPath)
+		{
+			CoTaskMemFree(RawPath);
+		}
+		return Desktop.IsEmpty() ? FString() : Desktop / TEXT("Скриншоты ContrarySurvivor");
+#else
+		return FString();
+#endif
+	}
+}
+
+void AContrarySurvivorPlayerController::OnQAScreenshot()
+{
+	// G: снимок кадра игры (вьюпорт + интерфейс) в папку на рабочем столе.
+	// Механика движка (сверено по исходникам UE 5.5): RequestScreenshot(имя, bShowUI,
+	// bAddFilenameSuffix=false) с именем, содержащим разделители пути, пишет файл РОВНО по
+	// этому пути (UnrealClient.cpp:283-288 «default to using the path that is given»);
+	// сохраняет GameViewportClient в конце кадра (FImageUtils::SaveImageByExtension,
+	// GameViewportClient.cpp:2119), а CreateFileWriter при отсутствии папки сам создаёт её
+	// дерево (FileManagerGeneric.cpp:114). Кадр берётся из бекбуфера ОКНА игры
+	// (FSlateApplication::TakeScreenshot при bShowUI) — водяная надпись «Активация Windows»
+	// рисуется композитором рабочего стола ПОВЕРХ окон и в такой снимок не попадает.
+	FString Dir = GetDesktopScreenshotDir();
+	if (Dir.IsEmpty())
+	{
+		// Не Windows или система не отдала путь стола — запасной вариант: штатная папка
+		// снимков проекта (Saved/Screenshots/...), чтобы клавиша работала всегда.
+		Dir = FPaths::ScreenShotDir();
+		FQADebug::QA(this, FString::Printf(
+			TEXT("QA: SCREENSHOT desktop dir unavailable, fallback -> %s"), *Dir), /*bScreen=*/true);
+	}
+	IFileManager::Get().MakeDirectory(*Dir, /*Tree=*/true);
+
+	const FString FilePath = Dir / FString::Printf(TEXT("shot_%s.png"),
+		*FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S")));
+
+	// Отчёт по ФАКТУ записи: движок обрабатывает запрос в конце кадра и бродкастит
+	// OnScreenshotRequestProcessed (GameViewportClient.cpp:2206). Подписка одноразовая
+	// (сама себя снимает); к этому моменту FScreenshotRequest::Reset() уже стёр имя из
+	// запроса, поэтому путь захвачен копией. Плюс: строка «saved» попадает в оверлей уже
+	// СЛЕДУЮЩЕГО кадра и сам снимок не портит.
+	TSharedRef<FDelegateHandle> HandleRef = MakeShared<FDelegateHandle>();
+	*HandleRef = FScreenshotRequest::OnScreenshotRequestProcessed().AddLambda([FilePath, HandleRef]()
+	{
+		const bool bSaved = IFileManager::Get().FileSize(*FilePath) > 0;
+		FQADebug::QA(nullptr, FString::Printf(TEXT("QA: SCREENSHOT %s %s"),
+			bSaved ? TEXT("saved") : TEXT("FAILED"), *FilePath), /*bScreen=*/true);
+		FScreenshotRequest::OnScreenshotRequestProcessed().Remove(*HandleRef);
+	});
+
+	FScreenshotRequest::RequestScreenshot(FilePath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
+	FQADebug::QA(this, FString::Printf(TEXT("QA: SCREENSHOT requested -> %s"), *FilePath));
+}
+
+void AContrarySurvivorPlayerController::OnQAFullStats()
+{
+	// Y: здоровье, голод и жажда игрока на максимум. Именно Set*-функции UStatsComponent
+	// (SetHealth/SetHunger/SetThirst): они клампят значение и бродкастят делегаты
+	// OnHealthChanged/OnHungerChanged/OnThirstChanged — HUD обновляется сам, в отличие от
+	// прямой записи в поля.
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UStatsComponent* Stats = PlayerChar ? PlayerChar->GetStats() : nullptr;
+	if (!Stats)
+	{
+		FQADebug::QA(this, TEXT("QA: FULL STATS skipped - no player stats"), /*bScreen=*/true);
+		return;
+	}
+
+	Stats->SetHealth(Stats->GetMaxHealth());
+	Stats->SetHunger(Stats->GetSurvivalMax());
+	Stats->SetThirst(Stats->GetSurvivalMax());
+	FQADebug::QA(this, TEXT("QA: FULL STATS (hp/hunger/thirst = max)"), /*bScreen=*/true);
+}
+
+void AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies()
+{
+	// U: тумблер «заморозить/разморозить всех врагов» (волки + бандиты; игрок не трогается).
+	// Мозги: state-machine AEnemyAIController гейтится флагом bFreezeEnemies прямо в Tick —
+	// Behavior Tree у наших врагов НЕТ, BrainComponent обычно null (создаёт его только
+	// RunBehaviorTree), поэтому PauseLogic зовём лишь при наличии мозга (задел на будущее).
+	// Ноги: StopMovement (аборт активного MoveToActor) + StopMovementImmediately +
+	// DisableMovement (MOVE_None глушит и path-following, и прямой ход AddMovementInput).
+	// Разморозка: ResumeLogic (если был мозг) + SetMovementMode(MOVE_Walking).
+	// Враг, заспавнившийся ПОСЛЕ заморозки, тоже стоит (глобальный флаг гейтит его Tick),
+	// но его режим движения не трогался — разморозка ставит Walking всем без вреда.
+	FQADebug::bFreezeEnemies = !FQADebug::bFreezeEnemies;
+	const bool bFreeze = FQADebug::bFreezeEnemies;
+
+	int32 Affected = 0;
+	for (const TWeakObjectPtr<AEnemyAIController>& WeakCtrl : AEnemyAIController::GetActiveControllers())
+	{
+		AEnemyAIController* Ctrl = WeakCtrl.Get();
+		ACharacter* EnemyChar = Ctrl ? Cast<ACharacter>(Ctrl->GetPawn()) : nullptr;
+		UCharacterMovementComponent* Move = EnemyChar ? EnemyChar->GetCharacterMovement() : nullptr;
+		if (!Move)
+		{
+			continue;
+		}
+
+		if (UBrainComponent* Brain = Ctrl->GetBrainComponent())
+		{
+			if (bFreeze)
+			{
+				Brain->PauseLogic(TEXT("QA freeze (U)"));
+			}
+			else
+			{
+				Brain->ResumeLogic(TEXT("QA freeze (U)"));
+			}
+		}
+
+		if (bFreeze)
+		{
+			Ctrl->StopMovement();
+			Move->StopMovementImmediately();
+			Move->DisableMovement();
+		}
+		else
+		{
+			Move->SetMovementMode(MOVE_Walking);
+		}
+		++Affected;
+	}
+
+	FQADebug::QA(this, FString::Printf(TEXT("QA: FREEZE %s (enemies: %d)"),
+		bFreeze ? TEXT("on") : TEXT("off"), Affected), /*bScreen=*/true);
+}
+
+// ---------------------------------------------------------------------------
 // QA debug-инструменты (Фаза 5): god-mode / force-drop / spawn-wolf / overlay
 // ---------------------------------------------------------------------------
 
@@ -1801,7 +1964,7 @@ void AContrarySurvivorPlayerController::OnQAForceKillNearest()
 	// N: мгновенно убить БЛИЖАЙШЕГО врага. Враг = любой Pawn с UStatsComponent, не игрок, живой
 	// (тип-агностично — бандит/волк/любой). Урон наносим штатным путём (TakeDamage, как оружие),
 	// поэтому отрабатывают override TakeDamage врага -> Stats->ApplyDamage -> HandleDeath ->
-	// DropLoot (+ квест-счётчик у волка). С активным force-drop (U) дроп гарантирован.
+	// DropLoot (+ квест-счётчик у волка). С активным force-drop (Z) дроп гарантирован.
 	APawn* ControlledPawn = GetPawn();
 	UWorld* World = GetWorld();
 	if (!ControlledPawn || !World)

@@ -32,7 +32,7 @@ void UDialogScreenWidget::NativeOnInitialized()
 	}
 	if (!AcceptButton || !CloseButton)
 	{
-		// Без этих кнопок диалог не пройти мышью/пальцем (остаются QA-клавиши G/H и клавиша E).
+		// Без этих кнопок диалог не пройти мышью/пальцем (остаются QA-клавиши J/H и клавиша E).
 		UE_LOG(LogQA, Warning,
 			TEXT("DialogScreenWidget: не найдены кубики %s%s в WBP_Dialog — часть ответов недоступна"),
 			!AcceptButton ? TEXT("AcceptButton ") : TEXT(""),

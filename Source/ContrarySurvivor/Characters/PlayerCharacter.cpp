@@ -807,7 +807,7 @@ void APlayerCharacter::UpdateFootsteps(float DeltaTime)
 
 float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-    // QA god-mode (клавиша J): игрок неуязвим — весь входящий урон зануляется.
+    // QA god-mode (клавиша T): игрок неуязвим — весь входящий урон зануляется.
     if (FQADebug::bGodMode)
     {
         return 0.0f;

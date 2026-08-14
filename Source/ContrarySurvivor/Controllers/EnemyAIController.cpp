@@ -486,6 +486,15 @@ void AEnemyAIController::Tick(float DeltaTime)
 		return;
 	}
 
+	// QA freeze (клавиша U, дебаг-клавиши Рината 2026-08-14): все враги заморожены.
+	// State-machine не думает — не отдаёт move-приказы и не атакует; движение глушит сам
+	// тумблер (StopMovementImmediately + DisableMovement в обработчике U). Глобальный флаг
+	// гейтит и врагов, заспавнившихся ПОСЛЕ включения заморозки: их Tick тоже молчит.
+	if (FQADebug::bFreezeEnemies)
+	{
+		return;
+	}
+
 	// Мёртвый враг (StatsComponent) ничего не делает.
 	if (OwnStats && OwnStats->IsDead())
 	{

@@ -382,7 +382,7 @@ void UStatsComponent::StopSurvivalTimers()
 
 void UStatsComponent::TickThirstDrain()
 {
-	// QA god-mode (клавиша J): убыль голода/жажды заморожена (только у игрока есть деградация).
+	// QA god-mode (клавиша T): убыль голода/жажды заморожена (только у игрока есть деградация).
 	if (bIsDead || FQADebug::bGodMode)
 	{
 		return;
@@ -421,7 +421,7 @@ void UStatsComponent::TickHungerHealthDrain()
 {
 	// При критическом голоде HP падает. Суммирование с жаждой — за счёт двух
 	// независимых таймеров, каждый снимает HP отдельно (GDD §7.3).
-	// God-mode (J) замораживает и критический урон от голода.
+	// God-mode (T) замораживает и критический урон от голода.
 	// На обучении урон истощения приглушён (ADR-063: шкалы убывают, HP цел).
 	if (!bIsDead && !FQADebug::bGodMode && Hunger <= CriticalThreshold
 		&& !IsStarvationDamageSuppressed())

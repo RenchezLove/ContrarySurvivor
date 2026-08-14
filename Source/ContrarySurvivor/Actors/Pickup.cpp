@@ -410,7 +410,7 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 		return nullptr;
 	}
 
-	// QA force-drop (клавиша U): все враги роняют предмет со 100% шансом — для проверки
+	// QA force-drop (клавиша Z): все враги роняют предмет со 100% шансом — для проверки
 	// цепочки предмет->пикап->рюкзак. Влияет только на шанс предмета, не на деньги.
 	if (FQADebug::bForceDrop)
 	{

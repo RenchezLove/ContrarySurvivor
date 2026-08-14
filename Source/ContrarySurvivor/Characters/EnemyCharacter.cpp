@@ -7,7 +7,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // #26: счётчик киллов игрока
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
-#include "ContrarySurvivor/Debug/QADebug.h" // force-drop (U) + QA-лог дропа
+#include "ContrarySurvivor/Debug/QADebug.h" // force-drop (Z) + QA-лог дропа
 #include "AConsumableItem.h"
 #include "APistol.h" // D1/D6: пистолет в руке бандита (дефолт SidearmWeaponClass)
 #include "Components/CapsuleComponent.h"
@@ -270,7 +270,7 @@ void AEnemyCharacter::DropLoot()
 
 	// Шанс расходников бросаем ЗДЕСЬ, а не в APickup::DropLoot: при удаче падает 1-2 предмета
 	// из LootTable (Ринат 07-17), а статический хелпер несёт максимум один предмет.
-	// QA force-drop (клавиша U) поднимает шанс до 100% — как в APickup::DropLoot.
+	// QA force-drop (клавиша Z) поднимает шанс до 100% — как в APickup::DropLoot.
 	const float EffectiveChance = FQADebug::bForceDrop ? 1.0f : LootItemDropChance;
 	const float Roll = FMath::FRand();
 	const bool bChanceHit = (LootTable.Num() > 0) && (Roll <= EffectiveChance);

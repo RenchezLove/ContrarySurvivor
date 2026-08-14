@@ -6,6 +6,7 @@
 // --- Определения статических членов ---
 bool FQADebug::bGodMode = false;
 bool FQADebug::bForceDrop = false;
+bool FQADebug::bFreezeEnemies = false;
 bool FQADebug::bOverlayVisible = false;
 int32 FQADebug::MaxMessages = 8;
 TArray<FString> FQADebug::Messages;
