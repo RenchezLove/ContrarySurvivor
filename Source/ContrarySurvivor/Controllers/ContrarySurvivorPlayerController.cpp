@@ -1751,16 +1751,27 @@ void AContrarySurvivorPlayerController::OnQAScreenshot()
 	// Одноразовая подписка (снимает себя сама). Путь захвачен копией: к моменту вызова
 	// FScreenshotRequest::Reset() уже стёр имя из запроса. Строка «saved» уходит в оверлей
 	// уже СЛЕДУЮЩЕГО кадра и в снимок не попадает.
+	//
+	// ⚠ Remove() из тела лямбды УНИЧТОЖАЕТ саму лямбду вместе с захватами прямо во время
+	// вызова (MulticastDelegateBase.h:309 → DelegateBase.Unbind() → ~IDelegateInstance):
+	// после него FilePath/WeakViewport — висячие ссылки. Баг 15.08: путь превращался в мусор
+	// и снимок ложился как «<мусор>.png» в рабочую папку движка (Engine/Binaries/Win64).
+	// Поэтому СНАЧАЛА копируем захваты в локальные переменные, ПОТОМ отписываемся и дальше
+	// работаем только с локальными копиями.
 	TSharedRef<FDelegateHandle> HandleRef = MakeShared<FDelegateHandle>();
 	*HandleRef = UGameViewportClient::OnScreenshotCaptured().AddLambda(
 		[FilePath, HandleRef, WeakViewport](int32 WindowW, int32 WindowH, const TArray<FColor>& WindowColors)
 	{
-		UGameViewportClient::OnScreenshotCaptured().Remove(*HandleRef);
+		const FString LocalFilePath = FilePath;
+		const TWeakObjectPtr<UGameViewportClient> LocalWeakViewport = WeakViewport;
+		const FDelegateHandle LocalHandle = *HandleRef;
+		UGameViewportClient::OnScreenshotCaptured().Remove(LocalHandle);
+		// Ниже захваты лямбды (FilePath, HandleRef, WeakViewport) трогать НЕЛЬЗЯ — они уже уничтожены.
 
 		TArray<FColor> Pixels;
 		FIntVector Size(0, 0, 0);
 		bool bViewportOnly = false;
-		TSharedPtr<SViewport> ViewportWidget = WeakViewport.IsValid() ? WeakViewport->GetGameViewportWidget() : nullptr;
+		TSharedPtr<SViewport> ViewportWidget = LocalWeakViewport.IsValid() ? LocalWeakViewport->GetGameViewportWidget() : nullptr;
 		if (ViewportWidget.IsValid() && FSlateApplication::IsInitialized())
 		{
 			bViewportOnly = FSlateApplication::Get().TakeScreenshot(ViewportWidget.ToSharedRef(), Pixels, Size);
@@ -1777,9 +1788,9 @@ void AContrarySurvivorPlayerController::OnQAScreenshot()
 		}
 
 		const bool bSaved = Size.X > 0 && Size.Y > 0 && Pixels.Num() >= Size.X * Size.Y
-			&& FImageUtils::SaveImageByExtension(*FilePath, FImageView(Pixels.GetData(), Size.X, Size.Y));
+			&& FImageUtils::SaveImageByExtension(*LocalFilePath, FImageView(Pixels.GetData(), Size.X, Size.Y));
 		FQADebug::QA(nullptr, FString::Printf(TEXT("QA: SCREENSHOT %s %s (%dx%d, %s)"),
-			bSaved ? TEXT("saved") : TEXT("FAILED"), *FilePath, Size.X, Size.Y,
+			bSaved ? TEXT("saved") : TEXT("FAILED"), *LocalFilePath, Size.X, Size.Y,
 			bViewportOnly ? TEXT("viewport only") : TEXT("whole window fallback")), /*bScreen=*/true);
 	});
 
