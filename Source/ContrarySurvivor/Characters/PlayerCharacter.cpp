@@ -2326,38 +2326,6 @@ void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag
         ContextTag, *NearestCampfire->GetName(), FMath::Sqrt(BestDistSq), RespawnNearCampfireRadius);
 }
 
-void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-    Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-#if CONTRARY_WITH_QA_CHEATS
-    if (PlayerInputComponent)
-    {
-        // Build 1.2.1 (ТЗ В2): F — «реклама доступна сейчас». Легаси-маппинг QAUnlockAds=F
-        // в Config/DefaultInput.ini; работает в игровом режиме ввода (жать ДО смерти/магазина).
-        // ОТЛАДОЧНАЯ клавиша: в публикационной сборке привязка не компилируется (Б5).
-        PlayerInputComponent->BindAction(TEXT("QAUnlockAds"), IE_Pressed,
-            this, &APlayerCharacter::OnQAUnlockAds);
-    }
-#endif
-}
-
-#if CONTRARY_WITH_QA_CHEATS
-void APlayerCharacter::OnQAUnlockAds()
-{
-    const float Before = GetTotalPlayTimeSeconds();
-    const float Deficit = AdMinPlaytimeSeconds - Before;
-    if (Deficit > 0.0f)
-    {
-        UnflushedPlayTime += Deficit; // добить накопитель ровно до порога
-    }
-    FlushPlayTime(); // немедленно в сейв, не ждать 60-секундный таймер
-    UE_LOG(LogQA, Display,
-        TEXT("QA: AD UNLOCK (key F) - playtime %.0f -> %.0f s (threshold %.0f), written to save"),
-        Before, GetTotalPlayTimeSeconds(), AdMinPlaytimeSeconds);
-}
-#endif // CONTRARY_WITH_QA_CHEATS
-
 void APlayerCharacter::FlushPlayTime()
 {
     if (UnflushedPlayTime <= 0.0f)

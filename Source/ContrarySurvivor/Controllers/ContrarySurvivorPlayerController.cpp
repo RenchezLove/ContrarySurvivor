@@ -40,7 +40,13 @@
 #include "BrainComponent.h"    // QA freeze (U): PauseLogic/ResumeLogic (на случай BT-врагов; у наших мозг — state-machine)
 #include "UnrealClient.h"      // QA screenshot (G): FScreenshotRequest
 #include "HAL/FileManager.h"   // QA screenshot (G): создание папки, проверка записи файла
+#include "HAL/IConsoleManager.h" // QA Preview-тумблер (Period): cvar ShowFlag.PreviewShadowsIndicator
 #include "Misc/Paths.h"        // QA screenshot (G): запасная папка снимков
+#include "Framework/Application/SlateApplication.h" // QA screenshot (G): снимок только вьюпорта (FSlateApplication::TakeScreenshot)
+#include "Widgets/SViewport.h"                     // QA screenshot (G): виджет игровой области
+#include "Engine/GameViewportClient.h"             // QA screenshot (G): OnScreenshotCaptured, GetGameViewportWidget
+#include "ImageUtils.h"                            // QA screenshot (G): запись PNG
+#include "ContrarySurvivor/Debug/ContraryDebugCamera.h" // F1: наш cheat-manager с тихой свободной камерой
 #if CONTRARY_WITH_QA_CHEATS && PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <ShlObj.h>            // QA screenshot (G): SHGetKnownFolderPath(FOLDERID_Desktop)
@@ -71,6 +77,11 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	CurrentTarget = nullptr;
+
+	// Свободная камера F1 — наш тихий класс (без надписей/линий/смены вьюмода): движок берёт
+	// класс камеры из UCheatManager::DebugCameraControllerClass, поэтому подменяем cheat-manager.
+	// В Shipping cheat-manager движком не создаётся вовсе (UE_WITH_CHEAT_MANAGER), клавиши F1 нет.
+	CheatClass = UContraryCheatManager::StaticClass();
 
 	// Дефолтная раскладка тач-кнопок (этап G, шаг 2): веер правого-нижнего угла под большой
 	// палец — ОГОНЬ в углу крупный, ДЕЙСТВИЕ левее, ПЕРЕЗАРЯД выше, БЕГ по диагонали,
@@ -271,53 +282,25 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// делают ничего, и удалять их незачем (в разработке они нужны).
 		// ==================================================================
 #if CONTRARY_WITH_QA_CHEATS
-		// QA-харнесс (Фаза 4 раунд 2): тест-действия F1-F4 + K (деньги; перевешено с F5 из-за
-		// вьюмода Shader Complexity, затем с M — дебаг-клавиши Рината 2026-08-14) + M (телепорт
-		// к торговцу; раньше T, T занял god-mode). Legacy ActionMapping,
-		// Config/DefaultInput.ini. Дают автотестеру (Computer Use) проверять без `~`-консоли.
+		// 2026-08-15 (Ринат): оставлен только набор для съёмки. Обработчики F2/F3/F4/F6/F7/F9/F10/F12,
+		// C/X/Z/M/V/J/H/B/N/P/O и запятой удалены вместе с привязками (были: тест-предметы, броня,
+		// телепорты, магазин, квесты, force-drop, спавн волка, оверлей, force-kill, убить игрока,
+		// стереть сейв). Legacy ActionMapping — Config/DefaultInput.ini.
+		// F1 — свободная камера (класс — наш AContraryDebugCameraController через UContraryCheatManager).
 		InputComponent->BindAction(TEXT("QAToggleDebugCam"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleDebugCamera);
-		InputComponent->BindAction(TEXT("QAGiveItems"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveItems);
-		InputComponent->BindAction(TEXT("QAEquipArmor"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestEquipArmor);
-		InputComponent->BindAction(TEXT("QAUnequipArmor"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestUnequipArmor);
+		// K — +TestMoneyGrant денег (K, а не F5: F5 в PIE — вьюмод Shader Complexity).
 		InputComponent->BindAction(TEXT("QAGiveMoney"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnTestGiveMoney);
-			// Тест-телепорт к торговцу (клавиша M) — обход блокировки волками для проверки купли/продажи.
-			InputComponent->BindAction(TEXT("QATeleportToTrader"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToTrader);
-
-		// QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами (тестер не кликает HUD в PIE).
-		InputComponent->BindAction(TEXT("QAUseConsumable"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAUseFirstConsumable);
-		InputComponent->BindAction(TEXT("QADropItem"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQADropFirstItem);
-		InputComponent->BindAction(TEXT("QABuyCheapest"),   IE_Pressed, this, &AContrarySurvivorPlayerController::OnQABuyCheapest);
-		InputComponent->BindAction(TEXT("QASellFirst"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASellFirstItem);
-		InputComponent->BindAction(TEXT("QAClearSave"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAClearSave);
-
-		// QA-харнесс (Фаза 5): квесты/диалог на буквенных клавишах (V/J/H/запятая), legacy ActionMapping.
-		InputComponent->BindAction(TEXT("QATeleportToElder"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATeleportToElder);
-		InputComponent->BindAction(TEXT("QAAcceptQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAAcceptQuest);
-		InputComponent->BindAction(TEXT("QATurnInQuest"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATurnInQuest);
-		InputComponent->BindAction(TEXT("QACreditWolfKill"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQACreditWolfKill);
-
-			// QA-харнесс (Фаза 5, демка-квесты): C — выдать игроку 5 «Шкур волка» (тест сдачи кв.1);
-			// X — выдать «Ноутбук» (тест сдачи кв.2). Сборщик не может фармить лут вручную.
-			InputComponent->BindAction(TEXT("QAGiveWolfHides"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveWolfHides);
-			InputComponent->BindAction(TEXT("QAGiveNotebook"),  IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAGiveNotebook);
-
-		// QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay (T/Z/B/O), legacy ActionMapping.
+		// T — god-mode (неуязвимость + заморозка голода/жажды).
 		InputComponent->BindAction(TEXT("QAGodMode"),      IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleGodMode);
-		InputComponent->BindAction(TEXT("QAForceDrop"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleForceDrop);
-		InputComponent->BindAction(TEXT("QASpawnWolf"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQASpawnTestWolf);
-		InputComponent->BindAction(TEXT("QAToggleOverlay"),IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleOverlay);
 
-		// QA debug-инструмент (Фаза 5, доп.): N — force-kill ближайшего врага.
-		InputComponent->BindAction(TEXT("QAForceKill"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAForceKillNearest);
-
-		// P (QA, #26): мгновенно убить игрока для теста экрана смерти.
-		InputComponent->BindAction(TEXT("QAKillPlayer"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAKillPlayer);
-
-		// Дебаг-клавиши Рината (2026-08-14): G — скриншот на рабочий стол; Y — статы 100%;
+		// Дебаг-клавиши Рината (2026-08-14): G — снимок игровой области на рабочий стол; Y — статы 100%;
 		// U — тумблер заморозки всех врагов.
 		InputComponent->BindAction(TEXT("QAScreenshot"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAScreenshot);
 		InputComponent->BindAction(TEXT("QAFullStats"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAFullStats);
 		InputComponent->BindAction(TEXT("QAFreezeEnemies"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies);
+
+		// Period (2026-08-15): тумблер надписей «Preview» в тенях непостроенного света (для съёмки).
+		InputComponent->BindAction(TEXT("QATogglePreviewShadows"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATogglePreviewShadows);
 #endif // CONTRARY_WITH_QA_CHEATS
 
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
@@ -1701,30 +1684,6 @@ void AContrarySurvivorPlayerController::OnShopQtyInc()
 // ===========================================================================
 #if CONTRARY_WITH_QA_CHEATS
 
-void AContrarySurvivorPlayerController::OnQAKillPlayer()
-{
-	// P: мгновенно убить игрока штатным летальным уроном -> сработает экран смерти.
-	if (FQADebug::bGodMode)
-	{
-		FQADebug::QA(this, TEXT("QA: QAKillPlayer skipped - god mode on"), /*bScreen=*/true);
-		return;
-	}
-
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar)
-	{
-		FQADebug::QA(this, TEXT("QA: QAKillPlayer skipped - no player pawn"), /*bScreen=*/true);
-		return;
-	}
-
-	// Летальный урон штатным путём (как враг/оружие). DamageCauser = сам игрок, чтобы не
-	// перетереть «от кого погиб» (в TakeDamage само-урон игнорируется для LastDamagerName).
-	FDamageEvent DamageEvent;
-	PlayerChar->TakeDamage(1000000.0f, DamageEvent, this, PlayerChar);
-
-	FQADebug::QA(this, TEXT("QA: QAKillPlayer"), /*bScreen=*/true);
-}
-
 // ---------------------------------------------------------------------------
 // Дебаг-клавиши Рината (2026-08-14): G — скриншот, Y — статы 100%, U — заморозка врагов
 // ---------------------------------------------------------------------------
@@ -1757,20 +1716,21 @@ namespace
 
 void AContrarySurvivorPlayerController::OnQAScreenshot()
 {
-	// G: снимок кадра игры (вьюпорт + интерфейс) в папку на рабочем столе.
-	// Механика движка (сверено по исходникам UE 5.5): RequestScreenshot(имя, bShowUI,
-	// bAddFilenameSuffix=false) с именем, содержащим разделители пути, пишет файл РОВНО по
-	// этому пути (UnrealClient.cpp:283-288 «default to using the path that is given»);
-	// сохраняет GameViewportClient в конце кадра (FImageUtils::SaveImageByExtension,
-	// GameViewportClient.cpp:2119), а CreateFileWriter при отсутствии папки сам создаёт её
-	// дерево (FileManagerGeneric.cpp:114). Кадр берётся из бекбуфера ОКНА игры
-	// (FSlateApplication::TakeScreenshot при bShowUI) — водяная надпись «Активация Windows»
-	// рисуется композитором рабочего стола ПОВЕРХ окон и в такой снимок не попадает.
+	// G: снимок ИГРОВОЙ ОБЛАСТИ (вьюпорт + интерфейс) в папку на рабочем столе.
+	//
+	// Почему не просто RequestScreenshot(bShowUI=true): движок при bShowUI снимает ВСЁ ОКНО
+	// (GameViewportClient.cpp:2160 — FSlateApplication::TakeScreenshot(WindowRef)), и в PIE
+	// это окно редактора целиком (жалоба Рината 15.08). Поэтому: запрос оставляем (он даёт
+	// правильный момент — конец кадра, после отрисовки), но подписываемся одноразово на
+	// UGameViewportClient::OnScreenshotCaptured — при подписчике движок НЕ пишет файл сам,
+	// а отдаёт картинку окна нам (GameViewportClient.cpp:2180, r.ScreenshotDelegate=1 по
+	// умолчанию). Мы её игнорируем и в тот же момент снимаем ТОЛЬКО виджет вьюпорта
+	// (перегрузка TakeScreenshot(Widget): SlateApplication.cpp:4217 сама считает прямоугольник
+	// виджета внутри окна) — в него входят и мир, и UMG-интерфейс. Пишем PNG сами
+	// (FImageUtils::SaveImageByExtension). Если виджета нет (не должно) — падаем на кадр окна.
 	FString Dir = GetDesktopScreenshotDir();
 	if (Dir.IsEmpty())
 	{
-		// Не Windows или система не отдала путь стола — запасной вариант: штатная папка
-		// снимков проекта (Saved/Screenshots/...), чтобы клавиша работала всегда.
 		Dir = FPaths::ScreenShotDir();
 		FQADebug::QA(this, FString::Printf(
 			TEXT("QA: SCREENSHOT desktop dir unavailable, fallback -> %s"), *Dir), /*bScreen=*/true);
@@ -1780,18 +1740,47 @@ void AContrarySurvivorPlayerController::OnQAScreenshot()
 	const FString FilePath = Dir / FString::Printf(TEXT("shot_%s.png"),
 		*FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S")));
 
-	// Отчёт по ФАКТУ записи: движок обрабатывает запрос в конце кадра и бродкастит
-	// OnScreenshotRequestProcessed (GameViewportClient.cpp:2206). Подписка одноразовая
-	// (сама себя снимает); к этому моменту FScreenshotRequest::Reset() уже стёр имя из
-	// запроса, поэтому путь захвачен копией. Плюс: строка «saved» попадает в оверлей уже
-	// СЛЕДУЮЩЕГО кадра и сам снимок не портит.
-	TSharedRef<FDelegateHandle> HandleRef = MakeShared<FDelegateHandle>();
-	*HandleRef = FScreenshotRequest::OnScreenshotRequestProcessed().AddLambda([FilePath, HandleRef]()
+	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+	if (!ViewportClient)
 	{
-		const bool bSaved = IFileManager::Get().FileSize(*FilePath) > 0;
-		FQADebug::QA(nullptr, FString::Printf(TEXT("QA: SCREENSHOT %s %s"),
-			bSaved ? TEXT("saved") : TEXT("FAILED"), *FilePath), /*bScreen=*/true);
-		FScreenshotRequest::OnScreenshotRequestProcessed().Remove(*HandleRef);
+		FQADebug::QA(this, TEXT("QA: SCREENSHOT skipped - no game viewport"), /*bScreen=*/true);
+		return;
+	}
+	TWeakObjectPtr<UGameViewportClient> WeakViewport(ViewportClient);
+
+	// Одноразовая подписка (снимает себя сама). Путь захвачен копией: к моменту вызова
+	// FScreenshotRequest::Reset() уже стёр имя из запроса. Строка «saved» уходит в оверлей
+	// уже СЛЕДУЮЩЕГО кадра и в снимок не попадает.
+	TSharedRef<FDelegateHandle> HandleRef = MakeShared<FDelegateHandle>();
+	*HandleRef = UGameViewportClient::OnScreenshotCaptured().AddLambda(
+		[FilePath, HandleRef, WeakViewport](int32 WindowW, int32 WindowH, const TArray<FColor>& WindowColors)
+	{
+		UGameViewportClient::OnScreenshotCaptured().Remove(*HandleRef);
+
+		TArray<FColor> Pixels;
+		FIntVector Size(0, 0, 0);
+		bool bViewportOnly = false;
+		TSharedPtr<SViewport> ViewportWidget = WeakViewport.IsValid() ? WeakViewport->GetGameViewportWidget() : nullptr;
+		if (ViewportWidget.IsValid() && FSlateApplication::IsInitialized())
+		{
+			bViewportOnly = FSlateApplication::Get().TakeScreenshot(ViewportWidget.ToSharedRef(), Pixels, Size);
+		}
+		if (!bViewportOnly)
+		{
+			// Запасной путь — кадр всего окна, как отдал движок.
+			Pixels = WindowColors;
+			Size = FIntVector(WindowW, WindowH, 0);
+		}
+		for (FColor& Px : Pixels)
+		{
+			Px.A = 255; // без прозрачности (движок делает так же перед записью)
+		}
+
+		const bool bSaved = Size.X > 0 && Size.Y > 0 && Pixels.Num() >= Size.X * Size.Y
+			&& FImageUtils::SaveImageByExtension(*FilePath, FImageView(Pixels.GetData(), Size.X, Size.Y));
+		FQADebug::QA(nullptr, FString::Printf(TEXT("QA: SCREENSHOT %s %s (%dx%d, %s)"),
+			bSaved ? TEXT("saved") : TEXT("FAILED"), *FilePath, Size.X, Size.Y,
+			bViewportOnly ? TEXT("viewport only") : TEXT("whole window fallback")), /*bScreen=*/true);
 	});
 
 	FScreenshotRequest::RequestScreenshot(FilePath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
@@ -1872,14 +1861,43 @@ void AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies()
 		bFreeze ? TEXT("on") : TEXT("off"), Affected), /*bScreen=*/true);
 }
 
+void AContrarySurvivorPlayerController::OnQATogglePreviewShadows()
+{
+	// Period: тумблер надписей «Preview» в тенях непостроенного света (для съёмки скриншотов).
+	// Откуда надписи (сверено по исходникам UE 5.5): DirectionalLight уровня — Stationary, а
+	// запечённого света в проекте нет (ни одного *_BuiltData), поэтому рендерер проецирует
+	// служебный материал PreviewShadowIndicatorMaterial на тени (LightRendering.cpp:1653:
+	// ShowFlags.PreviewShadowsIndicator && !IsPrecomputedLightingValid && HasStaticShadowing).
+	// Гасим штатной консольной переменной ShowFlag.PreviewShadowsIndicator
+	// (SystemSettings.cpp:136: 0 — принудительно скрыть, 1 — принудительно показать,
+	// 2 — не вмешиваться, умолчание). Применяется КАЖДЫЙ кадр: GameViewportClient.cpp:1463 →
+	// EngineShowFlagOverride → маски Force0/Force1 из GSystemSettings (ShowFlags.cpp:689),
+	// поэтому работает на лету и в PIE, и в отдельно запущенной игре. В Shipping сам флаг
+	// вшит в ноль (ShowFlagsValues.inl:323) — там ни надписей, ни этой клавиши нет.
+	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("ShowFlag.PreviewShadowsIndicator"));
+	if (!CVar)
+	{
+		FQADebug::QA(this, TEXT("QA: PREVIEW LABELS cvar not found - skipped"), /*bScreen=*/true);
+		return;
+	}
+
+	const bool bCurrentlyForcedOff = (CVar->GetInt() == 0);
+	// Скрыто (0) -> вернуть умолчание движка (2); любое другое состояние -> скрыть (0).
+	CVar->Set(bCurrentlyForcedOff ? 2 : 0, ECVF_SetByConsole);
+	FQADebug::QA(this, FString::Printf(TEXT("QA: PREVIEW LABELS %s"),
+		bCurrentlyForcedOff ? TEXT("restored (engine default)") : TEXT("hidden")), /*bScreen=*/true);
+}
+
 // ---------------------------------------------------------------------------
-// QA debug-инструменты (Фаза 5): god-mode / force-drop / spawn-wolf / overlay
+// T — god-mode (Фаза 5). Force-drop/spawn-wolf/overlay/force-kill/kill-player и весь
+// QA-харнесс предметов, магазина и квестов УБРАНЫ 2026-08-15 по слову Рината (мешали съёмке).
 // ---------------------------------------------------------------------------
 
 void AContrarySurvivorPlayerController::OnQAToggleGodMode()
 {
-	// J: тумблер неуязвимости + заморозки деградации голода/жажды. Включаем оверлей вместе
-	// с god-mode, чтобы тестер сразу видел статус на экране.
+	// T: тумблер неуязвимости + заморозки деградации голода/жажды. Экранную панель отладки
+	// НЕ включает (2026-08-15: клавиши O для её выключения больше нет, а на кадрах для
+	// магазина панель не нужна).
 	//
 	// ЗАДАЧА 4 (отчёт QA «GODMODE сам выключился сразу после включения»): дебаунс против
 	// двойного IE_Pressed (повтор клавиши от Computer Use / дребезг). Повторный тоггл в
@@ -1894,180 +1912,24 @@ void AContrarySurvivorPlayerController::OnQAToggleGodMode()
 	LastGodModeToggleTime = Now;
 
 	FQADebug::bGodMode = !FQADebug::bGodMode;
-	if (FQADebug::bGodMode)
-	{
-		FQADebug::bOverlayVisible = true;
-	}
 	FQADebug::QA(this, FString::Printf(TEXT("QA: GODMODE %s"), FQADebug::bGodMode ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
 }
 
-void AContrarySurvivorPlayerController::OnQAToggleForceDrop()
-{
-	// U: тумблер 100%-дропа со всех врагов.
-	FQADebug::bForceDrop = !FQADebug::bForceDrop;
-	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEDROP %s"), FQADebug::bForceDrop ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
-}
-
-void AContrarySurvivorPlayerController::OnQASpawnTestWolf()
-{
-	// B: заспавнить одного тест-волка чуть впереди игрока (быстро убить и проверить лут).
-	APawn* ControlledPawn = GetPawn();
-	UWorld* World = GetWorld();
-	if (!ControlledPawn || !World)
-	{
-		FQADebug::QA(this, TEXT("QA: spawn test wolf skipped - no pawn/world"), /*bScreen=*/true);
-		return;
-	}
-
-	// Точка ВПЛОТНУЮ перед игроком (300 ед.), чтобы волк сразу агрился/локался и был
-	// достижим (kill->drop->подбор в одной точке). Высоту берём НА ПОЛУ трассой (как
-	// спавн-сабсистемы, ZOffset=90 = центр капсулы над полом), а не фикс. +90 от Z игрока —
-	// иначе волк висел/проваливался и оказывался «далеко» (баг QA: dist ~21907).
-	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-	const FVector AheadXY = PawnLoc + ControlledPawn->GetActorForwardVector() * 300.0f;
-	const float SpawnZ = SpawnPlacement::ResolveSpawnZ(
-		World, AheadXY.X, AheadXY.Y, /*ZOffset=*/90.0f, TEXT("QATestWolf"), ControlledPawn);
-	const FVector SpawnLoc(AheadXY.X, AheadXY.Y, SpawnZ);
-	const FRotator SpawnRot = (PawnLoc - SpawnLoc).Rotation();
-
-	// БАГ QA (dist 2352 вместо ~300): XY вычислялась верно (PawnLoc + Forward*300, по логу
-	// SpawnLoc=(-1043,285,90) на полу, ~300 от игрока), но СПАВН-релокация уносила волка далеко.
-	// AdjustIfPossibleButAlwaysSpawn при пересечении капсулы со статикой (в той XY floortrace
-	// видел 45 хитов) синхронно зовёт FindTeleportSpot, который сдвигает актора на свободное
-	// место — здесь на 2352 ед. (поэтому замер dist сразу после SpawnActor уже «далеко»).
-	// В отличие от спавна у Логова, B НЕ проецирует точку на навмеш, поэтому свободного места
-	// рядом нет. Для QA-инструмента нужна ДЕТЕРМИНИРОВАННАЯ точка ровно перед игроком, а не
-	// «правильная» проходимость — ставим AlwaysSpawn (без релокации): волк появляется точно в
-	// SpawnLoc (≤300 + Z90), сразу попадает в радиус авто-лока (3000) и агрится. Капсула волка
-	// (hh=40) при ZOffset=90 висит ~50 над полом и оседает гравитацией — XY при этом не меняется.
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	AWolfCharacter* Wolf = World->SpawnActor<AWolfCharacter>(
-		AWolfCharacter::StaticClass(), SpawnLoc, FRotator(0.0f, SpawnRot.Yaw, 0.0f), SpawnParams);
-
-	const float SpawnedDist = Wolf ? FVector::Dist(PawnLoc, Wolf->GetActorLocation()) : -1.0f;
-	FQADebug::QA(this, Wolf
-		? FString::Printf(TEXT("QA: spawned test wolf %s at dist %.0f"), *Wolf->GetName(), SpawnedDist)
-		: TEXT("QA: spawned test wolf FAILED"), /*bScreen=*/true);
-}
-
-void AContrarySurvivorPlayerController::OnQAToggleOverlay()
-{
-	// O: тумблер видимости экранного QA-оверлея.
-	FQADebug::bOverlayVisible = !FQADebug::bOverlayVisible;
-	FQADebug::QA(this, FString::Printf(TEXT("QA: overlay %s"), FQADebug::bOverlayVisible ? TEXT("on") : TEXT("off")), /*bScreen=*/true);
-}
-
-void AContrarySurvivorPlayerController::OnQAForceKillNearest()
-{
-	// N: мгновенно убить БЛИЖАЙШЕГО врага. Враг = любой Pawn с UStatsComponent, не игрок, живой
-	// (тип-агностично — бандит/волк/любой). Урон наносим штатным путём (TakeDamage, как оружие),
-	// поэтому отрабатывают override TakeDamage врага -> Stats->ApplyDamage -> HandleDeath ->
-	// DropLoot (+ квест-счётчик у волка). С активным force-drop (Z) дроп гарантирован.
-	APawn* ControlledPawn = GetPawn();
-	UWorld* World = GetWorld();
-	if (!ControlledPawn || !World)
-	{
-		FQADebug::QA(this, TEXT("QA: FORCEKILL skipped - no pawn/world"), /*bScreen=*/true);
-		return;
-	}
-
-	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-
-	// Выбор цели:
-	// 1) ПРИОРИТЕТ — текущая залоченная цель (CurrentTarget: авто-лок или ручной лок),
-	//    т.е. то, на что игрок реально наведён. Это и есть «ближайший в радиусе авто-лока».
-	// 2) Иначе — РЕАЛЬНО ближайший живой враг по МИНИМУМУ дистанции (тип-агностично).
-	//    Раньше N брал просто ближайшего без учёта лока; теперь N детерминированно
-	//    добивает залоченную цель (баг QA: добивал дальнего, т.к. лок игнорировался).
-	AActor* Target = nullptr;
-	if (IsValidTarget(CurrentTarget))
-	{
-		Target = CurrentTarget;
-	}
-	else
-	{
-		float BestDistSq = TNumericLimits<float>::Max();
-		for (TActorIterator<APawn> It(World); It; ++It)
-		{
-			APawn* Candidate = *It;
-			if (!IsValid(Candidate) || Candidate == ControlledPawn)
-			{
-				continue;
-			}
-			UStatsComponent* CandStats = Candidate->FindComponentByClass<UStatsComponent>();
-			if (!CandStats || CandStats->IsDead())
-			{
-				continue;
-			}
-			const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
-			if (DistSq < BestDistSq)
-			{
-				BestDistSq = DistSq;
-				Target = Candidate;
-			}
-		}
-	}
-
-	if (!IsValid(Target))
-	{
-		FQADebug::QA(this, TEXT("QA: FORCEKILL skipped - no living enemy"), /*bScreen=*/true);
-		return;
-	}
-
-	const FString EnemyName = Target->GetName();
-	const float Dist = FVector::Dist(PawnLoc, Target->GetActorLocation());
-	const bool bWasLocked = (Target == CurrentTarget);
-
-	// Летальный урон через штатный TakeDamage (как ARangedWeapon: FDamageEvent + инстигатор).
-	// Большое число гарантирует смерть даже после брони (ArmorReductionCap всегда пропускает часть).
-	FDamageEvent DamageEvent;
-	Target->TakeDamage(1000000.0f, DamageEvent, this, ControlledPawn);
-
-	FQADebug::QA(this, FString::Printf(TEXT("QA: FORCEKILL %s (dist %.0f, %s)"),
-		*EnemyName, Dist, bWasLocked ? TEXT("locked") : TEXT("nearest")), /*bScreen=*/true);
-}
-
 // ---------------------------------------------------------------------------
-// QA-харнесс: тест-действия (F1-F4, M = деньги, T = телепорт к торговцу)
+// F1 — свободная камера, K — деньги
 // ---------------------------------------------------------------------------
 
 void AContrarySurvivorPlayerController::OnToggleDebugCamera()
 {
-	// F1: переключение свободной debug-камеры. Console-exec "ToggleDebugCamera" роутится в
-	// UCheatManager::ToggleDebugCamera (ENGINE_API, UE 5.5) — отвязывает камеру от игрока для
-	// свободного облёта (рассмотреть меш/броню/волка/NPC сверху и вблизи), повторно — назад.
-	// ConsoleCommand надёжнее прямого вызова: сам найдёт/создаст обработчик cheat-команды.
+	// F1: переключение свободной камеры. Console-exec "ToggleDebugCamera" роутится в
+	// UCheatManager::ToggleDebugCamera (ENGINE_API, UE 5.5): отвязывает камеру от игрока для
+	// свободного облёта. Класс камеры задаёт наш UContraryCheatManager (CheatClass в
+	// конструкторе) — AContraryDebugCameraController: без надписей/линий на экране, без
+	// смены вьюмода (V), без буферов (B/Enter) и заморозки рендера (F); F1 внутри камеры —
+	// возврат к игроку (сам движок клавиши выхода не даёт: ввод нашего контроллера при
+	// активной debug-камере не обрабатывается, см. Debug/ContraryDebugCamera.h).
 	ConsoleCommand(TEXT("ToggleDebugCamera"), /*bWriteToLog=*/true);
 	UE_LOG(LogQA, Display, TEXT("QA: F1 ToggleDebugCamera"));
-}
-
-void AContrarySurvivorPlayerController::OnTestGiveItems()
-{
-	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
-	{
-		PlayerChar->GiveTestItems();
-		UE_LOG(LogQA, Display, TEXT("QA: F2 GiveTestItems"));
-	}
-}
-
-void AContrarySurvivorPlayerController::OnTestEquipArmor()
-{
-	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
-	{
-		PlayerChar->EquipTestArmor();
-		UE_LOG(LogQA, Display, TEXT("QA: F3 EquipTestArmor (test set, default T3)"));
-	}
-}
-
-void AContrarySurvivorPlayerController::OnTestUnequipArmor()
-{
-	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
-	{
-		PlayerChar->UnequipTestArmor();
-		UE_LOG(LogQA, Display, TEXT("QA: F4 UnequipTestArmor"));
-	}
 }
 
 void AContrarySurvivorPlayerController::OnTestGiveMoney()
@@ -2083,396 +1945,6 @@ void AContrarySurvivorPlayerController::OnTestGiveMoney()
 	}
 }
 
-void AContrarySurvivorPlayerController::OnQATeleportToTrader()
-{
-	// T: телепортировать игрока вплотную к ближайшему торговцу. «Сборщик» не может подвести
-	// игрока к прилавку сверху (волки сбивают), поэтому для верификации купли/продажи нужен
-	// мгновенный перенос в радиус взаимодействия. Ставим игрока внутрь InteractTrigger
-	// торговца (overlap выставит NearbyTrader) и дополнительно регистрируем торговца напрямую
-	// (детерминизм — не зависим от тайминга overlap-события), после чего F9/F10/E работают.
-	APawn* ControlledPawn = GetPawn();
-	UWorld* World = GetWorld();
-	if (!ControlledPawn || !World)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no trader"));
-		return;
-	}
-
-	// A2: ищем ближайшего вендора по интерфейсу (IShopVendor), а не по конкретному классу —
-	// торговцем может быть любой актёр, реализующий UShopVendor (сейчас AMasterTrader / BP_Trader).
-	AActor* Trader = nullptr;
-	float BestDistSq = TNumericLimits<float>::Max();
-	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-	for (TActorIterator<AActor> It(World); It; ++It)
-	{
-		AActor* Candidate = *It;
-		if (!IsValid(Candidate) || !Candidate->Implements<UShopVendor>())
-		{
-			continue;
-		}
-		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
-		if (DistSq < BestDistSq)
-		{
-			BestDistSq = DistSq;
-			Trader = Candidate;
-		}
-	}
-
-	if (!IsValid(Trader))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no trader"));
-		return;
-	}
-
-	// Точка рядом с торговцем: смещение по горизонтали (< радиуса триггера, дефолт 220 см),
-	// высота игрока сохраняется, чтобы не утопить/не подвесить капсулу.
-	const FVector TLoc = Trader->GetActorLocation();
-	FVector Dest = TLoc + FVector(120.0f, 0.0f, 0.0f);
-	Dest.Z = PawnLoc.Z;
-
-	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
-
-	// Гарантированно регистрируем торговца как ближайшего (overlap при телепорте тоже сработает,
-	// но прямой вызов убирает зависимость от порядка обновления overlap'ов в этом же кадре).
-	SetNearbyTrader(Trader);
-
-	UE_LOG(LogQA, Display, TEXT("QA: teleported to trader at %s"), *Dest.ToCompactString());
-}
-
-// ---------------------------------------------------------------------------
-// QA-харнесс раунд 3: дублёры UI-действий клавишами (HUD-клики в PIE не доходят
-// до тестера из-за захвата мыши). Те же операции, что и по клику, + явный LogQA.
-// ---------------------------------------------------------------------------
-
-void AContrarySurvivorPlayerController::OnQAUseFirstConsumable()
-{
-	// F6: использовать ПЕРВЫЙ расходник рюкзака (= клик «использовать»). Подтверждает
-	// детерминизм «1 действие на нажатие», эффект еды/воды (+голод/жажда, +HP) и условие
-	// авто-регена (Stats->ConsumeFood/DrinkWater зовутся внутри Inv_UseBackpackItem).
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar) { return; }
-
-	UInventoryComponent* Inv = PlayerChar->GetInventory();
-	UStatsComponent* St = PlayerChar->GetStats();
-	if (!Inv || !St) { return; }
-
-	AMasterInventoryItem* Found = nullptr;
-	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
-	{
-		if (It && It->GetItemCategory() == EItemCategory::Consumable && !Inv->IsItemEquipped(It))
-		{
-			Found = It;
-			break;
-		}
-	}
-
-	if (!Found)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: USE skipped - no consumable in backpack"));
-		return;
-	}
-
-	// Имя берём ДО использования (после Use предмет уничтожается).
-	const FString ItemName = Found->ItemName.IsEmpty() ? Found->GetName() : Found->ItemName;
-
-	PlayerChar->Inv_UseBackpackItem(Found);
-
-	int32 ConsumablesLeft = 0;
-	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
-	{
-		if (It && It->GetItemCategory() == EItemCategory::Consumable)
-		{
-			++ConsumablesLeft;
-		}
-	}
-
-	UE_LOG(LogQA, Display, TEXT("QA: USE %s -> Hunger=%.0f Thirst=%.0f HP=%.0f, left %d"),
-		*ItemName, St->GetHunger(), St->GetThirst(), St->GetHealth(), ConsumablesLeft);
-}
-
-void AContrarySurvivorPlayerController::OnQADropFirstItem()
-{
-	// F7: выбросить ПЕРВЫЙ предмет рюкзака (= клик [X]). Inv_DropItem спавнит мировой пикап
-	// у ног и сам пишет QA-строку DROP (тот же путь, что и клик).
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar) { return; }
-
-	UInventoryComponent* Inv = PlayerChar->GetInventory();
-	if (!Inv) { return; }
-
-	AMasterInventoryItem* First = nullptr;
-	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
-	{
-		if (It)
-		{
-			First = It;
-			break;
-		}
-	}
-
-	if (!First)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: DROP skipped - backpack empty"));
-		return;
-	}
-
-	PlayerChar->Inv_DropItem(First); // QA-строка DROP пишется внутри
-}
-
-void AContrarySurvivorPlayerController::OnQABuyCheapest()
-{
-	// F9: купить самый дешёвый товар у БЛИЖАЙШЕГО торговца. Без торговца рядом — пропуск с логом.
-	// Shop_BuyEntry сам пишет QA-строку BUY (баланс/цена) при успехе.
-	if (!IsValid(NearbyTrader.GetObject()))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: BUY skipped - no trader near"));
-		return;
-	}
-
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar) { return; }
-
-	const TArray<FShopEntry>& Catalog = NearbyTrader->GetCatalog();
-	const FShopEntry* Cheapest = nullptr;
-	for (const FShopEntry& Entry : Catalog)
-	{
-		if (!Cheapest || Entry.Price < Cheapest->Price)
-		{
-			Cheapest = &Entry;
-		}
-	}
-
-	if (!Cheapest)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: BUY skipped - trader catalog empty"));
-		return;
-	}
-
-	const bool bOk = PlayerChar->Shop_BuyEntry(*Cheapest);
-	if (!bOk)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' (%.0f) failed - not enough money / no slot"),
-			*Cheapest->DisplayName, Cheapest->Price);
-	}
-}
-
-void AContrarySurvivorPlayerController::OnQASellFirstItem()
-{
-	// F10: продать ПЕРВЫЙ предмет рюкзака ближайшему торговцу. Цена выкупа = trader->GetSellValue.
-	// Без торговца рядом продавать некому — пропуск с логом (допущение: продажа требует торговца).
-	// Shop_SellItem сам пишет QA-строку SELL (баланс/цена).
-	if (!IsValid(NearbyTrader.GetObject()))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: SELL skipped - no trader near"));
-		return;
-	}
-
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar) { return; }
-
-	UInventoryComponent* Inv = PlayerChar->GetInventory();
-	if (!Inv) { return; }
-
-	AMasterInventoryItem* First = nullptr;
-	for (AMasterInventoryItem* It : Inv->GetInventoryItems())
-	{
-		if (It)
-		{
-			First = It;
-			break;
-		}
-	}
-
-	if (!First)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: SELL skipped - nothing to sell"));
-		return;
-	}
-
-	const float SellPrice = NearbyTrader->GetSellValue(First);
-	PlayerChar->Shop_SellItem(First, SellPrice); // QA-строка SELL пишется внутри
-}
-
-void AContrarySurvivorPlayerController::OnQAClearSave()
-{
-	// F12: удалить слот сейва игрока. Имя слота берём У САМОГО ПЕРСОНАЖА, а не пишем строкой:
-	// слот — параметр персонажа (архитектурная оговорка спеки главного меню), и зашитая здесь
-	// копия имени начала бы врать, как только слот сменится.
-	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	if (!PlayerChar)
-	{
-		UE_LOG(LogQA, Warning, TEXT("QA: save NOT cleared — игрока нет, слот спросить не у кого"));
-		return;
-	}
-	const FString& SlotName = PlayerChar->GetSaveSlotName();
-	UGameplayStatics::DeleteGameInSlot(SlotName, PlayerChar->GetSaveUserIndex());
-	UE_LOG(LogQA, Display, TEXT("QA: save '%s' cleared - restart PIE for fresh start"), *SlotName);
-}
-
-// ---------------------------------------------------------------------------
-// QA-харнесс (Фаза 5): квесты/диалог с клавиш (тестер не кликает HUD и не жмёт `~`)
-// ---------------------------------------------------------------------------
-
-void AContrarySurvivorPlayerController::OnQATeleportToElder()
-{
-	// Y: телепорт игрока вплотную к ближайшему старосте (как T к торговцу), чтобы сработал
-	// NearbyElder и заработали G/H/E. Ставим в радиус InteractTrigger старосты и явно регистрируем.
-	APawn* ControlledPawn = GetPawn();
-	UWorld* World = GetWorld();
-	if (!ControlledPawn || !World)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no elder"));
-		return;
-	}
-
-	AElderNPC* Elder = nullptr;
-	float BestDistSq = TNumericLimits<float>::Max();
-	const FVector PawnLoc = ControlledPawn->GetActorLocation();
-	for (TActorIterator<AElderNPC> It(World); It; ++It)
-	{
-		AElderNPC* Candidate = *It;
-		if (!IsValid(Candidate))
-		{
-			continue;
-		}
-		const float DistSq = FVector::DistSquared(PawnLoc, Candidate->GetActorLocation());
-		if (DistSq < BestDistSq)
-		{
-			BestDistSq = DistSq;
-			Elder = Candidate;
-		}
-	}
-
-	if (!IsValid(Elder))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: teleport skipped - no elder"));
-		return;
-	}
-
-	const FVector ELoc = Elder->GetActorLocation();
-	FVector Dest = ELoc + FVector(120.0f, 0.0f, 0.0f);
-	Dest.Z = PawnLoc.Z;
-
-	ControlledPawn->SetActorLocation(Dest, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
-	SetNearbyElder(Elder);
-
-	UE_LOG(LogQA, Display, TEXT("QA: teleported to elder at %s"), *Dest.ToCompactString());
-}
-
-void AContrarySurvivorPlayerController::OnQAAcceptQuest()
-{
-	// G: предложить+принять квест ближайшего старосты (= открыть диалог и нажать [Принять]).
-	if (!IsValid(NearbyElder))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: accept skipped - no elder near"));
-		return;
-	}
-
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
-	if (!PlayerQuests)
-	{
-		return;
-	}
-
-	// Выдаём квест по порядку (кв.1, затем кв.2 после сдачи кв.1).
-	const FQuest& Offered = NearbyElder->GetQuestForPlayer(PlayerQuests);
-	PlayerQuests->OfferQuest(Offered);              // OFFERED (один раз)
-	PlayerQuests->AcceptQuest(Offered.QuestId);     // ACCEPTED
-}
-
-void AContrarySurvivorPlayerController::OnQATurnInQuest()
-{
-	// H: сдать выполненный квест ближайшему старосте (= [Сдать]).
-	if (!IsValid(NearbyElder))
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - no elder near"));
-		return;
-	}
-
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
-	if (!PlayerQuests)
-	{
-		return;
-	}
-
-	const FQuest& Offered = NearbyElder->GetQuestForPlayer(PlayerQuests);
-	if (!PlayerQuests->TurnInQuest(Offered.QuestId)) // TURNED IN (или skip, если не Completed/нет предметов)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: turn-in skipped - quest %s not completed or items missing"),
-			*Offered.QuestId.ToString());
-	}
-}
-
-void AContrarySurvivorPlayerController::OnQACreditWolfKill()
-{
-	// K: зачесть одно убийство волка в квест (прогресс +1) без поиска живого волка —
-	// чтобы прогнать прогресс квеста с клавиатуры. Тег "Wolf" совпадает с тегом квеста старосты.
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
-	if (!PlayerQuests)
-	{
-		return;
-	}
-	PlayerQuests->NotifyKill(FName(TEXT("Wolf"))); // QA: quest progress X/5 (+ COMPLETED)
-}
-
-void AContrarySurvivorPlayerController::OnQAGiveWolfHides()
-{
-	// C: выдать игроку 5 «Шкур волка» в рюкзак (тест сдачи кв.1 без фарма волков). Предметы —
-	// квест-категории (AQuestItem), как и реальный дроп волка. Имя ДОЛЖНО совпадать с
-	// RequiredItemName кв.1 («Шкура волка»). Tick-синхронизация подхватит прогресс/Completed.
-	GiveQuestItems(TEXT("Шкура волка"), 5);
-}
-
-void AContrarySurvivorPlayerController::OnQAGiveNotebook()
-{
-	// X: выдать игроку «Ноутбук» (тест сдачи кв.2). Имя совпадает с RequiredItemName кв.2.
-	GiveQuestItems(TEXT("Ноутбук"), 1);
-}
-
-void AContrarySurvivorPlayerController::GiveQuestItems(const FString& ItemName, int32 Count)
-{
-	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
-	UWorld* World = GetWorld();
-	if (!PlayerChar || !World)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: give quest items skipped - no pawn/world"));
-		return;
-	}
-
-	UInventoryComponent* Inv = PlayerChar->GetInventory();
-	if (!Inv)
-	{
-		UE_LOG(LogQA, Display, TEXT("QA: give quest items skipped - no inventory"));
-		return;
-	}
-
-	FActorSpawnParameters Sp;
-	Sp.Owner = PlayerChar;
-	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	int32 Given = 0;
-	for (int32 i = 0; i < Count; ++i)
-	{
-		AQuestItem* Item = World->SpawnActor<AQuestItem>(
-			AQuestItem::StaticClass(), PlayerChar->GetActorLocation(), PlayerChar->GetActorRotation(), Sp);
-		if (!Item)
-		{
-			continue;
-		}
-		// Предмет рюкзака — данные, не объект сцены: прячем визуал/коллизию (как GiveTestItems).
-		Item->SetActorHiddenInGame(true);
-		Item->SetActorEnableCollision(false);
-		Item->ItemName = ItemName;
-		Inv->AddItem(Item);
-		++Given;
-	}
-
-	FQADebug::QA(this, FString::Printf(TEXT("QA: gave %d x '%s' (quest item) to backpack"), Given, *ItemName),
-		/*bScreen=*/true);
-}
 
 #endif // CONTRARY_WITH_QA_CHEATS — конец блока отладочных клавиш
 

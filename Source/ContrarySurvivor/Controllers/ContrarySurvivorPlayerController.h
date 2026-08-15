@@ -788,105 +788,27 @@ protected:
 	// ======================================================================
 #if CONTRARY_WITH_QA_CHEATS
 
-	// --- QA-харнесс (Фаза 4 раунд 2): тест-действия на функциональные клавиши ---
 	// Привязаны через LEGACY ActionMapping (Config/DefaultInput.ini), без нового IA/.uasset.
-	// Нужны автотестеру (Computer Use), который не может открыть `~`-консоль (русская раскладка).
-	// Дублируют существующие exec-команды — оба пути остаются.
+	// 2026-08-15 (Ринат): оставлен только набор для съёмки магазина. Убраны вместе с телами:
+	// F2/F3/F4 (тест-предметы, броня), F6/F7 (расходник, выброс), F9/F10 (купить/продать),
+	// F12 (стереть сейв), M/V (телепорты), J/H/запятая (квесты), C/X (шкуры/ноутбук),
+	// Z (force-drop), B (спавн волка), O (оверлей), N (force-kill), P (убить игрока).
 
-	// F1: свободная/детач debug-камера (console-exec "ToggleDebugCamera", UCheatManager 5.5).
+	// F1: свободная камера. Класс — наш AContraryDebugCameraController (Debug/ContraryDebugCamera.h),
+	// подставляется через UContraryCheatManager (CheatClass в конструкторе контроллера).
 	void OnToggleDebugCamera();
 
-	// F2: наполнить рюкзак тестовыми предметами (= APlayerCharacter::GiveTestItems).
-	void OnTestGiveItems();
-
-	// F3: надеть тест-комплект брони, по умолчанию полный Т3 (= APlayerCharacter::EquipTestArmor).
-	void OnTestEquipArmor();
-
-	// F4: снять броню всех слотов (= APlayerCharacter::UnequipTestArmor).
-	void OnTestUnequipArmor();
-
-	// K (бывш. F5 — конфликт с вьюмодом Shader Complexity; бывш. M — дебаг-клавиши Рината
-	// 2026-08-14): +TestMoneyGrant денег (для теста покупки у торговца).
+	// K (бывш. F5 — конфликт с вьюмодом Shader Complexity; бывш. M): +TestMoneyGrant денег.
 	void OnTestGiveMoney();
 
-	// M (бывш. T, T занял god-mode): тест-телепорт игрока вплотную к ближайшему торговцу (ATraderNPC) в радиус его
-	// InteractTrigger — чтобы сработал NearbyTrader и заработали F9/F10/E. Волки не дают
-	// подойти к прилавку сверху, поэтому нужен телепорт для верификации купли/продажи.
-	void OnQATeleportToTrader();
-
-	// --- QA-харнесс (Фаза 4 раунд 3): дублёры UI-действий клавишами ---
-	// Тестер (Computer Use) НЕ может кликать HUD в PIE (мышь захвачена), поэтому те же
-	// действия, что выполняются кликом, продублированы клавишами + явный LogQA для верификации.
-	// Клики оставлены как есть (их проверяет Ринат). Привязка — legacy ActionMapping (DefaultInput.ini).
-
-	// F6: использовать ПЕРВЫЙ расходник рюкзака (= клик «использовать»).
-	void OnQAUseFirstConsumable();
-
-	// F7: выбросить ПЕРВЫЙ предмет рюкзака (= клик [X]).
-	void OnQADropFirstItem();
-
-	// F9: купить самый дешёвый товар у ближайшего торговца (иначе пропуск с логом).
-	void OnQABuyCheapest();
-
-	// F10: продать первый предмет рюкзака ближайшему торговцу (иначе пропуск с логом).
-	void OnQASellFirstItem();
-
-	// F12: очистить слот сейва 'ContrarySave' (UGameplayStatics::DeleteGameInSlot).
-	void OnQAClearSave();
-
-	// --- QA-харнесс (Фаза 5): дублёры квестов/диалога клавишами (тестер не кликает HUD/`~`) ---
-	// Свободные буквенные клавиши (НЕ F5/F8/F11). Биндятся через legacy ActionMapping.
-
-	// V (бывш. Y): телепорт игрока вплотную к ближайшему старосте (как M к торговцу).
-	void OnQATeleportToElder();
-
-	// J (бывш. G): предложить+принять квест у ближайшего старосты (= открыть диалог и нажать [Принять]).
-	void OnQAAcceptQuest();
-
-	// H: сдать выполненный квест ближайшему старосте (= [Сдать]).
-	void OnQATurnInQuest();
-
-	// Запятая/Comma (бывш. K): зачесть одно убийство волка в квест (прогресс +1) без поиска живого волка.
-	void OnQACreditWolfKill();
-
-	// C: выдать игроку 5 «Шкур волка» в рюкзак (тест сдачи кв.1 без фарма волков).
-	void OnQAGiveWolfHides();
-
-	// X: выдать игроку «Ноутбук» в рюкзак (тест сдачи кв.2).
-	void OnQAGiveNotebook();
-
-	// Общий хелпер C/X: спавнит Count квест-предметов (AQuestItem) с заданным ItemName и кладёт в рюкзак.
-	void GiveQuestItems(const FString& ItemName, int32 Count);
-
-	// --- QA debug-инструменты (Фаза 5): god/forcedrop/spawn-wolf/overlay на клавишах T/Z/B/O ---
-	// Глобальные флаги в FQADebug, читаются в точках урона/деградации/дропа.
-
-	// T (бывш. J): тумблер god-mode (неуязвимость игрока + заморозка убыли голода/жажды). Авто-вкл оверлей.
+	// T: тумблер god-mode (неуязвимость игрока + заморозка убыли голода/жажды).
 	void OnQAToggleGodMode();
-
-	// Z (бывш. U): тумблер force-drop (все враги роняют лут со 100% шансом).
-	void OnQAToggleForceDrop();
-
-	// B: заспавнить одного тест-волка рядом с игроком (быстро проверить лут).
-	void OnQASpawnTestWolf();
-
-	// O: тумблер показа экранного QA-оверлея.
-	void OnQAToggleOverlay();
-
-	// N: мгновенно убить БЛИЖАЙШЕГО врага (волк/бандит) штатным путём урона (TakeDamage),
-	// чтобы сработали смерть + дроп лута + квест-счётчик. С активным force-drop (Z) выпадет
-	// предмет — тестер проверяет цепочку лута без прицеливания.
-	void OnQAForceKillNearest();
-
-	// P (QA, #26): мгновенно убить ИГРОКА штатным летальным уроном (для теста экрана смерти).
-	// Учитывает god-mode (T): при god-mode не убивает (лог-skip).
-	void OnQAKillPlayer();
 
 	// --- Дебаг-клавиши Рината (2026-08-14): G/Y/U ---
 
-	// G: снимок кадра игры (вьюпорт + интерфейс) в папку «Скриншоты ContrarySurvivor» на
-	// рабочем столе Windows (стол перенаправлен в OneDrive — путь берём у системы через
-	// SHGetKnownFolderPath, НЕ через USERPROFILE). Имя: shot_ГГГГММДД-ЧЧММСС.png.
+	// G: снимок ИГРОВОЙ ОБЛАСТИ (вьюпорт + интерфейс, без остального окна редактора при PIE)
+	// в папку «Скриншоты ContrarySurvivor» на рабочем столе Windows (путь берём у системы
+	// через SHGetKnownFolderPath). Имя: shot_ГГГГММДД-ЧЧММСС.png.
 	void OnQAScreenshot();
 
 	// Y: здоровье, голод и жажда игрока на максимум (через Set*-функции UStatsComponent —
@@ -897,6 +819,12 @@ protected:
 	// Мозги глушит флаг FQADebug::bFreezeEnemies в Tick AEnemyAIController, ноги —
 	// StopMovementImmediately + DisableMovement; разморозка — SetMovementMode(MOVE_Walking).
 	void OnQAToggleFreezeEnemies();
+
+	// Period (клавиша «точка», 2026-08-15): тумблер надписей «Preview» в тенях непостроенного
+	// света. Крутит консольную переменную ShowFlag.PreviewShadowsIndicator (0 = принудительно
+	// скрыть, 2 = поведение движка по умолчанию); значение читается из самой переменной,
+	// отдельного стейта нет. В Shipping сам флаг вшит в 0 (ShowFlagsValues.inl:323), клавиши нет.
+	void OnQATogglePreviewShadows();
 
 #endif // CONTRARY_WITH_QA_CHEATS
 

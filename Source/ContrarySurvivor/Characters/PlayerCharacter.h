@@ -548,11 +548,6 @@ protected:
     // Процедурные эффекты камеры (#28): дыхание + look-ahead через SpringArm->TargetOffset.
     virtual void Tick(float DeltaTime) override;
 
-    // Build 1.2.1 (ТЗ В2): отладочная клавиша F «реклама доступна сейчас» — легаси-бинд на
-    // input-компоненте пешки (QA-действия контроллера живут в его SetupInputComponent, это
-    // первый бинд на самой пешке; маппинг QAUnlockAds=F — Config/DefaultInput.ini).
-    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-
     // Применяет тюнингуемые knob-параметры камеры (#20) к компонентам SpringArm/Camera один раз
     // на этапе конструирования. ВАЖНО: не зовём в BeginPlay/Tick — иначе перетирались бы правки
     // и рантайм-эффекты. Источник истины по камере = Camera-категория UPROPERTY (CameraArmLength
@@ -978,13 +973,6 @@ protected:
 
     // Сброс накопленного игрового времени сессии в сейв (таймер PlaytimeFlushInterval).
     void FlushPlayTime();
-
-#if CONTRARY_WITH_QA_CHEATS
-    // Build 1.2.1 (ТЗ В2): ОТЛАДОЧНАЯ клавиша F — добивает накопитель игрового времени до
-    // порога AdMinPlaytimeSeconds, немедленно пишет его в сейв и печатает LogQA-строку.
-    // В публикационной сборке не компилируется (Б5 задания издателя).
-    void OnQAUnlockAds();
-#endif
 
     // Применяет загруженный сейв к игроку (статы + телепорт в точку респауна).
     void ApplySaveData(const UContrarySaveGame* Save);
