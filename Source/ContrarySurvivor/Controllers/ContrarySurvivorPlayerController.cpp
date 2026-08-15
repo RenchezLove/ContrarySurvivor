@@ -295,7 +295,12 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// Дебаг-клавиши Рината (2026-08-14): G — снимок игровой области на рабочий стол; Y — статы 100%;
 		// U — тумблер заморозки всех врагов.
-		InputComponent->BindAction(TEXT("QAScreenshot"),    IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAScreenshot);
+		// bExecuteWhenPaused (2026-08-15, Ринат): главное меню, меню паузы и настройки держат мир на
+		// паузе, а привязки без этого флага при паузе не вызываются (PlayerInput.cpp:940) — G в меню
+		// молчал. Снимок нужен и там (кадры магазина), поэтому флаг ставим только на G.
+		FInputActionBinding& ScreenshotBinding = InputComponent->BindAction(TEXT("QAScreenshot"), IE_Pressed,
+			this, &AContrarySurvivorPlayerController::OnQAScreenshot);
+		ScreenshotBinding.bExecuteWhenPaused = true;
 		InputComponent->BindAction(TEXT("QAFullStats"),     IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAFullStats);
 		InputComponent->BindAction(TEXT("QAFreezeEnemies"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies);
 
