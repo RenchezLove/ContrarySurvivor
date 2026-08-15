@@ -788,6 +788,17 @@ protected:
 	// ======================================================================
 #if CONTRARY_WITH_QA_CHEATS
 
+	// Служебные консольные команды съёмки (Debug/ContraryShowcaseCheats.cpp, 2026-08-15)
+	// зовут те же обработчики, что клавиши/кнопки (OnToggleInventory, OpenShop, EndIntro,
+	// Fire, …), и читают состояние окон — доступ к защищённым членам даём дружбой, а не
+	// публичными обёртками: в публикационной сборке ни cheat-manager'а, ни этой строки нет.
+	friend class UContraryCheatManager;
+
+	// Явная версия тумблера заморозки врагов (общая для клавиши U и команды QAFreezeEnemies):
+	// bFreeze=true — мозги гейтит флаг FQADebug::bFreezeEnemies, ноги глушатся
+	// StopMovementImmediately + DisableMovement; false — SetMovementMode(MOVE_Walking).
+	void ApplyQAFreezeEnemies(bool bFreeze);
+
 	// Привязаны через LEGACY ActionMapping (Config/DefaultInput.ini), без нового IA/.uasset.
 	// 2026-08-15 (Ринат): оставлен только набор для съёмки магазина. Убраны вместе с телами:
 	// F2/F3/F4 (тест-предметы, броня), F6/F7 (расходник, выброс), F9/F10 (купить/продать),

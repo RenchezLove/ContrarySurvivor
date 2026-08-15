@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "ContrarySurvivor/Debug/QADebug.h" // CONTRARY_WITH_QA_CHEATS (дружба с cheat-manager'ом съёмки)
 #include "WolfCharacter.generated.h"
 
 class UStatsComponent;
@@ -42,6 +43,13 @@ class CONTRARYSURVIVOR_API AWolfCharacter : public ACharacter
 
 public:
 	AWolfCharacter();
+
+#if CONTRARY_WITH_QA_CHEATS
+	// Команда съёмки QASpawnWolf (Debug/ContraryShowcaseCheats.cpp) ставит обездвиженного
+	// волка в нужной позе: ей нужны клипы Idle/Run/Bite/Death и ключ/название шкуры для
+	// выдачи предметов. Доступ — дружбой; в публикационной сборке этой строки нет.
+	friend class UContraryCheatManager;
+#endif
 
 	virtual void Tick(float DeltaTime) override;
 

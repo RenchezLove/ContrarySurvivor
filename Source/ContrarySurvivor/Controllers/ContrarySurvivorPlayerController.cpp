@@ -38,14 +38,8 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Engine/Engine.h"                      // GEngine->Exec (подавление экранного спама)
 #include "BrainComponent.h"    // QA freeze (U): PauseLogic/ResumeLogic (на случай BT-врагов; у наших мозг — state-machine)
-#include "UnrealClient.h"      // QA screenshot (G): FScreenshotRequest
-#include "HAL/FileManager.h"   // QA screenshot (G): создание папки, проверка записи файла
 #include "HAL/IConsoleManager.h" // QA Preview-тумблер (Period): cvar ShowFlag.PreviewShadowsIndicator
 #include "Misc/Paths.h"        // QA screenshot (G): запасная папка снимков
-#include "Framework/Application/SlateApplication.h" // QA screenshot (G): снимок только вьюпорта (FSlateApplication::TakeScreenshot)
-#include "Widgets/SViewport.h"                     // QA screenshot (G): виджет игровой области
-#include "Engine/GameViewportClient.h"             // QA screenshot (G): OnScreenshotCaptured, GetGameViewportWidget
-#include "ImageUtils.h"                            // QA screenshot (G): запись PNG
 #include "ContrarySurvivor/Debug/ContraryDebugCamera.h" // F1: наш cheat-manager с тихой свободной камерой
 #if CONTRARY_WITH_QA_CHEATS && PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -1721,18 +1715,10 @@ namespace
 
 void AContrarySurvivorPlayerController::OnQAScreenshot()
 {
-	// G: снимок ИГРОВОЙ ОБЛАСТИ (вьюпорт + интерфейс) в папку на рабочем столе.
-	//
-	// Почему не просто RequestScreenshot(bShowUI=true): движок при bShowUI снимает ВСЁ ОКНО
-	// (GameViewportClient.cpp:2160 — FSlateApplication::TakeScreenshot(WindowRef)), и в PIE
-	// это окно редактора целиком (жалоба Рината 15.08). Поэтому: запрос оставляем (он даёт
-	// правильный момент — конец кадра, после отрисовки), но подписываемся одноразово на
-	// UGameViewportClient::OnScreenshotCaptured — при подписчике движок НЕ пишет файл сам,
-	// а отдаёт картинку окна нам (GameViewportClient.cpp:2180, r.ScreenshotDelegate=1 по
-	// умолчанию). Мы её игнорируем и в тот же момент снимаем ТОЛЬКО виджет вьюпорта
-	// (перегрузка TakeScreenshot(Widget): SlateApplication.cpp:4217 сама считает прямоугольник
-	// виджета внутри окна) — в него входят и мир, и UMG-интерфейс. Пишем PNG сами
-	// (FImageUtils::SaveImageByExtension). Если виджета нет (не должно) — падаем на кадр окна.
+	// G: снимок ИГРОВОЙ ОБЛАСТИ (вьюпорт + интерфейс) в папку на рабочем столе. Само
+	// снятие кадра — общий хелпер UContraryCheatManager::TakeViewportShot (тот же путь у
+	// команды QAShot для витринных кадров): почему не RequestScreenshot(bShowUI) напрямую,
+	// одноразовая подписка на OnScreenshotCaptured и запись PNG — объяснено там.
 	FString Dir = GetDesktopScreenshotDir();
 	if (Dir.IsEmpty())
 	{
@@ -1740,67 +1726,11 @@ void AContrarySurvivorPlayerController::OnQAScreenshot()
 		FQADebug::QA(this, FString::Printf(
 			TEXT("QA: SCREENSHOT desktop dir unavailable, fallback -> %s"), *Dir), /*bScreen=*/true);
 	}
-	IFileManager::Get().MakeDirectory(*Dir, /*Tree=*/true);
 
 	const FString FilePath = Dir / FString::Printf(TEXT("shot_%s.png"),
 		*FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S")));
 
-	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
-	if (!ViewportClient)
-	{
-		FQADebug::QA(this, TEXT("QA: SCREENSHOT skipped - no game viewport"), /*bScreen=*/true);
-		return;
-	}
-	TWeakObjectPtr<UGameViewportClient> WeakViewport(ViewportClient);
-
-	// Одноразовая подписка (снимает себя сама). Путь захвачен копией: к моменту вызова
-	// FScreenshotRequest::Reset() уже стёр имя из запроса. Строка «saved» уходит в оверлей
-	// уже СЛЕДУЮЩЕГО кадра и в снимок не попадает.
-	//
-	// ⚠ Remove() из тела лямбды УНИЧТОЖАЕТ саму лямбду вместе с захватами прямо во время
-	// вызова (MulticastDelegateBase.h:309 → DelegateBase.Unbind() → ~IDelegateInstance):
-	// после него FilePath/WeakViewport — висячие ссылки. Баг 15.08: путь превращался в мусор
-	// и снимок ложился как «<мусор>.png» в рабочую папку движка (Engine/Binaries/Win64).
-	// Поэтому СНАЧАЛА копируем захваты в локальные переменные, ПОТОМ отписываемся и дальше
-	// работаем только с локальными копиями.
-	TSharedRef<FDelegateHandle> HandleRef = MakeShared<FDelegateHandle>();
-	*HandleRef = UGameViewportClient::OnScreenshotCaptured().AddLambda(
-		[FilePath, HandleRef, WeakViewport](int32 WindowW, int32 WindowH, const TArray<FColor>& WindowColors)
-	{
-		const FString LocalFilePath = FilePath;
-		const TWeakObjectPtr<UGameViewportClient> LocalWeakViewport = WeakViewport;
-		const FDelegateHandle LocalHandle = *HandleRef;
-		UGameViewportClient::OnScreenshotCaptured().Remove(LocalHandle);
-		// Ниже захваты лямбды (FilePath, HandleRef, WeakViewport) трогать НЕЛЬЗЯ — они уже уничтожены.
-
-		TArray<FColor> Pixels;
-		FIntVector Size(0, 0, 0);
-		bool bViewportOnly = false;
-		TSharedPtr<SViewport> ViewportWidget = LocalWeakViewport.IsValid() ? LocalWeakViewport->GetGameViewportWidget() : nullptr;
-		if (ViewportWidget.IsValid() && FSlateApplication::IsInitialized())
-		{
-			bViewportOnly = FSlateApplication::Get().TakeScreenshot(ViewportWidget.ToSharedRef(), Pixels, Size);
-		}
-		if (!bViewportOnly)
-		{
-			// Запасной путь — кадр всего окна, как отдал движок.
-			Pixels = WindowColors;
-			Size = FIntVector(WindowW, WindowH, 0);
-		}
-		for (FColor& Px : Pixels)
-		{
-			Px.A = 255; // без прозрачности (движок делает так же перед записью)
-		}
-
-		const bool bSaved = Size.X > 0 && Size.Y > 0 && Pixels.Num() >= Size.X * Size.Y
-			&& FImageUtils::SaveImageByExtension(*LocalFilePath, FImageView(Pixels.GetData(), Size.X, Size.Y));
-		FQADebug::QA(nullptr, FString::Printf(TEXT("QA: SCREENSHOT %s %s (%dx%d, %s)"),
-			bSaved ? TEXT("saved") : TEXT("FAILED"), *LocalFilePath, Size.X, Size.Y,
-			bViewportOnly ? TEXT("viewport only") : TEXT("whole window fallback")), /*bScreen=*/true);
-	});
-
-	FScreenshotRequest::RequestScreenshot(FilePath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	FQADebug::QA(this, FString::Printf(TEXT("QA: SCREENSHOT requested -> %s"), *FilePath));
+	UContraryCheatManager::TakeViewportShot(GetWorld(), FilePath, TEXT("SCREENSHOT"));
 }
 
 void AContrarySurvivorPlayerController::OnQAFullStats()
@@ -1825,7 +1755,14 @@ void AContrarySurvivorPlayerController::OnQAFullStats()
 
 void AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies()
 {
-	// U: тумблер «заморозить/разморозить всех врагов» (волки + бандиты; игрок не трогается).
+	// U: тумблер «заморозить/разморозить всех врагов». Тело — в ApplyQAFreezeEnemies:
+	// его же зовёт явная команда QAFreezeEnemies 0|1 (съёмка витринных кадров).
+	ApplyQAFreezeEnemies(!FQADebug::bFreezeEnemies);
+}
+
+void AContrarySurvivorPlayerController::ApplyQAFreezeEnemies(bool bFreeze)
+{
+	// Заморозить/разморозить всех врагов (волки + бандиты; игрок не трогается).
 	// Мозги: state-machine AEnemyAIController гейтится флагом bFreezeEnemies прямо в Tick —
 	// Behavior Tree у наших врагов НЕТ, BrainComponent обычно null (создаёт его только
 	// RunBehaviorTree), поэтому PauseLogic зовём лишь при наличии мозга (задел на будущее).
@@ -1834,8 +1771,7 @@ void AContrarySurvivorPlayerController::OnQAToggleFreezeEnemies()
 	// Разморозка: ResumeLogic (если был мозг) + SetMovementMode(MOVE_Walking).
 	// Враг, заспавнившийся ПОСЛЕ заморозки, тоже стоит (глобальный флаг гейтит его Tick),
 	// но его режим движения не трогался — разморозка ставит Walking всем без вреда.
-	FQADebug::bFreezeEnemies = !FQADebug::bFreezeEnemies;
-	const bool bFreeze = FQADebug::bFreezeEnemies;
+	FQADebug::bFreezeEnemies = bFreeze;
 
 	int32 Affected = 0;
 	for (const TWeakObjectPtr<AEnemyAIController>& WeakCtrl : AEnemyAIController::GetActiveControllers())
