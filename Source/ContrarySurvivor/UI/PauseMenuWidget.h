@@ -113,6 +113,24 @@ struct FPauseMenuStyle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu",
 		meta = (DisplayName = "Цвет строки версии"))
 	FLinearColor VersionColor = FLinearColor(0.6f, 0.6f, 0.6f, 1.0f);
+
+	// --- ADR-074 (Ринат, 16.08.2026): постоянная строка-подпись «прогресс сохраняется у
+	// костра» внизу панели, НАД строкой версии. Не кнопка. Мелкий серый текст, чуть заметнее
+	// версии. Текст живёт ЗДЕСЬ и только здесь: генератор ассета берёт его отсюда же
+	// (урок про копию текста в генераторе — копий формулировки не заводить). ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Save Hint",
+		meta = (DisplayName = "Подпись о сохранении"))
+	FText SaveHintText = NSLOCTEXT("PauseMenuWidget", "SaveHintText",
+		"Прогресс сохраняется у костра в деревне");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Save Hint",
+		meta = (DisplayName = "Размер шрифта подписи о сохранении", ClampMin = "6"))
+	int32 SaveHintFontSize = 14;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Save Hint",
+		meta = (DisplayName = "Цвет подписи о сохранении"))
+	FLinearColor SaveHintColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
 };
 
 /**
@@ -320,6 +338,11 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> VersionText;
+
+	// ADR-074: постоянная подпись «Прогресс сохраняется у костра в деревне» над строкой версии.
+	// В ассет приезжает только дополнением (AugmentPauseMenuSaveHint в генераторе).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SaveHintText;
 
 	// Двойная рамка кодового фолбэка (в WBP её нет — там одна плашка PanelPlate с кантом).
 	UPROPERTY()

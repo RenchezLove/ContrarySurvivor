@@ -31,6 +31,7 @@ void UOnboardingComponent::BeginPlay()
 			bShown[static_cast<int32>(EOnboardingHint::Elder)]     = Save->bHintElderShown;
 			bShown[static_cast<int32>(EOnboardingHint::Inventory)] = Save->bHintInventoryShown;
 			bShown[static_cast<int32>(EOnboardingHint::Death)]     = Save->bHintDeathShown;
+			bShown[static_cast<int32>(EOnboardingHint::LeaveVillage)] = Save->bHintLeaveVillageShown;
 		}
 	}
 
@@ -87,6 +88,7 @@ const TCHAR* UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint Hint)
 		case EOnboardingHint::Elder:     return TEXT("elder");
 		case EOnboardingHint::Inventory: return TEXT("inventory");
 		case EOnboardingHint::Death:     return TEXT("death");
+		case EOnboardingHint::LeaveVillage: return TEXT("leave_village");
 		default:                         return TEXT("unknown");
 	}
 }
@@ -95,7 +97,12 @@ bool UOnboardingComponent::CountsTowardTutorialCompletion(EOnboardingHint Hint)
 {
 	// Все реальные шаги, кроме подсказки смерти: завершение обучения не должно требовать
 	// первой гибели игрока (иначе метрика издателя меряет смертность, а не обучение).
-	return Hint < EOnboardingHint::Count && Hint != EOnboardingHint::Death;
+	// ADR-074: подсказка выхода из деревни тоже не входит — условие завершения обязано
+	// остаться теми же четырьмя шагами, что в выпущенной 0.1.0 (1), иначе показатель
+	// издателя перестанет быть сравнимым между версиями.
+	return Hint < EOnboardingHint::Count
+		&& Hint != EOnboardingHint::Death
+		&& Hint != EOnboardingHint::LeaveVillage;
 }
 
 int32 UOnboardingComponent::GetTutorialCompletionStepCount()
@@ -164,6 +171,7 @@ FText UOnboardingComponent::GetHintText(EOnboardingHint Hint) const
 		case EOnboardingHint::Elder:     return HintTextElder;
 		case EOnboardingHint::Inventory: return HintTextInventory;
 		case EOnboardingHint::Death:     return HintTextDeath; // СТРОГО ADR-044 п.3 (см. заголовок)
+		case EOnboardingHint::LeaveVillage: return HintTextLeaveVillage; // ADR-074, управления не называет
 		default:                         return FText::GetEmpty();
 	}
 }
@@ -188,6 +196,7 @@ void UOnboardingComponent::PersistShownFlag(EOnboardingHint Hint)
 		case EOnboardingHint::Elder:     Save->bHintElderShown = true;     break;
 		case EOnboardingHint::Inventory: Save->bHintInventoryShown = true; break;
 		case EOnboardingHint::Death:     Save->bHintDeathShown = true;     break;
+		case EOnboardingHint::LeaveVillage: Save->bHintLeaveVillageShown = true; break;
 		default: return;
 	}
 	Player->WriteSaveObject(Save);

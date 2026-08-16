@@ -46,6 +46,7 @@ void UPauseMenuWidget::NativeOnInitialized()
 			{ PolicyButton, TEXT("PolicyButton") }, { PolicyText, TEXT("PolicyText") },
 			{ QuitButton, TEXT("QuitButton") }, { QuitText, TEXT("QuitText") },
 			{ VersionText, TEXT("VersionText") },
+			{ SaveHintText, TEXT("SaveHintText") }, // ADR-074: подпись о сохранении над версией
 		};
 		for (const auto& Entry : Expected)
 		{
@@ -197,6 +198,15 @@ void UPauseMenuWidget::BuildCodeTree()
 		QuitText = Cast<UTextBlock>(QuitButton->GetContent());
 	}
 
+	// ADR-074: постоянная подпись «Прогресс сохраняется у костра в деревне» — под кнопками,
+	// НАД строкой версии. Не кнопка; текст/кегль/цвет ставит ApplyStyle из FPauseMenuStyle.
+	SaveHintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SaveHintText"));
+	if (UVerticalBoxSlot* SaveHintSlot = Column->AddChildToVerticalBox(SaveHintText))
+	{
+		SaveHintSlot->SetHorizontalAlignment(HAlign_Center);
+		SaveHintSlot->SetPadding(FMargin(0.0f, 8.0f, 0.0f, 0.0f));
+	}
+
 	// Б6 (ADR-059): мелко номер версии сборки внизу панели.
 	VersionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("VersionText"));
 	if (UVerticalBoxSlot* VersionSlot = Column->AddChildToVerticalBox(VersionText))
@@ -272,6 +282,14 @@ void UPauseMenuWidget::ApplyStyle(const FPauseMenuStyle& Style)
 	{
 		VersionText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(6, Style.VersionFontSize)));
 		VersionText->SetColorAndOpacity(FSlateColor(Style.VersionColor));
+	}
+	// ADR-074: подпись о сохранении — мелкий серый текст, чуть заметнее версии. Сам текст
+	// ставит режим подписей (ApplyNormalLabels), как у остальных строк кодового дерева.
+	if (SaveHintText)
+	{
+		SaveHintText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(6, Style.SaveHintFontSize)));
+		SaveHintText->SetColorAndOpacity(FSlateColor(Style.SaveHintColor));
+		SaveHintText->SetJustification(ETextJustify::Center);
 	}
 	RefreshConsentAndVersion();
 
@@ -387,6 +405,12 @@ void UPauseMenuWidget::ApplyNormalLabels()
 	if (SupportText && !bDesignerTree)
 	{
 		SupportText->SetText(CachedStyle.SupportText);
+	}
+	// ADR-074: подпись о сохранении. В дизайнер-дереве текст владельца не трогаем (в ассет
+	// он приехал из этого же стиля через генератор — одно место правды).
+	if (SaveHintText && !bDesignerTree)
+	{
+		SaveHintText->SetText(CachedStyle.SaveHintText);
 	}
 
 	// «Настройки» появляются САМИ по факту привязки обработчика владельцем (тот же приём, что

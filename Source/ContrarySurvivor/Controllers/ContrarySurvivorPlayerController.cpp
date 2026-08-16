@@ -29,6 +29,7 @@
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): обыск трупов
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Actors/VillageZone.h"          // ADR-074: граница деревни для подсказки о сохранении
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // QA headless-тест погони: режим/дальность
@@ -2318,6 +2319,9 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 	// Поддерживаем ближайший контекстный интерактив (E): пикап/торговец (BUG3).
 	UpdateNearbyInteractable();
 
+	// ADR-074: подсказка о сохранении у костра при первом выходе из деревни (один раз за профиль).
+	UpdateLeaveVillageHint();
+
 	// Фаза 5: синхронизируем ITEM-прогресс квестов (Collect/Deliver) с содержимым рюкзака —
 	// число «Шкур волка»/«Ноутбук» в инвентаре. SyncInventoryQuests меняет состояние/шлёт
 	// событие ТОЛЬКО при реальном изменении (без спама на каждый тик).
@@ -2884,6 +2888,44 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		{
 			OnboardingComp->TryShowHint(EOnboardingHint::Pickup);
 		}
+	}
+}
+
+void AContrarySurvivorPlayerController::UpdateLeaveVillageHint()
+{
+	// Во время интро не проверяем: игрок начинает ЗА деревней и идёт к ней авто-подходом;
+	// признак «был внутри» до конца интро не взводится, поэтому на старте подсказки нет.
+	if (IntroPhase != EIntroPhase::None)
+	{
+		return;
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	UWorld* World = GetWorld();
+	if (!ControlledPawn || !World)
+	{
+		return;
+	}
+
+	// Граница деревни — та же, что для ИИ (единый источник, ADR-036): чистая математика по
+	// боксу зоны, без коллизии, дёшево на каждый тик.
+	const bool bInsideNow = AVillageZone::IsPointInVillage(World, ControlledPawn->GetActorLocation());
+	if (bInsideNow)
+	{
+		bWasInsideVillage = true;
+		return;
+	}
+	if (!bWasInsideVillage)
+	{
+		return; // снаружи с самого начала (старт игры) — это не «выход из деревни»
+	}
+
+	// Переход «внутри → снаружи». Признак сбрасываем, но подсказка всё равно одна на профиль:
+	// одноразовость держит флаг в сейве (UOnboardingComponent::TryShowHint).
+	bWasInsideVillage = false;
+	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+	{
+		OnboardingComp->TryShowHint(EOnboardingHint::LeaveVillage);
 	}
 }
 

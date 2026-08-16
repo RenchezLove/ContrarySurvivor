@@ -55,6 +55,7 @@
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // FStartScreenStyle: вид кнопок меню — одно место правды
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h" // FSupportAuthorStyle + вид кнопок окна поддержки
 #include "ContrarySurvivor/UI/ConsentScreenWidget.h" // FConsentScreenStyle: формулировки согласия одним местом
+#include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle: подпись о сохранении в паузе одним местом (ADR-074)
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
@@ -2734,6 +2735,15 @@ namespace
 		return true;
 	}
 
+	// ADR-074: на сколько подпись о сохранении поднимается над строкой версии (обе привязаны
+	// к низу панели, выравнивание по нижнему краю). Это высота строки версии плюс зазор:
+	// высота строки Roboto ≈ 1.4 кегля (запас сверху, чтобы подписи не слиплись), зазор 6.
+	// Одно место арифметики на BuildPauseMenu и AugmentPauseMenuSaveHint.
+	float PauseSaveHintRiseAboveVersion(int32 VersionFontSize)
+	{
+		return FMath::CeilToFloat(FMath::Max(6, VersionFontSize) * 1.4f) + 6.0f;
+	}
+
 	// ----------------------------------------------------------------------
 	// WBP_PauseMenu — меню паузы (вид = UPauseMenuWidget::BuildCodeTree). Подписи
 	// согласия/политики/версии — образцы: живые ставит код из настроек и состояния (Б6).
@@ -2803,6 +2813,18 @@ namespace
 			FLinearColor(0.6f, 0.6f, 0.6f, 1.0f), 12, TEXT("Regular"));
 		Version->bIsVariable = true;
 		CanvasCentered(Panel, Version, 1.0f, FVector2D(0.5f, 1.0f), FVector2D(0.0f, -14.0f));
+
+		// ADR-074: постоянная подпись о сохранении — НАД строкой версии, с той же привязкой к
+		// низу. Текст, кегль и цвет — из FPauseMenuStyle (одно место правды на код и ассет).
+		// В живой ассет (окно отдано владельцу) она приезжает дополнением
+		// AugmentPauseMenuSaveHint, здесь — вид «с нуля» для полноты кодового пути.
+		const FPauseMenuStyle PauseStyle;
+		UTextBlock* SaveHint = MakeText(Tree, Roboto, TEXT("SaveHintText"), PauseStyle.SaveHintText,
+			PauseStyle.SaveHintColor, PauseStyle.SaveHintFontSize, TEXT("Regular"));
+		SaveHint->SetJustification(ETextJustify::Center);
+		SaveHint->bIsVariable = true;
+		CanvasCentered(Panel, SaveHint, 1.0f, FVector2D(0.5f, 1.0f),
+			FVector2D(0.0f, -14.0f - PauseSaveHintRiseAboveVersion(12)));
 		return true;
 	}
 
@@ -3294,7 +3316,10 @@ namespace
 			  // только режимом -augment (AugmentPauseMenuSupport), пересборка запрещена.
 			  TEXT("SupportButton"), TEXT("SupportText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
-			  TEXT("VersionText") },
+			  TEXT("VersionText"),
+			  // ADR-074 (16.08.2026): постоянная подпись о сохранении над строкой версии;
+			  // в живой ассет приезжает только -augment (AugmentPauseMenuSaveHint).
+			  TEXT("SaveHintText") },
 			/*bOwnerOwned=*/true },
 		{ TEXT("/Game/UI/WBP_Intro"), TEXT("WBP_Intro"),
 			TEXT("/Script/ContrarySurvivor.IntroScreenWidget"), &BuildIntro,
@@ -3859,7 +3884,8 @@ namespace
 			  TEXT("ResumeButton"), TEXT("ResumeText"),
 			  TEXT("MainMenuButton"), TEXT("MainMenuText"),
 			  TEXT("PolicyButton"), TEXT("PolicyText"), TEXT("QuitButton"), TEXT("QuitText"),
-			  TEXT("VersionText") } },
+			  TEXT("VersionText"),
+			  TEXT("SaveHintText") } }, // ADR-074: подпись о сохранении — свободна, как версия
 		{ TEXT("WBP_Intro"),
 			{ },
 			{ TEXT("Background"), TEXT("LineText"), TEXT("SkipHintText") } },
@@ -4704,6 +4730,93 @@ namespace
 		UE_LOG(LogGenerateWbp, Display,
 			TEXT("AUGMENT %s: добавлен пункт «Поддержать автора» под «Сообщество», нижние пункты сдвинуты на %.0f, панель подросла на столько же."),
 			Name, Step);
+	}
+
+	// WBP_PauseMenu, ADR-074 (Ринат, 16.08.2026): постоянная подпись «Прогресс сохраняется у
+	// костра в деревне» внизу панели, НАД строкой версии. Не кнопка — мелкий серый текст,
+	// чуть заметнее версии. Текст, кегль и цвет — из FPauseMenuStyle: ОДНО место правды на
+	// код и ассет (урок про копию текста в генераторе — копий формулировки не заводить).
+	//
+	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ (bOwnerOwned): пересобирать нельзя, ТОЛЬКО дополнением. Трогаем
+	// ровно один новый кубик; соседей не двигаем и не убираем (слово Рината: «нигде не убирай
+	// ничего»). Плашка подрастает ТОЛЬКО если иначе подпись легла бы на кнопку «Выход».
+	//
+	// Идемпотентно: кубик уже есть — выходим молча; текст владельца не переписываем (в игре
+	// на дизайнер-дереве код его не ставит, значит хозяин текста в ассете — владелец).
+	void AugmentPauseMenuSaveHint(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_PauseMenu");
+		if (Tree->FindWidget(TEXT("SaveHintText")))
+		{
+			return; // уже добавлено — режим идемпотентный
+		}
+
+		// Якорь — строка версии: берём у неё привязку к низу и выравнивание, встаём над ней.
+		UTextBlock* Version = Cast<UTextBlock>(Tree->FindWidget(TEXT("VersionText")));
+		UCanvasPanelSlot* VersionSlot = Version ? Cast<UCanvasPanelSlot>(Version->Slot) : nullptr;
+		UCanvasPanel* Parent = Version ? Cast<UCanvasPanel>(Version->GetParent()) : nullptr;
+		if (!VersionSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: строка VersionText не найдена в канвас-слоте — некуда ставить подпись о сохранении."),
+				Name);
+			return;
+		}
+
+		const FPauseMenuStyle Style; // одно место правды на код и ассет
+		UObject* Roboto = LoadRobotoFont();
+
+		// Поднимаемся над версией на высоту её строки плюс зазор; кегль версии берём из
+		// ЖИВОГО ассета — владелец мог его поменять.
+		const float Rise = PauseSaveHintRiseAboveVersion(Version->GetFont().Size);
+		const FVector2D HintPos = VersionSlot->GetPosition() - FVector2D(0.0f, Rise);
+		const FAnchors HintAnchors = VersionSlot->GetAnchors();
+		const FVector2D HintAlignment = VersionSlot->GetAlignment();
+		// Ожидаемая высота самой подписи (та же оценка «1.4 кегля») — для проверки зазора до «Выхода».
+		const float HintHeight = FMath::CeilToFloat(FMath::Max(6, Style.SaveHintFontSize) * 1.4f);
+
+		UTextBlock* Hint = MakeText(Tree, Roboto, TEXT("SaveHintText"), Style.SaveHintText,
+			Style.SaveHintColor, Style.SaveHintFontSize, TEXT("Regular"));
+		Hint->SetJustification(ETextJustify::Center);
+		Hint->bIsVariable = true;
+		if (UCanvasPanelSlot* HintSlot = Parent->AddChildToCanvas(Hint))
+		{
+			HintSlot->SetAnchors(HintAnchors);
+			HintSlot->SetAlignment(HintAlignment);
+			HintSlot->SetAutoSize(true); // как у версии: размер по тексту
+			HintSlot->SetPosition(HintPos);
+		}
+		bChanged = true;
+
+		// Не налезает ли подпись на «Выход»? Подпись привязана к низу плашки, кнопка — к верху,
+		// поэтому при нехватке места плашку растим на недостающее (и только тогда): версия и
+		// подпись уедут вниз вместе с нижним краем, кнопки останутся на месте.
+		float Grown = 0.0f;
+		UWidget* Quit = Tree->FindWidget(TEXT("QuitButton"));
+		UCanvasPanelSlot* QuitSlot = Quit ? Cast<UCanvasPanelSlot>(Quit->Slot) : nullptr;
+		UWidget* Plate = Tree->FindWidget(TEXT("PanelPlate"));
+		UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (QuitSlot && PlateSlot && Quit->GetParent() == Parent
+			&& HintAnchors.Minimum.Y > QuitSlot->GetAnchors().Minimum.Y + KINDA_SMALL_NUMBER)
+		{
+			const float PlateHeight = PlateSlot->GetSize().Y;
+			const float HintTop = PlateHeight * HintAnchors.Minimum.Y + HintPos.Y
+				- HintAlignment.Y * HintHeight;
+			const float QuitBottom = PlateHeight * QuitSlot->GetAnchors().Minimum.Y
+				+ QuitSlot->GetPosition().Y
+				+ (1.0f - QuitSlot->GetAlignment().Y) * QuitSlot->GetSize().Y;
+			constexpr float MinGap = 8.0f;
+			const float Missing = (QuitBottom + MinGap) - HintTop;
+			if (Missing > KINDA_SMALL_NUMBER)
+			{
+				Grown = FMath::CeilToFloat(Missing);
+				PlateSlot->SetSize(PlateSlot->GetSize() + FVector2D(0.0f, Grown));
+			}
+		}
+
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: над строкой версии добавлена подпись «%s» (кегль %d, позиция %.0f от низа); плашка подросла на %.0f."),
+			Name, *Style.SaveHintText.ToString(), Style.SaveHintFontSize, -HintPos.Y, Grown);
 	}
 
 	// WBP_SupportAuthor, решение Рината 13.08.2026: строка благодарности после ролика — это
@@ -6080,6 +6193,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Задание издателя 11.08.2026: строка «Поддержать автора». Отдельной записью со своей
 		// проверкой «уже сделано» — иначе повторный прогон завёл бы вторую такую же строку.
 		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuSupport },
+		// ADR-074 (Ринат 16.08.2026): постоянная подпись «прогресс сохраняется у костра» над
+		// строкой версии. Отдельной записью со своей проверкой «уже сделано».
+		{ TEXT("/Game/UI/WBP_PauseMenu"),     TEXT("WBP_PauseMenu"),     &AugmentPauseMenuSaveHint },
 		// Решение Рината 13.08.2026: вернуть строку благодарности в окно поддержки и оставить
 		// в ней одно слово «Спасибо». Окно отдано владельцу — только дополнением.
 		{ TEXT("/Game/UI/WBP_SupportAuthor"), TEXT("WBP_SupportAuthor"), &AugmentSupportAuthorThanks },

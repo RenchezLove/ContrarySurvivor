@@ -97,8 +97,8 @@ public:
 	//   daily_reward_claimed       -> retention:daily_reward_claimed [день серии]
 	// --- Б4 (задание издателя ADR-059): первый запуск и обучение ---
 	//   first_launch               -> app:first_launch           [номер шага не нужен]
-	//   tutorial_step              -> tutorial:step:{movement|pickup|elder|inventory|death} [номер шага]
-	//   tutorial_completed         -> tutorial:completed         [сколько шагов всего]
+	//   tutorial_step              -> tutorial:step:{movement|pickup|elder|inventory|death|leave_village} [номер шага]
+	//   tutorial_completed         -> tutorial:completed         [сколько шагов засчитано: 4, ADR-074]
 	// Параметры ТЗ сверх одного числа (номер смерти за сессию, базовая сумма при
 	// удвоении и т.п.) в GA не влезают — они пишутся в QA-лог рядом с отправкой.
 

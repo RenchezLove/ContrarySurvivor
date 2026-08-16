@@ -26,7 +26,9 @@ class UWidgetTree;
  *     СУЩЕСТВУЮЩИЕ ассеты новыми кубиками и текстами (стилизация Рината сохраняется:
  *     меняется только добавляемое; кубик уже есть — пропуск). Список правок — таблица Specs
  *     в AugmentAll (.cpp): WBP_Shop (надписи, строка пересчёта патронов, золотая кнопка —
- *     отдельные правки), WBP_Inventory, WBP_PlayerStats, WBP_QuestTracker, WBP_TouchControls.
+ *     отдельные правки), WBP_Inventory, WBP_PlayerStats, WBP_QuestTracker, WBP_TouchControls,
+ *     WBP_PauseMenu (пункты меню, подпись о сохранении ADR-074), WBP_SupportAuthor,
+ *     WBP_Consent (тексты).
  *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp -rebuild — ПЕРЕСОБРАТЬ дерево
  *     существующих окон канвас-первой раскладкой (ADR-051 п.1: кнопки, подложки и списки
  *     получают ручки мышкой в дизайнере; волна разлочки Build 1.2.1 — без рядов-коробок

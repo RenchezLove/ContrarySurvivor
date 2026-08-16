@@ -19,6 +19,7 @@ enum class EOnboardingHint : uint8
 	Elder,      // первое приближение к старосте
 	Inventory,  // первое открытие инвентаря
 	Death,      // первая смерть (текст СТРОГО по ADR-044 п.3 — без «можно вернуться и забрать»)
+	LeaveVillage, // первый выход из деревни (ADR-074): напоминание, что прогресс сохраняется у костра
 	Count UMETA(Hidden)
 };
 
@@ -52,8 +53,8 @@ public:
 	void CancelPendingMovementHint();
 
 	// Латинское имя шага обучения для аналитики издателя (Б4): movement/pickup/elder/
-	// inventory/death. Отдельно от EOnboardingHint, чтобы имя события не менялось от
-	// перестановки значений перечисления.
+	// inventory/death/leave_village. Отдельно от EOnboardingHint, чтобы имя события не
+	// менялось от перестановки значений перечисления.
 	static const TCHAR* GetHintAnalyticsId(EOnboardingHint Hint);
 
 	// Входит ли подсказка в условие «обучение пройдено» (решение game-lead 08-06): входят
@@ -61,6 +62,10 @@ public:
 	// управление в первые минуты; если засчитывать завершение только после первой гибели,
 	// эта цифра начинает мерить смертность, а не обучение. Событие самого шага у подсказки
 	// смерти при этом остаётся — оно полезно отдельно.
+	//
+	// ADR-074 (16.08): подсказка выхода из деревни тоже НЕ входит — показатель «обучение
+	// пройдено» обязан остаться сравнимым с выпущенной 0.1.0 (1), где шагов четыре, иначе
+	// цифры издателя сломаются. Событие самого шага (leave_village) отправляется отдельно.
 	static bool CountsTowardTutorialCompletion(EOnboardingHint Hint);
 
 	// Сколько всего шагов входит в условие завершения (едет числом в событие «обучение
@@ -125,8 +130,17 @@ public:
 	FText HintTextDeath = NSLOCTEXT("OnboardingComponent", "HintDeath",
 		"Часть монет утрачена. Расходники обронены на месте гибели.");
 
+	// ADR-074 (Ринат, 16.08.2026): первый ВЫХОД из деревни — напоминание, что прогресс
+	// сохраняется только у костра (в этой версии костёр — только в деревне). Управления не
+	// называет, поэтому вариант один. Показывается на переходе «был внутри → вышел», а не
+	// «стоит снаружи»: игра начинается за деревней, и на старте подсказка всплывать не должна
+	// (проверку ведёт контроллер, AContrarySurvivorPlayerController::UpdateLeaveVillageHint).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "10"))
+	FText HintTextLeaveVillage = NSLOCTEXT("OnboardingComponent", "HintLeaveVillage",
+		"Уходишь из деревни. Не забывай: прогресс сохраняется только у костра");
+
 	// Стиль тоста (цвет плашки/текста, шрифт, позиция, размер) — применяется при создании виджета.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (DisplayPriority = "10"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding", meta = (DisplayPriority = "11"))
 	FOnboardingHintStyle HintStyle;
 
 protected:

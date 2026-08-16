@@ -99,7 +99,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnalyticsTutorialStepNamesTest,
 bool FAnalyticsTutorialStepNamesTest::RunTest(const FString& Parameters)
 {
 	const int32 StepCount = static_cast<int32>(EOnboardingHint::Count);
-	TestEqual(TEXT("Шагов обучения в игре ровно пять (подсказки UOnboardingComponent)"), StepCount, 5);
+	// ADR-074 (16.08): шестая подсказка — выход из деревни (leave_village).
+	TestEqual(TEXT("Шагов обучения в игре ровно шесть (подсказки UOnboardingComponent)"), StepCount, 6);
 
 	TSet<FString> SeenNames;
 	for (int32 i = 0; i < StepCount; ++i)
@@ -124,10 +125,13 @@ bool FAnalyticsTutorialStepNamesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// --- 3а. Правило «обучение пройдено» (решение лида 08-06) -------------------------------
+// --- 3а. Правило «обучение пройдено» (решение лида 08-06; ADR-074 16.08) ----------------
 // Завершение обучения считается по всем шагам, КРОМЕ подсказки смерти: иначе метрика
 // издателя «доля прошедших обучение» требовала бы первой гибели и меряла смертность.
 // Событие самого шага у подсказки смерти остаётся — правило касается только завершения.
+// ADR-074: подсказка выхода из деревни (leave_village) тоже НЕ входит — условие завершения
+// обязано остаться теми же четырьмя шагами, что в выпущенной 0.1.0 (1), иначе показатель
+// издателя перестанет быть сравнимым между версиями.
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnalyticsTutorialCompletionRuleTest,
 	"ContrarySurvivor.Analytics.TutorialCompletionSkipsDeathHint", AnalyticsTestFlags)
@@ -136,12 +140,14 @@ bool FAnalyticsTutorialCompletionRuleTest::RunTest(const FString& Parameters)
 {
 	TestFalse(TEXT("Подсказка смерти в условие завершения НЕ входит"),
 		UOnboardingComponent::CountsTowardTutorialCompletion(EOnboardingHint::Death));
+	TestFalse(TEXT("Подсказка выхода из деревни в условие завершения НЕ входит (ADR-074)"),
+		UOnboardingComponent::CountsTowardTutorialCompletion(EOnboardingHint::LeaveVillage));
 
 	int32 Counted = 0;
 	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
 	{
 		const EOnboardingHint Hint = static_cast<EOnboardingHint>(i);
-		if (Hint != EOnboardingHint::Death)
+		if (Hint != EOnboardingHint::Death && Hint != EOnboardingHint::LeaveVillage)
 		{
 			TestTrue(FString::Printf(TEXT("Шаг %d входит в условие завершения"), i + 1),
 				UOnboardingComponent::CountsTowardTutorialCompletion(Hint));
@@ -150,11 +156,13 @@ bool FAnalyticsTutorialCompletionRuleTest::RunTest(const FString& Parameters)
 	}
 
 	// Число шагов в событии «обучение пройдено» считается тем же правилом, а не руками.
-	TestEqual(TEXT("Число шагов завершения = все шаги минус подсказка смерти"),
+	TestEqual(TEXT("Число шагов завершения = все шаги минус подсказки смерти и выхода из деревни"),
 		UOnboardingComponent::GetTutorialCompletionStepCount(), Counted);
-	TestEqual(TEXT("Сейчас это четыре шага из пяти"),
-		UOnboardingComponent::GetTutorialCompletionStepCount(),
-		static_cast<int32>(EOnboardingHint::Count) - 1);
+	// Число пришпилено НАМЕРЕННО (ADR-074): четыре шага — как в выпущенной 0.1.0 (1). Новая
+	// подсказка это число менять не вправе; кто добавит седьмую и захочет её засчитывать —
+	// сначала решение с издателем, потом правка этой строки.
+	TestEqual(TEXT("Условие завершения — ровно четыре шага, как в 0.1.0 (1)"),
+		UOnboardingComponent::GetTutorialCompletionStepCount(), 4);
 	return true;
 }
 

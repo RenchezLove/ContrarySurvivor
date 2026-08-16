@@ -16,6 +16,7 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->bHintElderShown     = From->bHintElderShown;
 	To->bHintInventoryShown = From->bHintInventoryShown;
 	To->bHintDeathShown     = From->bHintDeathShown;
+	To->bHintLeaveVillageShown = From->bHintLeaveVillageShown; // ADR-074
 	To->bElderFirstGiftGiven = From->bElderFirstGiftGiven;
 	To->bElderHookShown     = From->bElderHookShown;
 	To->bElderNotebookHintShown = From->bElderNotebookHintShown;
