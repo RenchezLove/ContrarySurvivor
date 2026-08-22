@@ -210,13 +210,29 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Elder")
 	float InteractRadius = 220.0f;
 
-	// Квест 1 (DRAFT: «Шкуры волков» — собрать 3 шкуры, награда 150). Тюнингуется в редакторе.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest", meta = (DisplayPriority = "2"))
+	// ADR-075 (группа 6): квесты старосты берутся из таблицы квестов DT_Quests по именам
+	// строк ниже. Строка нашлась и собралась (включая разрешение предмета цели через таблицу
+	// предметов) — она ГЛАВНЕЕ конструкторных значений; нет — прежние значения из кода
+	// (мягкая деградация, игра работает без таблиц). Сверка лида 22.08 (тройной дамп
+	// elder_quests/elder_instance): правок Рината на BP_Elder нет, в таблицу переезжают
+	// конструкторные значения как есть.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "1",
+		DisplayName = "Первый квест (строка таблицы квестов)"))
+	FName FirstQuestRow = FName(TEXT("KillWolves"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "2",
+		DisplayName = "Второй квест (строка таблицы квестов)"))
+	FName SecondQuestRow = FName(TEXT("ClearBanditBase"));
+
+	// Квест 1 («Шкуры волков»: 3 шкуры, награда 200 — ADR-065). ADR-075: VisibleAnywhere
+	// (было EditAnywhere) — источник теперь таблица квестов, вторая редактируемая копия
+	// того же квеста была бы запрещённым дублем (п.5 ТЗ). Поле видно для отладки.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (DisplayPriority = "3"))
 	FQuest OfferedQuest;
 
-	// Квест 2 (DRAFT: «Зачистить базу бандитов» — убить 3 бандитов + принести Ноутбук, награда 250).
-	// Выдаётся ПОСЛЕ сдачи кв.1 (GetQuestForPlayer). Тюнингуется в редакторе.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest")
+	// Квест 2 («Зачистить базу бандитов»: 3 бандита + Ноутбук, награда 250). Выдаётся ПОСЛЕ
+	// сдачи кв.1 (GetQuestForPlayer). ADR-075: VisibleAnywhere — источник = таблица (см. выше).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest SecondQuest;
 
 	// Сценка после сдачи кв.2 (Build 1.2, формулировка Рината 07-31): реплика 1 — сюжетный

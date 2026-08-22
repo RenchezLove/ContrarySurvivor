@@ -23,7 +23,10 @@
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
 #include "ContrarySurvivor/Data/ContraryItemRow.h"
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"
+#include "ContrarySurvivor/Data/ContraryQuestRow.h"
+#include "ContrarySurvivor/Data/ContraryQuestLibrary.h"
 #include "ContrarySurvivor/Data/ContraryDataSettings.h"
+#include "ContrarySurvivor/Components/QuestComponent.h"
 #include "AConsumableItem.h"
 #include "AArmorTiers.h"
 #include "AAmmoItem.h"
@@ -417,6 +420,76 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 		HingeAfter.Equals(Hinge, 0.05f));
 
 	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 6. Таблица квестов (группа 6): FQuest собирается из строки, предмет цели
+//    разрешается ЧЕРЕЗ таблицу предметов в старый служебный ключ (ADR-050/069);
+//    неразрешимая ссылка на предмет — квест из таблицы НЕ собирается (атомарность)
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsQuestRowTest,
+	"ContrarySurvivor.ContentTools.QuestRowBuildsQuest", ContentToolsTestFlags)
+
+bool FContentToolsQuestRowTest::RunTest(const FString& Parameters)
+{
+	// Таблица предметов: шкура волка (LegacyKey — тот же ключ, что дропает волк).
+	UDataTable* ItemTable = NewObject<UDataTable>(GetTransientPackage(), TEXT("DT_ItemsForQuestQA"));
+	ItemTable->RowStruct = FContraryItemRow::StaticStruct();
+	FContraryItemRow PeltRow;
+	PeltRow.LegacyKey = TEXT("Шкура волка");
+	PeltRow.Category = EItemCategory::Quest;
+	ItemTable->AddRow(FName(TEXT("wolf_pelt")), PeltRow);
+
+	// Таблица квестов: аналог первого квеста старосты (значения из сверки лида 22.08).
+	UDataTable* QuestTable = NewObject<UDataTable>(GetTransientPackage(), TEXT("DT_QuestsForQA"));
+	QuestTable->RowStruct = FContraryQuestRow::StaticStruct();
+	FContraryQuestRow Q1;
+	Q1.Title = FText::FromString(TEXT("Шкуры волков (тест)"));
+	Q1.Type = EQuestType::Collect;
+	Q1.RequiredItemRow = FName(TEXT("wolf_pelt"));
+	Q1.RequiredItemCount = 3;
+	Q1.MapMarkerTag = FName(TEXT("WolfDen"));
+	Q1.RewardMoney = 200.0f;
+	QuestTable->AddRow(FName(TEXT("KillWolves")), Q1);
+	// Строка с БИТОЙ ссылкой на предмет (нет в таблице предметов).
+	FContraryQuestRow QBroken;
+	QBroken.RequiredItemRow = FName(TEXT("no_such_item"));
+	QBroken.RequiredItemCount = 1;
+	QuestTable->AddRow(FName(TEXT("BrokenQuest")), QBroken);
+
+	// Подставляем обе таблицы в настройки проекта НА ВРЕМЯ теста (CDO — вернуть обязательно).
+	UContraryDataSettings* Settings = GetMutableDefault<UContraryDataSettings>();
+	const TSoftObjectPtr<UDataTable> SavedItems = Settings->ItemTable;
+	const TSoftObjectPtr<UDataTable> SavedQuests = Settings->QuestTable;
+	Settings->ItemTable = ItemTable;
+	Settings->QuestTable = QuestTable;
+
+	FQuest Built;
+	const bool bBuilt = ContraryQuests::BuildQuestFromRow(FName(TEXT("KillWolves")), Built);
+	TestTrue(TEXT("Квест собрался из строки таблицы"), bBuilt);
+	if (bBuilt)
+	{
+		TestEqual(TEXT("QuestId = имя строки"), Built.QuestId, FName(TEXT("KillWolves")));
+		// ГЛАВНЫЙ контракт (ADR-050/069): ссылка на строку предметов разрешилась в СТАРЫЙ
+		// служебный ключ — рантайм-сравнение с ItemName предметов остаётся посимвольным.
+		TestEqual(TEXT("Предмет цели разрешён в служебный ключ через таблицу предметов"),
+			Built.RequiredItemName, FString(TEXT("Шкура волка")));
+		TestEqual(TEXT("Количество предметов — из строки"), Built.RequiredItemCount, 3);
+		TestEqual(TEXT("Награда — из строки"), Built.RewardMoney, 200.0f);
+		TestEqual(TEXT("Метка карты — из строки"), Built.MapMarkerTag, FName(TEXT("WolfDen")));
+		TestTrue(TEXT("Свежий квест не начат"), Built.State == EQuestState::NotStarted
+			&& Built.Progress == 0 && Built.ItemProgress == 0);
+	}
+
+	// Битая ссылка на предмет — сборка честно отказывает (вызывающий останется на коде).
+	FQuest BuiltBroken;
+	TestFalse(TEXT("Квест с неразрешимым предметом цели из таблицы НЕ собирается"),
+		ContraryQuests::BuildQuestFromRow(FName(TEXT("BrokenQuest")), BuiltBroken));
+
+	// Вернуть настройки (CDO переживает тест).
+	Settings->ItemTable = SavedItems;
+	Settings->QuestTable = SavedQuests;
 	return true;
 }
 

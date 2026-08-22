@@ -7,6 +7,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"          // признак «подарок уже выдан»
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // тост «Получено: Бинт»
+#include "ContrarySurvivor/Data/ContraryQuestLibrary.h"      // ADR-075: квесты из таблицы DT_Quests
 
 AElderNPC::AElderNPC()
 {
@@ -195,6 +196,21 @@ void AElderNPC::PostInitializeComponents()
 		{
 			LegsMesh->SetLeaderPoseComponent(Head);
 		}
+	}
+
+	// ADR-075 (группа 6): квесты — из таблицы DT_Quests по именам строк с экземпляра
+	// (FirstQuestRow/SecondQuestRow уже несут значения BP/размещённого старосты). Строка
+	// собралась (включая разрешение предмета цели через таблицу предметов) — перекрывает
+	// конструкторные значения; нет — остаются прежние из кода. Дальше квест живёт как
+	// раньше: OfferQuest -> журнал игрока -> сейв полного FQuest (совместимо, ADR-075 §б).
+	FQuest QuestFromTable;
+	if (ContraryQuests::BuildQuestFromRow(FirstQuestRow, QuestFromTable))
+	{
+		OfferedQuest = QuestFromTable;
+	}
+	if (ContraryQuests::BuildQuestFromRow(SecondQuestRow, QuestFromTable))
+	{
+		SecondQuest = QuestFromTable;
 	}
 }
 
