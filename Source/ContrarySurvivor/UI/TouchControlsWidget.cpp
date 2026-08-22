@@ -655,9 +655,11 @@ void UTouchControlsWidget::UpdateCompass(const FGeometry& MyGeometry)
 			if (!NorthXY.IsNearlyZero())
 			{
 				const FVector NorthPoint = Base + FVector(NorthXY.X, NorthXY.Y, 0.0f) * 500.0f;
+				// ProjectWorldLocationToScreen — сверено с PlayerController.h:743 (UE 5.5);
+				// «ProjectWorldToScreen» — статик UGameplayStatics с другой сигнатурой (урок 22.08).
 				FVector2D ScreenBase, ScreenNorth;
-				if (OwnerPC->ProjectWorldToScreen(Base, ScreenBase)
-					&& OwnerPC->ProjectWorldToScreen(NorthPoint, ScreenNorth))
+				if (OwnerPC->ProjectWorldLocationToScreen(Base, ScreenBase)
+					&& OwnerPC->ProjectWorldLocationToScreen(NorthPoint, ScreenNorth))
 				{
 					const FVector2D ScreenDir = ScreenNorth - ScreenBase;
 					if (ScreenDir.SizeSquared() > 1.0f)
