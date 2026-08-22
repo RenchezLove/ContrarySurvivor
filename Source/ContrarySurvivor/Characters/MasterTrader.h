@@ -63,6 +63,15 @@ public:
 	virtual FText GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
 	virtual float GetNPCMarkerZOffset() const override { return NPCMarkerZOffset; }
 
+	// QA-доступ (паттерн *ForQA из AEnemyAIController): подменить состав прайс-листа и
+	// пересобрать каталог — headless-тест пути таблицы (ADR-075) зовёт РЕАЛЬНЫЙ
+	// RebuildCatalog, а не его копию (анти-галлюцинация). В игровом коде не вызывается.
+	void RebuildCatalogWithRowsForQA(const TArray<FShopCatalogRef>& Rows)
+	{
+		CatalogRows = Rows;
+		RebuildCatalog();
+	}
+
 	// --- Урон: неубиваемость собственными средствами (override, БЕЗ повтора UFUNCTION-макроса) ---
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 		AController* EventInstigator, AActor* DamageCauser) override;
@@ -106,15 +115,26 @@ protected:
 
 	// --- Прайс-лист и выкуп (как у ATraderNPC, GDD §7.6 — DRAFT на тюнинг) ---
 
-	// Каталог пересобирается в BeginPlay (RebuildCatalog) с ценами Price* ниже — так работает
-	// настройка на РАЗМЕЩЁННОМ экземпляре BP_Trader (значения из конструктора её бы не видели).
-	// Ручные правки строк каталога в редакторе рантайм не переживают — цены крутить через Price*.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop", meta = (DisplayPriority = "2"))
+	// ADR-075 (спека, группа 5): состав прайс-листа как список ссылок на строки таблицы
+	// предметов DT_Items. Дефолт (конструктор) = прежние 15 позиций. RebuildCatalog строит
+	// Catalog ИЗ ЭТОГО списка по таблице (цена из строки, PriceOverride главнее) — правки
+	// состава/цен на размещённом BP_Trader теперь ПЕРЕЖИВАЮТ рантайм. Таблица не назначена
+	// (UContraryDataSettings) или ни одна ссылка не разрешилась — откат на прежний зашитый
+	// прайс (BuildLegacyCatalog), магазин не пустеет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "2",
+		DisplayName = "Состав прайс-листа (строки таблицы предметов)",
+		ToolTip = "Какие строки таблицы предметов продаёт этот торговец и по какой цене (цена меньше нуля = из таблицы). Пусто или таблица не назначена = встроенный прайс из кода."))
+	TArray<FShopCatalogRef> CatalogRows;
+
+	// Собранный каталог (то, что рисует магазин). Заполняется в RebuildCatalog из CatalogRows
+	// (путь таблицы) либо BuildLegacyCatalog (прежний зашитый прайс). Руками не редактируется.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Shop", meta = (DisplayPriority = "3"))
 	TArray<FShopEntry> Catalog;
 
 	// Цена СЛОТА брони по тирам (ADR-042, Ринат 2026-07-11: Т1≈50 / Т2≈120 / Т3≈250 за слот).
-	// Тюнинг из редактора без пересборки; применяется ко всем трём слотам тира в RebuildCatalog.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "3", ClampMin = "0.0"))
+	// ⚠ ADR-075: действует ТОЛЬКО в запасном зашитом прайсе (BuildLegacyCatalog). С таблицей
+	// предметов цена брони живёт в строке таблицы (Price) — эти три поля переходные.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "4", ClampMin = "0.0"))
 	float PriceArmorT1 = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "4", ClampMin = "0.0"))
@@ -177,10 +197,19 @@ protected:
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-	// (Пере)заполняет Catalog товарами по GDD §7.6 + броня Т1-Т3 по ценам Price* (ADR-042).
-	// Зовётся из конструктора (дефолты CDO — видны в редакторе) И из BeginPlay (значения
-	// с размещённого экземпляра; заодно перетирает устаревший сериализованный каталог BP).
+	// (Пере)заполняет Catalog. ADR-075: сначала пробует путь таблицы (BuildCatalogFromRows по
+	// CatalogRows), при неудаче — прежний зашитый прайс (BuildLegacyCatalog). Зовётся из
+	// конструктора (дефолты CDO — видны в редакторе) И из BeginPlay (значения с размещённого
+	// экземпляра BP_Trader).
 	void RebuildCatalog();
+
+	// Путь таблицы (ADR-075): собирает Catalog из CatalogRows по строкам DT_Items.
+	// true = собралась хотя бы одна позиция (битые ссылки пропущены с предупреждением).
+	bool BuildCatalogFromRows();
+
+	// Прежний зашитый прайс (GDD §7.6 + броня Т1-Т3 по ценам Price*, ADR-042) — фолбэк,
+	// когда таблица предметов не назначена или список ссылок пуст/битый.
+	void BuildLegacyCatalog();
 
 	// Применяет TraderMaxHealth к инлайн Health/MaxHealth базы (огромный запас).
 	void ApplyTraderHealth();

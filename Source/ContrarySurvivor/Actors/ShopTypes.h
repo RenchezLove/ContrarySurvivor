@@ -69,4 +69,35 @@ struct FShopEntry
 	// Для Kind=Ammo: сколько патронов добавить в резерв.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
 	int32 AmmoAmount = 0;
+
+	// ADR-075: имя строки таблицы предметов DT_Items, из которой собрана эта позиция.
+	// NAME_None = позиция собрана по-старому (без таблицы). Непустое — покупка накладывает
+	// на купленный предмет данные строки (ключ/название/иконку/меш/стак/броню) через
+	// ContraryItems::ApplyRowToItem, а не только имя и тип, как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	FName ItemRow;
+};
+
+/**
+ * Ссылка позиции каталога торговца на строку таблицы предметов DT_Items (ADR-075, спека
+ * spec-datatables-phase2.md, группа 5). Каталог торговца из массива таких ссылок строит
+ * AMasterTrader::RebuildCatalog: цена и вид позиции берутся из строки таблицы, поэтому
+ * правки каталога в редакторе больше НЕ перетираются кодом (прежняя боль: RebuildCatalog
+ * пересобирал массив Catalog в BeginPlay и стирал правки).
+ */
+USTRUCT(BlueprintType)
+struct FShopCatalogRef
+{
+	GENERATED_BODY()
+
+	// Имя строки таблицы предметов (water_bottle, knife, armor_t1_head, …).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "1",
+		DisplayName = "Строка таблицы предметов"))
+	FName ItemRow;
+
+	// Цена ИМЕННО у этого торговца. Меньше нуля = брать цену из строки таблицы (обычный
+	// случай); ноль и больше — перекрыть (задел под «дорогого» торговца).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "2",
+		DisplayName = "Цена у этого торговца (<0 = из таблицы)"))
+	float PriceOverride = -1.0f;
 };

@@ -10,6 +10,8 @@
 #include "AArmorTiers.h" // броня Т1-Т3 (9 классов; старая _01 из каталога убрана — ADR-042)
 #include "APistol.h"
 #include "AMeleeWeapon.h"
+#include "AAmmoItem.h" // распознавание позиции патронов по классу (путь таблицы, ADR-075)
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h" // строки таблицы предметов DT_Items (ADR-075)
 
 AMasterTrader::AMasterTrader()
 {
@@ -52,6 +54,23 @@ AMasterTrader::AMasterTrader()
 	// цену пистолета, и у охоты появляется понятная цель. Категорию предмета не трогаем:
 	// шкура остаётся квестовой (её нельзя съесть и она не теряется при смерти).
 	SpecialSellValues.Add(TEXT("Шкура волка"), 15.0f);
+
+	// ADR-075: дефолтный состав прайс-листа ССЫЛКАМИ на строки таблицы предметов DT_Items —
+	// те же 15 позиций, что в зашитом прайсе (BuildLegacyCatalog). Имена строк = прежние
+	// латинские AnalyticsId (решение лида 22.08). Цена -1 = из таблицы. Пока таблица не
+	// назначена в настройках проекта, RebuildCatalog сам откатится на зашитый прайс.
+	const TCHAR* DefaultRows[] = {
+		TEXT("water_bottle"), TEXT("canned_food"), TEXT("bandage"), TEXT("ammo_9mm"),
+		TEXT("knife"), TEXT("pistol"),
+		TEXT("armor_t1_head"), TEXT("armor_t1_torso"), TEXT("armor_t1_pants"),
+		TEXT("armor_t2_head"), TEXT("armor_t2_torso"), TEXT("armor_t2_pants"),
+		TEXT("armor_t3_head"), TEXT("armor_t3_torso"), TEXT("armor_t3_pants") };
+	for (const TCHAR* RowName : DefaultRows)
+	{
+		FShopCatalogRef Ref;
+		Ref.ItemRow = FName(RowName);
+		CatalogRows.Add(Ref);
+	}
 
 	RebuildCatalog();
 }
@@ -183,6 +202,21 @@ const FShopEntry* AMasterTrader::FindCatalogEntryForItem(const AMasterInventoryI
 	const AConsumableItem* Consumable = Cast<AConsumableItem>(Item);
 	const FShopEntry* BestChildMatch = nullptr;
 
+	// ADR-075: первый проход — по СЛУЖЕБНОМУ КЛЮЧУ (DisplayName позиции == ItemName предмета;
+	// ключ уходит в ItemName при покупке и задаётся конструкторами/таблицей). Ключ точнее
+	// класса: с таблицей несколько позиций могут делить один базовый BP-класс (вся броня
+	// одним классом), и классовый проход не смог бы их различить.
+	if (!Item->ItemName.IsEmpty())
+	{
+		for (const FShopEntry& Entry : Catalog)
+		{
+			if (Entry.Kind == EShopEntryKind::Item && Entry.DisplayName == Item->ItemName)
+			{
+				return &Entry;
+			}
+		}
+	}
+
 	for (const FShopEntry& Entry : Catalog)
 	{
 		// Патроны в прайс-листе — не предмет, а пополнение резерва: у них своя цена выкупа
@@ -256,6 +290,79 @@ float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const
 }
 
 void AMasterTrader::RebuildCatalog()
+{
+	// ADR-075: сначала путь таблицы (каталог из ссылок CatalogRows на строки DT_Items) —
+	// правки состава и цен на размещённом BP_Trader переживают рантайм. Таблица не
+	// назначена / список пуст / все ссылки битые — прежний зашитый прайс, магазин не пустеет.
+	if (BuildCatalogFromRows())
+	{
+		return;
+	}
+	BuildLegacyCatalog();
+}
+
+bool AMasterTrader::BuildCatalogFromRows()
+{
+	if (CatalogRows.Num() == 0 || !ContraryItems::GetItemTable())
+	{
+		return false;
+	}
+
+	Catalog.Reset();
+	for (const FShopCatalogRef& Ref : CatalogRows)
+	{
+		const FContraryItemRow* Row = ContraryItems::FindRow(Ref.ItemRow);
+		if (!Row)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("%s: в таблице предметов нет строки '%s' — позиция прайс-листа пропущена."),
+				*GetName(), *Ref.ItemRow.ToString());
+			continue;
+		}
+
+		UClass* ItemClass = Row->ItemClass.LoadSynchronous();
+		if (!ItemClass)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("%s: у строки '%s' таблицы предметов не задан класс — позиция прайс-листа пропущена."),
+				*GetName(), *Ref.ItemRow.ToString());
+			continue;
+		}
+
+		FShopEntry E;
+		E.ItemRow = Ref.ItemRow;
+		E.DisplayName = Row->GetEffectiveKey(Ref.ItemRow); // служебный ключ (уходит в ItemName)
+		E.DisplayText = Row->DisplayText;
+		E.AnalyticsId = Ref.ItemRow.ToString(); // имя строки И ЕСТЬ латинский ид аналитики
+		E.Price = (Ref.PriceOverride >= 0.0f) ? Ref.PriceOverride : Row->Price;
+
+		if (ItemClass->IsChildOf(AAmmoItem::StaticClass()))
+		{
+			// Патроны — позиция вида «пополнение», как в зашитом прайсе: единица покупки =
+			// один патрон в стак рюкзака (слайдер количества делает остальное).
+			E.Kind = EShopEntryKind::Ammo;
+			E.AmmoAmount = 1;
+		}
+		else
+		{
+			E.Kind = EShopEntryKind::Item;
+			E.ItemClass = ItemClass;
+			if (ItemClass->IsChildOf(AConsumableItem::StaticClass()))
+			{
+				// Вода/консервы/бинт стоят одним классом и различаются типом из строки.
+				E.bApplyConsumableType = true;
+				E.ConsumableType = Row->ConsumableType;
+			}
+		}
+		Catalog.Add(E);
+	}
+
+	// Хотя бы одна позиция собралась — путь таблицы состоялся. Ноль позиций при непустом
+	// списке ссылок = данные битые целиком, честнее откатиться на зашитый прайс.
+	return Catalog.Num() > 0;
+}
+
+void AMasterTrader::BuildLegacyCatalog()
 {
 	// Перенос дефолтного каталога ATraderNPC (GDD §7.6 — DRAFT-цены на тюнинг).
 	Catalog.Reset();

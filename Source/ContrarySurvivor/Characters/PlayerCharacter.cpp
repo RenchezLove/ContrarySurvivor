@@ -35,6 +35,7 @@
 #include "AAmmoItem.h" // патроны как стак-предмет рюкзака (Фаза 5)
 #include "ARangedWeapon.h"
 #include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry, EShopEntryKind (A2)
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-075: покупка накладывает строку таблицы предметов
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Actors/Campfire.h"  // смертельное возрождение — всегда у костра (вариант 1+3)
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
@@ -1338,6 +1339,18 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             if (!Bought)
             {
                 continue;
+            }
+
+            // ADR-075: позиция собрана из таблицы предметов — накладываем на купленный предмет
+            // ВСЮ строку (ключ/название/иконку/меш/лимит стака/слот-защиту-меш брони), а не
+            // только имя и тип, как ниже. Проверки ниже после этого тихо пропускаются
+            // (ItemName/ItemDisplayText уже заполнены) — двойной записи нет.
+            if (!Entry.ItemRow.IsNone())
+            {
+                if (const FContraryItemRow* Row = ContraryItems::FindRow(Entry.ItemRow))
+                {
+                    ContraryItems::ApplyRowToItem(*Bought, *Row, Entry.ItemRow);
+                }
             }
 
             // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
