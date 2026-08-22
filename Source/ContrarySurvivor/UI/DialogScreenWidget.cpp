@@ -9,6 +9,10 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // Build 1.2: запуск сообщения конца сюжета
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
+#include "Components/CanvasPanel.h"     // корневая канва — крестик закрытия кодом (ADR-076 п.3)
+#include "Components/CanvasPanelSlot.h" // геометрия кнопок: размер/позиция/Size to content
+#include "Blueprint/WidgetTree.h"       // ConstructWidget (крестик без правки ассета)
+#include "Styling/CoreStyle.h"          // шрифт знака крестика
 
 void UDialogScreenWidget::NativeOnInitialized()
 {
@@ -38,6 +42,53 @@ void UDialogScreenWidget::NativeOnInitialized()
 			!AcceptButton ? TEXT("AcceptButton ") : TEXT(""),
 			!CloseButton ? TEXT("CloseButton") : TEXT(""));
 	}
+
+	// ADR-076 п.3: крестик закрытия — всегда в углу, во всех состояниях и в интро.
+	CreateCloseCrossIfMissing();
+}
+
+void UDialogScreenWidget::CreateCloseCrossIfMissing()
+{
+	if (!bShowCloseCross)
+	{
+		return;
+	}
+
+	// Кубик уже есть (добавят в ассет позже) — только вешаем обработчик и подпись.
+	if (!DialogCloseCrossButton)
+	{
+		UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
+		if (!RootCanvas)
+		{
+			UE_LOG(LogQA, Warning,
+				TEXT("DialogScreenWidget: корень WBP_Dialog не канва — крестик закрытия не создан"));
+			return;
+		}
+
+		UButton* Cross = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DialogCloseCrossButton"));
+		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DialogCloseCrossText"));
+		Label->SetText(CloseCrossLabel);
+		Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", CloseCrossFontSize));
+		Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+		Cross->SetContent(Label);
+		if (UCanvasPanelSlot* CrossSlot = RootCanvas->AddChildToCanvas(Cross))
+		{
+			CrossSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f)); // правый-верхний угол экрана
+			CrossSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			CrossSlot->SetPosition(FVector2D(-CloseCrossMargin.X, CloseCrossMargin.Y));
+			CrossSlot->SetSize(FVector2D(CloseCrossSize, CloseCrossSize));
+			CrossSlot->SetZOrder(10); // поверх содержимого диалога — угол должен быть досягаем всегда
+		}
+		DialogCloseCrossButton = Cross;
+		DialogCloseCrossText = Label;
+	}
+	else if (DialogCloseCrossText)
+	{
+		DialogCloseCrossText->SetText(CloseCrossLabel);
+	}
+
+	// Закрытие — тем же путём, что кнопка [Закрыть]: делегат OnCloseRequested у контроллера.
+	DialogCloseCrossButton->OnClicked.AddDynamic(this, &UDialogScreenWidget::HandleCloseClicked);
 }
 
 void UDialogScreenWidget::InitDialog(AElderNPC* InElder, APlayerCharacter* InPlayer)
@@ -67,6 +118,104 @@ void UDialogScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	RefreshDialog(); // внутри diff: перестраивает только при смене квеста/состояния
+
+	// ADR-076 п.3: геометрия кнопок — каждый тик (желаемый размер текста валиден только
+	// после раскладки, к первому Refresh её ещё не было), применение слотов — по гейту
+	// «реально изменилось» внутри.
+	FixButtonsGeometry();
+}
+
+void UDialogScreenWidget::FixButtonsGeometry()
+{
+	if (!bFixButtonGeometry)
+	{
+		return;
+	}
+
+	// Кнопка + её подпись (подписи привязаны кубиками; нет кубика — берём ребёнка кнопки).
+	struct FDialogButton
+	{
+		UButton* Button;
+		UTextBlock* Label;
+	};
+	FDialogButton AllButtons[] = {
+		{ AcceptButton, AcceptText }, { DeclineButton, DeclineText },
+		{ TurnInButton, TurnInText }, { CloseButton, CloseText } };
+
+	// Дизайнерские позиции — снимок ОДИН раз, до первой правки кодом: X каждой кнопки и
+	// точка самой верхней сохраняются как поставил Ринат, код правит только высоты и стык.
+	if (!bDesignerPositionsCached)
+	{
+		for (const FDialogButton& Entry : AllButtons)
+		{
+			if (Entry.Button)
+			{
+				if (const UCanvasPanelSlot* ButtonSlot = Cast<UCanvasPanelSlot>(Entry.Button->Slot))
+				{
+					DesignerButtonPositions.Add(Entry.Button, ButtonSlot->GetPosition());
+				}
+			}
+		}
+		bDesignerPositionsCached = true;
+	}
+
+	// Видимые кнопки с канвас-слотом, в порядке дизайнерского Y (кто выше — тот первый).
+	TArray<FDialogButton> Visible;
+	for (const FDialogButton& Entry : AllButtons)
+	{
+		if (Entry.Button && Entry.Button->GetVisibility() != ESlateVisibility::Collapsed
+			&& Cast<UCanvasPanelSlot>(Entry.Button->Slot) && DesignerButtonPositions.Contains(Entry.Button))
+		{
+			Visible.Add(Entry);
+		}
+	}
+	Visible.Sort([this](const FDialogButton& A, const FDialogButton& B)
+	{
+		return DesignerButtonPositions.FindRef(A.Button).Y < DesignerButtonPositions.FindRef(B.Button).Y;
+	});
+
+	float NextTop = 0.0f;
+	bool bFirst = true;
+	for (const FDialogButton& Entry : Visible)
+	{
+		UCanvasPanelSlot* ButtonSlot = Cast<UCanvasPanelSlot>(Entry.Button->Slot);
+
+		// Текст: перенос строк по фиксированной ширине кнопки — длинная реплика растит
+		// кнопку ВНИЗ, не вширь и не вылезает за края (требование Рината дословно).
+		UTextBlock* Label = Entry.Label ? Entry.Label : Cast<UTextBlock>(Entry.Button->GetContent());
+		float ButtonHeight = DialogButtonMinHeight;
+		if (Label)
+		{
+			Label->SetAutoWrapText(true);
+			Label->SetWrapTextAt(FMath::Max(50.0f, DialogButtonWidth - DialogButtonTextPadding.X * 2.0f));
+			Label->ForceLayoutPrepass();
+			const FVector2D TextSize = Label->GetDesiredSize();
+			ButtonHeight = FMath::Max(DialogButtonMinHeight, TextSize.Y + DialogButtonTextPadding.Y * 2.0f);
+		}
+
+		// Позиция: X и точка ПЕРВОЙ кнопки — дизайнерские; каждая следующая — под предыдущей
+		// с зазором (кнопки не наезжают). Выравнивание слота уважаем: Position задаёт точку
+		// выравнивания, верхний край = Position.Y - Alignment.Y * высота.
+		const FVector2D DesignerPos = DesignerButtonPositions.FindRef(Entry.Button);
+		const FVector2D Alignment = ButtonSlot->GetAlignment();
+		const float Top = bFirst ? (DesignerPos.Y - Alignment.Y * ButtonHeight) : NextTop;
+		bFirst = false;
+		NextTop = Top + ButtonHeight + DialogButtonSpacing;
+
+		const FVector2D NewSize(DialogButtonWidth, ButtonHeight);
+		const FVector2D NewPos(DesignerPos.X, Top + Alignment.Y * ButtonHeight);
+
+		// Применяем только при реальном изменении — не дёргаем раскладку каждый кадр.
+		if (!LastAppliedButtonSize.FindRef(Entry.Button).Equals(NewSize, 0.5f)
+			|| !LastAppliedButtonPos.FindRef(Entry.Button).Equals(NewPos, 0.5f))
+		{
+			ButtonSlot->SetAutoSize(false); // (г): «Size to content», ужимавший кнопку, выключен
+			ButtonSlot->SetSize(NewSize);
+			ButtonSlot->SetPosition(NewPos);
+			LastAppliedButtonSize.Add(Entry.Button, NewSize);
+			LastAppliedButtonPos.Add(Entry.Button, NewPos);
+		}
+	}
 }
 
 void UDialogScreenWidget::RefreshDialog()

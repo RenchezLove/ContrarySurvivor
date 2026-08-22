@@ -84,6 +84,58 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Texts", meta = (DisplayPriority = "8"))
 	FText AcceptButtonLabel = NSLOCTEXT("Dialog", "AcceptButtonLabel", "Принять");
 
+	// --- Геометрия кнопок (ADR-076 п.3, Ринат: кнопки крупные для пальца, текст не выходит
+	// за кнопку, кнопки не наезжают). Чинится КОДОМ поверх раскладки дизайнера: ширина кнопки
+	// фиксируется, длинная реплика переносится строками и растит кнопку ВНИЗ, видимые кнопки
+	// раскладываются друг под другом от места самой верхней (позиции Рината по X и первой
+	// кнопке сохраняются). «Size to content», ужимавший кнопку в точку, выключается. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Кнопки", meta = (DisplayPriority = "1",
+		DisplayName = "Чинить геометрию кнопок кодом"))
+	bool bFixButtonGeometry = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Кнопки", meta = (ClampMin = "120.0", DisplayPriority = "2",
+		DisplayName = "Ширина кнопки, px",
+		ToolTip = "Кнопка держит эту ширину; длинная реплика переносится строками и растит кнопку ВНИЗ, не вширь."))
+	float DialogButtonWidth = 460.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Кнопки", meta = (ClampMin = "40.0", DisplayPriority = "3",
+		DisplayName = "Минимальная высота кнопки, px (под палец)"))
+	float DialogButtonMinHeight = 88.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Кнопки", meta = (DisplayPriority = "4",
+		DisplayName = "Внутренний отступ текста от краёв кнопки, px"))
+	FVector2D DialogButtonTextPadding = FVector2D(28.0f, 18.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Кнопки", meta = (ClampMin = "0.0", DisplayPriority = "5",
+		DisplayName = "Зазор между кнопками, px"))
+	float DialogButtonSpacing = 16.0f;
+
+	// --- Крестик закрытия — ВСЕГДА в углу экрана (ADR-076 п.3). Кубика в ассете нет — код
+	// создаёт его сам (паттерн WeaponIconImage тач-слоя), ассет Рината не трогается; появятся
+	// кубики DialogCloseCrossButton/DialogCloseCrossText в WBP — код возьмёт их по именам. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Крестик", meta = (DisplayPriority = "1",
+		DisplayName = "Крестик закрытия всегда виден"))
+	bool bShowCloseCross = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Крестик", meta = (DisplayPriority = "2",
+		DisplayName = "Отступ крестика от правого-верхнего угла, px"))
+	FVector2D CloseCrossMargin = FVector2D(56.0f, 56.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Крестик", meta = (ClampMin = "40.0", DisplayPriority = "3",
+		DisplayName = "Размер крестика, px (под палец)"))
+	float CloseCrossSize = 72.0f;
+
+	// Знак «×» (U+00D7, есть в штатном шрифте) — не буква городов, читается крестиком.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Крестик", meta = (DisplayPriority = "4",
+		DisplayName = "Знак на крестике"))
+	FText CloseCrossLabel = NSLOCTEXT("Dialog", "CloseCross", "×");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Крестик", meta = (ClampMin = "8", DisplayPriority = "5",
+		DisplayName = "Кегль знака"))
+	int32 CloseCrossFontSize = 30;
+
 protected:
 	virtual void NativeOnInitialized() override;
 
@@ -174,7 +226,33 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CloseText;
 
+	// Крестик закрытия — всегда виден, во всех состояниях и в интро (ADR-076 п.3).
+	// Нет в WBP — создаётся кодом (CreateCloseCrossIfMissing).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> DialogCloseCrossButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DialogCloseCrossText;
+
+	// Создаёт крестик закрытия в корневой канве, если кубика нет в ассете, и во всех
+	// случаях вешает обработчик закрытия. Зовётся из NativeOnInitialized.
+	void CreateCloseCrossIfMissing();
+
+	// (в)+(г) ADR-076 п.3: фиксированная ширина + перенос текста + рост кнопки вниз + стек
+	// видимых кнопок без наездов. Зовётся каждый тик (дёшево: 4 кнопки, применение — только
+	// при реальном изменении размера/позиции).
+	void FixButtonsGeometry();
+
 private:
+	// Дизайнерские позиции кнопок (снимаются ОДИН раз до первой правки кодом — X и точка
+	// самой верхней кнопки сохраняются как задумал Ринат).
+	TMap<UButton*, FVector2D> DesignerButtonPositions;
+	bool bDesignerPositionsCached = false;
+
+	// Последние применённые размеры/позиции (гейт «не дёргать слоты каждый кадр без нужды»).
+	TMap<UButton*, FVector2D> LastAppliedButtonSize;
+	TMap<UButton*, FVector2D> LastAppliedButtonPos;
+
 	UPROPERTY()
 	TObjectPtr<AElderNPC> Elder;
 
