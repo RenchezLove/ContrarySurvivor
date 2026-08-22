@@ -15,6 +15,37 @@ class APlayerCharacter;
 class UCorpseLootComponent;
 
 /**
+ * Одна запись СПИСКА содержимого размещённого пикапа (ADR-076 п.10, Ринат дословно: «Я хочу
+ * что бы число предметов можно было задать, как и сами предметы. В списке предметов...
+ * не нашел воду»). Предмет задаётся ЛИБО строкой таблицы предметов DT_Items (вода уже там —
+ * water_bottle; раньше воду нельзя было выбрать вовсе: выбор шёл по классам, а вода — тип
+ * расходника, не класс), ЛИБО классом по-старому. Строка главнее класса.
+ */
+USTRUCT(BlueprintType)
+struct FPlacedLootEntry
+{
+	GENERATED_BODY()
+
+	// Строка таблицы предметов (water_bottle, canned_food, bandage, ammo_9mm, wolf_pelt…).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "1",
+		DisplayName = "Предмет (строка таблицы предметов)",
+		ToolTip = "Имя строки таблицы предметов DT_Items — так задаются и вода, и консервы, и любой новый предмет без кода. Заполнено — поле класса ниже не смотрится."))
+	FName ItemRow;
+
+	// Запасной путь по-старому: класс предмета (для предметов вне таблицы).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2",
+		DisplayName = "…или класс предмета",
+		ToolTip = "Класс предмета, если строка таблицы не задана. Работает как прежнее поле «Что лежит внутри»."))
+	TSubclassOf<AMasterInventoryItem> ItemClass;
+
+	// Сколько штук этого предмета положить.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "1", DisplayPriority = "3",
+		DisplayName = "Сколько штук",
+		ToolTip = "Стакаемые предметы (патроны, расходники, шкуры) лягут ОДНИМ предметом с этим счётчиком, нестакаемые (броня, оружие) — столькими копиями."))
+	int32 Count = 1;
+};
+
+/**
  * Подбираемый лут (Фаза 4, экономика — GDD §7.8: «враги дают деньги/изношенное оружие»).
  *
  * Один актор-пикап может нести ДЕНЬГИ и/или ПРЕДМЕТЫ. Весь лут лежит в контейнере
@@ -135,6 +166,15 @@ protected:
 	// BeginPlay спавнит предметы скрытыми (как DropLoot) и складывает их в контейнер
 	// обыска вместе с деньгами — дальше всё идёт общим путём (окно обыска или Collect).
 
+	// ADR-076 п.10: СПИСОК содержимого — сколько угодно разных предметов с количествами.
+	// Непустой список ГЛАВНЕЕ одиночных полей ниже (те остаются как есть — они уже
+	// расставлены на картах, поведение старых пикапов не меняется).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2",
+		TitleProperty = "ItemRow",
+		DisplayName = "Содержимое СПИСКОМ (много предметов)",
+		ToolTip = "Список предметов мешка: каждая запись — предмет (строкой таблицы предметов или классом) и количество. Непустой список отменяет одиночные поля «Что лежит внутри»/«Сколько штук»/«Патронов внутри» ниже. Деньги — отдельным полем, как раньше."))
+	TArray<FPlacedLootEntry> PlacedLootList;
+
 	// Класс стартового предмета (nullptr = предмета нет). Особый случай: класс патронов
 	// (AAmmoItem) спавнится ОДНОЙ пачкой со стаком PlacedItemCount, а не N пустыми копиями.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (DisplayPriority = "2",
@@ -188,11 +228,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pickup", meta = (ClampMin = "0.0", DisplayName = "Период пульсации (сек, 0 = ровное)", DisplayPriority = "9", EditCondition = "bGlowEnabled"))
 	float GlowPulsePeriod = 2.0f;
 
+public:
+	// QA-доступ (паттерн *ForQA): подменить список содержимого ДО BeginPlay (deferred-спавн
+	// в headless-тесте). В игровом коде не вызывается — список заполняет дизайнер в редакторе.
+	void SetPlacedLootListForQA(const TArray<FPlacedLootEntry>& List) { PlacedLootList = List; }
+
 private:
 	// D8: спавнит размещённый лут (PlacedItemClass/PlacedAmmoAmount) скрытыми предметами
 	// и складывает его вместе с «Денег внутри» в контейнер обыска. Зовётся из BeginPlay
 	// только в игровом мире.
 	void SpawnPlacedLoot();
+
+	// ADR-076 п.10: путь СПИСКА (PlacedLootList непуст) — предметы строками таблицы/классами
+	// с количествами; стакаемые — одним предметом со счётчиком, нестакаемые — копиями.
+	void SpawnPlacedLootFromList();
 
 	// Из контейнера что-то забрали (окно обыска). Опустевший мешок исчезает — ровно так же,
 	// как раньше исчезал сразу после подбора.

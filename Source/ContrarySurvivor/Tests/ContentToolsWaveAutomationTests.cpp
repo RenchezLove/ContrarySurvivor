@@ -21,6 +21,9 @@
 #include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
+#include "ContrarySurvivor/Actors/Pickup.h"                    // список содержимого мешка (ADR-076 п.10)
+#include "ContrarySurvivor/Components/CorpseLootComponent.h"   // проверка содержимого контейнера
+#include "Kismet/GameplayStatics.h"                            // FinishSpawningActor (deferred-спавн пикапа)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h" // ComputeCompassScreenAngleDeg (компас, ADR-076 п.5)
 #include "ContrarySurvivor/Data/ContraryItemRow.h"
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"
@@ -539,6 +542,99 @@ bool FContentToolsCompassAngleTest::RunTest(const FString& Parameters)
 	// Длина вектора на угол не влияет (проекция может дать любой масштаб).
 	TestTrue(TEXT("Масштаб вектора не меняет угол"), FMath::IsNearlyEqual(
 		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(250.0f, 0.0f)), 90.0f, 0.01f));
+	return true;
+}
+
+// ===========================================================================
+// 8. Мешок лута списком (ADR-076 п.10): много предметов с количествами; предмет
+//    строкой таблицы предметов (вода!) или классом; стакаемые — одним предметом
+//    со счётчиком, нестакаемые — копиями
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsPickupLootListTest,
+	"ContrarySurvivor.ContentTools.PickupLootList", ContentToolsTestFlags)
+
+bool FContentToolsPickupLootListTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	// Таблица предметов в памяти: вода (тот случай, которого Ринату не хватало в выпадашке).
+	UDataTable* Table = NewObject<UDataTable>(GetTransientPackage(), TEXT("DT_ItemsForPickupQA"));
+	Table->RowStruct = FContraryItemRow::StaticStruct();
+	FContraryItemRow WaterRow;
+	WaterRow.LegacyKey = AConsumableItem::GetDefaultDisplayName(EConsumableType::Water);
+	WaterRow.DisplayText = FText::FromString(TEXT("Вода (тест)"));
+	WaterRow.ItemClass = AConsumableItem::StaticClass();
+	WaterRow.Category = EItemCategory::Consumable;
+	WaterRow.ConsumableType = EConsumableType::Water;
+	Table->AddRow(FName(TEXT("water_bottle")), WaterRow);
+
+	UContraryDataSettings* Settings = GetMutableDefault<UContraryDataSettings>();
+	const TSoftObjectPtr<UDataTable> SavedTable = Settings->ItemTable;
+	Settings->ItemTable = Table;
+
+	// Пикап deferred-спавном: список наполняется ДО BeginPlay (как значения дизайнера с карты).
+	const FTransform SpawnTM(FVector(0.0f, 0.0f, 100.0f));
+	APickup* Pickup = World->SpawnActorDeferred<APickup>(APickup::StaticClass(), SpawnTM);
+	if (!Pickup)
+	{
+		AddError(TEXT("Не заспавнен пикап (deferred)"));
+		Settings->ItemTable = SavedTable;
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	TArray<FPlacedLootEntry> List;
+	FPlacedLootEntry WaterEntry;
+	WaterEntry.ItemRow = FName(TEXT("water_bottle"));
+	WaterEntry.Count = 3; // стакаемый расходник -> ОДИН предмет со счётчиком 3
+	List.Add(WaterEntry);
+	FPlacedLootEntry ArmorEntry;
+	ArmorEntry.ItemClass = AHeadArmorT1::StaticClass();
+	ArmorEntry.Count = 2; // нестакаемая броня -> ДВЕ копии
+	List.Add(ArmorEntry);
+	Pickup->SetPlacedLootListForQA(List);
+
+	UGameplayStatics::FinishSpawningActor(Pickup, SpawnTM); // BeginPlay -> SpawnPlacedLoot
+
+	UCorpseLootComponent* Container = Pickup->GetLootContainer();
+	if (!Container)
+	{
+		AddError(TEXT("У пикапа нет контейнера обыска"));
+	}
+	else
+	{
+		const TArray<AMasterInventoryItem*> Items = Container->GetLootItems();
+		TestEqual(TEXT("В мешке 3 предмета-актора: вода одним стаком + 2 копии брони"),
+			Items.Num(), 3);
+
+		int32 WaterActors = 0;
+		int32 ArmorActors = 0;
+		for (AMasterInventoryItem* Item : Items)
+		{
+			if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+			{
+				++WaterActors;
+				TestEqual(TEXT("Вода: счётчик стака = 3 (одним предметом)"), Cons->GetStackCount(), 3);
+				TestEqual(TEXT("Вода: тип из строки таблицы"), Cons->ConsumableType, EConsumableType::Water);
+				TestEqual(TEXT("Вода: служебный ключ из строки (стак сольётся с купленной)"),
+					Cons->ItemName, WaterRow.LegacyKey);
+			}
+			else if (Cast<AHeadArmorT1>(Item))
+			{
+				++ArmorActors;
+			}
+		}
+		TestEqual(TEXT("Вода — один актор"), WaterActors, 1);
+		TestEqual(TEXT("Броня — две копии"), ArmorActors, 2);
+	}
+
+	Settings->ItemTable = SavedTable;
+	ContentToolsTestWorld::Destroy(World);
 	return true;
 }
 
