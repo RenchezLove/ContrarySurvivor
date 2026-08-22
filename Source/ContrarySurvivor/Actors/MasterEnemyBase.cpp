@@ -183,14 +183,15 @@ void AMasterEnemyBase::CheckActivation()
 		}
 		if (bEntered)
 		{
-			ShowEntryAnnounce();
+			// База занимается прямо на этом входе (спавн запланирован) — надпись с фразой ступени.
+			ShowEntryAnnounce(/*bBaseOccupied=*/true);
 		}
 		break;
 
 	case EEnemyBaseOccupancy::Occupied:
 		if (bEntered)
 		{
-			ShowEntryAnnounce();
+			ShowEntryAnnounce(/*bBaseOccupied=*/true);
 		}
 		// ПОЛНАЯ зачистка = все заспавненные мертвы (побег/смерть игрока ничего не меняют —
 		// враги-то живы, ТЗ §2).
@@ -201,6 +202,12 @@ void AMasterEnemyBase::CheckActivation()
 		break;
 
 	case EEnemyBaseOccupancy::Cleared:
+		// Поправка лида 22.08: и у ПУСТОЙ базы при входе показывается НАЗВАНИЕ места —
+		// игрок понимает, куда пришёл; фразы ступени и цифры нет (база-то пуста).
+		if (bEntered)
+		{
+			ShowEntryAnnounce(/*bBaseOccupied=*/false);
+		}
 		// Пауза по РЕАЛЬНЫМ часам (по зачищенной ступени). Переармирование ТОЛЬКО когда
 		// игрок ВНЕ радиуса — враги не появляются на глазах (ТЗ §6): сам спавн потом идёт
 		// штатной активацией на границе радиуса (вне видимости по конструкции).
@@ -629,7 +636,7 @@ void AMasterEnemyBase::SpawnRewardBag(int32 ClearedTier)
 		*GetName(), ClearedTier, Reward.Items.Num(), Reward.Money);
 }
 
-void AMasterEnemyBase::ShowEntryAnnounce()
+void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 {
 	// Название не задано (голый C++-актор) — объявлять нечего.
 	if (BaseDisplayName.IsEmpty())
@@ -665,16 +672,19 @@ void AMasterEnemyBase::ShowEntryAnnounce()
 	}
 	LastAnnounceTime = Now;
 
-	// §5: с 3-й ступени рядом номер «полупрозрачной цифрой, без скобок» — вторым планом.
-	const bool bShowDigit = CurrentTier >= 3;
-	AnnounceWidget->ShowAnnounce(
-		BuildAnnounceText(BaseDisplayName, AnnounceSeparator, Tier2Suffix, Tier3PlusSuffix, CurrentTier),
+	// Поправка лида 22.08: пустая база — ТОЛЬКО название; занятая — строка по ступени, и
+	// с 3-й рядом номер «полупрозрачной цифрой, без скобок» вторым планом (ТЗ §5).
+	const FText Line = bBaseOccupied
+		? BuildAnnounceText(BaseDisplayName, AnnounceSeparator, Tier2Suffix, Tier3PlusSuffix, CurrentTier)
+		: BaseDisplayName;
+	const bool bShowDigit = bBaseOccupied && CurrentTier >= 3;
+	AnnounceWidget->ShowAnnounce(Line,
 		FText::AsNumber(CurrentTier, &FNumberFormattingOptions::DefaultNoGrouping()),
 		bShowDigit, AnnounceFontSize, AnnounceColor,
 		AnnounceDigitFontSize, AnnounceDigitColor, AnnounceDuration);
 
-	UE_LOG(LogQA, Display, TEXT("QA: база '%s' — надпись входа показана (ступень %d)"),
-		*GetName(), CurrentTier);
+	UE_LOG(LogQA, Display, TEXT("QA: база '%s' — надпись входа показана (ступень %d, %s)"),
+		*GetName(), CurrentTier, bBaseOccupied ? TEXT("занята") : TEXT("пустая, только название"));
 }
 
 void AMasterEnemyBase::UpdateAmbientForState()
