@@ -24,7 +24,9 @@ public class ContrarySurvivor : ModuleRules
 		// строку настройки легко написать с опечаткой, и тогда загрузочный уровень тихо получил
 		// бы обычный режим игры вместе с персонажем и лесом. Engine тянет этот модуль публично,
 		// но для СВЯЗЫВАНИЯ его всё равно нужно назвать здесь явно (иначе LNK2019).
-		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore", "RenderCore", "RHI", "EngineSettings" });
+		// DeveloperSettings — UDeveloperSettings (UContraryDataSettings, ADR-075): ссылки на
+		// таблицы данных предметов/квестов на странице Project Settings (config=Game).
+		PrivateDependencyModuleNames.AddRange(new string[] { "AIModule", "GameplayTasks", "NavigationSystem", "Slate", "SlateCore", "RenderCore", "RHI", "EngineSettings", "DeveloperSettings" });
 
 		// Этап F3 (ADR-038): аналитика GameAnalytics. Подключаем ТОЛЬКО если плагин лежит в
 		// Plugins/ проекта — иначе код собирается с WITH_GAMEANALYTICS=0 и аналитика тихо
