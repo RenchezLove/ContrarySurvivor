@@ -126,6 +126,10 @@ void AContrarySurvivorPlayerController::BeginPlay()
 		{
 			PlayerCameraManager->SetManualCameraFade(1.0f, FLinearColor::Black, /*bInFadeAudio=*/false);
 		}
+
+		// ADR-076 п.4: музыка меню — с ПЕРВОГО кадра загрузочного уровня (ещё под
+		// заставкой-логотипом), а не с появления меню. Гейт знает про bOnBootLevel.
+		ApplyMenuMusicGate();
 	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
@@ -521,7 +525,15 @@ void AContrarySurvivorPlayerController::ApplyMenuMusicGate()
 	// Трек играет, пока на экране ЛЮБОЕ меню: пауза, главное меню или настройки поверх них
 	// (просьба Рината 08-09: «музыка должна играть и в главном меню»). Трек один и тот же,
 	// поле ссылки и поле громкости тоже одни — вторых не заводим.
-	const bool bWantMusic = bPauseMenuOpen || IsMainMenuOnScreen() || bHoldMenuMusicThroughTransition;
+	// ADR-076 п.4 (Ринат: «музыка начинала играть прямо в тот момент, когда показывается мой
+	// логотип»): на ЗАГРУЗОЧНОМ уровне трек играет ВСЕГДА с первого кадра — на телефоне это
+	// хвост показа заставки-логотипа (Build/Android/res/drawable/splashscreen_landscape.png
+	// гаснет на первом отрисованном кадре, а звук стартует в BeginPlay ещё под ней) — к
+	// появлению меню долгое вступление трека уже отыграло. Раньше движок звучать физически
+	// не может: пока заставка на экране, он ещё загружается. Заодно трек честно играет и на
+	// экране согласия, который на первом запуске стоит раньше меню.
+	const bool bWantMusic = bPauseMenuOpen || IsMainMenuOnScreen() || bHoldMenuMusicThroughTransition
+		|| bOnBootLevel;
 	if (bWantMusic)
 	{
 		StartPauseMusic(); // при уже играющем треке метод сам ничего не делает
