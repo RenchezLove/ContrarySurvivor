@@ -34,6 +34,11 @@ AWolfCharacter::AWolfCharacter()
 	// Build 1.2.1 (ТЗ А1): контейнер лута трупа в мастер-классе волка — BP-наследники
 	// получают обыск автоматически. Наполняется в DropLoot (из HandleDeath).
 	CorpseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("CorpseLoot"));
+	if (CorpseLoot)
+	{
+		// ADR-076 п.2: имя в перечне обыскиваемых («Труп волка; Труп волка; Мешок»).
+		CorpseLoot->SearchObjectName = NSLOCTEXT("CorpseLoot", "WolfCorpseName", "Труп волка");
+	}
 
 	// Лут по умолчанию (editor-независимо): расходник + базовый пикап.
 	LootItemClass = AConsumableItem::StaticClass();

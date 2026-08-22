@@ -2103,9 +2103,33 @@ void AContrarySurvivorPlayerController::OnInteract()
 				// что я обыскиваю ящик или труп и выбираю что себе положить в инвентарь»):
 				// мешок открывает ТО ЖЕ окно обыска, что и труп. Мгновенный забор всего разом
 				// остался у пикапов с включённым переключателем на классе.
+				// ADR-076 п.2 (решение лида 22.08 по кейсу Рината «в лагере два мешка,
+				// обыскиваются по очереди»): якорь-МЕШОК тоже собирает ГРУППУ — соседние
+				// мешки и тела уходят в одно окно. Группа пуста (мешок-«отдельное
+				// хранилище» вернёт самого себя) — прежний одиночный путь.
 				if (Pickup->UsesSearchWindow())
 				{
-					OpenCorpseLoot(Pickup->GetLootContainer());
+					TArray<UCorpseLootComponent*> Group;
+					for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : CurrentCorpseGroup)
+					{
+						if (UCorpseLootComponent* Member = Ptr.Get())
+						{
+							Group.Add(Member);
+						}
+					}
+					if (Group.Num() == 0)
+					{
+						Group = UCorpseLootComponent::CollectSearchableGroup(
+							Pickup, GetCorpseGroupSearchRadiusEffective());
+					}
+					if (Group.Num() > 0)
+					{
+						OpenCorpseLootGroup(Group);
+					}
+					else
+					{
+						OpenCorpseLoot(Pickup->GetLootContainer());
+					}
 				}
 				else
 				{
@@ -2151,7 +2175,7 @@ void AContrarySurvivorPlayerController::OnInteract()
 			if (Group.Num() == 0)
 			{
 				Group = UCorpseLootComponent::CollectSearchableGroup(
-					CurrentInteractActor, CorpseGroupSearchRadius);
+					CurrentInteractActor, GetCorpseGroupSearchRadiusEffective());
 			}
 			OpenCorpseLootGroup(Group);
 			break;
@@ -2160,6 +2184,17 @@ void AContrarySurvivorPlayerController::OnInteract()
 			UE_LOG(LogTemp, Log, TEXT("Interact: nothing nearby"));
 			break;
 	}
+}
+
+float AContrarySurvivorPlayerController::GetCorpseGroupSearchRadiusEffective() const
+{
+	// ADR-076 п.2 (решение Рината): источник радиуса — BP ИГРОКА. Пешки нет (меню/переход) —
+	// запасной путь: прежнее поле контроллера, чтобы поведение не менялось скачком.
+	if (const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		return PlayerChar->GetCorpseGroupSearchRadius();
+	}
+	return CorpseGroupSearchRadius;
 }
 
 void AContrarySurvivorPlayerController::OpenShop(TScriptInterface<IShopVendor> Trader)
@@ -2880,13 +2915,16 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
-	// Группа тел под одно нажатие (издатель 11.08.2026, п.3.1). Считается ОТ ПОДСВЕЧЕННОГО
-	// ТЕЛА, а не от игрока, и только для тел: ящики и мешки в реестре обыскиваемых тел не
-	// стоят, поэтому в группу не попадают («Действие распространяется только на тела»).
-	if (CurrentInteractKind == EInteractKind::Corpse)
+	// Группа под одно нажатие (издатель 11.08.2026 п.3.1 + ADR-076 п.2): считается ОТ
+	// ПОДСВЕЧЕННОГО объекта, а не от игрока. Якорем может быть и ТЕЛО, и МЕШОК с окном
+	// обыска (кейс Рината «в лагере два мешка») — мешки добираются реестром пикапов внутри
+	// CollectSearchableGroup. Счёт «Обыскать (N)» берёт число отсюда (GetCorpseGroupCount).
+	const APickup* AnchorPickup = (CurrentInteractKind == EInteractKind::Pickup)
+		? Cast<APickup>(CurrentInteractActor) : nullptr;
+	if (CurrentInteractKind == EInteractKind::Corpse || (AnchorPickup && AnchorPickup->UsesSearchWindow()))
 	{
 		for (UCorpseLootComponent* Member :
-			UCorpseLootComponent::CollectSearchableGroup(CurrentInteractActor, CorpseGroupSearchRadius))
+			UCorpseLootComponent::CollectSearchableGroup(CurrentInteractActor, GetCorpseGroupSearchRadiusEffective()))
 		{
 			CurrentCorpseGroup.Add(Member);
 		}

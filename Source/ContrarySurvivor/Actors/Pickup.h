@@ -99,6 +99,14 @@ public:
 	// Контейнер содержимого — его же показывает окно обыска (общее с трупом).
 	UCorpseLootComponent* GetLootContainer() const { return LootContainer; }
 
+	// ADR-076 п.2: реестр ЖИВЫХ пикапов — групповой обыск добирает мешки отдельным проходом
+	// (НЕ через реестр тел: там мешок двоил бы интерактив). Регистрация в BeginPlay,
+	// снятие в EndPlay; слабые ссылки отмирают сами.
+	static const TArray<TWeakObjectPtr<APickup>>& GetActivePickups()
+	{
+		return ActivePickups;
+	}
+
 	// Открывать ли по действию окно обыска (true, дефолт) или забирать всё сразу (false).
 	// Спрашивает контроллер: и для выбора действия, и для текста подсказки.
 	bool UsesSearchWindow() const { return !bInstantCollect && LootContainer != nullptr; }
@@ -131,6 +139,9 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	// ADR-076 п.2: снятие с реестра живых пикапов (регистрация — в BeginPlay).
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// Build 1.2.1 (ТЗ А4): тик нужен ТОЛЬКО пульсации свечения — включается в BeginPlay
 	// при включённом свечении с периодом > 0, иначе актор не тикает (как раньше).
@@ -260,4 +271,7 @@ private:
 	// Идёт забор ВСЕГО содержимого разом (Collect): пока флаг поднят, обработчик изменений
 	// пикап не уничтожает — судьбу мешка решает сам Collect, когда закончит перебор.
 	bool bTakingAll = false;
+
+	// Реестр живых пикапов (ADR-076 п.2, групповой обыск мешков). См. GetActivePickups.
+	static TArray<TWeakObjectPtr<APickup>> ActivePickups;
 };

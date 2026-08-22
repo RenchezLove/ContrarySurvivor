@@ -454,6 +454,15 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (DisplayName = "Класс пикапа (мешок)", DisplayPriority = "1"))
     TSubclassOf<APickup> PickupSpawnClass;
 
+    // ADR-076 п.2 (решение Рината: «радиус группового обыска — настройкой в BP игрока»).
+    // Тела И МЕШКИ ближе этого расстояния ОТ ПОДСВЕЧЕННОГО объекта обыскиваются одним
+    // нажатием (меряется от якоря, не от игрока; цепочек нет — ADR-071). Контроллер читает
+    // это поле с пешки; его прежнее одноимённое поле — устаревший запасной путь.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (ClampMin = "0.0", DisplayPriority = "2",
+        DisplayName = "Обыск: радиус группы (см)",
+        ToolTip = "Тела и мешки ближе этого расстояния от подсвеченного объекта обыскиваются одним нажатием «Обыскать». Расстояние меряется от подсвеченного объекта, не от игрока."))
+    float CorpseGroupSearchRadius = 600.0f;
+
     // УСТАРЕЛО (Фаза 1): инлайн-поля голода/жажды. Источник истины теперь Stats.
     // Оставлены, чтобы не ломать возможные ссылки BP; не используются логикой.
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Stats|Deprecated")
@@ -811,6 +820,10 @@ public:
     // нуля, но без интро». Пока флаг поднят, костёр пропускает автосейв (Campfire.cpp),
     // а SaveGame() отказывает второй линией обороны.
     bool IsRestoringSaveState() const { return bRestoringSaveState; }
+
+    // ADR-076 п.2: радиус группового обыска — настройка на BP игрока (поле в Loot-блоке);
+    // контроллер берёт значение отсюда.
+    float GetCorpseGroupSearchRadius() const { return CorpseGroupSearchRadius; }
 
     // Есть ли несохранённый прогресс (меню паузы спрашивает подтверждение перед выходом в
     // главное меню — спека: «Возврат в меню из паузы — с подтверждением, если прогресс не

@@ -2,6 +2,7 @@
 
 #include "CorpseLootComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Actors/Pickup.h"    // ADR-076 п.2: мешки в групповом обыске (реестр пикапов)
 #include "AMasterInventoryItem.h"
 #include "Components/SkeletalMeshComponent.h" // рэгдолл уходящего в землю тела
 #include "GameFramework/Character.h"
@@ -136,12 +137,22 @@ TArray<UCorpseLootComponent*> UCorpseLootComponent::CollectSearchableGroup(
 	const AActor* AnchorActor, float GroupRadius)
 {
 	// Задание издателя п.3.1: одно нажатие «Обыскать» забирает содержимое ВСЕХ необысканных
-	// тел рядом. «Рядом» считается от подсвеченного тела (якоря) и ровно один раз — цепочка
-	// «от тела к телу» запрещена решением game-lead.
+	// тел рядом. «Рядом» считается от подсвеченного якоря (тело ИЛИ мешок — ADR-076 п.2) и
+	// ровно один раз — цепочка «от тела к телу» запрещена решением game-lead.
 	TArray<UCorpseLootComponent*> Group;
 	if (!IsValid(AnchorActor))
 	{
 		return Group;
+	}
+
+	// Якорь — ОТДЕЛЬНОЕ ХРАНИЛИЩЕ (задел под базы): группу не собирает, своё окно один на один.
+	if (const UCorpseLootComponent* AnchorContainer = AnchorActor->FindComponentByClass<UCorpseLootComponent>())
+	{
+		if (AnchorContainer->bStandaloneStash)
+		{
+			Group.Add(const_cast<UCorpseLootComponent*>(AnchorContainer));
+			return Group;
+		}
 	}
 
 	const UWorld* World = AnchorActor->GetWorld();
@@ -149,29 +160,47 @@ TArray<UCorpseLootComponent*> UCorpseLootComponent::CollectSearchableGroup(
 	const float Radius = FMath::Max(0.0f, GroupRadius);
 	const float RadiusSq = Radius * Radius;
 
-	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : SearchableCorpses)
+	// Общая проверка члена группы: живой, тот же мир, с лутом, не «отдельное хранилище»,
+	// в радиусе. Якорь встаёт первым — окно открывается тем, на что смотрел игрок.
+	auto TryAddMember = [&](UCorpseLootComponent* Container)
 	{
-		UCorpseLootComponent* Corpse = Ptr.Get();
-		AActor* CorpseOwner = Corpse ? Corpse->GetOwner() : nullptr;
-		if (!Corpse || !IsValid(CorpseOwner) || Corpse->GetWorld() != World || !Corpse->HasLoot())
+		AActor* ContainerOwner = Container ? Container->GetOwner() : nullptr;
+		if (!Container || !IsValid(ContainerOwner) || Container->GetWorld() != World
+			|| !Container->HasLoot() || Container->bStandaloneStash)
 		{
-			continue;
+			return;
 		}
-		if (FVector::DistSquared(AnchorLoc, CorpseOwner->GetActorLocation()) > RadiusSq)
+		if (FVector::DistSquared(AnchorLoc, ContainerOwner->GetActorLocation()) > RadiusSq)
 		{
-			continue;
+			return;
 		}
-
-		// Якорь — первым: окно открывается тем телом, на которое смотрел игрок.
-		if (CorpseOwner == AnchorActor)
+		if (ContainerOwner == AnchorActor)
 		{
-			Group.Insert(Corpse, 0);
+			Group.Insert(Container, 0);
 		}
 		else
 		{
-			Group.Add(Corpse);
+			Group.Add(Container);
+		}
+	};
+
+	// Проход 1: тела из реестра обыскиваемых.
+	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : SearchableCorpses)
+	{
+		TryAddMember(Ptr.Get());
+	}
+
+	// Проход 2 (ADR-076 п.2): мешки-пикапы из реестра живых пикапов. Отдельным реестром,
+	// НЕ через реестр тел — там мешок давал бы один объект двумя интерактивами (комментарий
+	// класса). Кейс Рината: «в лагере два мешка, обыскиваются по очереди» — теперь одной группой.
+	for (const TWeakObjectPtr<APickup>& Ptr : APickup::GetActivePickups())
+	{
+		if (const APickup* Pickup = Ptr.Get())
+		{
+			TryAddMember(Pickup->GetLootContainer());
 		}
 	}
+
 	return Group;
 }
 

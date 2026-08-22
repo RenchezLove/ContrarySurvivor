@@ -18,11 +18,14 @@
 
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
 #include "ContrarySurvivor/Characters/WolfCharacter.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // радиус группового обыска на игроке (ADR-076 п.2)
 #include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
 #include "ContrarySurvivor/Actors/Pickup.h"                    // список содержимого мешка (ADR-076 п.10)
+#include "ContrarySurvivor/Actors/Campfire.h"                  // лёгкий актор-носитель контейнера (тест группы)
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"   // проверка содержимого контейнера
+#include "ContrarySurvivor/UI/CorpseLootWidget.h"              // BuildSearchObjectsLine (перечень «;», ADR-076 п.2)
 #include "Kismet/GameplayStatics.h"                            // FinishSpawningActor (deferred-спавн пикапа)
 #include "ContrarySurvivor/UI/TouchControlsWidget.h" // ComputeCompassScreenAngleDeg (компас, ADR-076 п.5)
 #include "ContrarySurvivor/Data/ContraryItemRow.h"
@@ -634,6 +637,139 @@ bool FContentToolsPickupLootListTest::RunTest(const FString& Parameters)
 	}
 
 	Settings->ItemTable = SavedTable;
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 9. Обыск (ADR-076 п.2): перечень обыскиваемых через точку с запятой —
+//    чистая сборка строки (имена контейнеров, пустое имя -> запасное)
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsSearchObjectsLineTest,
+	"ContrarySurvivor.ContentTools.SearchObjectsLine", ContentToolsTestFlags)
+
+bool FContentToolsSearchObjectsLineTest::RunTest(const FString& Parameters)
+{
+	UCorpseLootComponent* Wolf1 = NewObject<UCorpseLootComponent>(GetTransientPackage());
+	UCorpseLootComponent* Wolf2 = NewObject<UCorpseLootComponent>(GetTransientPackage());
+	UCorpseLootComponent* Bag = NewObject<UCorpseLootComponent>(GetTransientPackage());
+	UCorpseLootComponent* Nameless = NewObject<UCorpseLootComponent>(GetTransientPackage());
+	Wolf1->SearchObjectName = FText::FromString(TEXT("Труп волка"));
+	Wolf2->SearchObjectName = FText::FromString(TEXT("Труп волка"));
+	Bag->SearchObjectName = FText::FromString(TEXT("Мешок"));
+	// Nameless — имя пустое, ждём запасное.
+
+	const FText Sep = FText::FromString(TEXT("; "));
+	const FText Fallback = FText::FromString(TEXT("Труп"));
+
+	TestEqual(TEXT("Перечень из трёх объектов через точку с запятой (кейс Рината)"),
+		UCorpseLootWidget::BuildSearchObjectsLine({ Wolf1, Wolf2, Bag }, Sep, Fallback).ToString(),
+		FString(TEXT("Труп волка; Труп волка; Мешок")));
+	TestEqual(TEXT("Пустое имя контейнера заменяется запасным"),
+		UCorpseLootWidget::BuildSearchObjectsLine({ Wolf1, Nameless }, Sep, Fallback).ToString(),
+		FString(TEXT("Труп волка; Труп")));
+	TestTrue(TEXT("Пустая группа — пустая строка (перечень скрывается)"),
+		UCorpseLootWidget::BuildSearchObjectsLine({}, Sep, Fallback).IsEmpty());
+	return true;
+}
+
+// ===========================================================================
+// 10. Обыск (ADR-076 п.2): мешки в групповом обыске, якорь-мешок собирает группу,
+//     «отдельное хранилище» в группу не входит; радиус — поле игрока
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsGroupSearchWithPickupsTest,
+	"ContrarySurvivor.ContentTools.GroupSearchWithPickups", ContentToolsTestFlags)
+
+bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	// «Тела»: лёгкие акторы с корнем (ACampfire) + контейнер, зарегистрированный в реестре
+	// обыскиваемых (InitLoot с bRegisterSearchable=true — ровно путь смерти врага).
+	auto MakeBody = [&](const FVector& Loc, bool bStandalone) -> UCorpseLootComponent*
+	{
+		ACampfire* BodyActor = ContentToolsTestWorld::Spawn<ACampfire>(World, Loc);
+		if (!BodyActor)
+		{
+			return nullptr;
+		}
+		UCorpseLootComponent* Container = NewObject<UCorpseLootComponent>(BodyActor);
+		Container->RegisterComponent();
+		Container->bStandaloneStash = bStandalone;
+		Container->InitLoot(10.0f, TArray<AMasterInventoryItem*>(), /*bRegisterSearchable=*/true);
+		return Container;
+	};
+
+	UCorpseLootComponent* Body1 = MakeBody(FVector(0.0f, 0.0f, 100.0f), /*bStandalone=*/false);
+	UCorpseLootComponent* Body2 = MakeBody(FVector(300.0f, 0.0f, 100.0f), /*bStandalone=*/false);
+	UCorpseLootComponent* Stash = MakeBody(FVector(100.0f, 100.0f, 100.0f), /*bStandalone=*/true);
+
+	// Мешок-пикап с лутом рядом + второй далеко за радиусом.
+	auto MakeBag = [&](const FVector& Loc) -> APickup*
+	{
+		const FTransform TM(Loc);
+		APickup* Bag = World->SpawnActorDeferred<APickup>(APickup::StaticClass(), TM);
+		if (!Bag)
+		{
+			return nullptr;
+		}
+		TArray<FPlacedLootEntry> List;
+		FPlacedLootEntry Entry;
+		Entry.ItemClass = AConsumableItem::StaticClass();
+		Entry.Count = 1;
+		List.Add(Entry);
+		Bag->SetPlacedLootListForQA(List);
+		UGameplayStatics::FinishSpawningActor(Bag, TM);
+		return Bag;
+	};
+	APickup* NearBag = MakeBag(FVector(200.0f, -100.0f, 100.0f));
+	APickup* FarBag = MakeBag(FVector(5000.0f, 0.0f, 100.0f));
+
+	if (!Body1 || !Body2 || !Stash || !NearBag || !FarBag)
+	{
+		AddError(TEXT("Не собралась сцена теста группы"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	// Якорь — ТЕЛО: группа = якорь первым + второе тело + мешок; хранилище и дальний мешок — нет.
+	{
+		TArray<UCorpseLootComponent*> Group =
+			UCorpseLootComponent::CollectSearchableGroup(Body1->GetOwner(), 600.0f);
+		TestEqual(TEXT("Якорь-тело: в группе тело+тело+мешок (без хранилища и дальнего)"), Group.Num(), 3);
+		TestTrue(TEXT("Якорь-тело идёт первым"), Group.Num() > 0 && Group[0] == Body1);
+		TestTrue(TEXT("Мешок рядом вошёл в группу"), Group.Contains(NearBag->GetLootContainer()));
+		TestFalse(TEXT("«Отдельное хранилище» в группу не вошло"), Group.Contains(Stash));
+		TestFalse(TEXT("Дальний мешок не вошёл"), Group.Contains(FarBag->GetLootContainer()));
+	}
+
+	// Якорь — МЕШОК (решение лида 22.08, кейс Рината «в лагере два мешка»): группа собирается
+	// так же, мешок-якорь первым.
+	{
+		TArray<UCorpseLootComponent*> Group =
+			UCorpseLootComponent::CollectSearchableGroup(NearBag, 600.0f);
+		TestEqual(TEXT("Якорь-мешок: группа собирается (мешок+2 тела)"), Group.Num(), 3);
+		TestTrue(TEXT("Якорь-мешок идёт первым"),
+			Group.Num() > 0 && Group[0] == NearBag->GetLootContainer());
+	}
+
+	// Якорь — «отдельное хранилище»: группа из одного себя (своё окно один на один).
+	{
+		TArray<UCorpseLootComponent*> Group =
+			UCorpseLootComponent::CollectSearchableGroup(Stash->GetOwner(), 600.0f);
+		TestEqual(TEXT("Якорь-хранилище: только оно само"), Group.Num(), 1);
+		TestTrue(TEXT("Якорь-хранилище — свой контейнер"), Group.Num() > 0 && Group[0] == Stash);
+	}
+
+	// Радиус — настройка на BP ИГРОКА (решение Рината): поле живёт на классе игрока.
+	TestTrue(TEXT("Радиус группового обыска задан на игроке (>0)"),
+		GetDefault<APlayerCharacter>()->GetCorpseGroupSearchRadius() > 0.0f);
+
 	ContentToolsTestWorld::Destroy(World);
 	return true;
 }

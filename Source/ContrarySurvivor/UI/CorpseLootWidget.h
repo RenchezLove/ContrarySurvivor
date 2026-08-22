@@ -126,8 +126,48 @@ public:
 		TEXT("/Game/UI/Icons/Items/T_Item_Money.T_Item_Money")));
 
 	// Заголовок окна (в кодовом фолбэке; в WBP кубик TitleText может держать и статичный текст).
+	// ADR-076 п.2 (решение Рината «окно — универсальное окно обыска»): дефолт «Обыск» — без
+	// привязки к трупу; конкретику даёт перечень объектов (SearchObjectsListText) и SearchTitle
+	// контейнера. Имя файла/класса намеренно не меняются — ассет под правками Рината,
+	// слот HUD и таблицы генератора (согласовано с лидом 22.08).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Texts", meta = (DisplayPriority = "1"))
-	FText TitleLabel = NSLOCTEXT("CorpseLoot", "Title", "Обыск трупа");
+	FText TitleLabel = NSLOCTEXT("CorpseLoot", "Title", "Обыск");
+
+	// --- Перечень обыскиваемых объектов (ADR-076 п.2: «СВЕРХУ в окне (или над ним) перечень
+	// ЧЕРЕЗ ТОЧКУ С ЗАПЯТОЙ» — «Труп волка; Труп волка; Мешок»). Названия дают контейнеры
+	// (UCorpseLootComponent::SearchObjectName), строку собирает BuildSearchObjectsLine. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "1",
+		DisplayName = "Показывать перечень обыскиваемых"))
+	bool bShowSearchObjectsList = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "2",
+		DisplayName = "Разделитель перечня"))
+	FText SearchObjectsSeparator = NSLOCTEXT("CorpseLoot", "SearchObjectsSeparator", "; ");
+
+	// Название объекта, у контейнера которого поле «Название для перечня» пустое.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "3",
+		DisplayName = "Запасное название объекта"))
+	FText SearchObjectsFallbackName = NSLOCTEXT("CorpseLoot", "SearchObjectsFallback", "Труп");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (ClampMin = "6", DisplayPriority = "4",
+		DisplayName = "Кегль перечня"))
+	int32 SearchObjectsFontSize = 14;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "5",
+		DisplayName = "Цвет перечня"))
+	FLinearColor SearchObjectsColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
+
+	// Отступ строки-перечня от верха окна виджета, px — для дизайнер-дерева, где строка
+	// создаётся кодом НАД окном (в кодовом фолбэке она встроена в колонку под шапкой).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "6",
+		DisplayName = "Отступ перечня от верха, px"))
+	float SearchObjectsTopOffset = 96.0f;
+
+	// Чистая сборка строки перечня («Труп волка; Труп волка; Мешок») — открыта для
+	// headless-теста: имена контейнеров через разделитель, пустое имя -> запасное.
+	static FText BuildSearchObjectsLine(const TArray<UCorpseLootComponent*>& InCorpses,
+		const FText& Separator, const FText& FallbackName);
 
 	// Название строки денег в общем списке.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Texts", meta = (DisplayPriority = "2"))
@@ -234,6 +274,19 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText;
+
+	// Перечень обыскиваемых (ADR-076 п.2). Нет в ассете — создаётся кодом: в кодовом дереве
+	// строкой под шапкой, в дизайнерском — на корневой канве над окном (паттерн крестика
+	// диалога; ассет Рината не трогается).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SearchObjectsListText;
+
+	// Создаёт строку-перечень в дизайнер-дереве (корневая канва, верх-центр). Кодовый фолбэк
+	// создаёт её сам в BuildFallbackTree.
+	void CreateSearchObjectsLineIfMissing();
+
+	// Обновляет строку-перечень по живым контейнерам группы (зовётся из InitCorpseLootGroup).
+	void UpdateSearchObjectsLine();
 
 	// Список лута (деньги + предметы одним списком, прокрутка штатная).
 	UPROPERTY(meta = (BindWidgetOptional))

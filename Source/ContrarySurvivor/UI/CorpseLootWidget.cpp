@@ -50,6 +50,10 @@ void UCorpseLootWidget::NativeOnInitialized()
 		BuildFallbackTree();
 	}
 
+	// ADR-076 п.2: строка-перечень обыскиваемых. В кодовом дереве создана BuildFallbackTree;
+	// в дизайнерском без кубика — создаётся на корневой канве над окном (ассет не трогаем).
+	CreateSearchObjectsLineIfMissing();
+
 	if (TitleText)
 	{
 		TitleText->SetText(TitleLabel);
@@ -110,6 +114,17 @@ void UCorpseLootWidget::BuildFallbackTree()
 	if (UVerticalBoxSlot* HeaderSlot = Column->AddChildToVerticalBox(Header))
 	{
 		HeaderSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
+	}
+
+	// ADR-076 п.2: перечень обыскиваемых («Труп волка; Труп волка; Мешок») — строкой под
+	// шапкой, над списком. Текст ставит UpdateSearchObjectsLine.
+	SearchObjectsListText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SearchObjectsListText"));
+	SearchObjectsListText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", SearchObjectsFontSize));
+	SearchObjectsListText->SetColorAndOpacity(FSlateColor(SearchObjectsColor));
+	SearchObjectsListText->SetAutoWrapText(true);
+	if (UVerticalBoxSlot* ObjectsSlot = Column->AddChildToVerticalBox(SearchObjectsListText))
+	{
+		ObjectsSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	}
 
 	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
@@ -184,8 +199,8 @@ void UCorpseLootWidget::InitCorpseLootGroup(const TArray<UCorpseLootComponent*>&
 	bCloseRequested = false;
 
 	// Build 1.2.2: одно окно обслуживает и труп, и мешок-пикап, поэтому заголовок берём у
-	// самого контейнера — у ПЕРВОГО, то есть у подсвеченного тела. Пусто — остаётся
-	// собственный заголовок окна («Обыск трупа»).
+	// самого контейнера — у ПЕРВОГО, то есть у подсвеченного объекта. Пусто — остаётся
+	// собственный универсальный заголовок окна («Обыск», ADR-076 п.2).
 	if (TitleText)
 	{
 		const UCorpseLootComponent* Anchor = Corpses.Num() > 0 ? Corpses[0].Get() : nullptr;
@@ -193,7 +208,71 @@ void UCorpseLootWidget::InitCorpseLootGroup(const TArray<UCorpseLootComponent*>&
 		TitleText->SetText(ContainerTitle.IsEmpty() ? TitleLabel : ContainerTitle);
 	}
 
+	// ADR-076 п.2: перечень обыскиваемых через точку с запятой.
+	UpdateSearchObjectsLine();
+
 	RefreshList();
+}
+
+FText UCorpseLootWidget::BuildSearchObjectsLine(const TArray<UCorpseLootComponent*>& InCorpses,
+	const FText& Separator, const FText& FallbackName)
+{
+	// Чистая сборка (ADR-076 п.2): имя каждого контейнера (SearchObjectName), пустое —
+	// запасное; всё через разделитель. Пустая группа — пустой текст (строка скрывается).
+	TArray<FText> Parts;
+	for (const UCorpseLootComponent* Container : InCorpses)
+	{
+		if (Container)
+		{
+			Parts.Add(Container->SearchObjectName.IsEmpty() ? FallbackName : Container->SearchObjectName);
+		}
+	}
+	return Parts.Num() > 0 ? FText::Join(Separator, Parts) : FText::GetEmpty();
+}
+
+void UCorpseLootWidget::CreateSearchObjectsLineIfMissing()
+{
+	if (SearchObjectsListText || !bShowSearchObjectsList)
+	{
+		return;
+	}
+	// Дизайнер-дерево без кубика: строка над окном, верх-центр корневой канвы (ADR-076 п.2
+	// «сверху в окне ИЛИ НАД НИМ»; внутрь чужой раскладки не лезем — ассет Рината).
+	UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
+	if (!RootCanvas)
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("CorpseLootWidget: корень WBP_CorpseLoot не канва — перечень обыскиваемых не создан"));
+		return;
+	}
+	SearchObjectsListText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SearchObjectsListText"));
+	SearchObjectsListText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", SearchObjectsFontSize));
+	SearchObjectsListText->SetColorAndOpacity(FSlateColor(SearchObjectsColor));
+	SearchObjectsListText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	if (UCanvasPanelSlot* LineSlot = RootCanvas->AddChildToCanvas(SearchObjectsListText))
+	{
+		LineSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+		LineSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+		LineSlot->SetAutoSize(true);
+		LineSlot->SetPosition(FVector2D(0.0f, SearchObjectsTopOffset));
+	}
+}
+
+void UCorpseLootWidget::UpdateSearchObjectsLine()
+{
+	if (!SearchObjectsListText)
+	{
+		return;
+	}
+	if (!bShowSearchObjectsList)
+	{
+		SearchObjectsListText->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	const FText Line = BuildSearchObjectsLine(GetGroupCorpses(), SearchObjectsSeparator, SearchObjectsFallbackName);
+	SearchObjectsListText->SetText(Line);
+	SearchObjectsListText->SetVisibility(Line.IsEmpty()
+		? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 }
 
 TArray<UCorpseLootComponent*> UCorpseLootWidget::GetGroupCorpses() const

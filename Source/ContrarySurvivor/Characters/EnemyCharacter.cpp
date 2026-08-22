@@ -23,6 +23,11 @@ AEnemyCharacter::AEnemyCharacter()
 	// Build 1.2.1 (ТЗ А1): контейнер лута трупа в МАСТЕР-классе — BP-наследники получают
 	// обыск автоматически. Наполняется в DropLoot (из HandleDeath).
 	CorpseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("CorpseLoot"));
+	if (CorpseLoot)
+	{
+		// ADR-076 п.2: имя в перечне обыскиваемых («Труп бандита; Мешок»). Правится в BP врага.
+		CorpseLoot->SearchObjectName = NSLOCTEXT("CorpseLoot", "BanditCorpseName", "Труп бандита");
+	}
 
 	// Лут по умолчанию (editor-независимо): пикап без BP + таблица расходников Консервы/
 	// Вода/Бинт с равновероятным выбором (Ринат 07-17). Имена — из единого источника

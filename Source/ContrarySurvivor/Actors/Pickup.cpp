@@ -18,6 +18,9 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Debug/QADebug.h"    // QA-хелпер (оверлей/флаги/flush)
 
+// Реестр живых пикапов (ADR-076 п.2, групповой обыск мешков).
+TArray<TWeakObjectPtr<APickup>> APickup::ActivePickups;
+
 APickup::APickup()
 {
 	// Build 1.2.1 (ТЗ А4): тик разрешён, но по умолчанию ВЫКЛЮЧЕН — включает его только
@@ -67,12 +70,19 @@ APickup::APickup()
 		// делает: обчищенный пикап уничтожает себя сам (HandleLootChanged), а размещённый
 		// на карте контейнер вообще остаётся лежать.
 		LootContainer->bSinkWhenSearched = false;
+
+		// ADR-076 п.2: как мешок называется в перечне обыскиваемых («Труп волка; Мешок»).
+		// Правится на BP/экземпляре через компонент LootContainer.
+		LootContainer->SearchObjectName = NSLOCTEXT("Pickup", "SearchObjectName", "Мешок");
 	}
 }
 
 void APickup::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// ADR-076 п.2: реестр живых пикапов — групповой обыск добирает мешки отсюда.
+	ActivePickups.Add(this);
 
 	// Заголовок окна обыска и подписка на «из мешка что-то забрали» — до наполнения,
 	// чтобы первое же изменение содержимого дошло до нас.
@@ -104,6 +114,14 @@ void APickup::BeginPlay()
 				*GetName());
 		}
 	}
+}
+
+void APickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// ADR-076 п.2: снятие с реестра живых пикапов (слабые ссылки и так отмирают, но чистим
+	// сразу — тот же порядок, что у реестра обыскиваемых тел).
+	ActivePickups.Remove(this);
+	Super::EndPlay(EndPlayReason);
 }
 
 void APickup::SetupGlow()
