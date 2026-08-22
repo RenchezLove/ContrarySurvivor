@@ -3,5 +3,5 @@
      Файл с уникальным именем, чтобы не столкнуться с values-файлами шаблона движка
      (шаблон копируется в ту же res-папку при сборке пакета, UEDeployAndroid.cs:4976-4982). -->
 <resources>
-    <color name="contrary_icon_bg">#271D14</color>
+    <color name="contrary_icon_bg">#1C1918</color>
 </resources>
