@@ -390,18 +390,21 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 		return nullptr;
 	};
 
+	const FVector Mount(-80.0f, -47.0f, 31.5f);  // монтаж двери ПЛ (паспорт моделлера, см)
 	const FVector Hinge(50.0f, -10.0f, 0.0f);
 	const float Angle = 35.0f;
 	SetBoolProp(TEXT("bDoorFR"), false);         // галочка прячет деталь
 	SetFloatProp(TEXT("DoorFLOpenAngleDeg"), Angle);
+	SetVectorProp(TEXT("DoorFLMount"), Mount);
 	SetVectorProp(TEXT("DoorFLHinge"), Hinge);
 	Car->RerunConstructionScripts();             // применяет OnConstruction, как правка в редакторе
 
 	UStaticMeshComponent* DoorFR = FindPart(TEXT("DoorFR"));
 	UStaticMeshComponent* DoorFL = FindPart(TEXT("DoorFL"));
-	if (!DoorFR || !DoorFL)
+	UStaticMeshComponent* DoorRL = FindPart(TEXT("DoorRL"));
+	if (!DoorFR || !DoorFL || !DoorRL)
 	{
-		AddError(TEXT("Не найдены компоненты дверей DoorFR/DoorFL"));
+		AddError(TEXT("Не найдены компоненты дверей DoorFR/DoorFL/DoorRL"));
 		ContentToolsTestWorld::Destroy(World);
 		return false;
 	}
@@ -413,11 +416,28 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Угол двери применён (рыскание ~35°)"),
 		FMath::IsNearlyEqual(DoorFL->GetRelativeRotation().Yaw, Angle, 0.1f));
 
-	// ...и точка петли осталась НА МЕСТЕ: локальный трансформ двери переводит точку петли
-	// саму в себя (инвариант формулы «позиция = петля - поворот*петля»).
+	// ...и точка петли осталась НА МЕСТЕ относительно кузова: локальный трансформ двери
+	// переводит точку петли в «монтаж + петля» при ЛЮБОМ угле (инвариант формулы патча
+	// 22.08 «позиция = монтаж + петля - поворот*петля»).
 	const FVector HingeAfter = DoorFL->GetRelativeTransform().TransformPosition(Hinge);
-	TestTrue(TEXT("Точка петли неподвижна при открытой двери"),
-		HingeAfter.Equals(Hinge, 0.05f));
+	TestTrue(TEXT("Точка петли неподвижна при открытой двери (монтаж + петля)"),
+		HingeAfter.Equals(Mount + Hinge, 0.05f));
+
+	// Патч 22.08 (пивоты мешей НА оси петли, меши с нулевым трансформом): при нулевом угле
+	// створка стоит РОВНО в своей монтажной точке — сверяем дверь ЗЛ (угол не трогали) с
+	// значением её поля монтажа (формула, не пришпиленные числа).
+	if (FStructProperty* MountProp = FindFProperty<FStructProperty>(AAbandonedCar::StaticClass(), TEXT("DoorRLMount")))
+	{
+		const FVector RLMount = *MountProp->ContainerPtrToValuePtr<FVector>(Car);
+		TestTrue(TEXT("Закрытая дверь стоит ровно в монтажной точке"),
+			DoorRL->GetRelativeLocation().Equals(RLMount, 0.05f));
+		TestTrue(TEXT("Монтажная точка двери ЗЛ ненулевая (дефолт из паспорта)"),
+			!RLMount.IsNearlyZero());
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства DoorRLMount"));
+	}
 
 	ContentToolsTestWorld::Destroy(World);
 	return true;

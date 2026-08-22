@@ -85,13 +85,14 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 	SetPartVisible(Scratches, bScratches);
 	SetPartVisible(Block, bBlock);
 
-	// 2) Углы створок (двери — вокруг вертикали, капот/багажник — тангаж).
-	ApplyHinge(DoorFL, DoorFLHinge, DoorFLOpenAngleDeg, /*bYaw=*/true);
-	ApplyHinge(DoorFR, DoorFRHinge, DoorFROpenAngleDeg, /*bYaw=*/true);
-	ApplyHinge(DoorRL, DoorRLHinge, DoorRLOpenAngleDeg, /*bYaw=*/true);
-	ApplyHinge(DoorRR, DoorRRHinge, DoorRROpenAngleDeg, /*bYaw=*/true);
-	ApplyHinge(Hood, HoodHinge, HoodOpenAngleDeg, /*bYaw=*/false);
-	ApplyHinge(Trunk, TrunkHinge, TrunkOpenAngleDeg, /*bYaw=*/false);
+	// 2) Посадка и углы створок: монтажная точка (схема сборки паспорта) + поворот вокруг
+	// петли. Двери — вокруг вертикали; капот/багажник — вокруг оси X (ось петли по паспорту).
+	ApplyHinge(DoorFL, DoorFLMount, DoorFLHinge, DoorFLOpenAngleDeg, /*bYaw=*/true);
+	ApplyHinge(DoorFR, DoorFRMount, DoorFRHinge, DoorFROpenAngleDeg, /*bYaw=*/true);
+	ApplyHinge(DoorRL, DoorRLMount, DoorRLHinge, DoorRLOpenAngleDeg, /*bYaw=*/true);
+	ApplyHinge(DoorRR, DoorRRMount, DoorRRHinge, DoorRROpenAngleDeg, /*bYaw=*/true);
+	ApplyHinge(Hood, HoodMount, HoodHinge, HoodOpenAngleDeg, /*bYaw=*/false);
+	ApplyHinge(Trunk, TrunkMount, TrunkHinge, TrunkOpenAngleDeg, /*bYaw=*/false);
 
 	// 3) Цвет кузова (+ по желанию створок — они из того же материала краски).
 	if (bOverrideBodyColor)
@@ -123,18 +124,22 @@ void AAbandonedCar::SetPartVisible(UStaticMeshComponent* Part, bool bVisible)
 	}
 }
 
-void AAbandonedCar::ApplyHinge(UStaticMeshComponent* Part, const FVector& HingeLocal, float AngleDeg, bool bYaw)
+void AAbandonedCar::ApplyHinge(UStaticMeshComponent* Part, const FVector& MountLocal,
+	const FVector& HingeLocal, float AngleDeg, bool bYaw)
 {
 	if (!Part)
 	{
 		return;
 	}
-	// Поворот вокруг точки-петли: сначала возвращаем деталь в ноль, затем крутим вокруг
-	// HingeLocal. Формула: новая позиция = петля - R * петля (точка петли остаётся на месте).
-	// Ноль-угол = деталь ровно в авторском положении (identity) — закрыто.
-	const FRotator Rot = bYaw ? FRotator(0.0f, AngleDeg, 0.0f) : FRotator(AngleDeg, 0.0f, 0.0f);
+	// Посадка + поворот вокруг точки-петли (формула по паспорту моделлера, патч 22.08):
+	// позиция = монтаж + петля − поворот·петля. Точка на оси петли неподвижна при любом
+	// угле; при пивоте-на-петле (штатные меши комплекта) поле петли — ноль, и при нулевом
+	// угле деталь стоит ровно в монтажной точке.
+	// Оси: двери — рыскание (вертикальная петля); капот/багажник — КРЕН (ось петли X по
+	// паспорту: нос машины = -Y, петли идут поперёк кузова). FRotator = (тангаж, рыскание, крен).
+	const FRotator Rot = bYaw ? FRotator(0.0f, AngleDeg, 0.0f) : FRotator(0.0f, 0.0f, AngleDeg);
 	const FQuat Q = Rot.Quaternion();
-	const FVector NewLoc = HingeLocal - Q.RotateVector(HingeLocal);
+	const FVector NewLoc = MountLocal + HingeLocal - Q.RotateVector(HingeLocal);
 	Part->SetRelativeLocationAndRotation(NewLoc, Q);
 }
 
