@@ -6,6 +6,7 @@
 #include "Components/PointLightComponent.h" // точечный свет огня (яркость/цвет/радиус из настроек)
 #include "Engine/World.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA (образец подключения — Pickup.cpp)
 
 ACampfire::ACampfire()
 {
