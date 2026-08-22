@@ -32,8 +32,14 @@ protected:
 
 public:
     
-    // Mesh to represent armor whet is's equiped
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true"))
+    // Меш, который надевается на слот персонажа при экипировке (SK_Armor_*). ADR-075 (волна
+    // инструментов): EditAnywhere — BP-наследник/экземпляр задаёт свой меш БЕЗ правки кода
+    // (раньше VisibleAnywhere: меш можно было задать только FObjectFinder'ом в конструкторе
+    // C++ — главная дыра линейки брони по инвентаризации bp-audit-phase1). Дефолты тиров
+    // из AArmorTiers.cpp продолжают работать: конструктор заполняет поле, BP переопределяет.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Armor", meta = (AllowPrivateAccess = "true", DisplayPriority = "2",
+        DisplayName = "Меш экипировки (на слот персонажа)",
+        ToolTip = "Скелетный меш, который заменит слот персонажа (голова/торс/ноги), когда броню наденут. Пусто = слот останется с базовым мешем тела."))
     USkeletalMesh* ArmorMesh_Equipped;
 
     // Geting mesh which equipted

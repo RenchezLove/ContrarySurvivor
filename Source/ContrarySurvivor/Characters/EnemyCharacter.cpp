@@ -230,19 +230,23 @@ void AEnemyCharacter::HandleDeath()
 	// 5) Лут: деньги + шанс предмета на земле в позиции трупа (GDD §7.8).
 	DropLoot();
 
-	// 5b) Фаза 5: засчитываем убийство бандита в kill-цель квеста игрока (тег "Bandit").
+	// 5b) Фаза 5: засчитываем убийство в kill-цель квеста игрока. Тег — поле QuestKillTag
+	// (ADR-075: настраивается в BP, дефолт "Bandit"); пустой тег = в квесты не идёт.
 	// Журнал квестов живёт на пешке игрока (UQuestComponent).
 	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
 	{
-		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+		if (!QuestKillTag.IsNone())
 		{
-			PlayerQuests->NotifyKill(FName(TEXT("Bandit")));
+			if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+			{
+				PlayerQuests->NotifyKill(QuestKillTag);
+			}
 		}
 		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
-		// Тип "Bandit" — для события аналитики F3 (латиницей, как теги квестов).
+		// Тип врага для события аналитики F3 — тот же QuestKillTag (единый источник).
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
 		{
-			PlayerChar->RegisterEnemyKill(TEXT("Bandit"));
+			PlayerChar->RegisterEnemyKill(QuestKillTag.IsNone() ? TEXT("Unknown") : QuestKillTag.ToString());
 		}
 	}
 

@@ -277,19 +277,23 @@ void AWolfCharacter::HandleDeath()
 	// Лут волка (деньги + шанс предмета) в позиции трупа (GDD §7.8).
 	DropLoot();
 
-	// Фаза 5: засчитываем убийство волка в Kill-квест игрока (если есть Active с тегом "Wolf").
-	// Журнал квестов живёт на пешке игрока (UQuestComponent). Тег цели — "Wolf".
+	// Фаза 5: засчитываем убийство в Kill-квест игрока. Тег — поле QuestKillTag (ADR-075:
+	// настраивается в BP, дефолт "Wolf"); пустой тег = в квесты не идёт.
+	// Журнал квестов живёт на пешке игрока (UQuestComponent).
 	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
 	{
-		if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+		if (!QuestKillTag.IsNone())
 		{
-			PlayerQuests->NotifyKill(FName(TEXT("Wolf")));
+			if (UQuestComponent* PlayerQuests = PlayerPawn->FindComponentByClass<UQuestComponent>())
+			{
+				PlayerQuests->NotifyKill(QuestKillTag);
+			}
 		}
 		// #26: засчитываем убийство в счётчик киллов игрока (для экрана смерти).
-		// Тип "Wolf" — для события аналитики F3 (латиницей, как теги квестов).
+		// Тип врага для события аналитики F3 — тот же QuestKillTag (единый источник).
 		if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(PlayerPawn))
 		{
-			PlayerChar->RegisterEnemyKill(TEXT("Wolf"));
+			PlayerChar->RegisterEnemyKill(QuestKillTag.IsNone() ? TEXT("Unknown") : QuestKillTag.ToString());
 		}
 	}
 

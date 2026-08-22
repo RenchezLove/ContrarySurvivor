@@ -100,6 +100,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats")
 	float WolfMaxHealth = 40.0f;
 
+	// Тег цели квеста при смерти этого волка (сверяется с FQuest::KillTargetTag), он же —
+	// тип врага в событии аналитики киллов. ADR-075: раньше "Wolf" был зашит в HandleDeath
+	// (.cpp) — новый зверь на базе волка не мог объявить свой тег из BP.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest", meta = (DisplayPriority = "5",
+		DisplayName = "Тег цели квеста (латиницей)",
+		ToolTip = "Каким тегом это убийство засчитывается в квесты (сверка с целью квеста) и в аналитику. Латиницей. Пусто = убийство в квесты не идёт."))
+	FName QuestKillTag = FName(TEXT("Wolf"));
+
 	// Опорная скорость бандита (дефолт CharacterMovementComponent::MaxWalkSpeed UE = 600).
 	// В заголовке (а не static в .cpp), чтобы контракт скоростей могли проверять автотесты.
 	static constexpr float BanditBaseWalkSpeed = 600.0f;
@@ -184,6 +192,9 @@ public:
 	// Открыта, чтобы автотест закреплял контракт баланса «волк быстрее спринта игрока» (Ринат 08-06).
 	UFUNCTION(BlueprintPure, Category = "Movement")
 	float GetChaseSpeed() const { return BanditBaseWalkSpeed * SpeedMultiplierVsBandit; }
+
+	// Тег цели квеста этого волка — для автотеста контракта тегов (ContentToolsWave, ADR-075).
+	FName GetQuestKillTagForQA() const { return QuestKillTag; }
 
 private:
 	// Текущий проигрываемый локомоторный клип (чтобы не рестартить PlayAnimation каждый кадр).

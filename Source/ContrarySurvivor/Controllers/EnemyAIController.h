@@ -105,13 +105,16 @@ protected:
 	// --- Параметры восприятия/боя (тюнингуемые) ---
 
 	// Дистанция обнаружения игрока (см). За пределами — Idle.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Perception")
+	// ADR-075: EditAnywhere (было EditDefaultsOnly) — боевые числа врага настраиваются в
+	// BP-наследниках контроллеров (BP_EnemyAIController/BP_WolfAIController) без правки кода.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI|Perception")
 	float DetectionRange = 1500.0f;
 
 	// Дальность атаки ножом, измеряется ПОВЕРХНОСТЬ-К-ПОВЕРХНОСТИ капсул (см),
 	// т.е. зазор между капсулами врага и игрока, а НЕ расстояние между их центрами.
 	// Эффективная проверка центр-к-центру = AttackRange + (радиус капсулы врага + игрока).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
+	// ADR-075: EditAnywhere — тюнинг в BP контроллера (см. DetectionRange).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI|Combat", meta = (ClampMin = "0.0"))
 	float AttackRange = 90.0f;
 
 	// --- Прямая видимость атаки (фикс 08-07, живой прогон Рината: «бандиты убили сквозь
@@ -140,7 +143,8 @@ protected:
 	// Радиус приёмки для MoveToActor (см). Останавливаемся, не упираясь в игрока.
 	// Должен быть таким, чтобы дистанция остановки преследования была <= дальности атаки
 	// (с учётом радиусов капсул обоих). 60 < AttackRange(90) поверхность-к-поверхности.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
+	// ADR-075: EditAnywhere — тюнинг в BP контроллера (см. DetectionRange).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI|Movement", meta = (ClampMin = "0.0"))
 	float MoveAcceptanceRadius = 60.0f;
 
 	// Навигационный фильтр поиска пути врага (BugReport 12): ИСКЛЮЧАЕТ зону деревни
@@ -150,12 +154,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Movement")
 	TSubclassOf<UNavigationQueryFilter> MoveFilterClass;
 
-	// Урон одной атаки (ближний удар).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
+	// Урон одной атаки (ближний удар). У волка это урон укуса (дефолт 10 задаёт конструктор
+	// AWolfAIController). ADR-075: EditAnywhere — тюнинг в BP контроллера.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI|Combat", meta = (ClampMin = "0.0"))
 	float AttackDamage = 10.0f;
 
-	// Кулдаун между атаками (сек).
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI|Combat")
+	// Кулдаун между атаками (сек). ADR-075: EditAnywhere — тюнинг в BP контроллера.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI|Combat", meta = (ClampMin = "0.05"))
 	float AttackCooldown = 1.5f;
 
 	// --- Огнестрел (D6, ADR-035). Бандит стреляет с дистанции; в упор остаётся ближний удар.

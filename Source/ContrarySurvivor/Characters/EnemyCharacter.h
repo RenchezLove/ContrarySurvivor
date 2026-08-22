@@ -85,6 +85,15 @@ protected:
 	// Спавнит SidearmWeaponClass и экипирует в руку (виден пистолет). Зовётся в BeginPlay.
 	void EquipSidearm();
 
+	// Тег цели квеста, который засчитывается при смерти ЭТОГО врага (сверяется с
+	// FQuest::KillTargetTag журнала игрока), он же — тип врага в событии аналитики киллов
+	// (латиницей, id событий GA). ADR-075: раньше "Bandit" был зашит в HandleDeath (.cpp) —
+	// новый тип врага не мог объявить свой тег из BP. Единый источник для квеста И аналитики.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Quest", meta = (DisplayPriority = "3",
+		DisplayName = "Тег цели квеста (латиницей)",
+		ToolTip = "Каким тегом это убийство засчитывается в квесты (сверка с целью квеста) и в аналитику. Латиницей. Пусто = убийство в квесты не идёт."))
+	FName QuestKillTag = FName(TEXT("Bandit"));
+
 	// Скорость погони бандита (см/с). TUNING. Чуть ВЫШЕ скорости ходьбы игрока (~600), чтобы
 	// бандит реально догонял шагающего игрока, но НИЖЕ спринта игрока (~1200) — от спринта можно
 	// оторваться ценой расхода голода/жажды (бой остаётся проходимым). Применяется детерминированно
@@ -158,4 +167,8 @@ public:
 	// автотеста контракта баланса (догоняет шагающего, отстаёт от спринта).
 	UFUNCTION(BlueprintPure, Category = "Movement")
 	float GetChaseSpeed() const { return BanditWalkSpeed; }
+
+	// Тег цели квеста этого врага — для автотеста контракта «тег пешки == цель квеста
+	// старосты» (ContentToolsWaveAutomationTests, ADR-075).
+	FName GetQuestKillTagForQA() const { return QuestKillTag; }
 };
