@@ -219,6 +219,71 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
 	float SprintPulseDepth = 0.4f;
 
+	// --- Компас на стике (ADR-076 п.5, Ринат дословно: «стик это как бы по сути и есть
+	// компас... Сверху стика буква N, которая всегда обращена на север... В самом стике едва
+	// заметная тоненькая красная стрелка, которая всегда указывает на север»). Буквы N/E/S/W
+	// вокруг подложки стика + красная стрелка из её центра; код держит их у стика каждый кадр
+	// («куда стик — туда и компас» при любом переносе), угол севера считается через камеру
+	// (при штатной неповорачиваемой камере это константа «вверх кадра» — конвенция Рината
+	// 07-02 «верх кадра = север»). Кубики создаются кодом (паттерн WeaponIconImage/FpsText),
+	// файл WBP с правками Рината не трогается; стиль — поля ниже (Class Defaults WBP). ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "1",
+		DisplayName = "Показывать компас на стике"))
+	bool bShowCompass = true;
+
+	// Буквы стоят на окружности «радиус подложки + этот отступ», px.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "2",
+		DisplayName = "Отступ букв от края подложки, px"))
+	float CompassLetterOffset = 26.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (ClampMin = "6", DisplayPriority = "3",
+		DisplayName = "Кегль букв"))
+	int32 CompassFontSize = 16;
+
+	// Полупрозрачные буквы (поверх них ещё действует прозрачность слоя в покое).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "4",
+		DisplayName = "Цвет букв"))
+	FLinearColor CompassLetterColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.55f);
+
+	// «Едва заметная тоненькая красная стрелка» — цвет с небольшой прозрачностью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "5",
+		DisplayName = "Цвет стрелки"))
+	FLinearColor CompassArrowColor = FLinearColor(1.0f, 0.12f, 0.08f, 0.55f);
+
+	// Толщина (X) и длина (Y) стрелки, px. Стрелка выходит из центра подложки к северу.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "6",
+		DisplayName = "Стрелка: толщина и длина, px"))
+	FVector2D CompassArrowSize = FVector2D(3.0f, 26.0f);
+
+	// Мировое направление СЕВЕРА в плане (XY). Дефолт +Y — из конвенции «верх кадра = север»
+	// при штатной камере (рыскание 90). Если на живой карте север окажется в другой стороне —
+	// правится этим полем без пересборки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "7",
+		DisplayName = "Мировое направление севера (XY)"))
+	FVector2D NorthWorldDirection = FVector2D(0.0f, 1.0f);
+
+	// Буквы сторон света (латиница по слову Рината; поля — на случай замены).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "8", DisplayName = "Буква севера"))
+	FText CompassNorthLabel = NSLOCTEXT("Touch", "CompassN", "N");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "9", DisplayName = "Буква востока"))
+	FText CompassEastLabel = NSLOCTEXT("Touch", "CompassE", "E");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "10", DisplayName = "Буква юга"))
+	FText CompassSouthLabel = NSLOCTEXT("Touch", "CompassS", "S");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Compass", meta = (DisplayPriority = "11", DisplayName = "Буква запада"))
+	FText CompassWestLabel = NSLOCTEXT("Touch", "CompassW", "W");
+
+	// Чистая математика угла компаса — открыта для headless-теста. Вход: экранное направление
+	// севера (пиксели, Y растёт вниз), выход: угол в градусах для Render Transform Angle,
+	// где 0° = «вверх кадра», по часовой. (0,-1)->0, (1,0)->90, (0,1)->180, (-1,0)->-90.
+	static float ComputeCompassScreenAngleDeg(const FVector2D& ScreenDirOfNorth)
+	{
+		return FMath::RadiansToDegrees(FMath::Atan2(ScreenDirOfNorth.X, -ScreenDirOfNorth.Y));
+	}
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -308,6 +373,27 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> FpsText;
 
+	// --- Компас на стике (ADR-076 п.5). Кубиков в WBP нет — код создаёт их сам (паттерн
+	// FpsText/WeaponIconImage); появятся в ассете позже — код подхватит по именам. Позицию
+	// код ставит КАЖДЫЙ КАДР вокруг центра подложки стика — двигать их в дизайнере смысла
+	// нет, стиль правится полями Touch Controls|Compass. ---
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CompassNText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CompassEText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CompassSText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CompassWText;
+
+	// Тонкая красная стрелка на север в самом стике (из центра подложки).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> CompassArrowImage;
+
 	// Строка времён кадра под числом кадров (замер «во что упираемся»). Живёт по тем же
 	// правилам: есть кубик в WBP — обновляем его, нет — создаём кодом.
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -377,6 +463,20 @@ private:
 
 	// Создаёт кубик FrameTimeText кодом — строкой ниже числа кадров, тем же способом.
 	void CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas);
+
+	// Компас на стике (ADR-076 п.5): создаёт недостающие кубики (буквы N/E/S/W + стрелка)
+	// кодом в канву Canvas — по элементу, тем же правилом «нет в WBP — создаём сами».
+	void CreateCompassInCanvas(UCanvasPanel* Canvas);
+
+	// Держит буквы вокруг ЦЕНТРА подложки стика и вертит стрелку на север (угол — через
+	// камеру: проекция мирового направления NorthWorldDirection на экран). Зовётся каждый
+	// кадр вне модалок; пересчёт слотов — только при заметном сдвиге центра/угла.
+	void UpdateCompass(const FGeometry& MyGeometry);
+
+	// Гейты пересчёта компаса (центр стика в локальных координатах и угол севера).
+	FVector2D LastCompassCenter = FVector2D(-1.0e6f, -1.0e6f);
+	float LastCompassAngleDeg = 1.0e6f;
+	float LastCompassLetterRadius = -1.0f;
 
 	// Обновляет строку времён кадра (замер идёт каждый кадр, текст — раз в интервал).
 	void UpdateFrameTimeText(float DeltaTime);

@@ -21,6 +21,7 @@
 #include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
+#include "ContrarySurvivor/UI/TouchControlsWidget.h" // ComputeCompassScreenAngleDeg (компас, ADR-076 п.5)
 #include "ContrarySurvivor/Data/ContraryItemRow.h"
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"
 #include "ContrarySurvivor/Data/ContraryQuestRow.h"
@@ -510,6 +511,34 @@ bool FContentToolsQuestRowTest::RunTest(const FString& Parameters)
 	// Вернуть настройки (CDO переживает тест).
 	Settings->ItemTable = SavedItems;
 	Settings->QuestTable = SavedQuests;
+	return true;
+}
+
+// ===========================================================================
+// 7. Компас на стике (ADR-076 п.5): математика угла севера на экране.
+//    Контракт ComputeCompassScreenAngleDeg: экранное направление севера (Y вниз) ->
+//    угол Render Transform (0° = вверх кадра, по часовой).
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsCompassAngleTest,
+	"ContrarySurvivor.ContentTools.CompassScreenAngle", ContentToolsTestFlags)
+
+bool FContentToolsCompassAngleTest::RunTest(const FString& Parameters)
+{
+	// Север «вверх кадра» (штатная камера, конвенция «верх кадра = север») — угол 0.
+	TestTrue(TEXT("Север вверх -> 0°"), FMath::IsNearlyEqual(
+		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(0.0f, -1.0f)), 0.0f, 0.01f));
+	// Север «вправо» — стрелку надо повернуть на 90° по часовой.
+	TestTrue(TEXT("Север вправо -> 90°"), FMath::IsNearlyEqual(
+		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(1.0f, 0.0f)), 90.0f, 0.01f));
+	// Север «вниз» — 180°.
+	TestTrue(TEXT("Север вниз -> 180°"), FMath::IsNearlyEqual(
+		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(0.0f, 1.0f)), 180.0f, 0.01f));
+	// Север «влево» — минус 90° (та же сторона, что 270°).
+	TestTrue(TEXT("Север влево -> -90°"), FMath::IsNearlyEqual(
+		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(-1.0f, 0.0f)), -90.0f, 0.01f));
+	// Длина вектора на угол не влияет (проекция может дать любой масштаб).
+	TestTrue(TEXT("Масштаб вектора не меняет угол"), FMath::IsNearlyEqual(
+		UTouchControlsWidget::ComputeCompassScreenAngleDeg(FVector2D(250.0f, 0.0f)), 90.0f, 0.01f));
 	return true;
 }
 

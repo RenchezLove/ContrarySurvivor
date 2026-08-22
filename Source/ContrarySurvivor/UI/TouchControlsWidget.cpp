@@ -94,6 +94,9 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 		{
 			CreateFrameTimeTextInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
 		}
+		// Компас на стике (ADR-076 п.5): кубиков в ассете нет — создаём кодом (позицию всё
+		// равно каждый кадр держит UpdateCompass, так что файл Рината не трогаем вовсе).
+		CreateCompassInCanvas(Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr));
 	}
 	else
 	{
@@ -166,6 +169,12 @@ void UTouchControlsWidget::ApplyPlayerSettings()
 	ApplyIdle(InventoryButton);
 	ApplyIdle(PauseButton);
 	ApplyIdle(WeaponIconImage);
+	// Компас (ADR-076 п.5) живёт той же прозрачностью покоя, что и стик, вокруг которого стоит.
+	ApplyIdle(CompassNText);
+	ApplyIdle(CompassEText);
+	ApplyIdle(CompassSText);
+	ApplyIdle(CompassWText);
+	ApplyIdle(CompassArrowImage);
 	// Кнопка БЕГ в режиме «бег включён» светится активной прозрачностью — её не гасим.
 	if (SprintButton && !bSprintOn)
 	{
@@ -225,6 +234,8 @@ void UTouchControlsWidget::NativeOnInitialized()
 	CreateFpsTextInCanvas(RootCanvas);
 	// Под ним — строка времён кадра (замер «во что упираемся», задача лида 05-08).
 	CreateFrameTimeTextInCanvas(RootCanvas);
+	// Компас на стике (ADR-076 п.5): буквы N/E/S/W + стрелка; позиции держит UpdateCompass.
+	CreateCompassInCanvas(RootCanvas);
 }
 
 void UTouchControlsWidget::BuildButtons()
@@ -392,8 +403,12 @@ void UTouchControlsWidget::CollectCombatGroup()
 	CombatGroupWidgets.Reset();
 	CombatGroupShownVisibility.Reset();
 	// СУМКА/ПАУЗА в группу НЕ входят — остаются при модалках (см. класс-коммент).
+	// Компас (ADR-076 п.5) прячется вместе со стиком: без стика буквы вокруг пустого места
+	// читались бы как мусор поверх модального окна.
 	UWidget* GroupMembers[] = { StickBase.Get(), StickThumb.Get(), FireButton.Get(),
-		ReloadButton.Get(), InteractButton.Get(), SprintButton.Get(), WeaponButton.Get() };
+		ReloadButton.Get(), InteractButton.Get(), SprintButton.Get(), WeaponButton.Get(),
+		CompassNText.Get(), CompassEText.Get(), CompassSText.Get(), CompassWText.Get(),
+		CompassArrowImage.Get() };
 	for (UWidget* Member : GroupMembers)
 	{
 		if (Member)
@@ -558,6 +573,143 @@ void UTouchControlsWidget::CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas)
 		// Строкой ниже числа кадров: отступ по высоте кегля числа с небольшим зазором.
 		CanvasSlot->SetPosition(FpsMargin + FVector2D(0.0f, static_cast<float>(FpsFontSize) + 6.0f));
 	}
+}
+
+void UTouchControlsWidget::CreateCompassInCanvas(UCanvasPanel* Canvas)
+{
+	// Галочка действует при создании слоя (выключил — элементы не создаются вовсе; включение
+	// в рантайме подхватится при пересоздании слоя, как остальные настройки контроллера).
+	if (!bShowCompass || !Canvas || !WidgetTree)
+	{
+		return;
+	}
+
+	// Буква стороны света: полупрозрачный текст, тапы сквозь, позиция — за экраном до
+	// первого тика (ставит UpdateCompass). Создаём только недостающее: появись кубики в
+	// ассете позже — код возьмёт их по BindWidgetOptional-именам.
+	auto MakeLetter = [&](TObjectPtr<UTextBlock>& Field, const FName& WidgetName, const FText& Label)
+	{
+		if (Field)
+		{
+			return;
+		}
+		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), WidgetName);
+		Text->SetText(Label);
+		Text->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", CompassFontSize));
+		Text->SetColorAndOpacity(FSlateColor(CompassLetterColor));
+		Text->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		Text->SetRenderOpacity(Config.IdleOpacity);
+		if (UCanvasPanelSlot* CanvasSlot = Canvas->AddChildToCanvas(Text))
+		{
+			CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
+			CanvasSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			CanvasSlot->SetAutoSize(true);
+			CanvasSlot->SetPosition(FVector2D(-1000.0f, -1000.0f));
+		}
+		Field = Text;
+	};
+	MakeLetter(CompassNText, TEXT("CompassNText"), CompassNorthLabel);
+	MakeLetter(CompassEText, TEXT("CompassEText"), CompassEastLabel);
+	MakeLetter(CompassSText, TEXT("CompassSText"), CompassSouthLabel);
+	MakeLetter(CompassWText, TEXT("CompassWText"), CompassWestLabel);
+
+	// «Едва заметная тоненькая красная стрелка» — узкий прямоугольник (дефолтная кисть
+	// UImage — сплошной белый прямоугольник, тонируем цветом), поворот ставит UpdateCompass.
+	if (!CompassArrowImage)
+	{
+		UImage* Arrow = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CompassArrowImage"));
+		Arrow->SetColorAndOpacity(CompassArrowColor);
+		Arrow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		Arrow->SetRenderOpacity(Config.IdleOpacity);
+		if (UCanvasPanelSlot* CanvasSlot = Canvas->AddChildToCanvas(Arrow))
+		{
+			CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
+			CanvasSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			CanvasSlot->SetSize(CompassArrowSize);
+			CanvasSlot->SetPosition(FVector2D(-1000.0f, -1000.0f));
+		}
+		CompassArrowImage = Arrow;
+	}
+}
+
+void UTouchControlsWidget::UpdateCompass(const FGeometry& MyGeometry)
+{
+	if (!bShowCompass || !CompassNText || !CompassEText || !CompassSText || !CompassWText
+		|| !CompassArrowImage)
+	{
+		return;
+	}
+
+	// Угол севера на экране: проекция мирового направления NorthWorldDirection через камеру.
+	// При штатной неповорачиваемой камере (рыскание 90) это константа «вверх кадра» —
+	// конвенция Рината 07-02 «верх кадра = север»; но считаем честно, чтобы компас не соврал,
+	// если камеру когда-нибудь повернут. Проекция не удалась (нет пешки/камеры, точка за
+	// кадром) — держим прошлый угол, а до первого успеха — «север = вверх» (0°).
+	float AngleDeg = (LastCompassAngleDeg < 720.0f) ? LastCompassAngleDeg : 0.0f;
+	if (OwnerPC)
+	{
+		if (const APawn* OwnerPawn = OwnerPC->GetPawn())
+		{
+			const FVector Base = OwnerPawn->GetActorLocation();
+			const FVector2D NorthXY = NorthWorldDirection.GetSafeNormal();
+			if (!NorthXY.IsNearlyZero())
+			{
+				const FVector NorthPoint = Base + FVector(NorthXY.X, NorthXY.Y, 0.0f) * 500.0f;
+				FVector2D ScreenBase, ScreenNorth;
+				if (OwnerPC->ProjectWorldToScreen(Base, ScreenBase)
+					&& OwnerPC->ProjectWorldToScreen(NorthPoint, ScreenNorth))
+				{
+					const FVector2D ScreenDir = ScreenNorth - ScreenBase;
+					if (ScreenDir.SizeSquared() > 1.0f)
+					{
+						AngleDeg = ComputeCompassScreenAngleDeg(ScreenDir);
+					}
+				}
+			}
+		}
+	}
+
+	// Центр подложки и радиус окружности букв — те же источники, что у жеста стика
+	// («куда стик — туда и компас» получается само при любом переносе/масштабе).
+	const FVector2D Center = GetStickCenterLocal(MyGeometry);
+	const float LetterRadius = GetStickRadiusPx() + CompassLetterOffset;
+
+	// Пересчёт слотов — только при заметном сдвиге (обычно всё стоит на месте).
+	if (Center.Equals(LastCompassCenter, 0.25f)
+		&& FMath::IsNearlyEqual(AngleDeg, LastCompassAngleDeg, 0.25f)
+		&& FMath::IsNearlyEqual(LetterRadius, LastCompassLetterRadius, 0.25f))
+	{
+		return;
+	}
+	LastCompassCenter = Center;
+	LastCompassAngleDeg = AngleDeg;
+	LastCompassLetterRadius = LetterRadius;
+
+	// Экранные направления сторон (Y растёт вниз): север из угла, восток = север, повёрнутый
+	// на 90° по часовой; буквы стоят на окружности и НЕ вращаются сами (всегда прямые).
+	const float Rad = FMath::DegreesToRadians(AngleDeg);
+	const FVector2D DirN(FMath::Sin(Rad), -FMath::Cos(Rad));
+	const FVector2D DirE(-DirN.Y, DirN.X);
+
+	auto SetSlotPos = [](UWidget* Widget, const FVector2D& Pos)
+	{
+		if (Widget)
+		{
+			if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
+			{
+				CanvasSlot->SetPosition(Pos);
+			}
+		}
+	};
+	SetSlotPos(CompassNText, Center + DirN * LetterRadius);
+	SetSlotPos(CompassEText, Center + DirE * LetterRadius);
+	SetSlotPos(CompassSText, Center - DirN * LetterRadius);
+	SetSlotPos(CompassWText, Center - DirE * LetterRadius);
+
+	// Стрелка: из центра подложки К СЕВЕРУ (смещаем на полдлины — читается указателем),
+	// поворот тем же углом (нарисована вертикальной полоской, 0° = вверх).
+	SetSlotPos(CompassArrowImage, Center + DirN * (CompassArrowSize.Y * 0.5f));
+	CompassArrowImage->SetRenderTransformAngle(AngleDeg);
 }
 
 void UTouchControlsWidget::UpdateFrameTimeText(float DeltaTime)
@@ -787,6 +939,10 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 
 	// Подсветка+пульсация кнопки БЕГ при включённом беге (Блок D): вне модалок, кнопка видна.
 	UpdateSprintVisual(InDeltaTime);
+
+	// Компас на стике (ADR-076 п.5): буквы вокруг центра подложки + стрелка на север.
+	// Вне модалок (в модалках компас скрыт боевой группой, двигать нечего).
+	UpdateCompass(MyGeometry);
 
 	UEnhancedInputLocalPlayerSubsystem* InputSubsystem = GetInputSubsystem();
 	if (!InputSubsystem)
