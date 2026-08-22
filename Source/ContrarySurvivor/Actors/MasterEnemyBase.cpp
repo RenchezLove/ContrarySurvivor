@@ -14,6 +14,15 @@
 #include "AQuestItem.h"    // дефолтный класс квест-предмета «Ноутбук»
 #include "EnemySpawnPointComponent.h" // видимые/перемещаемые в BP точки спавна
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D7: SetLeash заспавненным врагам
+#include "ContrarySurvivor/Actors/EnemyBaseTierLogic.h"     // ТЗ 22.08: чистые правила ступеней
+#include "ContrarySurvivor/Components/StatsComponent.h"     // прибавка здоровья от базы (§3)
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"         // память базы в сейве (§1)
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"    // имя боевого слота сейва (статики)
+#include "ContrarySurvivor/UI/BaseEntryAnnounceWidget.h"    // надпись при входе (§5)
+#include "ContrarySurvivor/ContrarySurvivor.h"              // LogQA
+#include "Components/AudioComponent.h"                      // шум занятой базы (§5)
+#include "Sound/SoundBase.h"
+#include "Blueprint/UserWidget.h"                           // CreateWidget (надпись входа)
 
 AMasterEnemyBase::AMasterEnemyBase()
 {
@@ -53,6 +62,39 @@ AMasterEnemyBase::AMasterEnemyBase()
 	// Дефолтные классы опц. квест-предмета (editor-независимо; bSpawnQuestItem выключен по умолчанию).
 	QuestItemClass = AQuestItem::StaticClass();
 	PickupClass = APickup::StaticClass();
+
+	// Шум занятой базы (ТЗ 22.08 §5 «звук раньше картинки»): компонент создаём всегда,
+	// звук — мягкой ссылкой (пусто = тихо); затухание перекрываем своим радиусом слышимости.
+	AmbientAudio = CreateDefaultSubobject<UAudioComponent>(TEXT("AmbientAudio"));
+	AmbientAudio->SetupAttachment(SceneRoot);
+	AmbientAudio->bAutoActivate = false;
+	AmbientAudio->bOverrideAttenuation = true;
+	AmbientAudio->AttenuationOverrides.FalloffDistance = AmbientHearRadius;
+
+	// Награды по ступеням (ТЗ §4, дефолты по таблице владельца: 1-2 — расходники, 3+ —
+	// элемент брони «получше» с ростом тира). Предметы — СТРОКАМИ таблицы DT_Items (единый
+	// конфиг, ADR-075); таблица не заведена — строки не разрешатся (мешок предупредит), но
+	// деньги останутся: «пусто не бывает» держится и без таблицы.
+	auto MakeRewardItem = [](const TCHAR* Row, int32 Count)
+	{
+		FPlacedLootEntry Entry;
+		Entry.ItemRow = FName(Row);
+		Entry.Count = Count;
+		return Entry;
+	};
+	TierRewards.SetNum(5);
+	TierRewards[0].Money = 15.0f; // ступень 1: расходники
+	TierRewards[0].Items = { MakeRewardItem(TEXT("canned_food"), 1), MakeRewardItem(TEXT("water_bottle"), 1) };
+	TierRewards[1].Money = 25.0f; // ступень 2: расходников больше
+	TierRewards[1].Items = { MakeRewardItem(TEXT("canned_food"), 2), MakeRewardItem(TEXT("water_bottle"), 2),
+		MakeRewardItem(TEXT("bandage"), 1) };
+	TierRewards[2].Money = 30.0f; // ступень 3: элемент брони
+	TierRewards[2].Items = { MakeRewardItem(TEXT("armor_t1_torso"), 1), MakeRewardItem(TEXT("bandage"), 1) };
+	TierRewards[3].Money = 40.0f; // ступень 4: броня получше + немного расходников
+	TierRewards[3].Items = { MakeRewardItem(TEXT("armor_t2_torso"), 1), MakeRewardItem(TEXT("canned_food"), 2) };
+	TierRewards[4].Money = 60.0f; // ступень 5: броня получше + расходники
+	TierRewards[4].Items = { MakeRewardItem(TEXT("armor_t3_torso"), 1), MakeRewardItem(TEXT("canned_food"), 2),
+		MakeRewardItem(TEXT("bandage"), 2) };
 }
 
 void AMasterEnemyBase::OnConstruction(const FTransform& Transform)
@@ -70,6 +112,12 @@ void AMasterEnemyBase::OnConstruction(const FTransform& Transform)
 	{
 		LeashVisualizer->SetSphereRadius(LeashRadius, /*bUpdateOverlaps=*/false);
 	}
+
+	// Радиус слышимости базы — живой в редакторе (ТЗ §5: настраивается на BP и экземпляре).
+	if (AmbientAudio)
+	{
+		AmbientAudio->AttenuationOverrides.FalloffDistance = AmbientHearRadius;
+	}
 }
 
 void AMasterEnemyBase::BeginPlay()
@@ -82,22 +130,23 @@ void AMasterEnemyBase::BeginPlay()
 		return;
 	}
 
-	// Зона ждёт приближения игрока — повторяющийся таймер проверки дистанции (как сабсистемы).
+	// ТЗ 22.08 §1: память базы (ступень + время зачистки по РЕАЛЬНЫМ часам) — из сейва,
+	// до взведения. Пауза не истекла — база стоит пустой (Cleared), спавна не будет.
+	LoadTierStateFromSave();
+
+	// Повторяющийся таймер — теперь НЕ гасится после активации: он же следит за зачисткой
+	// и истечением паузы возрождения (машина состояний в CheckActivation).
 	World->GetTimerManager().SetTimer(
 		ActivationTimerHandle, this, &AMasterEnemyBase::CheckActivation,
 		ActivationCheckPeriod, /*bLoop=*/true, /*FirstDelay=*/ActivationCheckPeriod);
 
-	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s' armed at %s, R=%.0f (waits for player approach)"),
-		*GetName(), *GetActorLocation().ToCompactString(), ActivationRadius);
+	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s' armed at %s, R=%.0f, tier=%d, state=%d"),
+		*GetName(), *GetActorLocation().ToCompactString(), ActivationRadius,
+		CurrentTier, static_cast<int32>(Occupancy));
 }
 
 void AMasterEnemyBase::CheckActivation()
 {
-	if (bActivated)
-	{
-		return;
-	}
-
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -110,33 +159,83 @@ void AMasterEnemyBase::CheckActivation()
 		return; // игрок ещё не заспавнен — ждём следующего тика таймера
 	}
 
-	// Горизонтальная (XY) дистанция игрока до центра зоны: Z игнорируем (рельеф/высота игрока
-	// не влияют на триггер активации).
+	// Горизонтальная (XY) дистанция игрока до центра зоны: Z игнорируем (рельеф/высота
+	// игрока не влияют). Грань ВХОДА в радиус — момент показа надписи (ТЗ §5).
 	const float DistSqXY = FVector::DistSquaredXY(PlayerPawn->GetActorLocation(), GetActorLocation());
 	const float RadiusSq = ActivationRadius * ActivationRadius;
-	if (DistSqXY > RadiusSq)
+	const bool bInside = DistSqXY <= RadiusSq;
+	const bool bEntered = bInside && !bPlayerInsideRadius;
+	bPlayerInsideRadius = bInside;
+
+	switch (Occupancy)
 	{
-		return;
+	case EEnemyBaseOccupancy::Dormant:
+		// Взведена: вход игрока планирует спавн (пауза SpawnDelay — Nav Invoker достраивает
+		// тайлы). Надпись показываем на грани входа: база занимается прямо сейчас.
+		if (bInside && !bSpawnScheduled)
+		{
+			bSpawnScheduled = true;
+			World->GetTimerManager().SetTimer(
+				SpawnDelayTimerHandle, this, &AMasterEnemyBase::DoSpawn,
+				FMath::Max(0.01f, SpawnDelay), /*bLoop=*/false);
+			UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': player in range, spawning in %.1fs (tier %d)"),
+				*GetName(), SpawnDelay, CurrentTier);
+		}
+		if (bEntered)
+		{
+			ShowEntryAnnounce();
+		}
+		break;
+
+	case EEnemyBaseOccupancy::Occupied:
+		if (bEntered)
+		{
+			ShowEntryAnnounce();
+		}
+		// ПОЛНАЯ зачистка = все заспавненные мертвы (побег/смерть игрока ничего не меняют —
+		// враги-то живы, ТЗ §2).
+		if (AreAllSpawnedEnemiesDead())
+		{
+			HandleBaseCleared();
+		}
+		break;
+
+	case EEnemyBaseOccupancy::Cleared:
+		// Пауза по РЕАЛЬНЫМ часам (по зачищенной ступени). Переармирование ТОЛЬКО когда
+		// игрок ВНЕ радиуса — враги не появляются на глазах (ТЗ §6): сам спавн потом идёт
+		// штатной активацией на границе радиуса (вне видимости по конструкции).
+		if (!bInside && EnemyBaseTierLogic::IsRespawnPauseElapsed(
+				LastClearUtc, FDateTime::UtcNow(),
+				EnemyBaseTierLogic::PauseMinutesForClearedTier(LastClearedTier, RespawnPauseMinutesPerTier)))
+		{
+			Occupancy = EEnemyBaseOccupancy::Dormant;
+			bSpawnScheduled = false;
+			UE_LOG(LogQA, Display,
+				TEXT("QA: база '%s' — пауза возрождения истекла, взведена заново на ступени %d"),
+				*GetName(), CurrentTier);
+		}
+		break;
 	}
-
-	// Активация — одноразово, сразу гасим таймер проверки (CheckActivation больше не перезапланирует).
-	bActivated = true;
-	World->GetTimerManager().ClearTimer(ActivationTimerHandle);
-
-	// НЕ спавним мгновенно: даём Nav Invoker на игроке SpawnDelay секунд достроить навмеш-тайлы
-	// вокруг зоны (иначе враги сядут navmesh=floor-trace и не навигируют). Затем DoSpawn.
-	World->GetTimerManager().SetTimer(
-		SpawnDelayTimerHandle, this, &AMasterEnemyBase::DoSpawn, FMath::Max(0.01f, SpawnDelay), /*bLoop=*/false);
-
-	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': player in range, spawning in %.1fs"), *GetName(), SpawnDelay);
 }
 
 void AMasterEnemyBase::DoSpawn()
 {
+	SpawnedEnemies.Reset();
 	SpawnEnemies();
-	if (bSpawnQuestItem)
+
+	// Квест-предмет (ноутбук кв.2) — только пока базу ни разу не зачищали: возрождённая
+	// база не плодит вторые ноутбуки (допущение, доложено лиду).
+	if (bSpawnQuestItem && LastClearUtc.GetTicks() == 0)
 	{
 		SpawnQuestItem();
+	}
+
+	// Занята — только если кто-то реально заспавнился (без EnemyClass база остаётся пустой,
+	// как раньше: спавн не переигрывается, лог уже написан в SpawnEnemies).
+	if (SpawnedEnemies.Num() > 0)
+	{
+		Occupancy = EEnemyBaseOccupancy::Occupied;
+		UpdateAmbientForState();
 	}
 }
 
@@ -203,6 +302,21 @@ void AMasterEnemyBase::SpawnOneEnemy(const FTransform& SpawnTransform)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("EnemyBase '%s': %s has no AEnemyAIController yet — leash NOT set (default leash from OnPossess applies)"),
 				*GetName(), *Enemy->GetName());
+		}
+
+		// ТЗ 22.08 §3: прибавка здоровья ступени — ОТ БАЗЫ, обобщённо через UStatsComponent
+		// (во враге не зашито; BeginPlay врага уже выставил его базовое здоровье внутри
+		// SpawnActor, прибавка ложится поверх). §2/§6: число врагов от ступени НЕ растёт.
+		SpawnedEnemies.Add(Enemy);
+		const float HealthBonus = EnemyBaseTierLogic::HealthBonusForTier(CurrentTier, TierHealthBonus);
+		if (HealthBonus > 0.0f)
+		{
+			if (UStatsComponent* EnemyStats = Enemy->FindComponentByClass<UStatsComponent>())
+			{
+				EnemyStats->InitHealth(EnemyStats->GetMaxHealth() + HealthBonus, /*bSetToMax=*/true);
+				UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': %s tier %d health bonus +%.0f -> %.0f"),
+					*GetName(), *Enemy->GetName(), CurrentTier, HealthBonus, EnemyStats->GetMaxHealth());
+			}
 		}
 
 		UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': spawned %s at %s (navmesh=%s, leash=%.0f)"),
@@ -289,4 +403,312 @@ void AMasterEnemyBase::SpawnQuestItem()
 
 	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': quest item '%s' spawned at %s (%s)"),
 		*GetName(), *QuestItemName, *Loc.ToCompactString(), Pickup ? TEXT("ok") : TEXT("FAILED"));
+}
+
+// ===========================================================================
+// Возрождение и ступени (ТЗ издателя 22.08.2026)
+// ===========================================================================
+
+FText AMasterEnemyBase::BuildAnnounceText(const FText& BaseName, const FText& Separator,
+	const FText& Tier2Suffix, const FText& Tier3PlusSuffix, int32 Tier)
+{
+	// §5: 1-я ступень — только название; 2-я — «более опытные»; 3-я и выше — «ещё более».
+	const int32 ClampedTier = EnemyBaseTierLogic::ClampTier(Tier);
+	const FText& Suffix = (ClampedTier == 2) ? Tier2Suffix : Tier3PlusSuffix;
+	if (ClampedTier <= 1 || Suffix.IsEmpty())
+	{
+		return BaseName;
+	}
+	if (BaseName.IsEmpty())
+	{
+		return Suffix;
+	}
+	return FText::Join(Separator, TArray<FText>({ BaseName, Suffix }));
+}
+
+int32 AMasterEnemyBase::PickRewardTierIndex(const TArray<FEnemyBaseTierReward>& Rewards, int32 Tier)
+{
+	// §4 «пусто не бывает никогда»: запись ступени, пустая — запись первой ступени,
+	// и она пустая — INDEX_NONE (вызывающий громко предупреждает).
+	if (Rewards.Num() == 0)
+	{
+		return INDEX_NONE;
+	}
+	const int32 Index = FMath::Clamp(EnemyBaseTierLogic::ClampTier(Tier) - 1, 0, Rewards.Num() - 1);
+	if (!Rewards[Index].IsEmpty())
+	{
+		return Index;
+	}
+	if (!Rewards[0].IsEmpty())
+	{
+		return 0;
+	}
+	return INDEX_NONE;
+}
+
+FName AMasterEnemyBase::ResolveBaseSaveId() const
+{
+	// Имя размещённого актора стабильно между запусками (актор с карты) — годится ключом;
+	// поле BaseSaveId страхует от будущего переименования базы на карте.
+	return BaseSaveId.IsNone() ? GetFName() : BaseSaveId;
+}
+
+void AMasterEnemyBase::LoadTierStateFromSave()
+{
+	CurrentTier = EnemyBaseTierLogic::ClampTier(InitialTier);
+	LastClearedTier = 0;
+	LastClearUtc = FDateTime(0);
+	Occupancy = EEnemyBaseOccupancy::Dormant;
+
+	const FString Slot = APlayerCharacter::GetDefaultSaveSlotName();
+	const int32 UserIndex = APlayerCharacter::GetDefaultSaveUserIndex();
+	if (!UGameplayStatics::DoesSaveGameExist(Slot, UserIndex))
+	{
+		return; // свежий профиль — начальная ступень
+	}
+	const UContrarySaveGame* Save = Cast<UContrarySaveGame>(
+		UGameplayStatics::LoadGameFromSlot(Slot, UserIndex));
+	if (!Save)
+	{
+		return;
+	}
+
+	const FName Id = ResolveBaseSaveId();
+	for (const FSavedEnemyBaseState& State : Save->EnemyBaseStates)
+	{
+		if (State.BaseId != Id)
+		{
+			continue;
+		}
+		CurrentTier = EnemyBaseTierLogic::ClampTier(State.Tier);
+		LastClearedTier = State.LastClearedTier;
+		LastClearUtc = State.LastClearUtc;
+
+		// §1: пауза не истекла — база стоит ПУСТОЙ и после перезапуска игры.
+		const float PauseMinutes = EnemyBaseTierLogic::PauseMinutesForClearedTier(
+			LastClearedTier, RespawnPauseMinutesPerTier);
+		Occupancy = EnemyBaseTierLogic::IsRespawnPauseElapsed(LastClearUtc, FDateTime::UtcNow(), PauseMinutes)
+			? EEnemyBaseOccupancy::Dormant : EEnemyBaseOccupancy::Cleared;
+
+		UE_LOG(LogQA, Display,
+			TEXT("QA: база '%s' — память из сейва: ступень %d, зачищена ступень %d, состояние %s"),
+			*GetName(), CurrentTier, LastClearedTier,
+			Occupancy == EEnemyBaseOccupancy::Cleared ? TEXT("пауза тикает") : TEXT("взведена"));
+		return;
+	}
+}
+
+void AMasterEnemyBase::WriteTierStateToSave() const
+{
+	// Retention-паттерн (как компоненты удержания игрока): загрузили слот, правим ТОЛЬКО
+	// свою запись, сохранили. Слота нет — создаём свежий объект (bHasData=false: LoadGame
+	// игрока такой игнорирует, а наша память живёт).
+	const FString Slot = APlayerCharacter::GetDefaultSaveSlotName();
+	const int32 UserIndex = APlayerCharacter::GetDefaultSaveUserIndex();
+
+	UContrarySaveGame* Save = Cast<UContrarySaveGame>(UGameplayStatics::LoadGameFromSlot(Slot, UserIndex));
+	if (!Save)
+	{
+		Save = Cast<UContrarySaveGame>(
+			UGameplayStatics::CreateSaveGameObject(UContrarySaveGame::StaticClass()));
+	}
+	if (!Save)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: база '%s' — не создать объект сейва, ступень НЕ записана"), *GetName());
+		return;
+	}
+
+	const FName Id = ResolveBaseSaveId();
+	FSavedEnemyBaseState* Record = Save->EnemyBaseStates.FindByPredicate(
+		[&Id](const FSavedEnemyBaseState& State) { return State.BaseId == Id; });
+	if (!Record)
+	{
+		Record = &Save->EnemyBaseStates.AddDefaulted_GetRef();
+		Record->BaseId = Id;
+	}
+	Record->Tier = CurrentTier;
+	Record->LastClearedTier = LastClearedTier;
+	Record->LastClearUtc = LastClearUtc;
+
+	const bool bOk = UGameplayStatics::SaveGameToSlot(Save, Slot, UserIndex);
+	UE_LOG(LogQA, Display, TEXT("QA: база '%s' — ступень %d записана в сейв: %s"),
+		*GetName(), CurrentTier, bOk ? TEXT("OK") : TEXT("FAIL"));
+}
+
+bool AMasterEnemyBase::AreAllSpawnedEnemiesDead() const
+{
+	if (SpawnedEnemies.Num() == 0)
+	{
+		return false; // ещё никого не спавнили — «зачищать» нечего
+	}
+	for (const TWeakObjectPtr<ACharacter>& Ptr : SpawnedEnemies)
+	{
+		const ACharacter* Enemy = Ptr.Get();
+		if (!Enemy)
+		{
+			continue; // труп исчез по таймеру — мёртв
+		}
+		const UStatsComponent* EnemyStats = Enemy->FindComponentByClass<UStatsComponent>();
+		if (!EnemyStats || !EnemyStats->IsDead())
+		{
+			// Без статов — считаем живым: лучше не зачесть зачистку, чем зачесть лишнюю.
+			return false;
+		}
+	}
+	return true;
+}
+
+void AMasterEnemyBase::HandleBaseCleared()
+{
+	// §2: ступень растёт ТОЛЬКО за полную зачистку; после пятой — третья (цикл 3→4→5→3).
+	const int32 ClearedTier = EnemyBaseTierLogic::ClampTier(CurrentTier);
+	LastClearedTier = ClearedTier;
+	LastClearUtc = FDateTime::UtcNow(); // РЕАЛЬНЫЕ часы (§1)
+	CurrentTier = EnemyBaseTierLogic::NextTierAfterClear(ClearedTier);
+	Occupancy = EEnemyBaseOccupancy::Cleared;
+	SpawnedEnemies.Reset();
+
+	WriteTierStateToSave();
+	SpawnRewardBag(ClearedTier);
+	UpdateAmbientForState(); // база опустела — тишина
+
+	UE_LOG(LogQA, Display,
+		TEXT("QA: база '%s' ЗАЧИЩЕНА (ступень %d) — следующая ступень %d, пауза %.0f мин реального времени"),
+		*GetName(), ClearedTier, CurrentTier,
+		EnemyBaseTierLogic::PauseMinutesForClearedTier(ClearedTier, RespawnPauseMinutesPerTier));
+}
+
+void AMasterEnemyBase::SpawnRewardBag(int32 ClearedTier)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const int32 RewardIndex = PickRewardTierIndex(TierRewards, ClearedTier);
+	if (RewardIndex == INDEX_NONE)
+	{
+		// §4 «пусто не бывает» — держится дефолтами конструктора; сюда попадают только
+		// руками опустошённые настройки, о чём говорим громко.
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: база '%s' — награда за зачистку ПУСТАЯ (все записи ступеней пусты) — мешок не создан, заполните «Награда по ступеням»"),
+			*GetName());
+		return;
+	}
+	const FEnemyBaseTierReward& Reward = TierRewards[RewardIndex];
+
+	// Позиция мешка — центр базы (как квест-предмет): XY на навмеш, высота — пол.
+	FVector Loc = GetActorLocation();
+	FVector ProjectedOut;
+	if (UNavigationSystemV1::K2_ProjectPointToNavigation(
+			World, Loc, ProjectedOut, /*NavData=*/nullptr, /*FilterClass=*/nullptr,
+			FVector(600.0f, 600.0f, 600.0f)))
+	{
+		Loc.X = ProjectedOut.X;
+		Loc.Y = ProjectedOut.Y;
+	}
+	Loc.Z = SpawnPlacement::ResolveSpawnZ(World, Loc.X, Loc.Y, /*ZOffset=*/20.0f, TEXT("BaseReward"));
+
+	// Мешок — штатный пикап со СПИСКОМ содержимого (ADR-076 п.10): то же окно обыска, тот же
+	// единый формат предметов (строка DT_Items/класс). Deferred-спавн: список и деньги — до BeginPlay.
+	TSubclassOf<APickup> BagClass = RewardPickupClass ? RewardPickupClass
+		: (PickupClass ? PickupClass : TSubclassOf<APickup>(APickup::StaticClass()));
+	const FTransform BagTransform(Loc);
+	APickup* Bag = World->SpawnActorDeferred<APickup>(BagClass, BagTransform);
+	if (!Bag)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: база '%s' — мешок награды не заспавнился"), *GetName());
+		return;
+	}
+	Bag->SetPlacedLootList(Reward.Items, Reward.Money);
+	UGameplayStatics::FinishSpawningActor(Bag, BagTransform);
+
+	UE_LOG(LogQA, Display,
+		TEXT("QA: база '%s' — мешок награды ступени %d создан (%d видов предметов, деньги %.0f)"),
+		*GetName(), ClearedTier, Reward.Items.Num(), Reward.Money);
+}
+
+void AMasterEnemyBase::ShowEntryAnnounce()
+{
+	// Название не задано (голый C++-актор) — объявлять нечего.
+	if (BaseDisplayName.IsEmpty())
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const float Now = World->GetTimeSeconds();
+	if (Now - LastAnnounceTime < AnnounceCooldown)
+	{
+		return; // антиспам повторных входов
+	}
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0);
+	if (!PC)
+	{
+		return;
+	}
+	if (!AnnounceWidget.IsValid())
+	{
+		UBaseEntryAnnounceWidget* Widget =
+			CreateWidget<UBaseEntryAnnounceWidget>(PC, UBaseEntryAnnounceWidget::StaticClass());
+		if (!Widget)
+		{
+			return;
+		}
+		Widget->AddToViewport(/*ZOrder=*/15); // над постоянными панелями (5), под модалками (30)
+		AnnounceWidget = Widget;
+	}
+	LastAnnounceTime = Now;
+
+	// §5: с 3-й ступени рядом номер «полупрозрачной цифрой, без скобок» — вторым планом.
+	const bool bShowDigit = CurrentTier >= 3;
+	AnnounceWidget->ShowAnnounce(
+		BuildAnnounceText(BaseDisplayName, AnnounceSeparator, Tier2Suffix, Tier3PlusSuffix, CurrentTier),
+		FText::AsNumber(CurrentTier, &FNumberFormattingOptions::DefaultNoGrouping()),
+		bShowDigit, AnnounceFontSize, AnnounceColor,
+		AnnounceDigitFontSize, AnnounceDigitColor, AnnounceDuration);
+
+	UE_LOG(LogQA, Display, TEXT("QA: база '%s' — надпись входа показана (ступень %d)"),
+		*GetName(), CurrentTier);
+}
+
+void AMasterEnemyBase::UpdateAmbientForState()
+{
+	if (!AmbientAudio)
+	{
+		return;
+	}
+	AmbientAudio->AttenuationOverrides.FalloffDistance = AmbientHearRadius;
+
+	if (Occupancy == EEnemyBaseOccupancy::Occupied && !AmbientSound.IsNull())
+	{
+		USoundBase* Sound = AmbientSound.LoadSynchronous();
+		if (!Sound)
+		{
+			UE_LOG(LogQA, Warning,
+				TEXT("QA: база '%s' — звук базы не загрузился ('%s'); если в редакторе он есть, а в паке нет — проверь список обязательной упаковки"),
+				*GetName(), *AmbientSound.ToString());
+			return;
+		}
+		if (AmbientAudio->Sound != Sound)
+		{
+			AmbientAudio->SetSound(Sound);
+		}
+		// §5: «чем выше ступень, тем больше голосов слышно» — громкость по ступени.
+		AmbientAudio->SetVolumeMultiplier(FMath::Max(0.0f,
+			EnemyBaseTierLogic::PerTierValue(CurrentTier, TierAmbientVolume, 1.0f)));
+		if (!AmbientAudio->IsPlaying())
+		{
+			AmbientAudio->Play();
+		}
+	}
+	else if (AmbientAudio->IsPlaying())
+	{
+		AmbientAudio->Stop();
+	}
 }

@@ -600,7 +600,7 @@ bool FContentToolsPickupLootListTest::RunTest(const FString& Parameters)
 	ArmorEntry.ItemClass = AHeadArmorT1::StaticClass();
 	ArmorEntry.Count = 2; // нестакаемая броня -> ДВЕ копии
 	List.Add(ArmorEntry);
-	Pickup->SetPlacedLootListForQA(List);
+	Pickup->SetPlacedLootList(List);
 
 	UGameplayStatics::FinishSpawningActor(Pickup, SpawnTM); // BeginPlay -> SpawnPlacedLoot
 
@@ -723,7 +723,7 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 		Entry.ItemClass = AConsumableItem::StaticClass();
 		Entry.Count = 1;
 		List.Add(Entry);
-		Bag->SetPlacedLootListForQA(List);
+		Bag->SetPlacedLootList(List);
 		UGameplayStatics::FinishSpawningActor(Bag, TM);
 		return Bag;
 	};

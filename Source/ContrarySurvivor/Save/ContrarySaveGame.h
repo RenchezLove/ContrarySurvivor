@@ -49,6 +49,36 @@ struct FSavedInventoryEntry
 };
 
 /**
+ * Память одной базы противника (ТЗ издателя 22.08.2026 «возрождение базы и её уровни»):
+ * текущая ступень и момент последней ПОЛНОЙ зачистки по РЕАЛЬНЫМ часам (UTC). Живёт в
+ * сейве — переживает выход из игры; «Новая игра» честно сбрасывает базы на начальную
+ * ступень (слот стирается целиком). Пишет AMasterEnemyBase retention-паттерном
+ * (LoadGameFromSlot → правка ТОЛЬКО своей записи → SaveGameToSlot).
+ */
+USTRUCT(BlueprintType)
+struct FSavedEnemyBaseState
+{
+	GENERATED_BODY()
+
+	// Идентификатор базы (настраиваемый BaseSaveId актора; пусто = имя размещённого актора).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
+	FName BaseId;
+
+	// Текущая ступень базы (1..5).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
+	int32 Tier = 1;
+
+	// Какая ступень была зачищена последней — по НЕЙ считается пауза возрождения (из новой
+	// ступени зачищенную не вывести: на третью попадают и со второй, и с пятой). 0 = не было.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
+	int32 LastClearedTier = 0;
+
+	// Момент последней полной зачистки, РЕАЛЬНОЕ время UTC. Ticks == 0 — зачисток не было.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
+	FDateTime LastClearUtc;
+};
+
+/**
  * Сейв игрока (GDD §7.8). Хранит статы выживания + позицию игрока (точка респауна).
  * Запись/чтение через UGameplayStatics::SaveGameToSlot / LoadGameFromSlot.
  * Костёр (ACampfire) делает автосейв при входе в безопасную зону.
@@ -192,6 +222,12 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
 	FDateTime LastShopAdTime;
+
+	// --- Мир: память баз противника (ТЗ издателя 22.08.2026, возрождение баз) ---
+	// Заполняет AMasterEnemyBase (retention-паттерн); SaveGame() игрока переносит через
+	// CopyRetentionData — иначе автосейв костра стирал бы ступени и таймеры возрождения.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
+	TArray<FSavedEnemyBaseState> EnemyBaseStates;
 
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);

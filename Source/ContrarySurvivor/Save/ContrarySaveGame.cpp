@@ -30,4 +30,8 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->ShopAdCounterDate      = From->ShopAdCounterDate;
 	To->ShopAdUsesOnDate       = From->ShopAdUsesOnDate;
 	To->LastShopAdTime         = From->LastShopAdTime;
+
+	// ТЗ 22.08 (возрождение баз): память баз — те же правила, что удержание: без переноса
+	// каждый автосейв костра сбрасывал бы ступени и таймеры возрождения.
+	To->EnemyBaseStates        = From->EnemyBaseStates;
 }

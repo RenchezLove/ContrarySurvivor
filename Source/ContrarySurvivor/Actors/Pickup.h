@@ -240,9 +240,17 @@ protected:
 	float GlowPulsePeriod = 2.0f;
 
 public:
-	// QA-доступ (паттерн *ForQA): подменить список содержимого ДО BeginPlay (deferred-спавн
-	// в headless-тесте). В игровом коде не вызывается — список заполняет дизайнер в редакторе.
-	void SetPlacedLootListForQA(const TArray<FPlacedLootEntry>& List) { PlacedLootList = List; }
+	// Задать содержимое СПИСКОМ до BeginPlay (deferred-спавн: SpawnActorDeferred → этот вызов
+	// → FinishSpawningActor). Штатный путь рантайм-мешков с набором предметов: мешок-награда
+	// базы (ТЗ 22.08 возрождение баз) и headless-тесты. MoneyOverride >= 0 — заодно деньги.
+	void SetPlacedLootList(const TArray<FPlacedLootEntry>& List, float MoneyOverride = -1.0f)
+	{
+		PlacedLootList = List;
+		if (MoneyOverride >= 0.0f)
+		{
+			MoneyAmount = MoneyOverride;
+		}
+	}
 
 private:
 	// D8: спавнит размещённый лут (PlacedItemClass/PlacedAmmoAmount) скрытыми предметами
