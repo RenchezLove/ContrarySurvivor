@@ -1786,6 +1786,9 @@ bool APlayerCharacter::SaveGame()
             FSavedInventoryEntry Entry;
             Entry.ClassPath = Item->GetClass()->GetPathName();
             Entry.ItemName = Item->ItemName;
+            // Строка таблицы предметов: у брони именно в ней живут слот, защита и меш
+            // экипировки — класс BP_ArmorBase один на все девять броней (баг 24.08).
+            Entry.ItemRow = Item->SourceItemRow;
             Entry.ItemDisplayText = Item->ItemDisplayText;
             Entry.StackCount = Item->GetStackCount();
             Entry.bEquipped = Inventory->IsItemEquipped(Item);
@@ -1812,6 +1815,7 @@ bool APlayerCharacter::SaveGame()
         FSavedInventoryEntry SlotEntry;
         SlotEntry.ClassPath = RangedWeaponInstance->GetClass()->GetPathName();
         SlotEntry.ItemName = RangedWeaponInstance->ItemName;
+        SlotEntry.ItemRow = RangedWeaponInstance->SourceItemRow;
         SlotEntry.ItemDisplayText = RangedWeaponInstance->ItemDisplayText;
         SlotEntry.StackCount = 1;
         SlotEntry.bEquipped = true;
@@ -2200,6 +2204,7 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
     Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     int32 Restored = 0;
+    int32 MigratedByKey = 0; // записей старого формата, которым строку нашли по служебному ключу
     for (const FSavedInventoryEntry& Entry : Save->InventoryEntries)
     {
         UClass* ItemClass = StaticLoadClass(AMasterInventoryItem::StaticClass(), nullptr, *Entry.ClassPath);
@@ -2249,6 +2254,43 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
             }
         }
 
+        // ⛔ КОРЕНЬ БАГА 24.08 «после сохранения пропала броня торса и штанов»: со времён
+        // ADR-075 идентичность предмета живёт в СТРОКЕ DT_Items, а не в классе — все девять
+        // броней собраны из одной BP_ArmorBase, и слот, защита и меш экипировки приходят
+        // строкой (ContraryItems::ApplyRowToItem). Восстановление же поднимало только класс,
+        // поэтому обе надетые брони возвращались заготовкой BP_ArmorBase: слот «торс», меш
+        // SK_Cloth_T0_Torso, защита 0 — штаны садились поверх торса, вещь пропадала молча.
+        // Поэтому строку накладываем ЗАНОВО, и до AddItem: слияние стаков сверяет ItemName,
+        // а его тоже задаёт строка.
+        FName RowName = Entry.ItemRow;
+        if (RowName.IsNone())
+        {
+            // МИГРАЦИЯ старых сейвов (в том числе магазинной 0.1.0 и телефонного сейва
+            // Рината): имени строки в них нет, но есть служебный ключ ADR-050, и он лежит
+            // в колонке LegacyKey той же строки («Броня Т2 — штаны» -> armor_t2_pants).
+            // Переименование брони 23.08 тронуло только показываемые названия, ключи целы,
+            // поэтому связь находится однозначно.
+            RowName = ContraryItems::FindRowNameByLegacyKey(Entry.ItemName);
+            if (!RowName.IsNone())
+            {
+                ++MigratedByKey;
+            }
+        }
+        const FContraryItemRow* Row = ContraryItems::FindRow(RowName);
+        if (Row)
+        {
+            ContraryItems::ApplyRowToItem(*Item, *Row, RowName, Entry.StackCount);
+        }
+        else if (Item->IsA(AArmor::StaticClass()))
+        {
+            // Молчать здесь нельзя: без строки у брони остались дефолты класса, и игрок
+            // недосчитается защиты. У брони старых тиров (AHeadArmorT1…) дефолты честные,
+            // у общей BP_ArmorBase — пустые.
+            UE_LOG(LogQA, Warning,
+                TEXT("QA: CONTINUE - для брони '%s' (класс '%s') строка DT_Items не найдена: слот и защита взяты из класса"),
+                *Entry.ItemName, *Entry.ClassPath);
+        }
+
         Inventory->AddItem(Item);
         ++Restored;
 
@@ -2271,8 +2313,23 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         {
             if (AArmor* Armor = Cast<AArmor>(Item))
             {
-                EquipArmor(Armor);
-                Inventory->SetItemEquipped(Armor, true);
+                // Страховка на случай, если слот брони всё-таки окажется неверным (строки
+                // не нашлось, данные строки битые): надеть вторую броню в занятый слот
+                // значит потерять первую молча — именно так и выглядел баг 24.08. Тогда
+                // вещь честно остаётся в рюкзаке, и об этом есть строка в журнале.
+                const EArmorSlot Slot = Armor->GetArmorSlot();
+                if (const AArmor* Occupied = GetEquippedArmor(Slot))
+                {
+                    UE_LOG(LogQA, Warning,
+                        TEXT("QA: CONTINUE - слот брони %d уже занят '%s': '%s' оставлена в рюкзаке, надеть её поверх значило бы потерять первую"),
+                        (int32)Slot, *Occupied->GetItemDisplayText().ToString(),
+                        *Armor->GetItemDisplayText().ToString());
+                }
+                else
+                {
+                    EquipArmor(Armor);
+                    Inventory->SetItemEquipped(Armor, true);
+                }
             }
             // Фикс 23.08: огнестрел с признаком bEquipped — это ствол ИЗ СЛОТА ОРУЖИЯ
             // (см. SaveGame): возвращаем в слот тем же путём, что клик по плитке. Слот
@@ -2289,8 +2346,8 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         }
     }
 
-    UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - restored %d/%d backpack item(s)"),
-        Restored, Save->InventoryEntries.Num());
+    UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - restored %d/%d backpack item(s), %d entry(ies) matched to DT_Items by legacy key, total armor %.2f"),
+        Restored, Save->InventoryEntries.Num(), MigratedByKey, GetTotalArmorProtection());
 }
 
 TArray<AMasterInventoryItem*> APlayerCharacter::GetDeathLossCandidates() const

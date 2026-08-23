@@ -31,6 +31,15 @@ struct FSavedInventoryEntry
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	FString ItemName;
 
+	// Строка DT_Items, из которой собран предмет (AMasterInventoryItem::SourceItemRow).
+	// БЕЗ неё восстановление получало от класса только пустую заготовку: одна BP_ArmorBase
+	// обслуживает все девять броней, и слот/защита/меш экипировки живут ИСКЛЮЧИТЕЛЬНО в
+	// строке (баг 24.08 — надетая броня торса и штанов возвращалась тряпкой Т0 с защитой 0
+	// и обе садились в слот торса). Пусто в СТАРЫХ сейвах (записаны до этого поля) — там
+	// строку ищут по служебному ключу ItemName, см. APlayerCharacter::RestoreInventoryAndArmor.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	FName ItemRow;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	FText ItemDisplayText;
 

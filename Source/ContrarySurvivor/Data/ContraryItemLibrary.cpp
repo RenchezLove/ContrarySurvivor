@@ -66,6 +66,9 @@ void ApplyRowToItem(AMasterInventoryItem& Item, const FContraryItemRow& Row, FNa
 	// Идентичность: служебный ключ (контракт ADR-050 — тот же ключ, что раньше задавали
 	// конструкторы/спавнеры), переводимое название, категория.
 	Item.ItemName = Row.GetEffectiveKey(RowName);
+	// Происхождение: из какой строки собран экземпляр. Нужно сейву — при «Продолжить» строка
+	// накладывается на восстановленный предмет заново (класс идентичность не хранит).
+	Item.SourceItemRow = RowName;
 	if (!Row.DisplayText.IsEmpty())
 	{
 		Item.ItemDisplayText = Row.DisplayText;
