@@ -406,7 +406,13 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 	SetFloatProp(TEXT("DoorFLOpenAngleDeg"), Angle);
 	SetVectorProp(TEXT("DoorFLMount"), Mount);
 	SetVectorProp(TEXT("DoorFLHinge"), Hinge);
-	Car->RerunConstructionScripts();             // применяет OnConstruction, как правка в редакторе
+	// Применяем OnConstruction, как правка в редакторе. ⛔ НЕ RerunConstructionScripts: он
+	// существует только в редакторной сборке (Actor.h:3323-3326, под WITH_EDITOR), а
+	// Android-пак Development компилирует тесты в ИГРОВУЮ цель (пак 24.08 падал ровно
+	// здесь). ExecuteConstruction безусловный (Actor.h:3347) и для C++-класса без BP-цепочки
+	// сводится к вызову OnConstruction с переданным трансформом (ActorConstruction.cpp:974).
+	Car->ExecuteConstruction(Car->GetActorTransform(), /*TransformRotationCache=*/nullptr,
+		/*InstanceDataCache=*/nullptr);
 
 	UStaticMeshComponent* DoorFR = FindPart(TEXT("DoorFR"));
 	UStaticMeshComponent* DoorFL = FindPart(TEXT("DoorFL"));
