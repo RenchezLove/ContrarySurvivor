@@ -364,6 +364,9 @@ private:
 	// Мировое время последнего показа надписи (антиспам AnnounceCooldown).
 	float LastAnnounceTime = -1.0e6f;
 
+	// «Название места пустое» уже писалось в журнал (одна строка на базу, не спам).
+	bool bAnnounceNameWarned = false;
+
 	// Заспавненные этой базой враги (слабые ссылки: труп исчез — ссылка отмерла = «мёртв»).
 	TArray<TWeakObjectPtr<ACharacter>> SpawnedEnemies;
 

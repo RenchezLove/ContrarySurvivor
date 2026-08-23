@@ -136,6 +136,11 @@ bool FEnemyBaseAnnounceTextTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Пустая фраза ступени — остаётся только название (без хвоста-разделителя)"),
 		AMasterEnemyBase::BuildAnnounceText(Name, Sep, FText::GetEmpty(), T3, 2).ToString(),
 		FString(TEXT("Лагерь бандитов")));
+	// Фикс п.13 отчёта 23.08: НЕ заполненное «Название места» не глотает надпись занятой
+	// базы — показывается хотя бы фраза ступени (и дырка настройки видна в журнале).
+	TestEqual(TEXT("Пустое название — занятая база показывает фразу ступени"),
+		AMasterEnemyBase::BuildAnnounceText(FText::GetEmpty(), Sep, T2, T3, 4).ToString(),
+		FString(TEXT("Эти выглядят ещё более опытными")));
 	return true;
 }
 

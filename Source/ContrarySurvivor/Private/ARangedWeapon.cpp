@@ -200,6 +200,18 @@ void ARangedWeapon::AddReserveAmmo(int32 Amount)
 		*GetName(), Amount, CurrentAmmoReserve, MaxAmmoReserve);
 }
 
+int32 ARangedWeapon::DrainReserveAmmo()
+{
+	// Фикс п.6 отчёта 23.08 (единая бухгалтерия патронов) — см. комментарий в заголовке.
+	const int32 Drained = CurrentAmmoReserve;
+	CurrentAmmoReserve = 0;
+	if (Drained > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("%s: reserve drained (%d rounds -> backpack)"), *GetName(), Drained);
+	}
+	return Drained;
+}
+
 void ARangedWeapon::Fire(AActor* Target)
 {
 	if (!CanFire()) 

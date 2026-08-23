@@ -902,6 +902,15 @@ void APlayerCharacter::EquipDefaultWeapon()
         RangedWeaponInstance = SpawnedWeapon;
         // EquipWeapon крепит оружие к WeaponSocketName на TorsoMesh и выставляет CurrentWeapon.
         EquipWeapon(SpawnedWeapon);
+
+        // Фикс п.6 отчёта 23.08: и стартовый (отладочный) ствол отдаёт резерв видимой пачкой.
+        if (ARangedWeapon* SpawnedRanged = Cast<ARangedWeapon>(SpawnedWeapon))
+        {
+            if (const int32 Drained = SpawnedRanged->DrainReserveAmmo())
+            {
+                AddAmmoToInventory(Drained);
+            }
+        }
     }
     else
     {
@@ -964,6 +973,13 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
     // «В кобуре», как нож: в руки берёт сам игрок кнопкой «Оружие» (SwitchWeapon).
     Ranged->SetActorHiddenInGame(true);
     Ranged->SetActorEnableCollision(false);
+
+    // Фикс п.6 отчёта 23.08: резерв взятого ствола — видимой пачкой в рюкзак (единая
+    // бухгалтерия; «пистолет приходит с патронами» остаётся, но патроны теперь видно).
+    if (const int32 Drained = Ranged->DrainReserveAmmo())
+    {
+        AddAmmoToInventory(Drained);
+    }
 
     UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия (в кобуре)"),
         *Ranged->GetItemDisplayText().ToString());
@@ -1376,6 +1392,17 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             Bought->SetActorEnableCollision(false);
             Inventory->AddItem(Bought);
 
+            // Фикс п.6 отчёта 23.08: купленный огнестрел приходит с патронами — но ВИДИМОЙ
+            // пачкой в рюкзаке, а не невидимым резервом ствола (единая бухгалтерия).
+            if (ARangedWeapon* BoughtRanged = Cast<ARangedWeapon>(Bought))
+            {
+                if (const int32 Drained = BoughtRanged->DrainReserveAmmo())
+                {
+                    AddAmmoToInventory(Drained);
+                    UE_LOG(LogQA, Display, TEXT("QA: BUY firearm came with %d rounds -> backpack pack"), Drained);
+                }
+            }
+
             // ТЗ Рината 08-08 (STALKER-поток): купленный огнестрел попадает В РЮКЗАК и остаётся
             // там. Автоэкип в слот оружия убран — в слот его переносит сам игрок тапом по плитке
             // в окне инвентаря (UInventoryScreenWidget::HandleTileUse -> TryAdoptRangedWeapon).
@@ -1505,24 +1532,42 @@ int32 APlayerCharacter::TakeAmmoFromInventory(int32 Amount)
 
 void APlayerCharacter::ReloadCurrentWeapon()
 {
-    // Перед штатной перезарядкой пополняем резерв оружия из пачки патронов рюкзака.
-    if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(GetCurrentWeapon()))
+    // Фикс п.6 отчёта 23.08 (единая бухгалтерия — «в инвентаре 3, а HUD 12/51»): патроны
+    // живут В РЮКЗАКЕ, видимые игроку. Перезарядка тянет из пачки ровно НЕДОСТАЮЩЕЕ В
+    // ОБОЙМУ (раньше — полный резерв 48, который копился невидимым), а остаток резерва
+    // после перезарядки сливается обратно в рюкзак (лениво чистит и стволы, купленные до
+    // фикса). Между перезарядками резерв пуст — плитка рюкзака и счётчик HUD сходятся.
+    ARangedWeapon* Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
+    if (Ranged)
     {
-        const int32 Space = Ranged->GetReserveSpace();
-        if (Space > 0)
+        const int32 NeedInClip = FMath::Max(0, Ranged->GetMaxAmmoInClip() - Ranged->GetCurrentAmmoInClip());
+        const int32 MissingInReserve = FMath::Max(0, NeedInClip - Ranged->GetCurrentAmmoReserve());
+        if (MissingInReserve > 0)
         {
-            const int32 Pulled = TakeAmmoFromInventory(Space);
+            const int32 Pulled = TakeAmmoFromInventory(MissingInReserve);
             if (Pulled > 0)
             {
                 Ranged->AddReserveAmmo(Pulled);
-                UE_LOG(LogQA, Display, TEXT("QA: RELOAD pulled %d ammo from backpack -> reserve %d (backpack left %d)"),
-                    Pulled, Ranged->GetCurrentAmmoReserve(), GetReserveAmmoInInventory());
+                UE_LOG(LogQA, Display, TEXT("QA: RELOAD pulled %d ammo from backpack (need-in-clip %d, backpack left %d)"),
+                    Pulled, NeedInClip, GetReserveAmmoInInventory());
             }
         }
     }
 
     // Штатный перенос резерв -> обойма (база).
     Super::ReloadCurrentWeapon();
+
+    // Остаток резерва (стволы, взятые до фикса) — видимой пачкой в рюкзак.
+    if (Ranged)
+    {
+        const int32 Leftover = Ranged->DrainReserveAmmo();
+        if (Leftover > 0)
+        {
+            AddAmmoToInventory(Leftover);
+            UE_LOG(LogQA, Display, TEXT("QA: RELOAD leftover reserve %d -> backpack (now %d)"),
+                Leftover, GetReserveAmmoInInventory());
+        }
+    }
 }
 
 void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSellPrice, int32 Qty)

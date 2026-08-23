@@ -118,6 +118,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
 	FORCEINLINE int32 GetCurrentAmmoInClip() const { return CurrentAmmoInClip; }
 
+	// Ёмкость обоймы (фикс п.6 отчёта 23.08: перезарядка тянет из рюкзака ровно недостающее
+	// В ОБОЙМУ, а не полный запас резерва — патроны живут в рюкзаке, видимые игроку).
+	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
+	FORCEINLINE int32 GetMaxAmmoInClip() const { return MaxAmmoInClip; }
+
 	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
 	FORCEINLINE int32 GetCurrentAmmoReserve() const { return CurrentAmmoReserve; }
 

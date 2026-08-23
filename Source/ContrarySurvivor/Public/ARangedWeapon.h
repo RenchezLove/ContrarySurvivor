@@ -117,6 +117,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon|Ammo")
 	void AddReserveAmmo(int32 Amount);
 
+	// Слить ВЕСЬ резерв оружия (вернуть сколько было и обнулить). Фикс п.6 отчёта Рината
+	// 23.08 («в инвентаре 3, а HUD пишет 12/51»): корень — ДВОЙНАЯ бухгалтерия, невидимый
+	// резерв ствола (48 у пистолета из конструктора) плюс видимая пачка рюкзака. Единая
+	// бухгалтерия: при покупке/взятии ствола резерв ПЕРЕЛИВАЕТСЯ пачкой в рюкзак (баланс
+	// «пистолет приходит с патронами» цел — патроны видимы), перезарядка берёт из рюкзака
+	// ровно недостающее в обойму, резерв между перезарядками пуст — плитка и HUD сходятся.
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Ammo")
+	int32 DrainReserveAmmo();
+
 	// Есть ли активная цель
 	UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
 	FORCEINLINE bool HasTarget() const { return LockedTarget != nullptr; }

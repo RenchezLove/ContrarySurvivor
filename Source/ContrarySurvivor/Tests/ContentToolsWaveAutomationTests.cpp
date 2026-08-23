@@ -37,6 +37,7 @@
 #include "AConsumableItem.h"
 #include "AArmorTiers.h"
 #include "AAmmoItem.h"
+#include "APistol.h" // единая бухгалтерия патронов (фикс п.6 отчёта 23.08)
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Engine/EngineBaseTypes.h"
@@ -769,6 +770,44 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 	// Радиус — настройка на BP ИГРОКА (решение Рината): поле живёт на классе игрока.
 	TestTrue(TEXT("Радиус группового обыска задан на игроке (>0)"),
 		GetDefault<APlayerCharacter>()->GetCorpseGroupSearchRadius() > 0.0f);
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 11. Единая бухгалтерия патронов (фикс п.6 отчёта Рината 23.08: «в инвентаре 3,
+//     а HUD пишет 12/51»): слив резерва ствола отдаёт всё и обнуляет — при
+//     покупке/взятии ствола патроны уезжают ВИДИМОЙ пачкой в рюкзак
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsAmmoSingleLedgerTest,
+	"ContrarySurvivor.ContentTools.AmmoSingleLedger", ContentToolsTestFlags)
+
+bool FContentToolsAmmoSingleLedgerTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	APistol* Pistol = ContentToolsTestWorld::Spawn<APistol>(World);
+	if (!Pistol)
+	{
+		AddError(TEXT("Не заспавнен пистолет"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	// Пистолет по-прежнему «приходит с патронами» (баланс 05-08 не тронут) — но теперь
+	// резерв сливаемый: DrainReserveAmmo отдаёт всё и обнуляет, второй слив пуст.
+	const int32 CameWith = Pistol->GetCurrentAmmoReserve();
+	TestTrue(TEXT("Пистолет приходит с запасом патронов (баланс цел)"), CameWith > 0);
+	TestEqual(TEXT("Слив резерва отдаёт весь запас"), Pistol->DrainReserveAmmo(), CameWith);
+	TestEqual(TEXT("После слива резерв пуст (двойной бухгалтерии больше нет)"),
+		Pistol->GetCurrentAmmoReserve(), 0);
+	TestEqual(TEXT("Повторный слив пуст"), Pistol->DrainReserveAmmo(), 0);
 
 	ContentToolsTestWorld::Destroy(World);
 	return true;

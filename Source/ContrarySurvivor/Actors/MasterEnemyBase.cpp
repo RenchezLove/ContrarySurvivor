@@ -501,6 +501,15 @@ void AMasterEnemyBase::LoadTierStateFromSave()
 			TEXT("QA: база '%s' — память из сейва: ступень %d, зачищена ступень %d, состояние %s"),
 			*GetName(), CurrentTier, LastClearedTier,
 			Occupancy == EEnemyBaseOccupancy::Cleared ? TEXT("пауза тикает") : TEXT("взведена"));
+		// Фикс-диагностика п.13 (23.08): запись сейва ЗАКОННО главнее «Начальной ступени»
+		// экземпляра (иначе возрождение ломалось бы перезапуском) — но при тестовой ручной
+		// ступени это выглядит поломкой, поэтому говорим о перекрытии прямо.
+		if (EnemyBaseTierLogic::ClampTier(InitialTier) != CurrentTier)
+		{
+			UE_LOG(LogQA, Warning,
+				TEXT("QA: база '%s' — «Начальная ступень» экземпляра (%d) ПЕРЕКРЫТА памятью сейва (%d). Для теста ступени сотрите сейв («Новая игра») или смените «Идентификатор базы в сейве»"),
+				*GetName(), EnemyBaseTierLogic::ClampTier(InitialTier), CurrentTier);
+		}
 		return;
 	}
 }
@@ -638,10 +647,16 @@ void AMasterEnemyBase::SpawnRewardBag(int32 ClearedTier)
 
 void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 {
-	// Название не задано (голый C++-актор) — объявлять нечего.
-	if (BaseDisplayName.IsEmpty())
+	// Фикс п.13 отчёта 23.08 («выставил ступень — надписи нет»): пустое «Название места»
+	// раньше глотало надпись ЦЕЛИКОМ. Теперь у ЗАНЯТОЙ базы фраза ступени показывается и
+	// без названия (BuildAnnounceText отдаёт одну фразу), а пустое имя один раз громко
+	// уходит в журнал — чтобы дырку в настройке BP было видно сразу.
+	if (BaseDisplayName.IsEmpty() && !bAnnounceNameWarned)
 	{
-		return;
+		bAnnounceNameWarned = true;
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: база '%s' — «Название места» (EnemyBase|Надпись) НЕ заполнено в BP/экземпляре: у пустой базы надписи не будет вовсе, у занятой — только фраза ступени без имени"),
+			*GetName());
 	}
 	UWorld* World = GetWorld();
 	if (!World)
@@ -677,6 +692,10 @@ void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 	const FText Line = bBaseOccupied
 		? BuildAnnounceText(BaseDisplayName, AnnounceSeparator, Tier2Suffix, Tier3PlusSuffix, CurrentTier)
 		: BaseDisplayName;
+	if (Line.IsEmpty())
+	{
+		return; // показывать нечего (пустая база без названия)
+	}
 	const bool bShowDigit = bBaseOccupied && CurrentTier >= 3;
 	AnnounceWidget->ShowAnnounce(Line,
 		FText::AsNumber(CurrentTier, &FNumberFormattingOptions::DefaultNoGrouping()),
