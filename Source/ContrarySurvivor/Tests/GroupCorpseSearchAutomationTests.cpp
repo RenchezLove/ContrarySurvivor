@@ -14,7 +14,10 @@
 //   * п.3.4 — когда рюкзак предмет не принял, тело остаётся ПОЛНЫМ и игроку об этом
 //     говорят словами. Настоящего отказа в игре сегодня нет (вместимости у рюкзака не
 //     существует), поэтому ветка проверяется суррогатом: окно без игрока = принимать
-//     некому. Это ЯВНОЕ допущение теста, а не имитация вместимости.
+//     некому. Это ЯВНОЕ допущение теста, а не имитация вместимости;
+//   * отчёт Рината 23.08 п.5 (растворение) — математика непрозрачности, живой цикл
+//     растворения на трупе (мгновенный сдвиг -> пауза -> таяние -> удаление) и откат
+//     на уход в землю, когда материал растворения не загрузился.
 //
 // НЕ покрывается headless: сам вид окна и всплывашки (нужен живой Slate), поведение
 // рэгдолла при погружении (у тела в проекте нет физ.ассета — см. отчёт cpp-dev).
@@ -33,6 +36,9 @@
 #include "AConsumableItem.h"
 #include "AMasterInventoryItem.h"
 #include "UInventoryComponent.h"
+#include "Components/SkeletalMeshComponent.h"  // растворение: проверка подмены материала меша
+#include "Materials/Material.h"                // растворение: транзиентный материал-родитель
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Engine/DamageEvents.h" // FDamageEvent (смертельный урон волку)
@@ -144,7 +150,16 @@ namespace GroupSearchTestWorld
 			return nullptr;
 		}
 		Wolf->TakeDamage(1000.0f, FDamageEvent(), nullptr, nullptr);
-		return Wolf->FindComponentByClass<UCorpseLootComponent>();
+		UCorpseLootComponent* Body = Wolf->FindComponentByClass<UCorpseLootComponent>();
+		if (Body)
+		{
+			// Тесты этого файла доказывают путь УХОДА В ЗЕМЛЮ (п.3.2 издателя) — растворение
+			// (Ринат 23.08 п.5, включено по умолчанию) выключаем явно, иначе с появлением
+			// материала M_CorpseDissolve в контенте тела начали бы растворяться и проверки
+			// IsSinking лгали бы. У растворения свои тесты ниже (Dissolve*).
+			Body->bDissolveWhenSearched = false;
+		}
+		return Body;
 	}
 
 	// Сколько штук лежит в рюкзаке всего (стаки сливаются — считаем штуки, а не записи).
@@ -590,6 +605,137 @@ bool FGroupSearchBackpackRefusedTest::RunTest(const FString& Parameters)
 		const FString Line = Window->BuildTakenSummaryText(Summary).ToString();
 		TestTrue(TEXT("В строке сказано, что влезло не всё"), Line.Contains(TEXT("влезло не всё")));
 		TestFalse(TEXT("Переносов строк нет"), Line.Contains(TEXT("\n")));
+	}
+
+	GroupSearchTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 8. Отчёт Рината 23.08 п.5: математика растворения. «Сразу на 35% прозрачнее» — стартовая
+//    непрозрачность 0.65; до паузы держится; за длительность равномерно тает до нуля.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpseDissolveMathTest,
+	"ContrarySurvivor.GroupSearch.DissolveOpacityMath", GroupSearchTestFlags)
+
+bool FCorpseDissolveMathTest::RunTest(const FString& Parameters)
+{
+	// Значения Рината: 35% мгновенно, пауза 1 с, растворение 4 с.
+	TestEqual(TEXT("Мгновенный сдвиг: сразу 65% непрозрачности"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(0.0f, 0.35f, 1.0f, 4.0f), 0.65f);
+	TestEqual(TEXT("До конца паузы тело не тает"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(1.0f, 0.35f, 1.0f, 4.0f), 0.65f);
+	TestEqual(TEXT("Середина растворения — половина от стартовой"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(3.0f, 0.35f, 1.0f, 4.0f), 0.325f);
+	TestEqual(TEXT("Конец растворения — полная прозрачность"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(5.0f, 0.35f, 1.0f, 4.0f), 0.0f);
+	TestEqual(TEXT("После конца ниже нуля не уходит"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(99.0f, 0.35f, 1.0f, 4.0f), 0.0f);
+
+	// Защита от настроек: нулевая длительность — исчезает сразу после паузы; доля
+	// прозрачности больше единицы зажимается (тело просто сразу невидимо).
+	TestEqual(TEXT("Нулевая длительность — сразу ноль после паузы"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(1.1f, 0.35f, 1.0f, 0.0f), 0.0f);
+	TestEqual(TEXT("Доля больше единицы зажата — старт с нуля"),
+		UCorpseLootComponent::GetDissolveOpacityAtTime(0.0f, 1.5f, 1.0f, 4.0f), 0.0f);
+	return true;
+}
+
+// ===========================================================================
+// 9. Отчёт Рината 23.08 п.5: живой цикл растворения. Материал — транзиентный (в памяти,
+//    не с диска): тест не зависит от того, создал ли оператор M_CorpseDissolve. Труп
+//    получает живой материал на меш, лежит на месте (не тонет!) и после паузы с
+//    длительностью удаляется из мира.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpseDissolveCycleTest,
+	"ContrarySurvivor.GroupSearch.DissolveCycleRemovesBody", GroupSearchTestFlags)
+
+bool FCorpseDissolveCycleTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = GroupSearchTestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	{
+		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
+		if (!Body)
+		{
+			AddError(TEXT("Тело не создалось"));
+			GroupSearchTestWorld::Destroy(World);
+			return false;
+		}
+		AActor* BodyActor = Body->GetOwner();
+		const float StartZ = BodyActor->GetActorLocation().Z;
+
+		UMaterial* DissolveParent = NewObject<UMaterial>(GetTransientPackage(),
+			TEXT("M_DissolveQA"));
+		Body->bDissolveWhenSearched = true; // SpawnBody выключил ради тестов погружения
+		Body->DissolveMaterial = DissolveParent;
+		Body->DissolveDelay = 0.4f;
+		Body->DissolveDuration = 0.8f;
+
+		Body->StartSearchedSink();
+		TestTrue(TEXT("Пошло растворение"), Body->IsDissolving());
+		TestFalse(TEXT("Погружение при растворении не запускается"), Body->IsSinking());
+
+		// Меш трупа рисуется живым материалом растворения (родитель — наш транзиентный).
+		if (const ACharacter* BodyCharacter = Cast<ACharacter>(BodyActor))
+		{
+			const USkeletalMeshComponent* Mesh = BodyCharacter->GetMesh();
+			if (Mesh && Mesh->GetNumMaterials() > 0)
+			{
+				TestNotNull(TEXT("В слоте меша — живой материал растворения"),
+					Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(0)));
+			}
+		}
+
+		// Середина: тело ещё в мире и НЕ опустилось (растворение не двигает).
+		GroupSearchTestWorld::AdvanceWorld(World, 0.6f);
+		TestTrue(TEXT("В середине растворения тело ещё в мире"), IsValid(BodyActor));
+		TestTrue(TEXT("Растворяющееся тело не тонет"),
+			FMath::IsNearlyEqual(BodyActor->GetActorLocation().Z, StartZ, 0.01f));
+
+		// Конец (всего 1.4 с > пауза 0.4 + растворение 0.8): тело удалено из сцены.
+		GroupSearchTestWorld::AdvanceWorld(World, 0.8f);
+		TestFalse(TEXT("Растворившееся тело удалено из мира"), IsValid(BodyActor));
+	}
+
+	GroupSearchTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 10. Отчёт Рината 23.08 п.5, запасной путь: материал растворения не задан — тело честно
+//     уходит в землю по-старому (п.3.2 издателя), а не зависает навсегда обысканным.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpseDissolveFallbackTest,
+	"ContrarySurvivor.GroupSearch.DissolveFallsBackToSinkWithoutMaterial", GroupSearchTestFlags)
+
+bool FCorpseDissolveFallbackTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = GroupSearchTestWorld::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	{
+		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
+		if (!Body)
+		{
+			AddError(TEXT("Тело не создалось"));
+			GroupSearchTestWorld::Destroy(World);
+			return false;
+		}
+
+		Body->bDissolveWhenSearched = true;
+		Body->DissolveMaterial.Reset(); // пустая ссылка: LoadSynchronous вернёт null без походов на диск
+
+		Body->StartSearchedSink();
+		TestFalse(TEXT("Без материала растворение не запускается"), Body->IsDissolving());
+		TestTrue(TEXT("Тело откатилось на уход в землю"), Body->IsSinking());
 	}
 
 	GroupSearchTestWorld::Destroy(World);

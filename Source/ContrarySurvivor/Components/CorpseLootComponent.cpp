@@ -4,19 +4,28 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Actors/Pickup.h"    // ADR-076 п.2: мешки в групповом обыске (реестр пикапов)
 #include "AMasterInventoryItem.h"
+#include "Components/MeshComponent.h"         // растворение: подмена материалов всех мешей тела
 #include "Components/SkeletalMeshComponent.h" // рэгдолл уходящего в землю тела
 #include "GameFramework/Character.h"
+#include "Materials/MaterialInstanceDynamic.h" // растворение: живой материал с параметрами
+#include "Materials/MaterialInterface.h"
 #include "PhysicsEngine/BodyInstance.h"
 
 TArray<TWeakObjectPtr<UCorpseLootComponent>> UCorpseLootComponent::SearchableCorpses;
 
 UCorpseLootComponent::UCorpseLootComponent()
 {
-	// Контейнер реактивен (Init/Take) — тик нужен ТОЛЬКО пока обысканное тело уходит в
-	// землю (п.3.2 задания издателя), поэтому со старта он выключен и включается в
-	// StartSearchedSink.
+	// Контейнер реактивен (Init/Take) — тик нужен ТОЛЬКО пока обысканное тело убирается
+	// из мира (растворение п.5 Рината / уход в землю п.3.2 издателя), поэтому со старта
+	// он выключен и включается в StartSearchedSink.
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
+
+	// Мягкая ссылка (не FObjectFinder): ассет создаёт оператор, и до его появления
+	// конструктор не должен ни падать, ни сыпать ошибками — LoadSynchronous в
+	// StartSearchedDissolve честно вернёт null, и тело уйдёт в землю по-старому.
+	DissolveMaterial = FSoftObjectPath(
+		TEXT("/Game/Characters/Shared/M_CorpseDissolve.M_CorpseDissolve"));
 }
 
 void UCorpseLootComponent::InitLoot(float InMoney, const TArray<AMasterInventoryItem*>& InItems,
@@ -219,10 +228,97 @@ float UCorpseLootComponent::GetSinkDepthAtTime(float Elapsed, float Delay, float
 	return Depth * FMath::Clamp((Elapsed - Delay) / Duration, 0.0f, 1.0f);
 }
 
+float UCorpseLootComponent::GetDissolveOpacityAtTime(float Elapsed, float InstantTransparency,
+	float Delay, float Duration)
+{
+	// Мгновенный сдвиг Рината («сразу на 35% прозрачнее») — стартовая непрозрачность.
+	const float Base = 1.0f - FMath::Clamp(InstantTransparency, 0.0f, 1.0f);
+	// Пауза: тело лежит полупрозрачно-серым, дальше не тает.
+	if (Elapsed <= Delay)
+	{
+		return Base;
+	}
+	// Нулевая длительность — исчезает сразу после паузы (защита от настройки «0 секунд»).
+	if (Duration <= 0.0f)
+	{
+		return 0.0f;
+	}
+	return Base * (1.0f - FMath::Clamp((Elapsed - Delay) / Duration, 0.0f, 1.0f));
+}
+
+bool UCorpseLootComponent::StartSearchedDissolve()
+{
+	AActor* CorpseOwner = GetOwner();
+
+	UMaterialInterface* DissolveBase = DissolveMaterial.LoadSynchronous();
+	if (!DissolveBase)
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: CORPSE dissolve: материал растворения '%s' не загрузился — тело '%s' уходит в землю по-старому"),
+			*DissolveMaterial.ToString(), *GetNameSafe(CorpseOwner));
+		return false;
+	}
+
+	// Один живой материал на все слоты: параметры общие, вершинный цвет каждый меш даёт свой.
+	DissolveMID = UMaterialInstanceDynamic::Create(DissolveBase, this);
+	DissolveMID->SetScalarParameterValue(TEXT("Opacity"),
+		GetDissolveOpacityAtTime(0.0f, DissolveInstantTransparency, DissolveDelay, DissolveDuration));
+	DissolveMID->SetScalarParameterValue(TEXT("Desaturation"),
+		FMath::Clamp(DissolveInstantDesaturation, 0.0f, 1.0f));
+
+	// Меши самого тела и всего привязанного к нему (оружие в руке бандита): привязанное
+	// движок с телом не убирает, растворяться они должны вместе — как и удаляются вместе
+	// в FinishSearchedSink.
+	TArray<UMeshComponent*> Meshes;
+	CorpseOwner->GetComponents<UMeshComponent>(Meshes);
+	TArray<AActor*> AttachedActors;
+	CorpseOwner->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (IsValid(Attached))
+		{
+			TArray<UMeshComponent*> AttachedMeshes;
+			Attached->GetComponents<UMeshComponent>(AttachedMeshes);
+			Meshes.Append(AttachedMeshes);
+		}
+	}
+
+	int32 SlotCount = 0;
+	for (UMeshComponent* Mesh : Meshes)
+	{
+		if (!IsValid(Mesh))
+		{
+			continue;
+		}
+		const int32 NumMaterials = Mesh->GetNumMaterials();
+		for (int32 Index = 0; Index < NumMaterials; ++Index)
+		{
+			Mesh->SetMaterial(Index, DissolveMID);
+			++SlotCount;
+		}
+	}
+
+	bDissolving = true;
+	DissolveElapsed = 0.0f;
+	SetComponentTickEnabled(true);
+	UE_LOG(LogQA, Display,
+		TEXT("QA: CORPSE searched -> dissolve started on '%s' (мгновенно: прозрачность %.0f%%, серость %.0f%%; пауза %.1f с, растворение %.1f с; слотов материалов %d)"),
+		*GetNameSafe(CorpseOwner), DissolveInstantTransparency * 100.0f,
+		DissolveInstantDesaturation * 100.0f, DissolveDelay, DissolveDuration, SlotCount);
+	return true;
+}
+
 void UCorpseLootComponent::StartSearchedSink()
 {
 	AActor* CorpseOwner = GetOwner();
-	if (bSinking || !bSinkWhenSearched || !IsValid(CorpseOwner))
+	if (bSinking || bDissolving || !bSinkWhenSearched || !IsValid(CorpseOwner))
+	{
+		return;
+	}
+
+	// Основной путь — растворение (Ринат 23.08 п.5); не запустилось (нет материала) —
+	// запасной уход в землю ниже.
+	if (bDissolveWhenSearched && StartSearchedDissolve())
 	{
 		return;
 	}
@@ -256,7 +352,30 @@ void UCorpseLootComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	AActor* CorpseOwner = GetOwner();
-	if (!bSinking || !IsValid(CorpseOwner))
+	if (!IsValid(CorpseOwner))
+	{
+		return;
+	}
+
+	// Растворение (Ринат 23.08 п.5): мгновенный сдвиг уже поставлен в StartSearchedDissolve,
+	// здесь только плавное таяние после паузы и удаление в конце.
+	if (bDissolving)
+	{
+		DissolveElapsed += DeltaTime;
+		if (DissolveMID)
+		{
+			DissolveMID->SetScalarParameterValue(TEXT("Opacity"),
+				GetDissolveOpacityAtTime(DissolveElapsed, DissolveInstantTransparency,
+					DissolveDelay, DissolveDuration));
+		}
+		if (DissolveElapsed >= DissolveDelay + DissolveDuration)
+		{
+			FinishSearchedSink();
+		}
+		return;
+	}
+
+	if (!bSinking)
 	{
 		return;
 	}
@@ -309,7 +428,8 @@ void UCorpseLootComponent::FinishSearchedSink()
 		}
 	}
 
-	UE_LOG(LogQA, Display, TEXT("QA: CORPSE sink finished -> '%s' removed (attached: %d)"),
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE %s finished -> '%s' removed (attached: %d)"),
+		bDissolving ? TEXT("dissolve") : TEXT("sink"),
 		*GetNameSafe(CorpseOwner), AttachedActors.Num());
 	CorpseOwner->Destroy();
 }

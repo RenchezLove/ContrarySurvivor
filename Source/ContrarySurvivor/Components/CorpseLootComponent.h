@@ -7,6 +7,8 @@
 #include "CorpseLootComponent.generated.h"
 
 class AMasterInventoryItem;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
 class USkeletalMeshComponent;
 
 /**
@@ -38,6 +40,14 @@ class USkeletalMeshComponent;
  *  - п.3.2 «обысканное тело меняется на вид»: опустевшее ТЕЛО уходит в землю и исчезает
  *    (StartSearchedSink), а мешок-пикап — нет (у него bSinkWhenSearched выключен, он и
  *    так уничтожает себя сам по OnLootChanged).
+ *
+ * ОТЧЁТ РИНАТА 23.08.2026 (п.5, растворение): «после обыска трупы сразу становились бы на
+ * 35% более прозрачными и на 35% более серыми, а затем постепенно исчезали, становясь более
+ * прозрачными, пока вовсе не будут удалены из сцены». Растворение — новый ОСНОВНОЙ способ
+ * убирания обысканного тела (bDissolveWhenSearched, по умолчанию включён); уход в землю
+ * остался запасным путём — на него тело откатывается, если материал растворения не задан
+ * или не загрузился. Оба пути живут под общим выключателем bSinkWhenSearched, поэтому
+ * мешок-пикап (у него выключено) ни в землю не уходит, ни не растворяется.
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class CONTRARYSURVIVOR_API UCorpseLootComponent : public UActorComponent
@@ -127,33 +137,81 @@ public:
 	// автотестом без живой сцены.
 	static TArray<UCorpseLootComponent*> CollectSearchableGroup(const AActor* AnchorActor, float GroupRadius);
 
-	// --- Обысканное тело уходит в землю (издатель 11.08.2026, п.3.2) ---
+	// --- Обысканное тело убирается из мира: растворение (Ринат 23.08, п.5) или уход в
+	//     землю (издатель 11.08.2026, п.3.2) ---
 
-	// Выключатель для контейнеров, которые телами не являются: мешок-пикап исчезает своим
-	// путём (APickup::HandleLootChanged), ему погружение не нужно.
+	// Общий выключатель убирания. Для контейнеров, которые телами не являются: мешок-пикап
+	// исчезает своим путём (APickup::HandleLootChanged), ему ни растворение, ни погружение
+	// не нужны. Имя поля историческое (когда путь был один — в землю); не переименовывать:
+	// на нём сидят сохранённые значения BP.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (DisplayPriority = "1",
-		DisplayName = "Обысканное тело уходит в землю",
-		ToolTip = "Только для ТЕЛ. У мешка-пикапа выключено: он исчезает сам, когда его обчистили."))
+		DisplayName = "Обысканное тело убирается из мира",
+		ToolTip = "Только для ТЕЛ. У мешка-пикапа выключено: он исчезает сам, когда его обчистили. Способ убирания выбирает галочка «Растворение вместо ухода в землю»."))
 	bool bSinkWhenSearched = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "2",
+	// Отчёт Рината 23.08 (п.5). Включено — тело растворяется (нужен материал растворения
+	// ниже; не задан/не загрузился — тело уйдёт в землю по-старому). Выключено — уход в землю.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (DisplayPriority = "2",
+		DisplayName = "Растворение вместо ухода в землю",
+		ToolTip = "Тело сразу становится прозрачнее и серее, затем плавно растворяется до полного исчезновения. Требует назначенный «Материал растворения»."))
+	bool bDissolveWhenSearched = true;
+
+	// Материал, которым тело рисуется во время растворения (подменяет ВСЕ материалы мешей
+	// тела и привязанного к нему оружия). Контракт: скалярные параметры Opacity (множитель
+	// непрозрачности, 1 → 0) и Desaturation (0..1, серость), цвет — из вершинной покраски
+	// (как у волка и бандита). По умолчанию — M_CorpseDissolve из Content/Characters/Shared.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (DisplayPriority = "3",
+		DisplayName = "Материал растворения",
+		ToolTip = "Материал с параметрами Opacity и Desaturation, которым тело рисуется, пока растворяется. Пусто или не загрузился — тело уходит в землю по-старому."))
+	TSoftObjectPtr<UMaterialInterface> DissolveMaterial;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "4",
+		DisplayName = "Сразу после обыска: прозрачность (доля)",
+		ToolTip = "Насколько тело становится прозрачнее СРАЗУ после обыска. 0.35 = на 35% (значение Рината)."))
+	float DissolveInstantTransparency = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5",
+		DisplayName = "Сразу после обыска: серость (доля)",
+		ToolTip = "Насколько тело становится серее СРАЗУ после обыска. 0.35 = на 35% (значение Рината)."))
+	float DissolveInstantDesaturation = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "6",
+		DisplayName = "Пауза до начала растворения (сек)",
+		ToolTip = "Сколько тело лежит полупрозрачно-серым, прежде чем начнёт плавно растворяться."))
+	float DissolveDelay = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "7",
+		DisplayName = "Длительность растворения (сек)",
+		ToolTip = "За сколько секунд тело плавно доходит до полной прозрачности и удаляется из сцены."))
+	float DissolveDuration = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "8",
 		DisplayName = "Пауза перед уходом в землю (сек)",
-		ToolTip = "Сколько тело лежит обысканным, прежде чем начнёт опускаться."))
+		ToolTip = "Запасной путь без растворения: сколько тело лежит обысканным, прежде чем начнёт опускаться."))
 	float SearchedSinkDelay = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "3",
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "9",
 		DisplayName = "Длительность ухода в землю (сек)"))
 	float SearchedSinkDuration = 2.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "4",
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Исчезновение", meta = (ClampMin = "0.0", DisplayPriority = "10",
 		DisplayName = "Глубина ухода в землю (см)"))
 	float SearchedSinkDepth = 150.0f;
 
-	// Тело обыскали до конца — запустить погружение. Зовётся само из TakeMoney/TakeItem;
-	// публично — для автотестов и для случая, когда лут вычерпали в обход окна.
+	// Тело обыскали до конца — убрать его из мира: растворение (Ринат 23.08 п.5), а без
+	// материала или галочки — уход в землю. Зовётся само из TakeMoney/TakeItem; публично —
+	// для автотестов и для случая, когда лут вычерпали в обход окна.
 	void StartSearchedSink();
 
 	bool IsSinking() const { return bSinking; }
+	bool IsDissolving() const { return bDissolving; }
+
+	// Чистая математика растворения: множитель непрозрачности тела к моменту Elapsed.
+	// В нулевой момент — 1-InstantTransparency (мгновенный сдвиг Рината «сразу на 35%»),
+	// до Delay держится, дальше равномерно до нуля за Duration. Проверяется автотестом
+	// без живой сцены (паттерн GetSinkDepthAtTime).
+	static float GetDissolveOpacityAtTime(float Elapsed, float InstantTransparency,
+		float Delay, float Duration);
 
 	// Чистая математика погружения: на сколько сантиметров тело опустилось к моменту
 	// Elapsed. До Delay — ноль, дальше равномерно до Depth за Duration. Проверяется
@@ -182,6 +240,17 @@ private:
 	bool bSinking = false;
 	float SinkElapsed = 0.0f;
 	float SinkAppliedDepth = 0.0f;
+
+	// Растворение (Ринат 23.08 п.5): идёт ли и сколько секунд прошло. Живой материал с
+	// параметрами Opacity/Desaturation один на все слоты всех мешей трупа (вершинный цвет
+	// каждый меш даёт свой); UPROPERTY — защита от GC на время растворения.
+	bool bDissolving = false;
+	float DissolveElapsed = 0.0f;
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> DissolveMID;
+
+	// Запуск растворения; false — материал не задан или не загрузился (тело уйдёт в землю).
+	bool StartSearchedDissolve();
 
 	// Меш, упавший рэгдоллом: его физические тела живут в МИРОВЫХ координатах и за актором
 	// не едут, поэтому такому мешу двигаем сами тела. Пусто — меш обычный, хватит переноса актора.
