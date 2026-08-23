@@ -149,9 +149,11 @@ void UConsentScreenWidget::BuildCodeTree()
 
 void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 {
-	// Дерево владельца из WBP_Consent: цвета/шрифты/размеры — его (ТЗ Рината 08-07).
-	// ТЕКСТЫ ставятся в обоих путях: формулировки согласия — дословно из источника истины
-	// (издатель проверяет), правка ассета их переопределять не должна.
+	// Дерево владельца из WBP_Consent: цвета/шрифты/размеры — его (ТЗ Рината 08-07), и с
+	// 24.08 ЕГО ЖЕ — ТЕКСТЫ (решение лида после того, как код затёр правку Рината: правда
+	// формулировок — ассет, ADR-077 п.0 «всё в WBP»; прежнее правило «тексты только из
+	// настроек» отменено). Код ставит текст ТОЛЬКО в пустой кубик (свежий ассет/новый
+	// кубик) и на кодовом дереве-запаске, где дизайнера нет.
 	if (!bDesignerTree)
 	{
 		if (DimBorder)    { DimBorder->SetBrushColor(Style.DimColor); }
@@ -160,9 +162,18 @@ void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 		if (ColumnBox)    { ColumnBox->SetWidthOverride(FMath::Max(200.0f, Style.TextColumnWidth)); }
 	}
 
+	// true = текст кубика ставит код: кодовое дерево ЛИБО владелец оставил кубик пустым.
+	auto ShouldSetText = [this](const UTextBlock* Block)
+	{
+		return !bDesignerTree || Block->GetText().IsEmpty();
+	};
+
 	if (TitleText)
 	{
-		TitleText->SetText(Style.TitleText);
+		if (ShouldSetText(TitleText))
+		{
+			TitleText->SetText(Style.TitleText);
+		}
 		if (!bDesignerTree)
 		{
 			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
@@ -179,6 +190,10 @@ void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 		{
 			continue;
 		}
+		if (bDesignerTree && !Block->GetText().IsEmpty())
+		{
+			continue; // текст И видимость абзаца — как расставил владелец в ассете
+		}
 		if (BodyTexts[Index].IsEmpty())
 		{
 			// Пустой абзац не должен занимать место (издатель может сократить текст).
@@ -194,11 +209,14 @@ void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 		}
 	}
 
-	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text)
+	auto StyleButtonLabel = [this, &Style, &ShouldSetText](UTextBlock* Label, const FText& Text)
 	{
 		if (Label)
 		{
-			Label->SetText(Text);
+			if (ShouldSetText(Label))
+			{
+				Label->SetText(Text);
+			}
 			if (!bDesignerTree)
 			{
 				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
@@ -211,7 +229,10 @@ void UConsentScreenWidget::ApplyStyle(const FConsentScreenStyle& Style)
 
 	if (PolicyText)
 	{
-		PolicyText->SetText(Style.PolicyLinkText);
+		if (ShouldSetText(PolicyText))
+		{
+			PolicyText->SetText(Style.PolicyLinkText);
+		}
 		if (!bDesignerTree)
 		{
 			PolicyText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.LinkFontSize)));
