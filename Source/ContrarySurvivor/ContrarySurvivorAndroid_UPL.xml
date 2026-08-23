@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Снятие запроса «доступ к хранилищу» на старте ПРОВЕРОЧНЫХ Android-сборок (Ринат, 24.08.2026:
+	«опять наша детская проблема — просит разрешение на пользование хранилищем»).
+
+	ЦЕПОЧКА ЗАПРОСА (сверено по исходникам движка UE 5.5, не по памяти):
+	1. Генератор манифеста добавляет android.permission.WRITE_EXTERNAL_STORAGE в ЛЮБУЮ
+	   не-Shipping конфигурацию, настройки проекта не учитываются — условие зашито:
+	   «Configuration != "Shipping" || !bUseExternalFilesDir» (UEDeployAndroid.cs:3100-3103).
+	2. Тот же UEDeployAndroid.cs:2974-2978 вписывает это разрешение в стартовый список
+	   (meta-data com.epicgames.unreal.GameActivity.StartupPermissions).
+	3. SplashActivity на старте запрашивает пересечение «объявленные манифестом опасные
+	   разрешения ∩ StartupPermissions» и НЕ запускает игру, пока игрок не выдаст
+	   (SplashActivity.java:202-214; отказ — блокирующий диалог Quit/Settings :509-537).
+
+	ПОЧЕМУ РАЗРЕШЕНИЕ ПРОВЕРОЧНОЙ СБОРКЕ НЕ НУЖНО ВОВСЕ: данные упакованы в APK
+	(bPackageDataInsideApk=True, OBB нет), файлы и логи идут в папку приложения
+	(bUseExternalFilesDir=True), а переключение лога в ОБЩУЮ папку (bPublicLogFiles)
+	нативный код применяет ТОЛЬКО в Shipping — GOverrideAndroidLogDir присваивается под
+	#if UE_BUILD_SHIPPING (AndroidJNI.cpp:2012-2018). В Development запись в общее
+	хранилище не используется нигде.
+
+	ФИКС: вырезаем разрешение из УЖЕ СГЕНЕРИРОВАННОГО манифеста (androidManifestUpdates
+	выполняется после генерации, UEDeployAndroid.cs:3200). Без объявления в манифесте
+	SplashActivity ничего не запрашивает: список опасных разрешений он строит из
+	requestedPermissions пакета (SplashActivity.java:353-437).
+
+	МАГАЗИННАЯ СБОРКА НЕ ЗАТРОНУТА ДВАЖДЫ: в Shipping движок это разрешение вовсе не
+	добавляет (сверено aapt-дампами обоих готовых пакетов 24.08: Development несёт
+	WRITE_EXTERNAL_STORAGE, Shipping — нет), и вдобавок вырезание явно ограничено
+	не-Shipping конфигурациями — на случай, если какой-то будущий плагин объявит это
+	разрешение магазинной сборке намеренно.
+-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<androidManifestUpdates>
+		<setBoolIsEqual result="bShippingConfig" arg1="$S(Configuration)" arg2="Shipping"/>
+		<if condition="bShippingConfig">
+			<false>
+				<removePermission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+				<log text="ContrarySurvivor UPL: WRITE_EXTERNAL_STORAGE вырезан из не-Shipping манифеста — запроса хранилища на старте не будет"/>
+			</false>
+		</if>
+	</androidManifestUpdates>
+</root>

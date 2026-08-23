@@ -47,6 +47,20 @@ public class ContrarySurvivor : ModuleRules
 		// Вне Android модуль собирается пустышкой, поэтому зависимость безусловная.
 		PrivateDependencyModuleNames.Add("YandexAds");
 
+		// Ринат 24.08: проверочная Android-сборка на старте просила «доступ к хранилищу» и не
+		// пускала в игру. Разрешение WRITE_EXTERNAL_STORAGE движок добавляет в манифест ЛЮБОЙ
+		// не-Shipping сборки безусловно (UEDeployAndroid.cs:3100), хотя проекту оно не нужно
+		// ни для чего. UPL-файл вырезает его из готового манифеста не-Shipping конфигураций;
+		// магазинная Shipping не затрагивается (там разрешения и так нет). Цепочка запроса и
+		// доказательства — в самом UPL-файле. Регистрация — тот же приём, что у YandexAds_UPL
+		// (Plugins/YandexAds/Source/YandexAds/YandexAds.Build.cs:22-23).
+		if (Target.Platform == UnrealTargetPlatform.Android)
+		{
+			string ModuleRelativePath = Utils.MakePathRelativeTo(ModuleDirectory, Target.RelativeEnginePath);
+			AdditionalPropertiesForReceipt.Add("AndroidPlugin",
+				Path.Combine(ModuleRelativePath, "ContrarySurvivorAndroid_UPL.xml"));
+		}
+
 		AddAnalyticsKeyDefinitions();
 
 		// Uncomment if you are using online features
