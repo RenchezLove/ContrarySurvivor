@@ -567,14 +567,30 @@ namespace
 
 	// ПЛИТКА ПРЕДМЕТА WBP_ItemTile (Build 1.2.2, решение Рината: «иконки в сетке, как в
 	// сталкере или LDoE») — ОДНА на инвентарь/магазин/обыск, вместо прежних строковых
-	// WBP_InventoryRow/WBP_ShopRow. Структура и имена кубиков повторяют кодовое
-	// дерево-фолбэк UItemTileWidget::BuildFallbackTree (один контракт имён на оба пути):
-	// SizeBox -> Overlay -> [кнопка во всю плитку -> плашка-отступ -> столбик: зона иконки
-	// (квадрат + цифра количества в правом нижнем углу ИКОНКИ) / название ПОД иконкой /
-	// цена / статус] + мини-кнопка выброса поверх, в верхнем правом углу. Габариты плитки
-	// и иконки ставит код окна (SetTileSize из настроек экрана) — здесь дефолты инвентаря.
-	// Канвас-слотов нет намеренно: плитка — динамика списков (размер задаёт сетка), в
-	// дизайнере у неё правится стиль (цвета/шрифты/кисти), а не расстановка.
+	// WBP_InventoryRow/WBP_ShopRow.
+	//
+	// П.0.5 ADR-077 (23.08, отчёт Рината п.7: «ТОЖЕ НЕЛЬЗЯ СВОБОДНО ПЕРЕТАСКИВАТЬ ПЛАШКИ,
+	// ТЕКСТ В НИХ НАСТРАИВАТЬ»): прежнее дерево держало начинку в Overlay/Border/VerticalBox
+	// — у таких детей нет ручек перетаскивания (см. «Канвас-первая раскладка» выше). Теперь
+	// вся начинка — отдельные канвас-слоты в TileCanvas внутри корневого TileSizeBox: каждый
+	// кубик выделяется и таскается мышкой. Имена кубиков — прежний контракт
+	// BindWidgetOptional-полей UItemTileWidget; кодовый фолбэк BuildFallbackTree структурно
+	// остался стопкой (ему дизайнер не нужен), контракт — только на ИМЕНА.
+	//
+	// Габариты плитки и иконки по-прежнему ставит код окна (SetTileSize из настроек экрана;
+	// решение лида 23.08: размер плитки — настройка окна-хозяина, у разных окон он законно
+	// разный) — здесь дефолты инвентаря. Чтобы начинка тянулась за габаритом: кнопка —
+	// растяжка на всю плитку; иконка — к верхней кромке по центру ширины; тексты — растяжка
+	// по ширине, пришвартованы к верху; корзинка выброса — к правому верхнему углу. Рост
+	// плитки под длинное название (Б8) сохраняется: авторазмерный текст на верхнем якоре
+	// прибавляет канве «отступ сверху + высота с переносами» (SConstraintCanvas.cpp:374-384),
+	// а SizeBox держит MinDesiredHeight, не потолок.
+	//
+	// Клики: тексты и иконка теперь лежат ПОВЕРХ кнопки соседними слотами, а не внутри неё,
+	// поэтому в ассете они SelfHitTestInvisible — касание проваливается сквозь них к кнопке.
+	// Цифра количества по умолчанию стоит у правого нижнего угла иконки ДЕФОЛТНОГО размера
+	// (86); при другом размере иконки её ставит на место владелец в дизайнере — код
+	// геометрию не трогает (П.0).
 	bool BuildItemTile(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -587,74 +603,67 @@ namespace
 		TileSize->SetMinDesiredHeight(150.0f);
 		Tree->RootWidget = TileSize;
 
-		UOverlay* TileOverlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileOverlay"));
-		TileSize->SetContent(TileOverlay);
+		UCanvasPanel* Canvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TileCanvas"));
+		TileSize->SetContent(Canvas);
 
 		// Кнопка основного действия — вся плитка (использовать/надеть/купить/продать/
 		// забрать — решает окно-владелец). Цвета — InvSlotColor с подсветками, как слоты
-		// брони; недоступную покупку код гасит (Disabled-стиль полупрозрачный).
+		// брони; недоступную покупку код гасит (Disabled-стиль полупрозрачный). Контента у
+		// кнопки больше нет — начинка лежит соседними канвас-слотами поверх.
 		UButton* Tile = MakeStyledButton(Tree, TEXT("TileButton"),
 			FLinearColor(0.15f, 0.16f, 0.2f, 1.0f), FLinearColor(0.2f, 0.22f, 0.27f, 1.0f),
 			FLinearColor(0.25f, 0.27f, 0.33f, 1.0f));
-		if (UOverlaySlot* TileSlot = TileOverlay->AddChildToOverlay(Tile))
+		if (UCanvasPanelSlot* TileSlot = CanvasStretch(Canvas, Tile, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f)))
 		{
-			TileSlot->SetHorizontalAlignment(HAlign_Fill);
-			TileSlot->SetVerticalAlignment(VAlign_Fill);
+			TileSlot->SetZOrder(0);
 		}
 
-		// Плашка держит только внутренний отступ (фон даёт стиль кнопки — не перекрываем
-		// её подсветки), имя то же, что в кодовом фолбэке.
-		UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("TilePlate"));
-		Plate->SetBrushColor(FLinearColor::Transparent);
-		Plate->SetPadding(FMargin(6.0f));
-
-		UVerticalBox* Stack = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("TileStack"));
-		Plate->SetContent(Stack);
-
-		// Зона иконки: квадрат + цифра количества в правом нижнем углу иконки.
-		UOverlay* IconZone = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("TileIconZone"));
-		if (UVerticalBoxSlot* IconZoneSlot = Stack->AddChildToVerticalBox(IconZone))
-		{
-			IconZoneSlot->SetHorizontalAlignment(HAlign_Center);
-		}
-
+		// Квадрат иконки — к верхней кромке, центр ширины (при смене ширины плитки остаётся
+		// по центру). Габарит перезапишет SetTileSize окна-владельца.
 		USizeBox* IconBox = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileIconBox"));
 		IconBox->SetWidthOverride(86.0f);
 		IconBox->SetHeightOverride(86.0f);
-		if (UOverlaySlot* IconBoxSlot = IconZone->AddChildToOverlay(IconBox))
+		IconBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		if (UCanvasPanelSlot* IconBoxSlot = CanvasAuto(Canvas, IconBox,
+			FVector2D(0.0f, 6.0f), FAnchors(0.5f, 0.0f, 0.5f, 0.0f)))
 		{
-			IconBoxSlot->SetHorizontalAlignment(HAlign_Center);
-			IconBoxSlot->SetVerticalAlignment(VAlign_Center);
+			IconBoxSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			IconBoxSlot->SetZOrder(1);
 		}
 
 		// Иконка предмета — текстуру ставит код окна (SetTileData), в ассете пустая.
 		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("TileIcon"));
 		Icon->bIsVariable = true;
+		Icon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 		IconBox->SetContent(Icon);
 
-		// Цифра количества — видимость ведёт код (только у стака >1); лежит поверх иконки,
-		// без тени пропадала бы на светлом арте.
+		// Цифра количества — видимость ведёт код (только у стака >1); по умолчанию у правого
+		// нижнего угла иконки, без тени пропадала бы на светлом арте.
 		UTextBlock* Count = MakeText(Tree, Roboto, TEXT("TileCountText"), TEXT("x1"),
 			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 14, TEXT("Bold"));
 		ApplyTextShadow(Count);
 		Count->bIsVariable = true;
-		if (UOverlaySlot* CountSlot = IconZone->AddChildToOverlay(Count))
+		Count->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		if (UCanvasPanelSlot* CountSlot = CanvasAuto(Canvas, Count,
+			FVector2D(41.0f, 90.0f), FAnchors(0.5f, 0.0f, 0.5f, 0.0f)))
 		{
-			CountSlot->SetHorizontalAlignment(HAlign_Right);
-			CountSlot->SetVerticalAlignment(VAlign_Bottom);
-			CountSlot->SetPadding(FMargin(0.0f, 0.0f, 2.0f, 2.0f));
+			CountSlot->SetAlignment(FVector2D(1.0f, 1.0f)); // правым нижним углом к точке
+			CountSlot->SetZOrder(2);
 		}
 
 		// Подпись-название ПОД иконкой — постоянная (решение Рината), с переносом строк.
+		// Растяжка по ширине: перенос считается от живой ширины плитки.
 		UTextBlock* Name = MakeText(Tree, Roboto, TEXT("TileNameText"), TEXT("Предмет"),
 			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 12, TEXT("Regular"));
 		Name->SetJustification(ETextJustify::Center);
 		Name->SetAutoWrapText(true);
 		Name->bIsVariable = true;
-		if (UVerticalBoxSlot* NameSlot = Stack->AddChildToVerticalBox(Name))
+		Name->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		if (UCanvasPanelSlot* NameSlot = CanvasStretch(Canvas, Name,
+			FAnchors(0.0f, 0.0f, 1.0f, 0.0f), FMargin(6.0f, 96.0f, 6.0f, 0.0f)))
 		{
-			NameSlot->SetHorizontalAlignment(HAlign_Fill);
-			NameSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
+			NameSlot->SetAutoSize(true); // высота — по содержимому (переносы растят плитку, Б8)
+			NameSlot->SetZOrder(1);
 		}
 
 		// Цена под названием (UIMoneyColor) — вне магазина код держит её спрятанной.
@@ -663,9 +672,11 @@ namespace
 		Price->SetJustification(ETextJustify::Center);
 		Price->SetVisibility(ESlateVisibility::Collapsed);
 		Price->bIsVariable = true;
-		if (UVerticalBoxSlot* PriceSlot = Stack->AddChildToVerticalBox(Price))
+		if (UCanvasPanelSlot* PriceSlot = CanvasStretch(Canvas, Price,
+			FAnchors(0.0f, 0.0f, 1.0f, 0.0f), FMargin(6.0f, 128.0f, 6.0f, 0.0f)))
 		{
-			PriceSlot->SetHorizontalAlignment(HAlign_Fill);
+			PriceSlot->SetAutoSize(true);
+			PriceSlot->SetZOrder(1);
 		}
 
 		// «Не хватает монет» (ADR-049: одним потухшим цветом кнопки не обойтись) —
@@ -676,24 +687,25 @@ namespace
 		Status->SetAutoWrapText(true);
 		Status->SetVisibility(ESlateVisibility::Collapsed);
 		Status->bIsVariable = true;
-		if (UVerticalBoxSlot* StatusSlot = Stack->AddChildToVerticalBox(Status))
+		if (UCanvasPanelSlot* StatusSlot = CanvasStretch(Canvas, Status,
+			FAnchors(0.0f, 0.0f, 1.0f, 0.0f), FMargin(6.0f, 148.0f, 6.0f, 0.0f)))
 		{
-			StatusSlot->SetHorizontalAlignment(HAlign_Fill);
+			StatusSlot->SetAutoSize(true);
+			StatusSlot->SetZOrder(1);
 		}
 
-		// Контент кнопки — в самом конце: SetButtonContent замыкает поддерево целиком.
-		SetButtonContent(Tile, Plate);
-
-		// Мини-кнопка выброса ПОВЕРХ плитки (не внутри TileButton — клики не путаются);
-		// в ассете спрятана: показывает только рюкзак (SetDropVisible).
+		// Мини-кнопка выброса ПОВЕРХ плитки, к правому верхнему углу; в ассете спрятана:
+		// показывает только рюкзак (SetDropVisible). Коробка прозрачна для попаданий, чтобы
+		// со спрятанной кнопкой угол плитки оставался кликабельным.
 		USizeBox* DropBox = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("TileDropBox"));
 		DropBox->SetWidthOverride(26.0f);
 		DropBox->SetHeightOverride(26.0f);
-		if (UOverlaySlot* DropBoxSlot = TileOverlay->AddChildToOverlay(DropBox))
+		DropBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		if (UCanvasPanelSlot* DropBoxSlot = CanvasAuto(Canvas, DropBox,
+			FVector2D(-2.0f, 2.0f), FAnchors(1.0f, 0.0f, 1.0f, 0.0f)))
 		{
-			DropBoxSlot->SetHorizontalAlignment(HAlign_Right);
-			DropBoxSlot->SetVerticalAlignment(VAlign_Top);
-			DropBoxSlot->SetPadding(FMargin(0.0f, 2.0f, 2.0f, 0.0f));
+			DropBoxSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+			DropBoxSlot->SetZOrder(3);
 		}
 		UButton* Drop = MakeStyledButton(Tree, TEXT("DropButton"),
 			FLinearColor(0.45f, 0.15f, 0.12f, 1.0f), FLinearColor(0.58f, 0.2f, 0.16f, 1.0f),
@@ -3219,7 +3231,8 @@ namespace
 		// WBP_InventoryRow/WBP_ShopRow — кубики по BindWidgetOptional-полям UItemTileWidget.
 		{ TEXT("/Game/UI/WBP_ItemTile"), TEXT("WBP_ItemTile"),
 			TEXT("/Script/ContrarySurvivor.ItemTileWidget"), &BuildItemTile,
-			{ TEXT("TileSizeBox"), TEXT("TileButton"), TEXT("TileIconBox"), TEXT("TileIcon"),
+			{ TEXT("TileSizeBox"), TEXT("TileCanvas"), TEXT("TileButton"),
+			  TEXT("TileIconBox"), TEXT("TileIcon"),
 			  TEXT("TileCountText"), TEXT("TileNameText"), TEXT("TilePriceText"),
 			  TEXT("TileStatusText"), TEXT("DropButton") } },
 		{ TEXT("/Game/UI/WBP_Inventory"), TEXT("WBP_Inventory"),
