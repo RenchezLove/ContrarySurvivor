@@ -2897,22 +2897,46 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	// Трупы врагов с лутом (Build 1.2.1, ТЗ А1): реестр обыскиваемых вместо перебора
 	// всех акторов мира. Полностью обысканный труп (HasLoot()=false) подсказку не даёт,
 	// хотя лежит до таймера. Дистанция — та же InteractRange, конкуренция честная.
-	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : UCorpseLootComponent::GetSearchableCorpses())
+	//
+	// Report1 баг 1 (Ринат 24.08: «базу можно обыскивать, как только умер последний
+	// заспавненный враг»): в том же реестре живёт и ХРАНИЛИЩЕ БАЗЫ (StashLevel > 0 —
+	// наполняется в момент зачистки). При честной конкуренции дистанций труп последнего
+	// убитого, лежащий ближе центра базы, затенял бы её подсветку до своего исчезновения
+	// (60 с) или опустошения. Поэтому хранилище базы с лутом в радиусе выигрывает у трупов
+	// НЕЗАВИСИМО от дистанции: первый проход — только базы, трупы рассматриваются лишь
+	// когда базы в радиусе нет. Машина/прочие хранилища (StashLevel = 0) и мешки-пикапы
+	// конкурируют дистанцией как раньше.
+	auto ConsiderSearchables = [&](bool bBaseStashesOnly) -> bool
 	{
-		UCorpseLootComponent* Corpse = Ptr.Get();
-		AActor* CorpseOwner = Corpse ? Corpse->GetOwner() : nullptr;
-		if (!Corpse || !IsValid(CorpseOwner) || Corpse->GetWorld() != World || !Corpse->HasLoot())
+		bool bPicked = false;
+		for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : UCorpseLootComponent::GetSearchableCorpses())
 		{
-			continue;
-		}
+			UCorpseLootComponent* Corpse = Ptr.Get();
+			AActor* CorpseOwner = Corpse ? Corpse->GetOwner() : nullptr;
+			if (!Corpse || !IsValid(CorpseOwner) || Corpse->GetWorld() != World || !Corpse->HasLoot())
+			{
+				continue;
+			}
+			const bool bBaseStash = Corpse->bStandaloneStash && Corpse->StashLevel > 0;
+			if (bBaseStash != bBaseStashesOnly)
+			{
+				continue;
+			}
 
-		const float DistSq = FVector::DistSquared(Loc, CorpseOwner->GetActorLocation());
-		if (DistSq <= RangeSq && DistSq < BestDistSq)
-		{
-			BestDistSq = DistSq;
-			CurrentInteractActor = CorpseOwner;
-			CurrentInteractKind = EInteractKind::Corpse;
+			const float DistSq = FVector::DistSquared(Loc, CorpseOwner->GetActorLocation());
+			if (DistSq <= RangeSq && DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				CurrentInteractActor = CorpseOwner;
+				CurrentInteractKind = EInteractKind::Corpse;
+				bPicked = true;
+			}
 		}
+		return bPicked;
+	};
+	if (!ConsiderSearchables(/*bBaseStashesOnly=*/true))
+	{
+		ConsiderSearchables(/*bBaseStashesOnly=*/false);
 	}
 
 	// Группа под одно нажатие (издатель 11.08.2026 п.3.1 + ADR-076 п.2): считается ОТ
