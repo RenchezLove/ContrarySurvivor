@@ -628,6 +628,56 @@ bool FContentToolsBaseStashTest::RunTest(const FString& Parameters)
 }
 
 // ===========================================================================
+// 5б. Баг Рината 23.08 («Новая игра» — волки в логове не заспавнились): сброс базы
+//     ResetForNewGame возвращает исходное состояние — хранилище пусто, метка «база»
+//     снята, ступень начальная, база взведена (Dormant). Глубокую ветку «зачищена,
+//     пауза тикает» headless не поставить: она собирается только HandleBaseCleared,
+//     а тот пишет в боевой слот сейва — сама ветка сверена чтением кода.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsBaseResetNewGameTest,
+	"ContrarySurvivor.ContentTools.EnemyBaseResetOnNewGame", ContentToolsTestFlags)
+
+bool FContentToolsBaseResetNewGameTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	AMasterEnemyBase* Base = ContentToolsTestWorld::Spawn<AMasterEnemyBase>(World);
+	if (!Base)
+	{
+		AddError(TEXT("Не заспавнена база"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	// «Старая сессия»: хранилище наполнено наградой зачищенной ступени (как после зачистки).
+	Base->FillBaseStash(/*ClearedTier=*/2);
+	UCorpseLootComponent* Stash = Base->GetLootContainer();
+	if (!TestNotNull(TEXT("Хранилище базы создано"), Stash))
+	{
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("До сброса в хранилище есть лут"), Stash->HasLoot());
+	TestEqual(TEXT("До сброса хранилище помечено базой Ур. 2"), Stash->StashLevel, 2);
+
+	Base->ResetForNewGame();
+
+	TestFalse(TEXT("После «Новой игры» хранилище пусто"), Stash->HasLoot());
+	TestEqual(TEXT("Метка «это база Ур. N» снята"), Stash->StashLevel, 0);
+	TestEqual(TEXT("Ступень вернулась к начальной"), Base->GetCurrentTierForQA(), 1);
+	TestTrue(TEXT("База взведена заново (Dormant — спавн при подходе игрока)"),
+		Base->GetOccupancyForQA() == EEnemyBaseOccupancy::Dormant);
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
 // 6. Таблица квестов (группа 6): FQuest собирается из строки, предмет цели
 //    разрешается ЧЕРЕЗ таблицу предметов в старый служебный ключ (ADR-050/069);
 //    неразрешимая ссылка на предмет — квест из таблицы НЕ собирается (атомарность)

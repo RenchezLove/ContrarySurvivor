@@ -38,6 +38,7 @@
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-075: покупка накладывает строку таблицы предметов
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Actors/Campfire.h"  // смертельное возрождение — всегда у костра (вариант 1+3)
+#include "ContrarySurvivor/Actors/MasterEnemyBase.h" // «Новая игра» сбрасывает память баз (баг Рината 23.08)
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
@@ -2112,6 +2113,19 @@ void APlayerCharacter::ResetToNewGame()
     // отработал раньше решения игрока: HasSaveGame() тогда была true (сейв ещё существовал), и
     // ветка «новая игра» (половина HP/голода/жажды) в BeginPlay не сработала.
     DeleteSaveInSlot(SaveSlotName, SaveUserIndex);
+
+    // Баг Рината 23.08 («после новой игры волки в логове не заспавнились»): базы врагов
+    // прочитали СТАРЫЙ сейв ещё в своём BeginPlay — стирание слота их память не трогает,
+    // логово стояло бы «зачищено, пауза тикает». Возвращаем каждой размещённой базе исходное
+    // состояние (первое логово снова занято волками — иначе квест Q1 невыполним). Смерть и
+    // «Продолжить» базы НЕ сбрасывают (ТЗ издателя 22.08 §1) — только явная «Новая игра».
+    if (UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+        {
+            It->ResetForNewGame();
+        }
+    }
 
     if (Stats)
     {

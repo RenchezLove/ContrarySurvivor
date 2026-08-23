@@ -69,6 +69,21 @@ void UCorpseLootComponent::AddLoot(float InMoney, const TArray<AMasterInventoryI
 	}
 }
 
+void UCorpseLootComponent::ClearLoot()
+{
+	// Содержимое выбрасывается, а не переходит игроку: не забранные скрытые акторы-данные
+	// уничтожаем, как при исчезновении трупа (EndPlay) — без носителя им в мире не место.
+	for (const TObjectPtr<AMasterInventoryItem>& Item : Items)
+	{
+		if (IsValid(Item))
+		{
+			Item->Destroy();
+		}
+	}
+	Items.Reset();
+	Money = 0.0f;
+}
+
 bool UCorpseLootComponent::HasLoot() const
 {
 	if (Money > 0.0f)

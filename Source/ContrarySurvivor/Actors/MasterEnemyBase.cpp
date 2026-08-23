@@ -415,6 +415,7 @@ void AMasterEnemyBase::SpawnQuestItem()
 	// (совпадает с RequiredItemName квеста старосты). Подбор — по E (как любой пикап).
 	APickup* Pickup = APickup::DropLoot(World, Loc, /*Money=*/0.0f,
 		QuestItemClass, /*ItemDropChance=*/1.0f, PickupClass, QuestItemName, QuestItemText);
+	SpawnedQuestPickup = Pickup; // «Новая игра» уберёт не подобранный (ResetForNewGame)
 
 	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': quest item '%s' spawned at %s (%s)"),
 		*GetName(), *QuestItemName, *Loc.ToCompactString(), Pickup ? TEXT("ok") : TEXT("FAILED"));
@@ -639,6 +640,64 @@ void AMasterEnemyBase::FillBaseStash(int32 ClearedTier)
 	UE_LOG(LogQA, Display,
 		TEXT("QA: база '%s' — хранилище наполнено наградой ступени %d (%d предметов, деньги %.0f)"),
 		*GetName(), ClearedTier, Items.Num(), Reward.Money);
+}
+
+void AMasterEnemyBase::ResetForNewGame()
+{
+	// Баг Рината 23.08 («Новая игра» → волки в логове не заспавнились): память актора,
+	// прочитанная из СТАРОГО сейва ещё в BeginPlay, стиранием слота не обнуляется — чистим
+	// сами. Порядок и смысл — комментарий у объявления (.h).
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		World->GetTimerManager().ClearTimer(SpawnDelayTimerHandle);
+	}
+
+	// Живых врагов старой сессии убираем сразу — иначе они гнались бы за игроком через
+	// вступление новой игры. Трупы (IsDead) не трогаем: доживают свой таймер, к приходу
+	// игрока на базу их уже нет.
+	for (const TWeakObjectPtr<ACharacter>& Ptr : SpawnedEnemies)
+	{
+		ACharacter* Enemy = Ptr.Get();
+		if (!Enemy)
+		{
+			continue;
+		}
+		const UStatsComponent* EnemyStats = Enemy->FindComponentByClass<UStatsComponent>();
+		if (!EnemyStats || !EnemyStats->IsDead())
+		{
+			Enemy->Destroy();
+		}
+	}
+	SpawnedEnemies.Reset();
+
+	// Не подобранный квест-предмет старой сессии убираем: свежая база при первой активации
+	// новой игры положит свой (LastClearUtc снова нулевой), два ноутбука рядом — задвоение.
+	if (APickup* OldQuestPickup = SpawnedQuestPickup.Get())
+	{
+		OldQuestPickup->Destroy();
+	}
+	SpawnedQuestPickup.Reset();
+
+	// Награда старой сессии в новой игре не полагается: хранилище выбрасывает содержимое
+	// (акторы-данные уничтожаются), метка «это база Ур. N» снимается — опустевший контейнер
+	// подсказку «Обыскать» не даёт (HasLoot=false), с реестра сниматься не обязан.
+	if (BaseLoot)
+	{
+		BaseLoot->ClearLoot();
+		BaseLoot->StashLevel = 0;
+	}
+
+	CurrentTier = EnemyBaseTierLogic::ClampTier(InitialTier);
+	LastClearedTier = 0;
+	LastClearUtc = FDateTime(0);
+	Occupancy = EEnemyBaseOccupancy::Dormant;
+	bSpawnScheduled = false;
+	UpdateAmbientForState(); // база снова «тихая до занятия»
+
+	UE_LOG(LogQA, Display,
+		TEXT("QA: база '%s' — «Новая игра»: память сброшена, взведена заново на начальной ступени %d"),
+		*GetName(), CurrentTier);
 }
 
 void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
