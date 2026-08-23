@@ -14,13 +14,14 @@ class UTextBlock;
  * «Лагерь бандитов. Эти выглядят ещё более опытными», а с третьей ступени рядом — номер
  * ступени «полупрозрачной цифрой, без скобок, вторым планом».
  *
- * Кодовое дерево БЕЗ ассета (паттерн кодовых окон этапа F): канва на весь экран, крупная
- * полупрозрачная цифра ПОЗАДИ строки (добавлена в канву первой — рисуется под ней), строка
- * поверх; блок в верхней трети экрана, тапы сквозь (SelfHitTestInvisible). Все тексты,
- * кегли и цвета приходят ОТ БАЗЫ при каждом показе (настройки — на AMasterEnemyBase,
- * EditAnywhere в BP и на экземпляре — требование ТЗ). Скрытие — по таймеру; свой тик
- * виджету не нужен, поэтому Collapsed на самом виджете безопасен (ловушка SelfHiding —
- * про убитый NativeTick, которого здесь нет).
+ * П.0 отчёта Рината 23.08 (ADR-077): раскладка и стиль — В АССЕТЕ WBP_BaseAnnounce
+ * (создаёт генератор, кубики LineText/DigitText по BindWidgetOptional, Ринат двигает и
+ * стилизует мышкой; класс окна назначается на базе слотом AnnounceWidgetClass). Код ставит
+ * ТОЛЬКО тексты и видимость. Кодовое дерево ниже — ЗАПАСНОЙ режим, когда виджет создан
+ * голым C++-классом без ассета (пока WBP не сгенерирован/не назначен).
+ *
+ * Скрытие — по таймеру; свой тик виджету не нужен, поэтому Collapsed на самом виджете
+ * безопасен (ловушка SelfHiding — про убитый NativeTick, которого здесь нет).
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UBaseEntryAnnounceWidget : public UUserWidget
@@ -28,24 +29,24 @@ class CONTRARYSURVIVOR_API UBaseEntryAnnounceWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	// Показать надпись: Line — готовая строка, DigitText — номер ступени (показывается при
-	// bShowDigit), стиль — от базы. Повторный вызов перезапускает таймер скрытия.
-	void ShowAnnounce(const FText& Line, const FText& DigitText, bool bShowDigit,
-		int32 LineFontSize, const FLinearColor& LineColor,
-		int32 DigitFontSize, const FLinearColor& DigitColor, float Duration);
+	// Показать надпись: Line — готовая строка, InDigitText — номер ступени (виден при
+	// bShowDigit). Стиль — дизайнерский (ассет); код текстов и видимости не превышает.
+	// Повторный вызов перезапускает таймер скрытия.
+	void ShowAnnounce(const FText& Line, const FText& InDigitText, bool bShowDigit, float Duration);
 
 protected:
 	virtual void NativeOnInitialized() override;
 
-private:
-	// Крупная полупрозрачная цифра ступени (вторым планом — ПОД строкой).
-	UPROPERTY()
+	// Крупная полупрозрачная цифра ступени (вторым планом — ПОД строкой). В ассете кубик
+	// зовётся DigitText; без ассета создаётся запасным кодовым деревом.
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> DigitText;
 
 	// Строка надписи.
-	UPROPERTY()
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> LineText;
 
+private:
 	FTimerHandle HideTimerHandle;
 
 	void HideAnnounce();

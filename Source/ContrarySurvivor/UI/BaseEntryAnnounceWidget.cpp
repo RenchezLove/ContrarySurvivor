@@ -18,14 +18,26 @@ void UBaseEntryAnnounceWidget::NativeOnInitialized()
 		return;
 	}
 
-	// Кодовое дерево: канва на весь экран, блок — верхняя треть, по центру ширины.
+	// Дерево пришло из АССЕТА (WBP_BaseAnnounce) — кубики уже привязаны BindWidgetOptional,
+	// строить ничего не нужно: раскладка и стиль дизайнерские (П.0 ADR-077).
+	if (WidgetTree->RootWidget)
+	{
+		SetVisibility(ESlateVisibility::Collapsed); // до первого показа
+		return;
+	}
+
+	// ЗАПАСНОЙ режим без ассета — кодовое дерево с константным стилем:
+	// канва на весь экран, блок — верхняя треть, по центру ширины.
 	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AnnounceRoot"));
 	WidgetTree->RootWidget = RootCanvas;
 	RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 
-	// Цифра — ПЕРВОЙ в канву (рисуется под строкой: «вторым планом», ТЗ §5).
-	DigitText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("AnnounceDigit"));
+	// Цифра — ПЕРВОЙ в канву (рисуется под строкой: «вторым планом», ТЗ §5). Стиль —
+	// константы запасного режима (в ассете стиль дизайнерский).
+	DigitText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DigitText"));
 	DigitText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	DigitText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 96));
+	DigitText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f, 0.18f)));
 	if (UCanvasPanelSlot* DigitSlot = RootCanvas->AddChildToCanvas(DigitText))
 	{
 		DigitSlot->SetAnchors(FAnchors(0.5f, 0.22f, 0.5f, 0.22f));
@@ -34,8 +46,10 @@ void UBaseEntryAnnounceWidget::NativeOnInitialized()
 		DigitSlot->SetPosition(FVector2D(0.0f, 0.0f));
 	}
 
-	LineText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("AnnounceLine"));
+	LineText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("LineText"));
 	LineText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	LineText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 22));
+	LineText->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.95f, 0.95f, 1.0f)));
 	if (UCanvasPanelSlot* LineSlot = RootCanvas->AddChildToCanvas(LineText))
 	{
 		LineSlot->SetAnchors(FAnchors(0.5f, 0.22f, 0.5f, 0.22f));
@@ -48,24 +62,22 @@ void UBaseEntryAnnounceWidget::NativeOnInitialized()
 	SetVisibility(ESlateVisibility::Collapsed);
 }
 
-void UBaseEntryAnnounceWidget::ShowAnnounce(const FText& Line, const FText& InDigitText, bool bShowDigit,
-	int32 LineFontSize, const FLinearColor& LineColor,
-	int32 DigitFontSize, const FLinearColor& DigitColor, float Duration)
+void UBaseEntryAnnounceWidget::ShowAnnounce(const FText& Line, const FText& InDigitText,
+	bool bShowDigit, float Duration)
 {
-	if (!LineText || !DigitText)
+	if (!LineText)
 	{
 		return;
 	}
 
+	// Только тексты и видимость (П.0 ADR-077): стиль — дизайнерский.
 	LineText->SetText(Line);
-	LineText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", LineFontSize));
-	LineText->SetColorAndOpacity(FSlateColor(LineColor));
-
-	DigitText->SetText(InDigitText);
-	DigitText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", DigitFontSize));
-	DigitText->SetColorAndOpacity(FSlateColor(DigitColor));
-	DigitText->SetVisibility(bShowDigit
-		? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	if (DigitText)
+	{
+		DigitText->SetText(InDigitText);
+		DigitText->SetVisibility(bShowDigit
+			? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	}
 
 	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 

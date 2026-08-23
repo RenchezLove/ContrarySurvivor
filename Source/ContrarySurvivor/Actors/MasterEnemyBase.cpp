@@ -676,8 +676,11 @@ void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 	}
 	if (!AnnounceWidget.IsValid())
 	{
-		UBaseEntryAnnounceWidget* Widget =
-			CreateWidget<UBaseEntryAnnounceWidget>(PC, UBaseEntryAnnounceWidget::StaticClass());
+		// П.0 ADR-077: класс окна — слот (WBP_BaseAnnounce со стилем дизайнера); пусто —
+		// голый C++-класс с запасным кодовым деревом.
+		UClass* WidgetClass = AnnounceWidgetClass
+			? static_cast<UClass*>(AnnounceWidgetClass) : UBaseEntryAnnounceWidget::StaticClass();
+		UBaseEntryAnnounceWidget* Widget = CreateWidget<UBaseEntryAnnounceWidget>(PC, WidgetClass);
 		if (!Widget)
 		{
 			return;
@@ -699,8 +702,7 @@ void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 	const bool bShowDigit = bBaseOccupied && CurrentTier >= 3;
 	AnnounceWidget->ShowAnnounce(Line,
 		FText::AsNumber(CurrentTier, &FNumberFormattingOptions::DefaultNoGrouping()),
-		bShowDigit, AnnounceFontSize, AnnounceColor,
-		AnnounceDigitFontSize, AnnounceDigitColor, AnnounceDuration);
+		bShowDigit, AnnounceDuration);
 
 	UE_LOG(LogQA, Display, TEXT("QA: база '%s' — надпись входа показана (ступень %d, %s)"),
 		*GetName(), CurrentTier, bBaseOccupied ? TEXT("занята") : TEXT("пустая, только название"));

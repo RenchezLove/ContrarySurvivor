@@ -150,19 +150,9 @@ public:
 		DisplayName = "Запасное название объекта"))
 	FText SearchObjectsFallbackName = NSLOCTEXT("CorpseLoot", "SearchObjectsFallback", "Труп");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (ClampMin = "6", DisplayPriority = "4",
-		DisplayName = "Кегль перечня"))
-	int32 SearchObjectsFontSize = 14;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "5",
-		DisplayName = "Цвет перечня"))
-	FLinearColor SearchObjectsColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
-
-	// Отступ строки-перечня от верха окна виджета, px — для дизайнер-дерева, где строка
-	// создаётся кодом НАД окном (в кодовом фолбэке она встроена в колонку под шапкой).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "6",
-		DisplayName = "Отступ перечня от верха, px"))
-	float SearchObjectsTopOffset = 96.0f;
+	// П.0 ADR-077: стиль строки-перечня (кегль/цвет/позиция) живёт В АССЕТЕ — кубик
+	// SearchObjectsListText добавляет -augment генератора, Ринат правит его в дизайнере.
+	// Здесь остались только ДАННЫЕ: разделитель и запасное имя (код собирает текст).
 
 	// Чистая сборка строки перечня («Труп волка; Труп волка; Мешок») — открыта для
 	// headless-теста: имена контейнеров через разделитель, пустое имя -> запасное.
@@ -275,17 +265,13 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText;
 
-	// Перечень обыскиваемых (ADR-076 п.2). Нет в ассете — создаётся кодом: в кодовом дереве
-	// строкой под шапкой, в дизайнерском — на корневой канве над окном (паттерн крестика
-	// диалога; ассет Рината не трогается).
+	// Перечень обыскиваемых (ADR-076 п.2). П.0 ADR-077: кубик — ИЗ АССЕТА (-augment), код
+	// его не создаёт и не двигает (кодовое fallback-дерево целиком без ассета — исключение,
+	// там строка встроена в колонку). Нет в ассете — предупреждение, перечня не будет.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SearchObjectsListText;
 
-	// Создаёт строку-перечень в дизайнер-дереве (корневая канва, верх-центр). Кодовый фолбэк
-	// создаёт её сам в BuildFallbackTree.
-	void CreateSearchObjectsLineIfMissing();
-
-	// Обновляет строку-перечень по живым контейнерам группы (зовётся из InitCorpseLootGroup).
+	// Обновляет ТЕКСТ строки-перечня по живым контейнерам группы (InitCorpseLootGroup).
 	void UpdateSearchObjectsLine();
 
 	// Список лута (деньги + предметы одним списком, прокрутка штатная).

@@ -26,8 +26,10 @@
 #include "Components/SizeBox.h"
 #include "Components/Slider.h"
 #include "Components/TextBlock.h"
+#include "Components/TextWidgetTypes.h" // UTextLayoutWidget: чтение AutoWrapText отражением (П.0 ADR-077)
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "UObject/UnrealType.h" // FindFProperty/FBoolProperty (идемпотентность переноса подписей)
 #include "Engine/Blueprint.h" // -hudslots: BP_ContrarySurvivorHUD — обычный Blueprint, не Widget
 #include "Engine/StaticMesh.h" // Build 1.2.1 (-pickupfix): материал слотов мешей лута
 #include "Engine/Texture2D.h" // LoadObject<UTexture2D> для иконок (в Image.h только объявление)
@@ -129,6 +131,45 @@ namespace
 	{
 		Block->SetShadowOffset(FVector2D(1.0f, 1.0f));
 		Block->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f));
+	}
+
+	// ------------------------------------------------------------------
+	// WBP_BaseAnnounce — надпись при входе на базу противника (ТЗ 22.08 §5 + П.0 ADR-077:
+	// раскладка и стиль в ассете, код окна ставит только тексты/видимость). Крупная
+	// полупрозрачная ЦИФРА ступени кладётся в канву ПЕРВОЙ — рисуется ПОД строкой
+	// («вторым планом, без скобок» — слова Рината дословно).
+	// ------------------------------------------------------------------
+	bool BuildBaseAnnounce(UWidgetTree* Tree)
+	{
+		UObject* Roboto = LoadRobotoFont();
+
+		UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AnnounceRoot"));
+		Tree->RootWidget = Root;
+
+		UTextBlock* Digit = MakeText(Tree, Roboto, TEXT("DigitText"), TEXT("3"),
+			FLinearColor(1.0f, 1.0f, 1.0f, 0.18f), 96, TEXT("Bold"));
+		Digit->bIsVariable = true; // BindWidgetOptional кода
+		if (UCanvasPanelSlot* DigitSlot = Root->AddChildToCanvas(Digit))
+		{
+			DigitSlot->SetAnchors(FAnchors(0.5f, 0.22f, 0.5f, 0.22f)); // верхняя треть, центр ширины
+			DigitSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			DigitSlot->SetAutoSize(true);
+			DigitSlot->SetPosition(FVector2D(0.0f, 0.0f));
+		}
+
+		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("LineText"),
+			TEXT("Лагерь бандитов. Эти выглядят ещё более опытными"),
+			FLinearColor(0.95f, 0.95f, 0.95f, 1.0f), 22, TEXT("Bold"));
+		Line->bIsVariable = true;
+		ApplyTextShadow(Line); // надпись висит поверх игрового мира
+		if (UCanvasPanelSlot* LineSlot = Root->AddChildToCanvas(Line))
+		{
+			LineSlot->SetAnchors(FAnchors(0.5f, 0.22f, 0.5f, 0.22f));
+			LineSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			LineSlot->SetAutoSize(true);
+			LineSlot->SetPosition(FVector2D(0.0f, 0.0f));
+		}
+		return true;
 	}
 
 	// Иконка из Content/UI/Icons. Размер пишется В КИСТЬ (Brush.ImageSize): прежний путь
@@ -3334,6 +3375,12 @@ namespace
 			TEXT("/Script/ContrarySurvivor.MockAdWidget"), &BuildMockAd,
 			{ TEXT("DimBorder"), TEXT("TitleText"), TEXT("PlacementText"),
 			  TEXT("CountdownText"), TEXT("CloseButton"), TEXT("CloseText") } },
+		// Надпись при входе на базу противника (ТЗ 22.08 §5 + П.0 ADR-077: стиль в ассете;
+		// класс окна назначается на базе слотом «Окно надписи»). Создание: -rebuild
+		// -asset=WBP_BaseAnnounce; после создания стиль правит Ринат, пересборка не нужна.
+		{ TEXT("/Game/UI/WBP_BaseAnnounce"), TEXT("WBP_BaseAnnounce"),
+			TEXT("/Script/ContrarySurvivor.BaseEntryAnnounceWidget"), &BuildBaseAnnounce,
+			{ TEXT("DigitText"), TEXT("LineText") } },
 		// Окно «Поддержать автора» (задание издателя; вид одобрен Ринатом живьём 12.08.2026).
 		// Раскладка плоская, каждый элемент — прямой ребёнок холста: требование Рината
 		// «чтобы всё легко двигалось мышкой, без пунктирной таблицы-подложки». Подробности —
@@ -4819,6 +4866,197 @@ namespace
 			Name, *Style.SaveHintText.ToString(), Style.SaveHintFontSize, -HintPos.Y, Grown);
 	}
 
+	// ------------------------------------------------------------------
+	// П.0 отчёта Рината 23.08 (ADR-077, системный разворот «всё настраивается в WBP»):
+	// три процедуры ниже переносят В АССЕТЫ то, что раньше создавал код виджетов
+	// (крестик диалога, компас на стике, строка перечня обыска). Код виджетов создание
+	// удалил (коммит волны П.0) — без этих кубиков он пишет предупреждение и живёт дальше.
+	// Все процедуры идемпотентны: кубик на месте — прогон ничего не меняет.
+	// ------------------------------------------------------------------
+
+	// WBP_Dialog: крестик закрытия в правом-верхнем углу (ADR-076 п.3) + перенос длинных
+	// реплик на подписях кнопок (свойство переноса ставится В АССЕТЕ — Ринат его волен снять).
+	void AugmentDialogCloseCrossAndWrap(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Dialog");
+
+		// Часть 1: перенос текста подписей кнопок (кадр Рината: длинная реплика вылезала).
+		// Читаем текущее значение через отражение (у свойства нет открытого геттера) — ради
+		// честной идемпотентности: уже включено — не трогаем и не сохраняем.
+		static const TCHAR* LabelNames[] = {
+			TEXT("AcceptText"), TEXT("DeclineText"), TEXT("TurnInText"), TEXT("CloseText") };
+		FBoolProperty* AutoWrapProp = FindFProperty<FBoolProperty>(
+			UTextLayoutWidget::StaticClass(), TEXT("AutoWrapText"));
+		for (const TCHAR* LabelName : LabelNames)
+		{
+			UTextBlock* Label = Cast<UTextBlock>(Tree->FindWidget(LabelName));
+			if (!Label || !AutoWrapProp)
+			{
+				continue;
+			}
+			if (!AutoWrapProp->GetPropertyValue_InContainer(Label))
+			{
+				Label->SetAutoWrapText(true);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: у подписи %s включён перенос строк (реплика не вылезает за кнопку)."),
+					Name, LabelName);
+			}
+		}
+
+		// Часть 2: крестик закрытия — всегда в углу (ADR-076 п.3; стиль/позицию Ринат правит тут).
+		if (Tree->FindWidget(TEXT("DialogCloseCrossButton")))
+		{
+			return; // уже добавлен
+		}
+		UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget);
+		if (!Root)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: корень не канва — крестик закрытия не добавлен."), Name);
+			return;
+		}
+
+		UObject* Roboto = LoadRobotoFont();
+		UButton* Cross = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DialogCloseCrossButton"));
+		Cross->bIsVariable = true; // BindWidgetOptional кода
+		UTextBlock* CrossLabel = MakeText(Tree, Roboto, TEXT("DialogCloseCrossText"),
+			TEXT("×") /* знак умножения «×» — читается крестиком */,
+			FLinearColor::White, 30, TEXT("Bold"));
+		CrossLabel->bIsVariable = true;
+		Cross->SetContent(CrossLabel);
+		if (UCanvasPanelSlot* CrossSlot = Root->AddChildToCanvas(Cross))
+		{
+			CrossSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f)); // правый-верхний угол
+			CrossSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			CrossSlot->SetPosition(FVector2D(-56.0f, 56.0f));
+			CrossSlot->SetSize(FVector2D(72.0f, 72.0f)); // под палец
+			CrossSlot->SetZOrder(10);
+		}
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлен крестик закрытия DialogCloseCrossButton (правый-верх, 72x72)."), Name);
+	}
+
+	// WBP_TouchControls: кубики компаса вокруг подложки стика (ADR-076 п.5). Позиции ставятся
+	// ОДИН раз от живой геометрии StickBase — дальше их двигает Ринат; в игре весь компас
+	// едет за стиком Render Translation'ом (код), слоты не трогаются.
+	void AugmentTouchCompass(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_TouchControls");
+		if (Tree->FindWidget(TEXT("CompassNText")))
+		{
+			return; // уже добавлен
+		}
+
+		UWidget* StickBase = Tree->FindWidget(TEXT("StickBase"));
+		UCanvasPanelSlot* StickSlot = StickBase ? Cast<UCanvasPanelSlot>(StickBase->Slot) : nullptr;
+		UCanvasPanel* Parent = StickBase ? Cast<UCanvasPanel>(StickBase->GetParent()) : nullptr;
+		if (!StickSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: StickBase не найден в канвас-слоте — компас не добавлен."), Name);
+			return;
+		}
+
+		const FVector2D StickPos = StickSlot->GetPosition();
+		const FAnchors StickAnchors = StickSlot->GetAnchors();
+		const float LetterRadius = StickSlot->GetSize().X * 0.5f + 26.0f; // край подложки + зазор
+
+		UObject* Roboto = LoadRobotoFont();
+		const FLinearColor LetterColor(1.0f, 1.0f, 1.0f, 0.55f); // полупрозрачно (слова Рината)
+
+		auto MakeLetter = [&](const TCHAR* WidgetName, const TCHAR* Letter, const FVector2D& Offset)
+		{
+			UTextBlock* Text = MakeText(Tree, Roboto, WidgetName, Letter, LetterColor, 16, TEXT("Bold"));
+			Text->bIsVariable = true; // BindWidgetOptional кода
+			if (UCanvasPanelSlot* LetterSlot = Parent->AddChildToCanvas(Text))
+			{
+				LetterSlot->SetAnchors(StickAnchors); // как у стика — двигаются с ним при якорях
+				LetterSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+				LetterSlot->SetAutoSize(true);
+				LetterSlot->SetPosition(StickPos + Offset);
+			}
+		};
+		MakeLetter(TEXT("CompassNText"), TEXT("N"), FVector2D(0.0f, -LetterRadius));
+		MakeLetter(TEXT("CompassEText"), TEXT("E"), FVector2D(LetterRadius, 0.0f));
+		MakeLetter(TEXT("CompassSText"), TEXT("S"), FVector2D(0.0f, LetterRadius));
+		MakeLetter(TEXT("CompassWText"), TEXT("W"), FVector2D(-LetterRadius, 0.0f));
+
+		// «Едва заметная тоненькая красная стрелка» из центра подложки к северу: узкая полоска,
+		// смещена на полдлины вверх — читается указателем. Поворот на север ставит код.
+		UImage* Arrow = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CompassArrowImage"));
+		Arrow->bIsVariable = true;
+		Arrow->SetColorAndOpacity(FLinearColor(1.0f, 0.12f, 0.08f, 0.55f));
+		if (UCanvasPanelSlot* ArrowSlot = Parent->AddChildToCanvas(Arrow))
+		{
+			ArrowSlot->SetAnchors(StickAnchors);
+			ArrowSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			ArrowSlot->SetPosition(StickPos + FVector2D(0.0f, -13.0f));
+			ArrowSlot->SetSize(FVector2D(3.0f, 26.0f));
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлен компас (N/E/S/W на радиусе %.0f от центра стика + стрелка)."),
+			Name, LetterRadius);
+	}
+
+	// Окно обыска: строка-перечень обыскиваемых («Труп волка; Труп волка; Мешок», ADR-076
+	// п.2 / п.8 отчёта 23.08). Встаёт НАД заголовком от его живой геометрии; текст в игре
+	// ставит код окна, стиль и позицию правит Ринат здесь.
+	void AugmentCorpseSearchList(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_CorpseLoot");
+		if (Tree->FindWidget(TEXT("SearchObjectsListText")))
+		{
+			return; // уже добавлен
+		}
+
+		UObject* Roboto = LoadRobotoFont();
+		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("SearchObjectsListText"),
+			TEXT("Труп волка; Труп волка; Мешок") /* образец — в игре текст ставит код */,
+			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular"));
+		Line->bIsVariable = true;
+		Line->SetAutoWrapText(true);
+
+		// Якорь — заголовок окна: встаём строкой НАД ним (та же привязка).
+		UTextBlock* Title = Cast<UTextBlock>(Tree->FindWidget(TEXT("TitleText")));
+		UCanvasPanelSlot* TitleSlot = Title ? Cast<UCanvasPanelSlot>(Title->Slot) : nullptr;
+		UCanvasPanel* Parent = Title ? Cast<UCanvasPanel>(Title->GetParent()) : nullptr;
+		if (TitleSlot && Parent)
+		{
+			if (UCanvasPanelSlot* LineSlot = Parent->AddChildToCanvas(Line))
+			{
+				LineSlot->SetAnchors(TitleSlot->GetAnchors());
+				LineSlot->SetAlignment(TitleSlot->GetAlignment());
+				LineSlot->SetAutoSize(true);
+				LineSlot->SetPosition(TitleSlot->GetPosition() - FVector2D(0.0f, 26.0f));
+			}
+		}
+		else if (UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget))
+		{
+			// Заголовка нет/не в канве — верх-центр окна («сверху в окне или над ним»).
+			if (UCanvasPanelSlot* LineSlot = Root->AddChildToCanvas(Line))
+			{
+				LineSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+				LineSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+				LineSlot->SetAutoSize(true);
+				LineSlot->SetPosition(FVector2D(0.0f, 96.0f));
+			}
+		}
+		else
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: ни заголовка, ни корневой канвы — перечень не добавлен."), Name);
+			return;
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлена строка перечня обыскиваемых SearchObjectsListText."), Name);
+	}
+
 	// WBP_SupportAuthor, решение Рината 13.08.2026: строка благодарности после ролика — это
 	// одно слово «Спасибо», и сам кубик обязан быть в ассете. Ринат правил окно мышкой и
 	// строку из него удалил (коммит 37dd9d8) — из-за этого код окна не находил свой кубик и
@@ -6076,6 +6314,9 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 	static const FRebuildEntry RebuildAssets[] =
 	{
 		{ TEXT("WBP_ItemTile"), true },
+		// Надпись входа на базу (П.0 ADR-077): раскладка из кода при СОЗДАНИИ; правок
+		// владельца нет — перенос значений не нужен (как WBP_StartScreen).
+		{ TEXT("WBP_BaseAnnounce"), false },
 		{ TEXT("WBP_Shop"), true },
 		{ TEXT("WBP_Inventory"), true },
 		{ TEXT("WBP_CorpseLoot"), true },
@@ -6206,6 +6447,11 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Требование издателя 13.08.2026: из текста согласия убрана AppMetrica. Пересборке
 		// это окно не подлежит (его нет в списке RebuildAssets) — правим только подписи.
 		{ TEXT("/Game/UI/WBP_Consent"),       TEXT("WBP_Consent"),       &AugmentConsentTexts },
+		// П.0 отчёта Рината 23.08 (ADR-077): кодовые элементы переезжают В АССЕТЫ —
+		// крестик диалога + перенос подписей, компас на стике, строка перечня обыска.
+		{ TEXT("/Game/UI/WBP_Dialog"),        TEXT("WBP_Dialog"),        &AugmentDialogCloseCrossAndWrap },
+		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchCompass },
+		{ TEXT("/Game/UI/WBP_CorpseLoot"),    TEXT("WBP_CorpseLoot"),    &AugmentCorpseSearchList },
 	};
 
 	int32 FailCount = 0;

@@ -296,22 +296,12 @@ protected:
 		DisplayName = "Антиспам надписи, сек"))
 	float AnnounceCooldown = 20.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Надпись", meta = (ClampMin = "8", DisplayPriority = "7",
-		DisplayName = "Кегль строки"))
-	int32 AnnounceFontSize = 22;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Надпись", meta = (DisplayPriority = "8",
-		DisplayName = "Цвет строки"))
-	FLinearColor AnnounceColor = FLinearColor(0.95f, 0.95f, 0.95f, 1.0f);
-
-	// Номер ступени «полупрозрачной цифрой, без скобок, вторым планом» (ТЗ §5) — с 3-й ступени.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Надпись", meta = (ClampMin = "16", DisplayPriority = "9",
-		DisplayName = "Кегль цифры ступени"))
-	int32 AnnounceDigitFontSize = 96;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Надпись", meta = (DisplayPriority = "10",
-		DisplayName = "Цвет цифры ступени (полупрозрачный)"))
-	FLinearColor AnnounceDigitColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.18f);
+	// П.0 ADR-077: СТИЛЬ надписи (кегли/цвета/раскладка) живёт в ассете окна — сюда
+	// назначается WBP_BaseAnnounce (создаёт генератор), Ринат правит его мышкой. Пусто =
+	// голый C++-класс с запасным кодовым деревом (константный стиль).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Надпись", meta = (DisplayPriority = "7",
+		DisplayName = "Окно надписи (WBP_BaseAnnounce)"))
+	TSubclassOf<UBaseEntryAnnounceWidget> AnnounceWidgetClass;
 
 	// === ЗВУК БАЗЫ (ТЗ §5 «звук раньше картинки»): зацикленный шум занятой базы, громче
 	// со ступенью. Ассета «голоса/лай» в проекте нет — поле пустое, назначит оператор;

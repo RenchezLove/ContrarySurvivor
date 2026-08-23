@@ -50,9 +50,13 @@ void UCorpseLootWidget::NativeOnInitialized()
 		BuildFallbackTree();
 	}
 
-	// ADR-076 п.2: строка-перечень обыскиваемых. В кодовом дереве создана BuildFallbackTree;
-	// в дизайнерском без кубика — создаётся на корневой канве над окном (ассет не трогаем).
-	CreateSearchObjectsLineIfMissing();
+	// ADR-076 п.2 + П.0 ADR-077: строка-перечень — кубик АССЕТА (в кодовом fallback-дереве
+	// её создала BuildFallbackTree). Нет в ассете — предупреждаем, код больше не достраивает.
+	if (!SearchObjectsListText)
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("CorpseLootWidget: кубика SearchObjectsListText нет в ассете окна обыска — перечня обыскиваемых не будет; прогоните генератор в режиме дополнения"));
+	}
 
 	if (TitleText)
 	{
@@ -117,10 +121,11 @@ void UCorpseLootWidget::BuildFallbackTree()
 	}
 
 	// ADR-076 п.2: перечень обыскиваемых («Труп волка; Труп волка; Мешок») — строкой под
-	// шапкой, над списком. Текст ставит UpdateSearchObjectsLine.
+	// шапкой, над списком. Текст ставит UpdateSearchObjectsLine. Стиль здесь — константы:
+	// это ЗАПАСНОЕ кодовое дерево (без ассета); в ассете стиль правит Ринат (П.0 ADR-077).
 	SearchObjectsListText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SearchObjectsListText"));
-	SearchObjectsListText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", SearchObjectsFontSize));
-	SearchObjectsListText->SetColorAndOpacity(FSlateColor(SearchObjectsColor));
+	SearchObjectsListText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 14));
+	SearchObjectsListText->SetColorAndOpacity(FSlateColor(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f)));
 	SearchObjectsListText->SetAutoWrapText(true);
 	if (UVerticalBoxSlot* ObjectsSlot = Column->AddChildToVerticalBox(SearchObjectsListText))
 	{
@@ -228,34 +233,6 @@ FText UCorpseLootWidget::BuildSearchObjectsLine(const TArray<UCorpseLootComponen
 		}
 	}
 	return Parts.Num() > 0 ? FText::Join(Separator, Parts) : FText::GetEmpty();
-}
-
-void UCorpseLootWidget::CreateSearchObjectsLineIfMissing()
-{
-	if (SearchObjectsListText || !bShowSearchObjectsList)
-	{
-		return;
-	}
-	// Дизайнер-дерево без кубика: строка над окном, верх-центр корневой канвы (ADR-076 п.2
-	// «сверху в окне ИЛИ НАД НИМ»; внутрь чужой раскладки не лезем — ассет Рината).
-	UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
-	if (!RootCanvas)
-	{
-		UE_LOG(LogQA, Warning,
-			TEXT("CorpseLootWidget: корень WBP_CorpseLoot не канва — перечень обыскиваемых не создан"));
-		return;
-	}
-	SearchObjectsListText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SearchObjectsListText"));
-	SearchObjectsListText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", SearchObjectsFontSize));
-	SearchObjectsListText->SetColorAndOpacity(FSlateColor(SearchObjectsColor));
-	SearchObjectsListText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	if (UCanvasPanelSlot* LineSlot = RootCanvas->AddChildToCanvas(SearchObjectsListText))
-	{
-		LineSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-		LineSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-		LineSlot->SetAutoSize(true);
-		LineSlot->SetPosition(FVector2D(0.0f, SearchObjectsTopOffset));
-	}
 }
 
 void UCorpseLootWidget::UpdateSearchObjectsLine()
