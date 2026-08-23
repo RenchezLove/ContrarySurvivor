@@ -23,10 +23,12 @@ public class ContrarySurvivorEditor : ModuleRules
 		// BlueprintGraph — UEdGraphSchema_K2::GN_AnimGraph, каноническое имя графа анимации.
 		// RenderCore/RHI — Build 1.2.1 (-pickupfix): StaticMeshResources.h (пруф вершинных
 		// цветов мешей лута через ColorVertexBuffer) тянет типы буферов рендера.
+		// PropertyEditor — Report1 п.9: кастомизация панели Details машины (таблица деталей
+		// «название | есть | битая», FAbandonedCarDetails).
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UMG", "UMGEditor", "UnrealEd", "AssetRegistry", "Slate", "SlateCore", "ContrarySurvivor",
-			"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "RenderCore", "RHI"
+			"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "RenderCore", "RHI", "PropertyEditor"
 		});
 
 		// Заголовки геймплей-модуля лежат подпапками вне его Public/ и включаются по конвенции

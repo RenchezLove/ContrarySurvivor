@@ -252,6 +252,13 @@ public:
 		}
 	}
 
+	// Спавнит предметы списка скрытыми акторами-данными и возвращает их (владение — у
+	// вызывающего: он кладёт предметы в свой контейнер обыска). Строка таблицы главнее
+	// класса; стакаемые — одним предметом со счётчиком, нестакаемые — копиями. Общий путь
+	// для мешка, машины (Report1 п.9) и будущих хранилищ баз. ContextName — для журнала.
+	static TArray<AMasterInventoryItem*> SpawnLootEntries(UWorld* World,
+		const TArray<FPlacedLootEntry>& List, const FVector& Location, const FString& ContextName);
+
 private:
 	// D8: спавнит размещённый лут (PlacedItemClass/PlacedAmmoAmount) скрытыми предметами
 	// и складывает его вместе с «Денег внутри» в контейнер обыска. Зовётся из BeginPlay

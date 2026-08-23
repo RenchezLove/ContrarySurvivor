@@ -4,11 +4,23 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "ContrarySurvivor/Actors/Pickup.h" // FPlacedLootEntry — формат «какие конкретно предметы»
 #include "AbandonedCar.generated.h"
 
+class UCorpseLootComponent;
 class USceneComponent;
 class UStaticMeshComponent;
 class UMaterialInstanceDynamic;
+
+// Дороговизна лута машины (Report1 п.9: «3 варианта: дешевый, средний, дорогой») —
+// выбирает денежный диапазон (поля «Деньги: …» на машине).
+UENUM(BlueprintType)
+enum class ECarLootRichness : uint8
+{
+	Cheap UMETA(DisplayName = "Дешёвый"),
+	Medium UMETA(DisplayName = "Средний"),
+	Expensive UMETA(DisplayName = "Дорогой")
+};
 
 /**
  * Конструктор брошенных авто (ADR-075 п.4, спека spec-datatables-phase2.md группа 7).
@@ -21,9 +33,9 @@ class UMaterialInstanceDynamic;
  *
  * ИНСТРУМЕНТ-актор (образец оформления — ACampfire/AWorldBorder): один C++ класс, один
  * BP_AbandonedCar (ADR-028), расстановка и настройка на РАЗМЕЩЁННОМ экземпляре — Ринат.
- * Каждая правка галочки/угла/цвета видна во вьюпорте сразу (OnConstruction). Логики нет —
- * чистый визуал-конструктор: галочки наличия деталей, углы открытия створок, цвет кузова,
- * целые/битые стёкла.
+ * Каждая правка галочки/угла/цвета видна во вьюпорте сразу (OnConstruction). Визуал-
+ * конструктор: галочки наличия и битости деталей, углы открытия створок, цвет кузова,
+ * целые/битые стёкла; из игровой логики — только контейнер обыска (см. блок п.9 ниже).
  *
  * БИТЫЕ СТЁКЛА: отдельного меша битого стекла в папке НЕТ (проверено), поэтому битость
  * решается материалом — скалярный параметр (имя настраивается полем GlassBrokenParamName)
@@ -50,57 +62,147 @@ class UMaterialInstanceDynamic;
  * Ignore — пружина камеры не дёргается об машину сверху). Pawn — не пройти насквозь,
  * Visibility — машина честное укрытие от выстрелов и ИИ (гейт прямой видимости атак 08-07).
  * Детали коллизии не несут.
+ *
+ * ОТЧЁТ РИНАТА 23.08.2026, п.9 («BP_AbandonedCar пока очень сырой»):
+ *  а) простыня Mobility на каждую деталь и б) слоты мешей деталей убраны из панели
+ *     Details: компоненты больше не VisibleAnywhere (разворачиваемые секции компонентов
+ *     в деталях актора давали и Mobility, и слот меша на каждую из 14 деталей).
+ *     Подменить меш детали по-прежнему можно в BP_AbandonedCar через дерево компонентов
+ *     (наследованные компоненты в нём остаются);
+ *  в) «как бы таблица» деталей (название | есть | битая) — галочки лежат здесь, а ТАБЛИЦЕЙ
+ *     их рисует кастомизация панели FAbandonedCarDetails (редакторный модуль). Галочка
+ *     «битая» затемняет деталь параметром цвета её материала (доля — «Затемнение битой
+ *     детали»); у материала без параметра цвета (резина колеса) битость пока только
+ *     данные без визуала — вид битой детали уточняется у Рината;
+ *  +) ОБЫСК МАШИНЫ: контейнер обыска (UCorpseLootComponent, «отдельное хранилище» — в
+ *     групповой обыск не входит, окно своё). Поля: «Лут в машине есть», дороговизна
+ *     (дешёвый/средний/дорогой — задаёт денежный диапазон), список конкретных предметов
+ *     (строкой таблицы предметов или классом + количество, формат мешка ADR-076 п.10).
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AAbandonedCar : public AActor
 {
 	GENERATED_BODY()
 
+	// Кастомизация панели Details (редакторный модуль): рисует галочки таблицей
+	// «Деталь | Есть | Битая» и берёт имена полей через GET_MEMBER_NAME_CHECKED.
+	friend class FAbandonedCarDetails;
+
 public:
 	AAbandonedCar();
+
+	// Денежный диапазон по дороговизне — чистое правило, проверяется автотестом.
+	FInt32Interval MoneyRangeForRichness(ECarLootRichness Richness) const;
+
+	// Контейнер обыска машины (для автотестов и подсказки контроллера).
+	UCorpseLootComponent* GetLootContainer() const { return CarLoot; }
 
 protected:
 	// Применяет галочки/углы/цвет/стёкла к компонентам — при каждой правке в редакторе.
 	virtual void OnConstruction(const FTransform& Transform) override;
 
-	// === НАЛИЧИЕ ДЕТАЛЕЙ (наверху Details; выключено = деталь скрыта) ===
+	// Наполняет контейнер обыска (только в игровом мире; в редакторе машина — визуал).
+	virtual void BeginPlay() override;
+
+	// === ДЕТАЛИ КУЗОВА: есть / битая (Report1 п.9 — «как бы таблица»; таблицей рисует
+	// FAbandonedCarDetails, здесь — сами галочки; нечётный приоритет = есть, чётный = битая) ===
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "1", DisplayName = "Дверь передняя левая"))
 	bool bDoorFL = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "2", DisplayName = "Дверь передняя правая"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "2", DisplayName = "Дверь передняя левая: битая", EditCondition = "bDoorFL"))
+	bool bDoorFLBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "3", DisplayName = "Дверь передняя правая"))
 	bool bDoorFR = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "3", DisplayName = "Дверь задняя левая"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "4", DisplayName = "Дверь передняя правая: битая", EditCondition = "bDoorFR"))
+	bool bDoorFRBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "5", DisplayName = "Дверь задняя левая"))
 	bool bDoorRL = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "4", DisplayName = "Дверь задняя правая"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "6", DisplayName = "Дверь задняя левая: битая", EditCondition = "bDoorRL"))
+	bool bDoorRLBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "7", DisplayName = "Дверь задняя правая"))
 	bool bDoorRR = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "5", DisplayName = "Капот"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "8", DisplayName = "Дверь задняя правая: битая", EditCondition = "bDoorRR"))
+	bool bDoorRRBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "9", DisplayName = "Капот"))
 	bool bHood = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "6", DisplayName = "Багажник"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "10", DisplayName = "Капот: битый", EditCondition = "bHood"))
+	bool bHoodBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "11", DisplayName = "Багажник"))
 	bool bTrunk = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "7", DisplayName = "Колесо переднее левое"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "12", DisplayName = "Багажник: битый", EditCondition = "bTrunk"))
+	bool bTrunkBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "13", DisplayName = "Колесо переднее левое"))
 	bool bWheelFL = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "8", DisplayName = "Колесо переднее правое"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "14", DisplayName = "Колесо переднее левое: битое", EditCondition = "bWheelFL"))
+	bool bWheelFLBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "15", DisplayName = "Колесо переднее правое"))
 	bool bWheelFR = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "9", DisplayName = "Колесо заднее левое"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "16", DisplayName = "Колесо переднее правое: битое", EditCondition = "bWheelFR"))
+	bool bWheelFRBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "17", DisplayName = "Колесо заднее левое"))
 	bool bWheelRL = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "10", DisplayName = "Колесо заднее правое"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "18", DisplayName = "Колесо заднее левое: битое", EditCondition = "bWheelRL"))
+	bool bWheelRLBroken = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "19", DisplayName = "Колесо заднее правое"))
 	bool bWheelRR = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "11", DisplayName = "Царапины на кузове"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "20", DisplayName = "Колесо заднее правое: битое", EditCondition = "bWheelRR"))
+	bool bWheelRRBroken = false;
+
+	// У царапин и подпорки «битости» нет — это накладки, а не детали кузова.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "21", DisplayName = "Царапины на кузове"))
 	bool bScratches = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "12", DisplayName = "Блок-подпорка",
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car", meta = (DisplayPriority = "22", DisplayName = "Блок-подпорка",
 		ToolTip = "Подпорка под кузов (например, когда снято колесо). Ставится/двигается оператором в BP; здесь только показать/скрыть."))
 	bool bBlock = false;
+
+	// === ЛУТ МАШИНЫ (Report1 п.9: обыск автомобиля) ===
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "1",
+		DisplayName = "Лут в машине есть",
+		ToolTip = "Включено — машину можно обыскать: внутри деньги по дороговизне и предметы из списка ниже."))
+	bool bHasLoot = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "2",
+		DisplayName = "Дороговизна лута", EditCondition = "bHasLoot",
+		ToolTip = "Задаёт, из какого денежного диапазона машина возьмёт сумму (поля «Деньги: …» ниже)."))
+	ECarLootRichness LootRichness = ECarLootRichness::Medium;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "3",
+		TitleProperty = "ItemRow",
+		DisplayName = "Какие конкретно предметы", EditCondition = "bHasLoot",
+		ToolTip = "Список предметов в машине: каждая запись — предмет (строкой таблицы предметов DT_Items или классом) и количество. Формат тот же, что у мешка-пикапа."))
+	TArray<FPlacedLootEntry> PlacedLootList;
+
+	// Денежные диапазоны дороговизны (от..до, монеты целиком). Допущение cpp-dev 23.08 —
+	// числа стартовые, крутятся здесь без пересборки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "4", DisplayName = "Деньги: дешёвый (от..до)"))
+	FInt32Interval CheapMoney = FInt32Interval(5, 15);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "5", DisplayName = "Деньги: средний (от..до)"))
+	FInt32Interval MediumMoney = FInt32Interval(20, 45);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "6", DisplayName = "Деньги: дорогой (от..до)"))
+	FInt32Interval ExpensiveMoney = FInt32Interval(50, 90);
 
 	// === СТЁКЛА ===
 
@@ -139,6 +241,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Цвет", meta = (DisplayPriority = "4", DisplayName = "Красить и двери/капот/багажник",
 		EditCondition = "bOverrideBodyColor"))
 	bool bPaintMovableParts = true;
+
+	// Report1 п.9: галочка «битая» затемняет деталь — цвет умножается на эту долю (через
+	// тот же параметр цвета материала, что и перекраска). У материала без параметра цвета
+	// (резина колеса) визуала битости нет — только данные.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Цвет", meta = (DisplayPriority = "5", DisplayName = "Затемнение битой детали (доля цвета)",
+		ClampMin = "0.0", ClampMax = "1.0"))
+	float BrokenTintMultiplier = 0.55f;
 
 	// === УГЛЫ ОТКРЫТИЯ СТВОРОК (решение лида 22.08: визуал «брошенности»). 0 = закрыто. ===
 	// Двери открываются вокруг вертикали (рыскание), капот и багажник — вокруг поперечной
@@ -214,52 +323,61 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Створки|Петли", meta = (DisplayName = "Петля багажника"))
 	FVector TrunkHinge = FVector::ZeroVector;
 
-	// === КОМПОНЕНТЫ (меши-дефолты из Content/Environment/Props/AbandonedCar; в BP заменяемы) ===
+	// === КОМПОНЕНТЫ (меши-дефолты из Content/Environment/Props/AbandonedCar). Report1 п.9
+	// а/б: БЕЗ VisibleAnywhere намеренно — разворачиваемые секции компонентов в Details
+	// давали Ринату простыню Mobility и слоты мешей на каждую деталь. Подмена меша —
+	// в BP_AbandonedCar через дерево компонентов (наследованные компоненты там остаются). ===
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	USceneComponent* SceneRoot;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Body;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* DoorFL;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* DoorFR;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* DoorRL;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* DoorRR;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Hood;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Trunk;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Glass;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Scratches;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* WheelFL;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* WheelFR;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* WheelRL;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* WheelRR;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Car")
+	UPROPERTY()
 	UStaticMeshComponent* Block;
+
+	// Контейнер обыска машины (Report1 п.9): «отдельное хранилище» — своё окно, в групповой
+	// обыск не входит; наполняется в BeginPlay. Настройки самого контейнера скрыты — правда
+	// лута живёт в полях «Car|Лут» выше.
+	UPROPERTY()
+	UCorpseLootComponent* CarLoot;
 
 private:
 	// Фабрика конструктора: деталь без коллизии, приаттачена к кузову, меш из папки машины
@@ -276,8 +394,9 @@ private:
 	static void ApplyHinge(UStaticMeshComponent* Part, const FVector& MountLocal,
 		const FVector& HingeLocal, float AngleDeg, bool bYaw);
 
-	// Красит одну деталь динамическим инстансом её материала слота 0 (лениво).
-	void PaintPart(UStaticMeshComponent* Part);
+	// Итоговый цвет детали: перекраска (BodyColor) и/или затемнение битости поверх родного
+	// цвета материала. Ни того ни другого — возвращает родное значение, если MID уже висел.
+	void ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken);
 
 	// Применяет состояние стёкол (видимость + параметр битости / скрытие без параметра).
 	void ApplyGlassState();

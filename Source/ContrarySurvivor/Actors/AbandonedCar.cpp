@@ -1,8 +1,11 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
+#include "ContrarySurvivor/ContrarySurvivor.h"  // LogQA (наполнение лута машины)
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // контейнер обыска машины
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "Materials/MaterialInterface.h"        // GetScalarParameterValue (проверка параметра битости)
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
@@ -42,6 +45,55 @@ AAbandonedCar::AAbandonedCar()
 	WheelRL = CreatePart(TEXT("WheelRL"), TEXT("/Game/Environment/Props/AbandonedCar/SM_AbandonedCar_Wheel.SM_AbandonedCar_Wheel"));
 	WheelRR = CreatePart(TEXT("WheelRR"), TEXT("/Game/Environment/Props/AbandonedCar/SM_AbandonedCar_Wheel.SM_AbandonedCar_Wheel"));
 	Block = CreatePart(TEXT("Block"), TEXT("/Game/Environment/Props/AbandonedCar/SM_AbandonedCar_Block.SM_AbandonedCar_Block"));
+
+	// Обыск машины (Report1 п.9): отдельное хранилище — своё окно, группу вокруг себя не
+	// собирает и в чужие группы не входит. Машина после обыска, разумеется, никуда не
+	// девается — общий выключатель убирания тел здесь погашен.
+	CarLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("CarLoot"));
+	CarLoot->bStandaloneStash = true;
+	CarLoot->bSinkWhenSearched = false;
+	CarLoot->SearchTitle = NSLOCTEXT("AbandonedCar", "SearchTitle", "Обыск машины");
+	CarLoot->SearchObjectName = NSLOCTEXT("AbandonedCar", "SearchObjectName", "Машина");
+}
+
+FInt32Interval AAbandonedCar::MoneyRangeForRichness(ECarLootRichness Richness) const
+{
+	switch (Richness)
+	{
+	case ECarLootRichness::Cheap:     return CheapMoney;
+	case ECarLootRichness::Expensive: return ExpensiveMoney;
+	case ECarLootRichness::Medium:
+	default:                          return MediumMoney;
+	}
+}
+
+void AAbandonedCar::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Только живая игра: в редакторе машина — визуал-конструктор, лут не нужен.
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld() || !CarLoot || !bHasLoot)
+	{
+		return;
+	}
+
+	// Деньги — из диапазона дороговизны; перепутанные «от..до» не роняют, а чинятся.
+	const FInt32Interval Range = MoneyRangeForRichness(LootRichness);
+	const int32 Money = FMath::RandRange(FMath::Min(Range.Min, Range.Max),
+		FMath::Max(Range.Min, Range.Max));
+
+	// Предметы — общий формат списка мешка (ADR-076 п.10), спавнит общий помощник пикапа.
+	TArray<AMasterInventoryItem*> Items =
+		APickup::SpawnLootEntries(World, PlacedLootList, GetActorLocation(), GetName());
+
+	// Регистрация в реестре обыскиваемых — контроллер даёт подсказку «Обыскать» и
+	// открывает окно; «отдельное хранилище» удерживает машину вне групповых обысков.
+	CarLoot->InitLoot(static_cast<float>(Money), Items, /*bRegisterSearchable=*/true);
+	UE_LOG(LogQA, Display, TEXT("QA: CAR '%s' loot ready — money=%d (%s), items=%d"),
+		*GetName(), Money,
+		*StaticEnum<ECarLootRichness>()->GetNameStringByValue(static_cast<int64>(LootRichness)),
+		Items.Num());
 }
 
 UStaticMeshComponent* AAbandonedCar::CreatePart(const TCHAR* SubobjectName, const TCHAR* MeshAssetPath)
@@ -94,20 +146,22 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 	ApplyHinge(Hood, HoodMount, HoodHinge, HoodOpenAngleDeg, /*bYaw=*/false);
 	ApplyHinge(Trunk, TrunkMount, TrunkHinge, TrunkOpenAngleDeg, /*bYaw=*/false);
 
-	// 3) Цвет кузова (+ по желанию створок — они из того же материала краски).
-	if (bOverrideBodyColor)
-	{
-		PaintPart(Body);
-		if (bPaintMovableParts)
-		{
-			PaintPart(DoorFL);
-			PaintPart(DoorFR);
-			PaintPart(DoorRL);
-			PaintPart(DoorRR);
-			PaintPart(Hood);
-			PaintPart(Trunk);
-		}
-	}
+	// 3) Цвет: перекраска кузова (+ по желанию створок) и затемнение битых деталей
+	// (Report1 п.9 — галочка «битая») одним проходом: итог = база · затемнение.
+	const bool bPaintParts = bOverrideBodyColor && bPaintMovableParts;
+	ApplyPartColor(Body, bOverrideBodyColor, /*bBroken=*/false);
+	ApplyPartColor(DoorFL, bPaintParts, bDoorFLBroken);
+	ApplyPartColor(DoorFR, bPaintParts, bDoorFRBroken);
+	ApplyPartColor(DoorRL, bPaintParts, bDoorRLBroken);
+	ApplyPartColor(DoorRR, bPaintParts, bDoorRRBroken);
+	ApplyPartColor(Hood, bPaintParts, bHoodBroken);
+	ApplyPartColor(Trunk, bPaintParts, bTrunkBroken);
+	// Колёса не красятся кузовным цветом; битость пробует тот же параметр цвета — у
+	// материала без него (резина) визуала честно нет, остаются данные.
+	ApplyPartColor(WheelFL, /*bPaintOverride=*/false, bWheelFLBroken);
+	ApplyPartColor(WheelFR, /*bPaintOverride=*/false, bWheelFRBroken);
+	ApplyPartColor(WheelRL, /*bPaintOverride=*/false, bWheelRLBroken);
+	ApplyPartColor(WheelRR, /*bPaintOverride=*/false, bWheelRRBroken);
 
 	// 4) Стёкла: есть/нет, целые/битые.
 	ApplyGlassState();
@@ -143,7 +197,7 @@ void AAbandonedCar::ApplyHinge(UStaticMeshComponent* Part, const FVector& MountL
 	Part->SetRelativeLocationAndRotation(NewLoc, Q);
 }
 
-void AAbandonedCar::PaintPart(UStaticMeshComponent* Part)
+void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken)
 {
 	if (!Part)
 	{
@@ -154,7 +208,40 @@ void AAbandonedCar::PaintPart(UStaticMeshComponent* Part)
 	{
 		return;
 	}
+
+	// База: перекраска — цвет из поля; иначе — родное значение параметра цвета. Родное
+	// спрашиваем у ИСХОДНОГО материала (родителя MID): в самом MID после прежних правок
+	// галочек лежит уже наше значение, а не заводское.
 	UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Current);
+	UMaterialInterface* Pristine = MID ? static_cast<UMaterialInterface*>(MID->Parent) : Current;
+
+	FLinearColor Base = BodyColor;
+	if (!bPaintOverride)
+	{
+		FLinearColor Native = FLinearColor::White;
+		if (!Pristine || !Pristine->GetVectorParameterValue(
+			FHashedMaterialParameterInfo(PaintColorParamName), Native))
+		{
+			// Параметра цвета у материала детали нет (например, резина колеса): красить и
+			// затемнять нечем. Данные битости при этом живут — визуал уточняется у Рината.
+			return;
+		}
+		Base = Native;
+	}
+
+	FLinearColor Final = Base;
+	if (bBroken)
+	{
+		const float Tint = FMath::Clamp(BrokenTintMultiplier, 0.0f, 1.0f);
+		Final = FLinearColor(Base.R * Tint, Base.G * Tint, Base.B * Tint, Base.A);
+	}
+
+	// Нечего менять и нечего откатывать (MID не создавался) — не плодим инстансы зря.
+	if (!bPaintOverride && !bBroken && !MID)
+	{
+		return;
+	}
+
 	if (!MID)
 	{
 		MID = UMaterialInstanceDynamic::Create(Current, this);
@@ -165,7 +252,7 @@ void AAbandonedCar::PaintPart(UStaticMeshComponent* Part)
 		Part->SetMaterial(0, MID);
 		PaintMIDs.Add(MID);
 	}
-	MID->SetVectorParameterValue(PaintColorParamName, BodyColor);
+	MID->SetVectorParameterValue(PaintColorParamName, Final);
 }
 
 void AAbandonedCar::ApplyGlassState()

@@ -452,6 +452,107 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 }
 
 // ===========================================================================
+// 5а. Обыск машины (Report1 23.08 п.9): деньги из диапазона дороговизны, предметы из
+//     списка (формат мешка ADR-076 п.10), контейнер — «отдельное хранилище» (своё окно,
+//     группу не собирает); «лута нет» — обыскать нечего.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsCarLootTest,
+	"ContrarySurvivor.ContentTools.AbandonedCarLoot", ContentToolsTestFlags)
+
+bool FContentToolsCarLootTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	// Настройки лута читаются в BeginPlay — ставим их НА ОТЛОЖЕННОМ спавне (паттерн мешка
+	// выше), через рефлексию: поля protected, снаружи их ставит только редактор.
+	const FTransform TM(FVector(0.f, 0.f, 100.f));
+	AAbandonedCar* Car = World->SpawnActorDeferred<AAbandonedCar>(AAbandonedCar::StaticClass(), TM);
+	if (!Car)
+	{
+		AddError(TEXT("Не заспавнена машина (deferred)"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	// Чистое правило диапазонов — до BeginPlay, на дефолтных полях.
+	TestEqual(TEXT("Дешёвый диапазон от"), Car->MoneyRangeForRichness(ECarLootRichness::Cheap).Min, 5);
+	TestEqual(TEXT("Дешёвый диапазон до"), Car->MoneyRangeForRichness(ECarLootRichness::Cheap).Max, 15);
+	TestEqual(TEXT("Средний диапазон от"), Car->MoneyRangeForRichness(ECarLootRichness::Medium).Min, 20);
+	TestEqual(TEXT("Дорогой диапазон до"), Car->MoneyRangeForRichness(ECarLootRichness::Expensive).Max, 90);
+
+	if (FEnumProperty* RichProp = FindFProperty<FEnumProperty>(AAbandonedCar::StaticClass(), TEXT("LootRichness")))
+	{
+		RichProp->GetUnderlyingProperty()->SetIntPropertyValue(
+			RichProp->ContainerPtrToValuePtr<void>(Car), static_cast<int64>(ECarLootRichness::Cheap));
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства LootRichness"));
+	}
+	if (FArrayProperty* ListProp = FindFProperty<FArrayProperty>(AAbandonedCar::StaticClass(), TEXT("PlacedLootList")))
+	{
+		FScriptArrayHelper Helper(ListProp, ListProp->ContainerPtrToValuePtr<void>(Car));
+		const int32 Index = Helper.AddValue();
+		FPlacedLootEntry* Entry = reinterpret_cast<FPlacedLootEntry*>(Helper.GetRawPtr(Index));
+		Entry->ItemClass = AConsumableItem::StaticClass();
+		Entry->Count = 2; // стакаемый расходник — ОДИН предмет со счётчиком 2
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства PlacedLootList"));
+	}
+	UGameplayStatics::FinishSpawningActor(Car, TM); // BeginPlay -> наполнение контейнера
+
+	UCorpseLootComponent* Loot = Car->GetLootContainer();
+	if (!TestNotNull(TEXT("Контейнер обыска машины создан"), Loot))
+	{
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("В машине есть что обыскать"), Loot->HasLoot());
+	TestTrue(TEXT("Деньги в дешёвом диапазоне (5..15)"),
+		Loot->GetMoney() >= 5.0f && Loot->GetMoney() <= 15.0f);
+	TestEqual(TEXT("Предмет списка лёг одним стаком"), Loot->GetLootItems().Num(), 1);
+	if (Loot->GetLootItems().Num() == 1)
+	{
+		TestEqual(TEXT("Счётчик стака — 2"), Loot->GetLootItems()[0]->GetStackCount(), 2);
+	}
+
+	// «Отдельное хранилище»: своё окно, группу вокруг себя не собирает — якорь-машина
+	// возвращает группу из одного себя (правило ADR-076 п.2 для будущих схронов).
+	TestTrue(TEXT("Контейнер машины — отдельное хранилище"), Loot->bStandaloneStash);
+	const TArray<UCorpseLootComponent*> Group =
+		UCorpseLootComponent::CollectSearchableGroup(Car, 600.0f);
+	TestEqual(TEXT("Группа от машины — одна машина"), Group.Num(), 1);
+
+	// Машина без лута: обыскивать нечего, подсказки не будет (HasLoot ложь).
+	const FTransform TM2(FVector(2000.f, 0.f, 100.f));
+	AAbandonedCar* EmptyCar = World->SpawnActorDeferred<AAbandonedCar>(AAbandonedCar::StaticClass(), TM2);
+	if (EmptyCar)
+	{
+		if (FBoolProperty* HasLootProp = FindFProperty<FBoolProperty>(AAbandonedCar::StaticClass(), TEXT("bHasLoot")))
+		{
+			HasLootProp->SetPropertyValue_InContainer(EmptyCar, false);
+		}
+		UGameplayStatics::FinishSpawningActor(EmptyCar, TM2);
+		TestFalse(TEXT("Машина без лута пуста"),
+			EmptyCar->GetLootContainer() && EmptyCar->GetLootContainer()->HasLoot());
+	}
+	else
+	{
+		AddError(TEXT("Не заспавнена пустая машина"));
+	}
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
 // 6. Таблица квестов (группа 6): FQuest собирается из строки, предмет цели
 //    разрешается ЧЕРЕЗ таблицу предметов в старый служебный ключ (ADR-050/069);
 //    неразрешимая ссылка на предмет — квест из таблицы НЕ собирается (атомарность)

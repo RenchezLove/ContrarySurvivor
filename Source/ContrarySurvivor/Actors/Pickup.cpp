@@ -304,23 +304,23 @@ void APickup::SpawnPlacedLoot()
 	MoneyAmount = 0.0f; // деньги переехали в контейнер — двойного учёта быть не должно
 }
 
-void APickup::SpawnPlacedLootFromList()
+TArray<AMasterInventoryItem*> APickup::SpawnLootEntries(UWorld* World,
+	const TArray<FPlacedLootEntry>& List, const FVector& Location, const FString& ContextName)
 {
 	// ADR-076 п.10 (Ринат: «хочу, чтобы число предметов можно было задать, как и сами
 	// предметы», «в списке не нашёл воду»). Каждая запись: предмет СТРОКОЙ таблицы предметов
 	// (вода = water_bottle — раньше её нельзя было выбрать: выбор шёл по классам) либо
 	// классом по-старому + количество. Стакаемые ложатся ОДНИМ предметом со счётчиком
-	// (обобщённое правило пачки патронов), нестакаемые — копиями.
-	UWorld* World = GetWorld();
-	if (!World || !LootContainer)
+	// (обобщённое правило пачки патронов), нестакаемые — копиями. Статический общий путь:
+	// мешок, машина (Report1 п.9), будущие хранилища баз.
+	TArray<AMasterInventoryItem*> PlacedItems;
+	if (!World)
 	{
-		return;
+		return PlacedItems;
 	}
 
 	FActorSpawnParameters Sp;
 	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	TArray<AMasterInventoryItem*> PlacedItems;
 
 	// Предмет лута — данные рюкзака, не объект на сцене (тот же приём, что у одиночных полей).
 	auto HideAsData = [&](AMasterInventoryItem* Item)
@@ -341,18 +341,18 @@ void APickup::SpawnPlacedLootFromList()
 		if (!Entry.ItemRow.IsNone())
 		{
 			Item = ContraryItems::SpawnItemFromRow(World, Entry.ItemRow, StackCount,
-				FTransform(GetActorLocation()));
+				FTransform(Location));
 			if (!Item)
 			{
 				UE_LOG(LogTemp, Warning,
-					TEXT("Pickup '%s': строка '%s' не найдена в таблице предметов — запись списка пропущена."),
-					*GetName(), *Entry.ItemRow.ToString());
+					TEXT("%s: строка '%s' не найдена в таблице предметов — запись списка пропущена."),
+					*ContextName, *Entry.ItemRow.ToString());
 			}
 		}
 		else if (Entry.ItemClass)
 		{
 			Item = World->SpawnActor<AMasterInventoryItem>(
-				Entry.ItemClass, GetActorLocation(), FRotator::ZeroRotator, Sp);
+				Entry.ItemClass, Location, FRotator::ZeroRotator, Sp);
 			if (Item)
 			{
 				if (StackCount > 0 && Item->IsStackable())
@@ -379,8 +379,7 @@ void APickup::SpawnPlacedLootFromList()
 		return Item;
 	};
 
-	int32 SpawnedCount = 0;
-	for (const FPlacedLootEntry& Entry : PlacedLootList)
+	for (const FPlacedLootEntry& Entry : List)
 	{
 		const int32 Count = FMath::Max(1, Entry.Count);
 		AMasterInventoryItem* First = SpawnOne(Entry, Count);
@@ -388,23 +387,32 @@ void APickup::SpawnPlacedLootFromList()
 		{
 			continue;
 		}
-		++SpawnedCount;
 
 		// Нестакаемый предмет (броня/оружие): счётчик стака не работает — добираем копиями.
 		if (!First->IsStackable())
 		{
 			for (int32 Copy = 1; Copy < Count; ++Copy)
 			{
-				if (SpawnOne(Entry, /*StackCount=*/0))
-				{
-					++SpawnedCount;
-				}
+				SpawnOne(Entry, /*StackCount=*/0);
 			}
 		}
 	}
+	return PlacedItems;
+}
+
+void APickup::SpawnPlacedLootFromList()
+{
+	UWorld* World = GetWorld();
+	if (!World || !LootContainer)
+	{
+		return;
+	}
+
+	TArray<AMasterInventoryItem*> PlacedItems =
+		SpawnLootEntries(World, PlacedLootList, GetActorLocation(), GetName());
 
 	UE_LOG(LogTemp, Log, TEXT("Pickup '%s': placed loot list ready (money=%.0f, entries=%d, items=%d)"),
-		*GetName(), MoneyAmount, PlacedLootList.Num(), SpawnedCount);
+		*GetName(), MoneyAmount, PlacedLootList.Num(), PlacedItems.Num());
 
 	// В контейнер обыска — вместе с деньгами, как у одиночных полей.
 	LootContainer->AddLoot(MoneyAmount, PlacedItems, /*bRegisterSearchable=*/false);
