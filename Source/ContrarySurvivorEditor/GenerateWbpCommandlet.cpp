@@ -233,7 +233,9 @@ namespace
 	// дефолт настройки true — WidgetDesignerSettings.cpp:16). Будущий код: НЕ пытаться
 	// «чинить» выделение через HitTestInvisible — работает только замок/глазик.
 	//
-	// Поэтому контент кнопок статичной раскладки «замыкаем» (bLockedInDesigner):
+	// ⛔ Два абзаца ниже — ИСТОРИЯ отменённой схемы замков (жила до П.0 ADR-077, 23.08);
+	// действующее правило — в теле LockSubtreeInDesigner.
+	// Поэтому контент кнопок статичной раскладки «замыкали» (bLockedInDesigner):
 	// замкнутый виджет выпадает из сетки дизайнера, клик проваливается к самой
 	// кнопке — у неё канвас-слот, ручки и перетаскивание работают. Замок НЕ
 	// наследуется (IsLockedInDesigner читает только собственный флаг — Widget.h:474)
@@ -253,18 +255,12 @@ namespace
 
 	void LockSubtreeInDesigner(UWidget* Widget)
 	{
-		if (!Widget)
-		{
-			return;
-		}
-		Widget->SetLockedInDesigner(true);
-		if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
-		{
-			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
-			{
-				LockSubtreeInDesigner(Panel->GetChildAt(Index));
-			}
-		}
+		// ⛔ П.0 ADR-077 (23.08): ЗАМКИ ОТМЕНЕНЫ — Ринат требует выделять/двигать/менять ВСЁ
+		// («НЕ МОГУ ДВИГАТЬ КНОПКИ… ПЛАШКИ, ТЕКСТ В НИХ» — пауза и плитка стояли на замках).
+		// Функция намеренно ПУСТАЯ, а не удалена: её зовут все сборщики окон — одна точка
+		// глушит замки везде, включая будущие -rebuild. -verify теперь валит ЛЮБОЙ замок,
+		// на живых ассетах их снимает -unlockall. НЕ возвращать замки без решения Рината.
+		(void)Widget;
 	}
 
 	// Замкнуть только ДЕТЕЙ панели: сама панель остаётся свободной (она лежит в
@@ -3781,6 +3777,10 @@ namespace
 		std::initializer_list<const TCHAR*> SelectableWidgets; // bLockedInDesigner == false
 	};
 
+	// ⛔ УСТАРЕЛО (П.0 ADR-077, 23.08): контракт замков ОТМЕНЁН — Ринат требует выделять и
+	// двигать ВСЁ, -verify теперь проверяет обратное («ни одного замка нигде»), замки
+	// снимает -unlockall. Таблица оставлена мёртвой историей (какая начинка замыкалась и
+	// почему); в проверках больше не используется. LockSubtreeInDesigner в НОВОМ коде не звать.
 	const FLockContract GLockContracts[] =
 	{
 		// Поправка 08-07 (ТЗ Рината п.3) во ВСЕХ контрактах ниже: ТЕКСТЫ внутри кнопок
@@ -6194,6 +6194,10 @@ int32 UGenerateWbpCommandlet::Main(const FString& Params)
 	{
 		return FixPickupAssets();
 	}
+	if (Switches.Contains(TEXT("unlockall")))
+	{
+		return UnlockAllDesignerLocks();
+	}
 	if (Switches.Contains(TEXT("unlockcaptions")))
 	{
 		return UnlockButtonCaptions();
@@ -6686,6 +6690,74 @@ int32 UGenerateWbpCommandlet::UnlockButtonCaptions()
 	return FailCount > 0 ? 1 : 0;
 }
 
+int32 UGenerateWbpCommandlet::UnlockAllDesignerLocks()
+{
+	// П.0 отчёта Рината 23.08 (ADR-077): снять ВСЕ замки дизайнера везде. Прежняя схема
+	// намеренно замыкала начинку кнопок/рядов (клик проваливался к кнопке — её удобно
+	// таскать), но ценой стала невозможность выделить и настроить начинку — ровно то, за
+	// что Ринат разнёс паузу и плитку («НЕ МОГУ ДВИГАТЬ КНОПКИ… ПЛАШКИ, ТЕКСТ В НИХ»).
+	// Новая правда: выделяется и правится ВСЁ; геометрия ассетов не меняется вовсе.
+	int32 FailCount = 0;
+	int32 SavedCount = 0;
+	for (const FWbpSpec& Spec : GAssets)
+	{
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPathOf(Spec));
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("UNLOCKALL: %s не загрузился."), *ObjectPathOf(Spec));
+			++FailCount;
+			continue;
+		}
+
+		int32 UnlockedCount = 0;
+		TArray<UWidget*> AllWidgets;
+		WBP->WidgetTree->GetAllWidgets(AllWidgets);
+		for (UWidget* Widget : AllWidgets)
+		{
+			if (Widget && Widget->IsLockedInDesigner())
+			{
+				Widget->SetLockedInDesigner(false);
+				++UnlockedCount;
+			}
+		}
+
+		if (UnlockedCount == 0)
+		{
+			UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCKALL SKIP: %s — замков нет."), Spec.AssetName);
+			continue;
+		}
+
+		WBP->Modify();
+		FKismetEditorUtilities::CompileBlueprint(WBP);
+		if (WBP->Status == BS_Error)
+		{
+			UE_LOG(LogGenerateWbp, Error,
+				TEXT("UNLOCKALL: %s скомпилировался с ошибками — НЕ сохраняю (ассет на диске цел)."),
+				Spec.AssetName);
+			++FailCount;
+			continue;
+		}
+
+		const FString Filename = FPackageName::LongPackageNameToFilename(
+			Spec.PackageName, FPackageName::GetAssetPackageExtension());
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		if (!UPackage::SavePackage(WBP->GetOutermost(), WBP, *Filename, SaveArgs))
+		{
+			UE_LOG(LogGenerateWbp, Error, TEXT("UNLOCKALL: SavePackage не сохранил %s."), *Filename);
+			++FailCount;
+			continue;
+		}
+		++SavedCount;
+		UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCKALL OK: %s — снято замков %d, сохранён."),
+			Spec.AssetName, UnlockedCount);
+	}
+
+	UE_LOG(LogGenerateWbp, Display, TEXT("UNLOCKALL ИТОГ: сохранено %d, ошибок %d, всего ассетов %d."),
+		SavedCount, FailCount, static_cast<int32>(UE_ARRAY_COUNT(GAssets)));
+	return FailCount > 0 ? 1 : 0;
+}
+
 // Мёртвые кубики: ассет -> имена, которых в нём быть больше не должно. Заполняется РУКАМИ,
 // когда элемент выпилен из кода: пока он лежит в живом ассете, он мешает владельцу в
 // дизайнере и ломает проверку раскладки, даже будучи невидимым.
@@ -7023,46 +7095,35 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 			continue;
 		}
 
-		// Контракт замков: начинка кнопок/рядов замкнута, верхнеуровневые элементы
-		// свободны (см. GLockContracts). До первого прогона -rebuild после этой правки
-		// ассеты на диске замков не имеют — провал здесь тогда означает «перегенерация
-		// ещё не выполнена», это ожидаемо.
-		for (const FLockContract& Contract : GLockContracts)
+		// ⛔ РАЗВОРОТ П.0 ADR-077 (23.08): прежний контракт «начинка замкнута» (GLockContracts)
+		// ОТМЕНЁН — Ринат требует выделять, двигать и менять ВСЁ («НЕ МОГУ ДВИГАТЬ КНОПКИ…
+		// ПЛАШКИ, ТЕКСТ В НИХ» — пауза и плитка не двигались именно из-за замков). Новая
+		// проверка противоположная: замков быть не должно НИ НА ОДНОМ виджете ни одного
+		// ассета (снимает прогон -unlockall). Таблица GLockContracts оставлена мёртвой
+		// историей у своего определения.
 		{
-			if (FCString::Strcmp(Spec.AssetName, Contract.AssetName) != 0)
+			TArray<UWidget*> AllWidgets;
+			if (WBP->WidgetTree)
 			{
-				continue;
+				WBP->WidgetTree->GetAllWidgets(AllWidgets);
 			}
-			for (const TCHAR* WidgetName : Contract.LockedContent)
+			int32 LockedCount = 0;
+			for (const UWidget* Widget : AllWidgets)
 			{
-				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
-				if (!Found || !Found->IsLockedInDesigner())
+				if (Widget && Widget->IsLockedInDesigner())
 				{
-					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — начинка '%s' %s."),
-						Spec.AssetName, WidgetName,
-						Found ? TEXT("не замкнута (bLockedInDesigner=false) — клик в дизайнере выделит её, а не верхнеуровневый элемент")
-						      : TEXT("не найдена"));
+					UE_LOG(LogGenerateWbp, Error,
+						TEXT("VERIFY FAIL: %s — виджет '%s' замкнут (bLockedInDesigner) — владелец не сможет выделить и настроить его; прогоните -unlockall (П.0 ADR-077)."),
+						Spec.AssetName, *Widget->GetName());
+					++LockedCount;
 					bOk = false;
 				}
 			}
-			for (const TCHAR* WidgetName : Contract.SelectableWidgets)
-			{
-				UWidget* Found = WBP->WidgetTree ? WBP->WidgetTree->FindWidget(FName(WidgetName)) : nullptr;
-				if (!Found || Found->IsLockedInDesigner())
-				{
-					UE_LOG(LogGenerateWbp, Error, TEXT("VERIFY FAIL: %s — виджет '%s' %s."),
-						Spec.AssetName, WidgetName,
-						Found ? TEXT("замкнут — владелец не сможет выделить и тянуть его в дизайнере")
-						      : TEXT("не найден"));
-					bOk = false;
-				}
-			}
-			if (bOk)
+			if (LockedCount == 0)
 			{
 				UE_LOG(LogGenerateWbp, Display,
-					TEXT("VERIFY %s: замки на месте — замкнутой начинки %d, свободных верхнеуровневых виджетов %d."),
-					Spec.AssetName, static_cast<int32>(Contract.LockedContent.size()),
-					static_cast<int32>(Contract.SelectableWidgets.size()));
+					TEXT("VERIFY %s: замков дизайнера нет — всё выделяется и двигается (П.0 ADR-077)."),
+					Spec.AssetName);
 			}
 		}
 
