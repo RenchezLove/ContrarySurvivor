@@ -362,10 +362,14 @@ bool FSupportDesignerAssetBindsToCodeTest::RunTest(const FString& Parameters)
 
 // --- 9. Правки владельца мышкой переживают запуск игры ---------------------------------------
 //
-// Окно отдано владельцу: Ринат двигает и красит его элементы мышкой. Значит на дереве из
-// дизайнера код НЕ имеет права трогать ни геометрию, ни цвета, ни шрифты — иначе первый же
-// запуск игры молча вернёт всё к своим значениям, и вся ручная настройка пропадёт. Тексты —
-// наоборот, обязаны приезжать из настроек: это данные задания издателя, а не оформление.
+// Окно отдано владельцу: Ринат двигает, красит и ПОДПИСЫВАЕТ его элементы мышкой. Значит на
+// дереве из дизайнера код НЕ имеет права трогать ни геометрию, ни цвета, ни шрифты, ни ТЕКСТЫ —
+// иначе первый же запуск игры молча вернёт всё к своим значениям, и вся ручная настройка
+// пропадёт.
+//
+// ⛔ Про тексты тест раньше требовал ОБРАТНОГО («подпись обязана приехать из настроек») — это
+// отменено решением лида 24.08.2026 (ADR-077 п.0 «всё в WBP»): именно то требование показывало
+// игроку не то, что владелец написал в ассете. Настройки остались запаской для пустого кубика.
 //
 // Проверяем самым честным способом: снимаем состояние живого ассета, зовём ApplyStyle со
 // стилем, у которого ВСЁ другое, и сверяем снимки.
@@ -438,6 +442,13 @@ bool FSupportOwnerEditsSurviveApplyStyleTest::RunTest(const FString& Parameters)
 		const FLinearColor PlateColorBefore = Plate->GetBrushColor();
 		const FLinearColor WatchFillBefore = WatchAd->GetStyle().Normal.TintColor.GetSpecifiedColor();
 
+		// Снимок «до» по тексту: что владелец написал в ассете своей рукой.
+		UTextBlock* WatchCaption = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("WatchAdText")));
+		UTextBlock* Thanks = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("ThanksText")));
+		const FString TitleTextBefore = Title->GetText().ToString();
+		const FString WatchTextBefore = WatchCaption ? WatchCaption->GetText().ToString() : FString();
+		const FString ThanksTextBefore = Thanks ? Thanks->GetText().ToString() : FString();
+
 		// Стиль, у которого НЕ СОВПАДАЕТ НИЧЕГО: и цвета, и размеры, и шрифты, и тексты.
 		FSupportAuthorStyle Alien;
 		Alien.TitleColor = FLinearColor(1.0f, 0.0f, 1.0f, 1.0f);
@@ -453,6 +464,7 @@ bool FSupportOwnerEditsSurviveApplyStyleTest::RunTest(const FString& Parameters)
 		Alien.WindowWidth = 1234.0f;
 		Alien.TitleText = FText::FromString(TEXT("ЗАГОЛОВОК ИЗ НАСТРОЕК"));
 		Alien.WatchAdText = FText::FromString(TEXT("ПОДПИСЬ ИЗ НАСТРОЕК"));
+		Alien.ThanksText = FText::FromString(TEXT("БЛАГОДАРНОСТЬ ИЗ НАСТРОЕК"));
 
 		Widget->ApplyStyle(Alien);
 
@@ -479,14 +491,31 @@ bool FSupportOwnerEditsSurviveApplyStyleTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Заливка кнопки не тронута"),
 			WatchAd->GetStyle().Normal.TintColor.GetSpecifiedColor(), WatchFillBefore);
 
-		// А вот тексты приехать ОБЯЗАНЫ: это данные задания издателя, а не оформление.
-		if (UTextBlock* WatchCaption = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("WatchAdText"))))
+		// ⛔ ГЛАВНОЕ ЭТОГО ТЕСТА С 24.08.2026: текст владельца не переписывается. Пустой кубик
+		// проверять нечем — там код и обязан подставить запаску, поэтому сверяем только
+		// непустые подписи (в живом ассете они непустые).
+		if (!TitleTextBefore.IsEmpty())
 		{
-			TestEqual(TEXT("Подпись кнопки приехала из настроек"),
-				WatchCaption->GetText().ToString(), Alien.WatchAdText.ToString());
+			TestEqual(TEXT("Заголовок остался таким, как его написал владелец в ассете"),
+				Title->GetText().ToString(), TitleTextBefore);
 		}
-		TestEqual(TEXT("Заголовок приехал из настроек"),
-			Title->GetText().ToString(), Alien.TitleText.ToString());
+		if (WatchCaption && !WatchTextBefore.IsEmpty())
+		{
+			TestEqual(TEXT("Подпись кнопки осталась авторской, из настроек её не перетёрло"),
+				WatchCaption->GetText().ToString(), WatchTextBefore);
+		}
+
+		// Благодарность появляется по ходу показа окна — проверяем отдельно, что появление
+		// сделано ВИДИМОСТЬЮ, а слова остались авторскими: ровно на этой строке код и подменял
+		// текст владельца вторым разом.
+		if (Thanks && !ThanksTextBefore.IsEmpty())
+		{
+			Widget->ShowThanks();
+			TestEqual(TEXT("Строка благодарности показалась"),
+				Thanks->GetVisibility(), ESlateVisibility::HitTestInvisible);
+			TestEqual(TEXT("Слова благодарности остались авторскими"),
+				Thanks->GetText().ToString(), ThanksTextBefore);
+		}
 	}
 
 	SupportAuthorTestWorld::Destroy(World);
@@ -606,7 +635,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSupportThanksTextTest,
 bool FSupportThanksTextTest::RunTest(const FString& Parameters)
 {
 	// Дословно из решения владельца: «Оставь просто "Спасибо", без "...это реально помогает"».
-	// Одно место правды на код, кодовую запаску и ассет — поле стиля.
+	// ⚠ С 24.08.2026 это проверка ЗАПАСКИ: в игре слово берётся из кубика ассета, и на ассет
+	// тест не распространяется — там формулировка принадлежит владельцу (ADR-077 п.0).
 	const FSupportAuthorStyle Defaults;
 	TestEqual(TEXT("После ролика окно говорит одно слово"),
 		Defaults.ThanksText.ToString(), FString(TEXT("Спасибо")));

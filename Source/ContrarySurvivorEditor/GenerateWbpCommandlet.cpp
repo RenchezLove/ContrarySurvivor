@@ -5106,28 +5106,36 @@ namespace
 	// WBP_SupportAuthor, решение Рината 13.08.2026: строка благодарности после ролика — это
 	// одно слово «Спасибо», и сам кубик обязан быть в ассете. Ринат правил окно мышкой и
 	// строку из него удалил (коммит 37dd9d8) — из-за этого код окна не находил свой кубик и
-	// падали две проверки имён. Возвращаем кубик и приводим текст к новой правде.
+	// падали две проверки имён. Возвращаем кубик, если его нет.
 	//
 	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ (bOwnerOwned в таблице генератора): пересобирать его нельзя,
 	// ТОЛЬКО дополнением. Прочих ручных правок не касаемся — трогаем ровно один кубик.
 	//
-	// Идемпотентно: кубик на месте и текст верный — прогон ничего не меняет и не сохраняет.
+	// ⛔ ИСТОРИЯ ОШИБКИ (24.08.2026, тот же класс, что у AugmentConsentTexts): прежняя версия
+	// считала правдой C++-структуру FSupportAuthorStyle и ПРИВОДИЛА к ней непустую подпись
+	// ассета — вместе с рантайм-перезаписью в USupportAuthorWidget::ApplyStyle это показывало
+	// игроку не тот текст, который владелец набрал в WBP_SupportAuthor. Ринат: «КАКОГО ХУЯ
+	// ТЕКСТ ОКНА ОПЯТЬ ВЗЯТ НЕ ИЗ МОЕГО WBP». Решение лида: ПРАВДА ФОРМУЛИРОВОК — АССЕТ
+	// ВЛАДЕЛЬЦА (ADR-077 п.0). Теперь augment только ДОБАВЛЯЕТ отсутствующий кубик и
+	// ЗАПОЛНЯЕТ пустой; непустая подпись не перезаписывается никогда.
+	//
+	// Идемпотентно: кубик на месте — прогон ничего не меняет и не сохраняет.
 	void AugmentSupportAuthorThanks(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_SupportAuthor");
-		const FSupportAuthorStyle Style; // одно место правды на код и ассет
+		const FSupportAuthorStyle Style; // источник ТОЛЬКО для пустых кубиков
 		UObject* Roboto = LoadRobotoFont();
 
-		// Кубик на месте — сверяем только текст (его в игре всё равно ставит код окна, но в
-		// дизайнере владелец должен видеть то же слово).
+		// Кубик на месте — заполняем, только если владелец оставил его пустым (иначе в
+		// дизайнере висело бы пустое место). Свой текст владельца не трогаем.
 		if (UTextBlock* Existing = Cast<UTextBlock>(Tree->FindWidget(TEXT("ThanksText"))))
 		{
-			if (!Existing->GetText().EqualTo(Style.ThanksText))
+			if (Existing->GetText().IsEmpty())
 			{
 				Existing->SetText(Style.ThanksText);
 				bChanged = true;
 				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT %s: строка благодарности приведена к «%s»."),
+					TEXT("AUGMENT %s: ПУСТАЯ строка благодарности заполнена текстом «%s»."),
 					Name, *Style.ThanksText.ToString());
 			}
 			return;
@@ -5190,23 +5198,26 @@ namespace
 	// видимая — владельцу нужно за что-то браться мышкой (приём ThanksText).
 	//
 	// ⛔ Окно ОТДАНО ВЛАДЕЛЬЦУ: пересобирать нельзя, ТОЛЬКО дополнением, трогаем ровно один
-	// кубик. Идемпотентно: кубик на месте и текст верный — прогон ничего не меняет.
+	// кубик. ⛔ Текст — собственность владельца (та же история ошибки, что у
+	// AugmentSupportAuthorThanks выше): добавляем отсутствующий кубик, заполняем пустой,
+	// непустую фразу не перезаписываем никогда. Идемпотентно: кубик на месте — прогон ничего
+	// не меняет.
 	void AugmentSupportAuthorNextAdHint(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_SupportAuthor");
-		const FSupportAuthorStyle Style; // одно место правды на код и ассет
+		const FSupportAuthorStyle Style; // источник ТОЛЬКО для пустых кубиков
 		UObject* Roboto = LoadRobotoFont();
 
-		// Кубик на месте — сверяем только текст (в игре его всё равно ставит код окна, но в
-		// дизайнере владелец должен видеть ту же фразу).
+		// Кубик на месте — заполняем, только если владелец оставил его пустым: иначе в
+		// дизайнере не за что взяться мышкой. Свою фразу владельца не трогаем.
 		if (UTextBlock* Existing = Cast<UTextBlock>(Tree->FindWidget(TEXT("NextAdHintText"))))
 		{
-			if (!Existing->GetText().EqualTo(Style.NextAdHintText))
+			if (Existing->GetText().IsEmpty())
 			{
 				Existing->SetText(Style.NextAdHintText);
 				bChanged = true;
 				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT %s: подсказка про следующий ролик приведена к «%s»."),
+					TEXT("AUGMENT %s: ПУСТАЯ подсказка про следующий ролик заполнена фразой «%s»."),
 					Name, *Style.NextAdHintText.ToString());
 			}
 			return;

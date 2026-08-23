@@ -292,25 +292,45 @@ UButton* USupportAuthorWidget::MakeWindowButton(UVerticalBox* Column, const FTex
 	return Button;
 }
 
+void USupportAuthorWidget::SetTextIfCodeOwns(UTextBlock* Block, const FText& Text) const
+{
+	if (!Block)
+	{
+		return;
+	}
+	// ⛔ Непустая подпись в дереве из дизайнера — собственность владельца ассета, и код её не
+	// перезаписывает никогда (контракт по тексту в шапке класса). Пишем только в своё дерево
+	// или в оставленный пустым кубик.
+	if (!bCodeTreeBuilt && !Block->GetText().IsEmpty())
+	{
+		return;
+	}
+	Block->SetText(Text);
+}
+
 void USupportAuthorWidget::ApplyStyle(const FSupportAuthorStyle& Style)
 {
 	CachedStyle = Style;
 
-	// Тексты ставим в ОБОИХ путях: это данные задания издателя, а не оформление.
-	if (TitleText)       { TitleText->SetText(Style.TitleText); }
-	if (MessageText)     { MessageText->SetText(Style.MessageText); }
-	if (WatchAdText)     { WatchAdText->SetText(Style.WatchAdText); }
-	if (SupportLinkText) { SupportLinkText->SetText(Style.SupportLinkText); }
-	if (CloseText)       { CloseText->SetText(Style.CloseText); }
-	if (ThanksText)      { ThanksText->SetText(Style.ThanksText); }
-	if (NextAdHintText)  { NextAdHintText->SetText(Style.NextAdHintText); }
+	// ⛔ ТЕКСТЫ: правда — в ассете владельца (решение лида 24.08.2026, ADR-077 п.0). Прежняя
+	// версия ставила все семь подписей безусловно, «потому что это данные задания издателя», и
+	// в игре вместо написанного Ринатом в WBP_SupportAuthor показывались строки из настроек.
+	// Теперь настройки — запаска: их подставляют только в кодовое дерево и в пустой кубик.
+	SetTextIfCodeOwns(TitleText, Style.TitleText);
+	SetTextIfCodeOwns(MessageText, Style.MessageText);
+	SetTextIfCodeOwns(WatchAdText, Style.WatchAdText);
+	SetTextIfCodeOwns(SupportLinkText, Style.SupportLinkText);
+	SetTextIfCodeOwns(CloseText, Style.CloseText);
+	SetTextIfCodeOwns(ThanksText, Style.ThanksText);
+	SetTextIfCodeOwns(NextAdHintText, Style.NextAdHintText);
 
 	// ⛔ ДАЛЬШЕ — ТОЛЬКО ОФОРМЛЕНИЕ, И ТОЛЬКО ДЛЯ ДЕРЕВА, КОТОРОЕ ПОСТРОИЛИ МЫ САМИ.
 	// Окно отдано владельцу: его цвета, кегли, размеры и положения ставит Ринат мышкой, и они
 	// обязаны пережить запуск игры. Проверяем именно «мы это построили», а не «это дизайнер»:
 	// признак дерева из дизайнера ставится в NativeOnInitialized, а движок 5.5 зовёт её только
 	// при живом игровом контексте (UserWidget.cpp:159-163), тогда как ApplyStyle владелец зовёт
-	// сразу после создания окна. Не построили сами — не трогаем ничего, кроме текстов выше.
+	// сразу после создания окна. Не построили сами — не трогаем НИЧЕГО: тексты выше уже прошли
+	// ту же проверку внутри SetTextIfCodeOwns и в чужом дереве заполняют только пустые кубики.
 	if (!bCodeTreeBuilt)
 	{
 		return;
@@ -401,7 +421,12 @@ void USupportAuthorWidget::ShowThanks()
 {
 	if (ThanksText)
 	{
-		ThanksText->SetText(CachedStyle.ThanksText);
+		// Строка благодарности — единственная подпись окна, которая «появляется по ходу», и
+		// потому раньше текст ей ставили прямо здесь, вторым разом поверх ApplyStyle. Появление
+		// делает ВИДИМОСТЬ, а слова всё время одни и те же — переписывать кубик не нужно было
+		// никогда, и именно эта строка показывала игроку не то, что владелец написал в ассете.
+		// Запаска остаётся: пустой кубик заполняем, чтобы не показать пустое место вместо слова.
+		SetTextIfCodeOwns(ThanksText, CachedStyle.ThanksText);
 		ThanksText->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 	// Флаг ставим и без кубика благодарности: подсказка объясняет исчезнувшую кнопку, а кнопка
