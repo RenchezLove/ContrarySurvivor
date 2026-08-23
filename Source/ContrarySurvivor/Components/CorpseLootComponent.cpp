@@ -184,13 +184,19 @@ TArray<UCorpseLootComponent*> UCorpseLootComponent::CollectSearchableGroup(
 	const float Radius = FMath::Max(0.0f, GroupRadius);
 	const float RadiusSq = Radius * Radius;
 
-	// Общая проверка члена группы: живой, тот же мир, с лутом, не «отдельное хранилище»,
-	// в радиусе. Якорь встаёт первым — окно открывается тем, на что смотрел игрок.
+	// Общая проверка члена группы: живой, тот же мир, с лутом, в радиусе. «Отдельные
+	// хранилища» в группу не входят, КРОМЕ хранилищ БАЗ (StashLevel > 0): Report1 баг 1 +
+	// решение лида 24.08 (вариант А по ADR-077 п.14 «в перечне обыска название базы
+	// выделяется отдельно от трупов») — награда зачищенной базы уходит в ТО ЖЕ окно, что
+	// трупы вокруг, и база обыскивается сразу по смерти последнего врага, а не после того,
+	// как труп у пивота исчезнет или будет опустошён. Машина (StashLevel = 0) остаётся со
+	// своим окном. Якорь встаёт первым — окно открывается тем, на что смотрел игрок.
 	auto TryAddMember = [&](UCorpseLootComponent* Container)
 	{
 		AActor* ContainerOwner = Container ? Container->GetOwner() : nullptr;
 		if (!Container || !IsValid(ContainerOwner) || Container->GetWorld() != World
-			|| !Container->HasLoot() || Container->bStandaloneStash)
+			|| !Container->HasLoot()
+			|| (Container->bStandaloneStash && Container->StashLevel <= 0))
 		{
 			return;
 		}

@@ -72,8 +72,10 @@ AMasterEnemyBase::AMasterEnemyBase()
 	AmbientAudio->bOverrideAttenuation = true;
 	AmbientAudio->AttenuationOverrides.FalloffDistance = AmbientHearRadius;
 
-	// Хранилище базы (Report1 п.11): «отдельное хранилище» — своё окно обыска, в группы не
-	// входит; база после обыска остаётся на месте (общий выключатель убирания погашен).
+	// Хранилище базы (Report1 п.11): «отдельное хранилище» — группу вокруг себя не собирает
+	// (своё окно при прямом обыске), но с 24.08 ВХОДИТ членом в группу якоря-трупа/мешка
+	// (StashLevel > 0 — решение лида, ADR-077 п.14: награда базы в одном окне с трупами);
+	// база после обыска остаётся на месте (общий выключатель убирания погашен).
 	// Название и уровень для перечня ставит FillBaseStash при зачистке.
 	BaseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("BaseLoot"));
 	BaseLoot->bStandaloneStash = true;

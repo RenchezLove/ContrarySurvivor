@@ -901,8 +901,10 @@ bool FContentToolsSearchObjectsLineTest::RunTest(const FString& Parameters)
 }
 
 // ===========================================================================
-// 10. Обыск (ADR-076 п.2): мешки в групповом обыске, якорь-мешок собирает группу,
-//     «отдельное хранилище» в группу не входит; радиус — поле игрока
+// 10. Обыск (ADR-076 п.2 + решение лида 24.08 по Report1 багу 1): мешки в групповом
+//     обыске, якорь-мешок собирает группу; «отдельное хранилище» в группу не входит,
+//     КРОМЕ хранилища БАЗЫ (StashLevel > 0 — награда базы в одном окне с трупами,
+//     ADR-077 п.14); якорь-хранилище и якорь-база — своё окно; радиус — поле игрока
 // ===========================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsGroupSearchWithPickupsTest,
 	"ContrarySurvivor.ContentTools.GroupSearchWithPickups", ContentToolsTestFlags)
@@ -936,6 +938,15 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 	UCorpseLootComponent* Body2 = MakeBody(FVector(300.0f, 0.0f, 100.0f), /*bStandalone=*/false);
 	UCorpseLootComponent* Stash = MakeBody(FVector(100.0f, 100.0f, 100.0f), /*bStandalone=*/true);
 
+	// Хранилище БАЗЫ: та же галочка «отдельное», но StashLevel > 0 — по решению лида 24.08
+	// (Report1 баг 1, ADR-077 п.14) оно ВХОДИТ в чужую группу: награда базы в одном окне
+	// с трупами вокруг, база обыскивается сразу по смерти последнего врага.
+	UCorpseLootComponent* BaseStash = MakeBody(FVector(0.0f, 200.0f, 100.0f), /*bStandalone=*/true);
+	if (BaseStash)
+	{
+		BaseStash->StashLevel = 2;
+	}
+
 	// Мешок-пикап с лутом рядом + второй далеко за радиусом.
 	auto MakeBag = [&](const FVector& Loc) -> APickup*
 	{
@@ -957,21 +968,24 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 	APickup* NearBag = MakeBag(FVector(200.0f, -100.0f, 100.0f));
 	APickup* FarBag = MakeBag(FVector(5000.0f, 0.0f, 100.0f));
 
-	if (!Body1 || !Body2 || !Stash || !NearBag || !FarBag)
+	if (!Body1 || !Body2 || !Stash || !BaseStash || !NearBag || !FarBag)
 	{
 		AddError(TEXT("Не собралась сцена теста группы"));
 		ContentToolsTestWorld::Destroy(World);
 		return false;
 	}
 
-	// Якорь — ТЕЛО: группа = якорь первым + второе тело + мешок; хранилище и дальний мешок — нет.
+	// Якорь — ТЕЛО: группа = якорь первым + второе тело + мешок + хранилище БАЗЫ;
+	// обычное хранилище (машина, StashLevel=0) и дальний мешок — нет.
 	{
 		TArray<UCorpseLootComponent*> Group =
 			UCorpseLootComponent::CollectSearchableGroup(Body1->GetOwner(), 600.0f);
-		TestEqual(TEXT("Якорь-тело: в группе тело+тело+мешок (без хранилища и дальнего)"), Group.Num(), 3);
+		TestEqual(TEXT("Якорь-тело: тело+тело+мешок+база (без машины и дальнего)"), Group.Num(), 4);
 		TestTrue(TEXT("Якорь-тело идёт первым"), Group.Num() > 0 && Group[0] == Body1);
 		TestTrue(TEXT("Мешок рядом вошёл в группу"), Group.Contains(NearBag->GetLootContainer()));
-		TestFalse(TEXT("«Отдельное хранилище» в группу не вошло"), Group.Contains(Stash));
+		TestTrue(TEXT("Хранилище БАЗЫ (StashLevel>0) вошло в группу (решение лида 24.08)"),
+			Group.Contains(BaseStash));
+		TestFalse(TEXT("«Отдельное хранилище» без уровня (машина) в группу не вошло"), Group.Contains(Stash));
 		TestFalse(TEXT("Дальний мешок не вошёл"), Group.Contains(FarBag->GetLootContainer()));
 	}
 
@@ -980,7 +994,7 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 	{
 		TArray<UCorpseLootComponent*> Group =
 			UCorpseLootComponent::CollectSearchableGroup(NearBag, 600.0f);
-		TestEqual(TEXT("Якорь-мешок: группа собирается (мешок+2 тела)"), Group.Num(), 3);
+		TestEqual(TEXT("Якорь-мешок: группа собирается (мешок+2 тела+база)"), Group.Num(), 4);
 		TestTrue(TEXT("Якорь-мешок идёт первым"),
 			Group.Num() > 0 && Group[0] == NearBag->GetLootContainer());
 	}
@@ -991,6 +1005,15 @@ bool FContentToolsGroupSearchWithPickupsTest::RunTest(const FString& Parameters)
 			UCorpseLootComponent::CollectSearchableGroup(Stash->GetOwner(), 600.0f);
 		TestEqual(TEXT("Якорь-хранилище: только оно само"), Group.Num(), 1);
 		TestTrue(TEXT("Якорь-хранилище — свой контейнер"), Group.Num() > 0 && Group[0] == Stash);
+	}
+
+	// Якорь — сама БАЗА: по-прежнему своё окно один на один (уточнение лида 24.08 —
+	// самостоятельный обыск базы не меняется, в группу база входит только ЧЛЕНОМ).
+	{
+		TArray<UCorpseLootComponent*> Group =
+			UCorpseLootComponent::CollectSearchableGroup(BaseStash->GetOwner(), 600.0f);
+		TestEqual(TEXT("Якорь-база: только она сама"), Group.Num(), 1);
+		TestTrue(TEXT("Якорь-база — свой контейнер"), Group.Num() > 0 && Group[0] == BaseStash);
 	}
 
 	// Радиус — настройка на BP ИГРОКА (решение Рината): поле живёт на классе игрока.
