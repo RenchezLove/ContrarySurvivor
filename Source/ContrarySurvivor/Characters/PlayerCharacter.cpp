@@ -2220,6 +2220,20 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         Inventory->AddItem(Item);
         ++Restored;
 
+        // МИГРАЦИЯ сейва (фикс п.6 отчёта 23.08, добавление лида): сейв резерв оружия не
+        // хранит вовсе — восстановленный ствол получает КОНСТРУКТОРНЫЕ 48 заново, и «12/51»
+        // Рината пережил бы фикс через старый сейв. Сливаем резерв видимой пачкой сразу при
+        // восстановлении; пачка патронов из того же сейва сольётся с ней штатным стеком.
+        if (ARangedWeapon* RestoredRanged = Cast<ARangedWeapon>(Item))
+        {
+            if (const int32 Drained = RestoredRanged->DrainReserveAmmo())
+            {
+                AddAmmoToInventory(Drained);
+                UE_LOG(LogQA, Display,
+                    TEXT("QA: CONTINUE - restored firearm reserve %d migrated to backpack pack"), Drained);
+            }
+        }
+
         // Броня, надетая на момент сохранения, — надеваем заново (подмена меша слота + защита).
         if (Entry.bEquipped)
         {
