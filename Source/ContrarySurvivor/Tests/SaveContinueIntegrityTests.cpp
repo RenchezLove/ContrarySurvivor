@@ -25,6 +25,8 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "UInventoryComponent.h"
 #include "AQuestItem.h"
+#include "APistol.h"       // ствол в слоте переживает перезапуск (фикс 23.08)
+#include "ARangedWeapon.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Engine/EngineBaseTypes.h"
@@ -262,6 +264,130 @@ bool FSaveContinueTwiceKeepsProgressTest::RunTest(const FString& Parameters)
 	}
 
 	// Уборка: тестовый слот с диска.
+	UGameplayStatics::DeleteGameInSlot(Slot, 0);
+	SaveIntegrityTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// Ствол В СЛОТЕ ОРУЖИЯ переживает перезапуск (фикс 23.08, решение лида: «та же
+// категория, что критбаг сейвов» — взятый в слот пистолет раньше не попадал в
+// сейв вовсе и терялся; возможно, ровно так пропал пистолет Рината)
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSaveSlotFirearmSurvivesContinueTest,
+	"ContrarySurvivor.SaveIntegrity.SlotFirearmSurvivesContinue", SaveIntegrityTestFlags)
+
+bool FSaveSlotFirearmSurvivesContinueTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContrarySlotGunQA");
+	if (UGameplayStatics::DoesSaveGameExist(Slot, 0))
+	{
+		UGameplayStatics::DeleteGameInSlot(Slot, 0);
+	}
+
+	UWorld* World = SaveIntegrityTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+	const FVector CampfireLoc(0.0f, 0.0f, 100.0f);
+	ACampfire* Campfire = SaveIntegrityTestWorld::Spawn<ACampfire>(World, CampfireLoc);
+	if (Campfire)
+	{
+		if (FFloatProperty* CooldownProp = FindFProperty<FFloatProperty>(ACampfire::StaticClass(), TEXT("AutoSaveCooldown")))
+		{
+			CooldownProp->SetPropertyValue_InContainer(Campfire, 0.0f);
+		}
+	}
+
+	// Сессия 1: пистолет покупным путём (в рюкзак -> клик по плитке -> слот) и сейв у костра.
+	{
+		ASaveTestPlayerCharacter* P1 = SaveIntegrityTestWorld::Spawn<ASaveTestPlayerCharacter>(
+			World, FVector(4000.0f, 0.0f, 100.0f));
+		if (!P1)
+		{
+			AddError(TEXT("Не заспавнен игрок сессии 1"));
+			SaveIntegrityTestWorld::Destroy(World);
+			return false;
+		}
+		P1->UseTestSaveSlot(Slot);
+
+		FActorSpawnParameters Sp;
+		Sp.Owner = P1;
+		Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		APistol* Pistol = World->SpawnActor<APistol>(APistol::StaticClass(),
+			P1->GetActorLocation(), FRotator::ZeroRotator, Sp);
+		if (!Pistol || !P1->GetInventory())
+		{
+			AddError(TEXT("Не заспавнен пистолет / нет рюкзака"));
+			SaveIntegrityTestWorld::Destroy(World);
+			return false;
+		}
+		Pistol->SetActorHiddenInGame(true);
+		Pistol->SetActorEnableCollision(false);
+		P1->GetInventory()->AddItem(Pistol);
+		TestTrue(TEXT("Пистолет взят в слот (как кликом по плитке)"), P1->TryAdoptRangedWeapon(Pistol));
+		TestNotNull(TEXT("Слот занят"), P1->GetRangedWeaponInstance());
+		// Единая бухгалтерия (п.6): резерв взятого ствола уехал видимой пачкой в рюкзак.
+		if (ARangedWeapon* Adopted = Cast<ARangedWeapon>(P1->GetRangedWeaponInstance()))
+		{
+			TestEqual(TEXT("Резерв ствола после взятия пуст"), Adopted->GetCurrentAmmoReserve(), 0);
+		}
+		TestTrue(TEXT("Патроны ствола лежат пачкой в рюкзаке"), P1->GetReserveAmmoInInventory() > 0);
+
+		P1->SetActorLocation(CampfireLoc + FVector(100.0f, 0.0f, 0.0f), false, nullptr, ETeleportType::TeleportPhysics);
+		TestTrue(TEXT("Сохранение у костра прошло"), P1->SaveGame());
+
+		// Слот на диске: запись ствола с признаком «в слоте» существует.
+		if (const UContrarySaveGame* Disk = Cast<UContrarySaveGame>(UGameplayStatics::LoadGameFromSlot(Slot, 0)))
+		{
+			bool bSlotEntryFound = false;
+			for (const FSavedInventoryEntry& Entry : Disk->InventoryEntries)
+			{
+				if (Entry.bEquipped && Entry.ClassPath.Contains(TEXT("Pistol")))
+				{
+					bSlotEntryFound = true;
+					break;
+				}
+			}
+			TestTrue(TEXT("В сейве есть запись ствола слота (bEquipped, класс пистолета)"), bSlotEntryFound);
+		}
+		else
+		{
+			AddError(TEXT("Слот сессии 1 не читается"));
+		}
+
+		P1->Destroy(); // «выход из игры»
+	}
+
+	// Сессия 2 (перезапуск): «Продолжить» возвращает ствол В СЛОТ с доступными патронами.
+	{
+		ASaveTestPlayerCharacter* P2 = SaveIntegrityTestWorld::Spawn<ASaveTestPlayerCharacter>(
+			World, FVector(4000.0f, 0.0f, 100.0f));
+		if (!P2)
+		{
+			AddError(TEXT("Не заспавнен игрок сессии 2"));
+			SaveIntegrityTestWorld::Destroy(World);
+			return false;
+		}
+		P2->UseTestSaveSlot(Slot);
+		TestTrue(TEXT("«Продолжить» отработал"), P2->LoadGameForContinue());
+
+		TestNotNull(TEXT("Ствол ВЕРНУЛСЯ В СЛОТ после перезапуска (раньше терялся)"),
+			P2->GetRangedWeaponInstance());
+		TestTrue(TEXT("Патроны доступны пачкой в рюкзаке"), P2->GetReserveAmmoInInventory() > 0);
+		if (ARangedWeapon* Restored = Cast<ARangedWeapon>(P2->GetRangedWeaponInstance()))
+		{
+			TestEqual(TEXT("Резерв восстановленного ствола пуст (единая бухгалтерия)"),
+				Restored->GetCurrentAmmoReserve(), 0);
+			TestTrue(TEXT("Обойма восстановленного ствола не пуста (полная обойма конструктора)"),
+				Restored->GetCurrentAmmoInClip() > 0);
+		}
+
+		P2->Destroy();
+	}
+
 	UGameplayStatics::DeleteGameInSlot(Slot, 0);
 	SaveIntegrityTestWorld::Destroy(World);
 	return true;

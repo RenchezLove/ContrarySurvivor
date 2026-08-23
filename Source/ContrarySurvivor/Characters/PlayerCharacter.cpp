@@ -1799,6 +1799,24 @@ bool APlayerCharacter::SaveGame()
         }
     }
 
+    // Фикс 23.08 (находка при разборе п.6, решение лида: «та же категория, что критбаг
+    // сейвов»): ствол В СЛОТЕ ОРУЖИЯ в рюкзаке НЕ лежит (взятие снимает его оттуда —
+    // TryAdoptRangedWeapon), поэтому в сейв он раньше не попадал ВООБЩЕ и терялся при
+    // перезапуске. Пишем его отдельной записью с признаком bEquipped (образец надетой
+    // брони); восстановление узнаёт огнестрел с этим признаком и возвращает В СЛОТ.
+    // Обойма не сохраняется и раньше не сохранялась: восстановленный ствол приходит с
+    // полной обоймой конструктора (патроны запаса — видимой пачкой, единая бухгалтерия).
+    if (RangedWeaponInstance)
+    {
+        FSavedInventoryEntry SlotEntry;
+        SlotEntry.ClassPath = RangedWeaponInstance->GetClass()->GetPathName();
+        SlotEntry.ItemName = RangedWeaponInstance->ItemName;
+        SlotEntry.ItemDisplayText = RangedWeaponInstance->ItemDisplayText;
+        SlotEntry.StackCount = 1;
+        SlotEntry.bEquipped = true;
+        Save->InventoryEntries.Add(SlotEntry);
+    }
+
     // Б3: журнал квестов — полный снимок (см. комментарий у поля Quests в ContrarySaveGame.h).
     Save->Quests.Reset();
     if (Quests)
@@ -2241,6 +2259,18 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
             {
                 EquipArmor(Armor);
                 Inventory->SetItemEquipped(Armor, true);
+            }
+            // Фикс 23.08: огнестрел с признаком bEquipped — это ствол ИЗ СЛОТА ОРУЖИЯ
+            // (см. SaveGame): возвращаем в слот тем же путём, что клик по плитке. Слот
+            // занят (двойная запись битого сейва) — ствол честно остаётся в рюкзаке.
+            else if (Cast<ARangedWeapon>(Item))
+            {
+                if (TryAdoptRangedWeapon(Item))
+                {
+                    UE_LOG(LogQA, Display,
+                        TEXT("QA: CONTINUE - restored slot firearm '%s' back to weapon slot"),
+                        *Item->GetItemDisplayText().ToString());
+                }
             }
         }
     }
