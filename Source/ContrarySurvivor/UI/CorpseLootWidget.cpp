@@ -77,7 +77,7 @@ void UCorpseLootWidget::NativeOnInitialized()
 	}
 	else
 	{
-		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: кубик TakeAllButton не найден в WBP_CorpseLoot"));
+		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: кубик TakeAllButton не найден в ассете окна обыска (WBP_SearchWindow)"));
 	}
 	if (CloseButton)
 	{
@@ -85,7 +85,7 @@ void UCorpseLootWidget::NativeOnInitialized()
 	}
 	else
 	{
-		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: кубик CloseButton не найден в WBP_CorpseLoot"));
+		UE_LOG(LogQA, Warning, TEXT("CorpseLootWidget: кубик CloseButton не найден в ассете окна обыска (WBP_SearchWindow)"));
 	}
 }
 

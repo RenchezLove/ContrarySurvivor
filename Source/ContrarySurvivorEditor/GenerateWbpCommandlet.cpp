@@ -2028,7 +2028,8 @@ namespace
 	}
 
 	// ======================================================================
-	// Окно обыска трупа: WBP_CorpseLoot (Build 1.2.1, ТЗ А1; код окна — UCorpseLootWidget)
+	// Окно обыска: WBP_SearchWindow, бывш. WBP_CorpseLoot (Build 1.2.1, ТЗ А1; переименован
+	// оператором по ADR-077 п.8 — окно универсальное; код окна — UCorpseLootWidget)
 	// ======================================================================
 
 	// Канвас-схема «похоже на экран торговли» (Ринат): затемнение, центральная панель с
@@ -3215,7 +3216,7 @@ namespace
 	};
 
 	// Порядок важен: WBP_ItemTile ДО экранов с сетками (WBP_Inventory/WBP_Shop/
-	// WBP_CorpseLoot — им на CDO назначается класс плитки). Пустые заготовки Рината
+	// WBP_SearchWindow — им на CDO назначается класс плитки). Пустые заготовки Рината
 	// (WBP_ShopScreenWiget/ShopRow/Dialog/PlayerStats) он удалил сам 07-19 («ничего
 	// не создал по итогу», коммит 2754045) — эти панели теперь тоже генерируем.
 	const FWbpSpec GAssets[] =
@@ -3291,7 +3292,10 @@ namespace
 			  TEXT("PlayButton"), TEXT("PlayButtonText") } },
 		// Build 1.2.1 (ТЗ А1): окно обыска трупа — кубики по BindWidgetOptional-полям
 		// UCorpseLootWidget (сетку плиток создаёт код классом TileWidgetClass, Build 1.2.2).
-		{ TEXT("/Game/UI/WBP_CorpseLoot"), TEXT("WBP_CorpseLoot"),
+		// ADR-077 п.8: ассет переименован оператором в WBP_SearchWindow (универсальное окно
+		// обыска) БЕЗ редиректора — старый путь /Game/UI/WBP_CorpseLoot мёртв. Класс кода
+		// остался UCorpseLootWidget (переименование класса не согласовано — только ассет).
+		{ TEXT("/Game/UI/WBP_SearchWindow"), TEXT("WBP_SearchWindow"),
 			TEXT("/Script/ContrarySurvivor.CorpseLootWidget"), &BuildCorpseLoot,
 			{ TEXT("TitleText"), TEXT("LootList"),
 			  TEXT("TakeAllButton"), TEXT("TakeAllText"),
@@ -5023,7 +5027,7 @@ namespace
 	// своей проверкой — прогон по старому ассету добавит только недостающее.
 	void AugmentCorpseSearchList(UWidgetTree* Tree, bool& bChanged)
 	{
-		const TCHAR* Name = TEXT("WBP_CorpseLoot");
+		const TCHAR* Name = TEXT("WBP_SearchWindow"); // бывш. WBP_CorpseLoot (ADR-077 п.8)
 		UObject* Roboto = LoadRobotoFont();
 
 		// Общая посадка строки над заголовком: OffsetY — насколько выше заголовка.
@@ -5390,7 +5394,7 @@ namespace
 		{
 			AssignTileClass<UShopScreenWidget>(Spec.AssetName, WBP);
 		}
-		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
+		if (FCString::Strcmp(Spec.AssetName, TEXT("WBP_SearchWindow")) == 0)
 		{
 			AssignTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
 		}
@@ -6359,7 +6363,7 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		{ TEXT("WBP_BaseAnnounce"), false },
 		{ TEXT("WBP_Shop"), true },
 		{ TEXT("WBP_Inventory"), true },
-		{ TEXT("WBP_CorpseLoot"), true },
+		{ TEXT("WBP_SearchWindow"), true }, // бывш. WBP_CorpseLoot (ADR-077 п.8, переименован оператором)
 		{ TEXT("WBP_PlayerStats"), true },
 		{ TEXT("WBP_Dialog"), true },
 		{ TEXT("WBP_Death"), true },
@@ -6491,7 +6495,7 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// крестик диалога + перенос подписей, компас на стике, строка перечня обыска.
 		{ TEXT("/Game/UI/WBP_Dialog"),        TEXT("WBP_Dialog"),        &AugmentDialogCloseCrossAndWrap },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchCompass },
-		{ TEXT("/Game/UI/WBP_CorpseLoot"),    TEXT("WBP_CorpseLoot"),    &AugmentCorpseSearchList },
+		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentCorpseSearchList },
 	};
 
 	int32 FailCount = 0;
@@ -6574,7 +6578,7 @@ struct FCdoSlotSpec
 static const FCdoSlotSpec GCdoSlots[] =
 {
 	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
-		TEXT("CorpseLootWidgetClass"), TEXT("/Game/UI/WBP_CorpseLoot.WBP_CorpseLoot_C") },
+		TEXT("CorpseLootWidgetClass"), TEXT("/Game/UI/WBP_SearchWindow.WBP_SearchWindow_C") },
 	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
 		TEXT("DailyRewardWidgetClass"), TEXT("/Game/UI/WBP_DailyReward.WBP_DailyReward_C") },
 	{ GHudBlueprintPackage, GHudBlueprintPath, &AContrarySurvivorHUD::StaticClass,
@@ -7173,7 +7177,7 @@ int32 UGenerateWbpCommandlet::VerifyAll()
 		{
 			bOk = VerifyTileClass<UShopScreenWidget>(Spec.AssetName, WBP);
 		}
-		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_CorpseLoot")) == 0)
+		if (bOk && FCString::Strcmp(Spec.AssetName, TEXT("WBP_SearchWindow")) == 0)
 		{
 			bOk = VerifyTileClass<UCorpseLootWidget>(Spec.AssetName, WBP);
 		}

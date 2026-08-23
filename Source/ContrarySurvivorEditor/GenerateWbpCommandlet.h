@@ -19,9 +19,9 @@ class UWidgetTree;
  *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp          — создать недостающие WBP
  *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp -verify  — прогон-проверка: каждый
  *     ассет таблицы грузится с диска, печатается родитель и дерево, сверяются родительский
- *     класс, наличие ожидаемых кубиков, контракт замков дизайнера (начинка кнопок и рядов
- *     замкнута, верхнеуровневые элементы свободны — GLockContracts) и назначенный класс
- *     плитки WBP_ItemTile_C у WBP_Inventory/WBP_Shop/WBP_CorpseLoot (Build 1.2.2)
+ *     класс, наличие ожидаемых кубиков, ОТСУТСТВИЕ замков дизайнера (П.0 ADR-077: любой
+ *     замок = ошибка; прежний контракт GLockContracts отменён) и назначенный класс
+ *     плитки WBP_ItemTile_C у WBP_Inventory/WBP_Shop/WBP_SearchWindow (Build 1.2.2)
  *   UnrealEditor-Cmd.exe <проект.uproject> -run=GenerateWbp -augment — ТОЧЕЧНО дополнить
  *     СУЩЕСТВУЮЩИЕ ассеты новыми кубиками и текстами (стилизация Рината сохраняется:
  *     меняется только добавляемое; кубик уже есть — пропуск). Список правок — таблица Specs
@@ -132,7 +132,8 @@ private:
 	int32 UnlockAllDesignerLocks();
 
 	// ТЗ Рината 08-07 п.1 (-hudslots): заполнить пустой слот CorpseLootWidgetClass на CDO
-	// BP_ContrarySurvivorHUD классом WBP_CorpseLoot_C. Непустой слот не трогается. 0 — успех.
+	// BP_ContrarySurvivorHUD классом WBP_SearchWindow_C (бывш. WBP_CorpseLoot, ADR-077 п.8).
+	// Непустой слот не трогается. 0 — успех.
 	int32 FixHudWidgetSlots();
 
 	// 08-09 (-dropdead): удалить из живых ассетов МЁРТВЫЕ кубики — те, что код больше не

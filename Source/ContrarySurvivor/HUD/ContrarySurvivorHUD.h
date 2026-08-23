@@ -622,7 +622,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "9"))
 	TSubclassOf<class UIntroObjectiveWidget> IntroObjectiveWidgetClass;
 
-	// Окно обыска трупа (WBP_CorpseLoot, Build 1.2.1 ТЗ А1). ОСОБЕННОСТЬ: Canvas-пути у
+	// Окно обыска (WBP_SearchWindow, бывш. WBP_CorpseLoot — ADR-077 п.8; Build 1.2.1 ТЗ А1).
+	// ОСОБЕННОСТЬ: Canvas-пути у
 	// этого окна нет — пустой слот означает создание виджета прямо из C++-класса
 	// UCorpseLootWidget (кодовое дерево-фолбэк), обыск работает и без ассета.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|UMG Widgets", meta = (DisplayPriority = "8"))

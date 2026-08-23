@@ -66,7 +66,8 @@ struct FCorpseLootTakenSummary
  * висит надпись про труп.
  *
  * Архитектура — ADR-048, по образцу UShopScreenWidget: логика здесь, раскладку
- * WBP_CorpseLoot (канвас-схема) строит Ринат/генератор; кубики цепляются по ТОЧНЫМ
+ * WBP_SearchWindow (бывш. WBP_CorpseLoot, переименован оператором по ADR-077 п.8; класс
+ * кода остался прежним) строит Ринат/генератор; кубики цепляются по ТОЧНЫМ
  * именам через BindWidgetOptional. ЗАПАСНОЙ ВИД: если виджет создан БЕЗ ассета (слот
  * класса на HUD пуст), NativeOnInitialized строит дерево кодом (паттерн этапа F /
  * UEndOfStoryWidget) — механика работает и до генерации/назначения WBP.
@@ -98,7 +99,7 @@ public:
 	// Крестик нажат / труп исчез под открытым окном — подписан контроллер (CloseCorpseLoot).
 	FSimpleMulticastDelegate OnCloseRequested;
 
-	// --- Настройки (Class Defaults WBP_CorpseLoot) ---
+	// --- Настройки (Class Defaults WBP_SearchWindow) ---
 
 	// Класс ПЛИТКИ списка (Build 1.2.2, тайлы): дефолт — C++-плитка с кодовым деревом;
 	// Ринат/генератор назначает сюда WBP_ItemTile для стилизации.
@@ -272,7 +273,7 @@ protected:
 	// Полная пересборка списка по текущему содержимому трупа.
 	void RefreshList();
 
-	// --- Кубики WBP_CorpseLoot (имена ТОЧНЫЕ; нет ассета — кодовое дерево) ---
+	// --- Кубики WBP_SearchWindow (имена ТОЧНЫЕ; нет ассета — кодовое дерево) ---
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText;
