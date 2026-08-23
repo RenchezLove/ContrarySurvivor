@@ -235,8 +235,49 @@ FText UCorpseLootWidget::BuildSearchObjectsLine(const TArray<UCorpseLootComponen
 	return Parts.Num() > 0 ? FText::Join(Separator, Parts) : FText::GetEmpty();
 }
 
+FText UCorpseLootWidget::BuildBaseNameLine(const FText& Format, const FText& BaseName,
+	int32 Level, const FText& FallbackName)
+{
+	// Report1 п.14: «Логово волков — Ур. 4». Формат настраиваемый ({Name}/{Level});
+	// пустое имя — запасное, чтобы уровень не повис без названия.
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("Name"), BaseName.IsEmpty() ? FallbackName : BaseName);
+	Args.Add(TEXT("Level"), FText::AsNumber(Level, &FNumberFormattingOptions::DefaultNoGrouping()));
+	return FText::Format(Format, Args);
+}
+
 void UCorpseLootWidget::UpdateSearchObjectsLine()
 {
+	// Report1 п.14: контейнеры-базы (StashLevel > 0) уходят в ОТДЕЛЬНЫЙ выделенный кубик
+	// с припиской «Ур. N», остальные — в общий перечень, как раньше. Без кубика базы её
+	// строка честно уезжает в общий перечень (без выделения — до прогона -augment).
+	TArray<UCorpseLootComponent*> Others;
+	const UCorpseLootComponent* Base = nullptr;
+	for (UCorpseLootComponent* Container : GetGroupCorpses())
+	{
+		if (Container->StashLevel > 0 && !Base)
+		{
+			Base = Container;
+		}
+		else
+		{
+			Others.Add(Container);
+		}
+	}
+
+	FText BaseLine = Base
+		? BuildBaseNameLine(BaseNameWithLevelFormat, Base->SearchObjectName,
+			Base->StashLevel, SearchObjectsFallbackName)
+		: FText::GetEmpty();
+
+	if (SearchBaseNameText)
+	{
+		SearchBaseNameText->SetText(BaseLine);
+		SearchBaseNameText->SetVisibility(bShowSearchObjectsList && !BaseLine.IsEmpty()
+			? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+		BaseLine = FText::GetEmpty(); // строка ушла в свой кубик — в общий перечень не дублируем
+	}
+
 	if (!SearchObjectsListText)
 	{
 		return;
@@ -246,7 +287,13 @@ void UCorpseLootWidget::UpdateSearchObjectsLine()
 		SearchObjectsListText->SetVisibility(ESlateVisibility::Collapsed);
 		return;
 	}
-	const FText Line = BuildSearchObjectsLine(GetGroupCorpses(), SearchObjectsSeparator, SearchObjectsFallbackName);
+	FText Line = BuildSearchObjectsLine(Others, SearchObjectsSeparator, SearchObjectsFallbackName);
+	if (!BaseLine.IsEmpty())
+	{
+		// Кубика базы нет: база встаёт ПЕРВОЙ в общий перечень.
+		Line = Line.IsEmpty() ? BaseLine
+			: FText::Join(SearchObjectsSeparator, TArray<FText>({ BaseLine, Line }));
+	}
 	SearchObjectsListText->SetText(Line);
 	SearchObjectsListText->SetVisibility(Line.IsEmpty()
 		? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);

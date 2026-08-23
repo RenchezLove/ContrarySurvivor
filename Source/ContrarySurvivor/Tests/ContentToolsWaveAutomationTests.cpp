@@ -22,6 +22,7 @@
 #include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
+#include "ContrarySurvivor/Actors/MasterEnemyBase.h"           // лут в хранилище базы (Report1 пп.11+14)
 #include "ContrarySurvivor/Actors/Pickup.h"                    // список содержимого мешка (ADR-076 п.10)
 #include "ContrarySurvivor/Actors/Campfire.h"                  // лёгкий актор-носитель контейнера (тест группы)
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"   // проверка содержимого контейнера
@@ -547,6 +548,80 @@ bool FContentToolsCarLootTest::RunTest(const FString& Parameters)
 	{
 		AddError(TEXT("Не заспавнена пустая машина"));
 	}
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 5б. Лут базы в её МЕШЕ (Report1 п.11: «не стоит сам мешок ставить… лут встроен в сам
+//     класс базы») + выделение в перечне (п.14): хранилище — «отдельное хранилище»,
+//     несёт название базы и уровень; строка «Имя — Ур. N» собирается чистой функцией.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsBaseStashTest,
+	"ContrarySurvivor.ContentTools.BaseLootInStashWithLevel", ContentToolsTestFlags)
+
+bool FContentToolsBaseStashTest::RunTest(const FString& Parameters)
+{
+	// Чистая строка перечня (п.14): формат настраиваемый, пустое имя — запасное.
+	const FText Format = FText::FromString(TEXT("{Name} — Ур. {Level}"));
+	TestEqual(TEXT("Строка базы с уровнем"),
+		UCorpseLootWidget::BuildBaseNameLine(Format, FText::FromString(TEXT("Логово волков")), 4,
+			FText::FromString(TEXT("База"))).ToString(),
+		TEXT("Логово волков — Ур. 4"));
+	TestEqual(TEXT("Пустое имя — запасное"),
+		UCorpseLootWidget::BuildBaseNameLine(Format, FText::GetEmpty(), 1,
+			FText::FromString(TEXT("База"))).ToString(),
+		TEXT("База — Ур. 1"));
+
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	AMasterEnemyBase* Base = ContentToolsTestWorld::Spawn<AMasterEnemyBase>(World);
+	if (!Base)
+	{
+		AddError(TEXT("Не заспавнена база"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	// Название места — через рефлексию (поле protected, снаружи его ставит редактор/BP).
+	if (FTextProperty* NameProp = FindFProperty<FTextProperty>(AMasterEnemyBase::StaticClass(), TEXT("BaseDisplayName")))
+	{
+		NameProp->SetPropertyValue_InContainer(Base, FText::FromString(TEXT("Логово волков")));
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства BaseDisplayName"));
+	}
+
+	// Наполнение хранилища зачищенной ступени напрямую (FillBaseStash публична для
+	// автотестов; HandleBaseCleared не зовём — он пишет в слот сейва). Таблица предметов
+	// в тестовом мире не назначена — строки наград не разрешатся, но деньги лягут:
+	// «пусто не бывает» держится и без таблицы.
+	Base->FillBaseStash(/*ClearedTier=*/2);
+
+	UCorpseLootComponent* Stash = Base->GetLootContainer();
+	if (!TestNotNull(TEXT("Хранилище базы создано"), Stash))
+	{
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("После зачистки в базе есть что обыскать"), Stash->HasLoot());
+	TestTrue(TEXT("Деньги награды легли (пусто не бывает)"), Stash->GetMoney() > 0.0f);
+	TestEqual(TEXT("Хранилище несёт уровень базы"), Stash->StashLevel, 2);
+	TestEqual(TEXT("Хранилище несёт название базы"),
+		Stash->SearchObjectName.ToString(), TEXT("Логово волков"));
+	TestTrue(TEXT("Хранилище — отдельное (в группы не входит)"), Stash->bStandaloneStash);
+
+	// Якорь-база возвращает группу из одного себя (окно обыска — только база).
+	const TArray<UCorpseLootComponent*> Group =
+		UCorpseLootComponent::CollectSearchableGroup(Base, 600.0f);
+	TestEqual(TEXT("Группа от базы — одна база"), Group.Num(), 1);
 
 	ContentToolsTestWorld::Destroy(World);
 	return true;

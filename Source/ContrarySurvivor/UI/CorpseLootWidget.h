@@ -154,10 +154,22 @@ public:
 	// SearchObjectsListText добавляет -augment генератора, Ринат правит его в дизайнере.
 	// Здесь остались только ДАННЫЕ: разделитель и запасное имя (код собирает текст).
 
+	// Report1 п.14 (Ринат: «название базы выделялось жирным или цветом… рядом уровень,
+	// просто "Ур. 1"»): формат строки базы в перечне. {Name} — название базы, {Level} —
+	// уровень. Выделение (жирность/цвет) — стиль кубика SearchBaseNameText В АССЕТЕ.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Перечень", meta = (DisplayPriority = "4",
+		DisplayName = "Формат строки базы (имя + уровень)"))
+	FText BaseNameWithLevelFormat = NSLOCTEXT("CorpseLoot", "BaseNameLevelFormat", "{Name} — Ур. {Level}");
+
 	// Чистая сборка строки перечня («Труп волка; Труп волка; Мешок») — открыта для
 	// headless-теста: имена контейнеров через разделитель, пустое имя -> запасное.
 	static FText BuildSearchObjectsLine(const TArray<UCorpseLootComponent*>& InCorpses,
 		const FText& Separator, const FText& FallbackName);
+
+	// Чистая сборка строки базы («Логово волков — Ур. 4», Report1 п.14): формат с {Name} и
+	// {Level}; пустое имя -> запасное. Открыта для headless-теста.
+	static FText BuildBaseNameLine(const FText& Format, const FText& BaseName, int32 Level,
+		const FText& FallbackName);
 
 	// Название строки денег в общем списке.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CorpseLoot|Texts", meta = (DisplayPriority = "2"))
@@ -271,7 +283,14 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SearchObjectsListText;
 
-	// Обновляет ТЕКСТ строки-перечня по живым контейнерам группы (InitCorpseLootGroup).
+	// Report1 п.14: ВЫДЕЛЕННАЯ строка базы в перечне («Логово волков — Ур. 4»). Кубик — из
+	// ассета (-augment; жирность/цвет Ринат правит в дизайнере), код пишет только текст и
+	// видимость. Нет кубика — строка базы уезжает в общий перечень БЕЗ выделения
+	// (честная деградация до прогона генератора).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SearchBaseNameText;
+
+	// Обновляет ТЕКСТ строки-перечня и выделенной строки базы (InitCorpseLootGroup).
 	void UpdateSearchObjectsLine();
 
 	// Список лута (деньги + предметы одним списком, прокрутка штатная).

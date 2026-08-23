@@ -19,6 +19,7 @@
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"         // память базы в сейве (§1)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"    // имя боевого слота сейва (статики)
 #include "ContrarySurvivor/UI/BaseEntryAnnounceWidget.h"    // надпись при входе (§5)
+#include "ContrarySurvivor/Components/CorpseLootComponent.h" // хранилище базы (Report1 п.11)
 #include "ContrarySurvivor/ContrarySurvivor.h"              // LogQA
 #include "Components/AudioComponent.h"                      // шум занятой базы (§5)
 #include "Sound/SoundBase.h"
@@ -70,6 +71,13 @@ AMasterEnemyBase::AMasterEnemyBase()
 	AmbientAudio->bAutoActivate = false;
 	AmbientAudio->bOverrideAttenuation = true;
 	AmbientAudio->AttenuationOverrides.FalloffDistance = AmbientHearRadius;
+
+	// Хранилище базы (Report1 п.11): «отдельное хранилище» — своё окно обыска, в группы не
+	// входит; база после обыска остаётся на месте (общий выключатель убирания погашен).
+	// Название и уровень для перечня ставит FillBaseStash при зачистке.
+	BaseLoot = CreateDefaultSubobject<UCorpseLootComponent>(TEXT("BaseLoot"));
+	BaseLoot->bStandaloneStash = true;
+	BaseLoot->bSinkWhenSearched = false;
 
 	// Награды по ступеням (ТЗ §4, дефолты по таблице владельца: 1-2 — расходники, 3+ —
 	// элемент брони «получше» с ростом тира). Предметы — СТРОКАМИ таблицы DT_Items (единый
@@ -585,7 +593,7 @@ void AMasterEnemyBase::HandleBaseCleared()
 	SpawnedEnemies.Reset();
 
 	WriteTierStateToSave();
-	SpawnRewardBag(ClearedTier);
+	FillBaseStash(ClearedTier);
 	UpdateAmbientForState(); // база опустела — тишина
 
 	UE_LOG(LogQA, Display,
@@ -594,10 +602,12 @@ void AMasterEnemyBase::HandleBaseCleared()
 		EnemyBaseTierLogic::PauseMinutesForClearedTier(ClearedTier, RespawnPauseMinutesPerTier));
 }
 
-void AMasterEnemyBase::SpawnRewardBag(int32 ClearedTier)
+void AMasterEnemyBase::FillBaseStash(int32 ClearedTier)
 {
+	// Report1 п.11 (Ринат: «Игрок обыскивает именно базу (логово)… лут встроен в сам класс
+	// базы»): награда кладётся в хранилище-компонент, мешок в центре больше не спавнится.
 	UWorld* World = GetWorld();
-	if (!World)
+	if (!World || !BaseLoot)
 	{
 		return;
 	}
@@ -608,41 +618,27 @@ void AMasterEnemyBase::SpawnRewardBag(int32 ClearedTier)
 		// §4 «пусто не бывает» — держится дефолтами конструктора; сюда попадают только
 		// руками опустошённые настройки, о чём говорим громко.
 		UE_LOG(LogQA, Warning,
-			TEXT("QA: база '%s' — награда за зачистку ПУСТАЯ (все записи ступеней пусты) — мешок не создан, заполните «Награда по ступеням»"),
+			TEXT("QA: база '%s' — награда за зачистку ПУСТАЯ (все записи ступеней пусты) — хранилище не наполнено, заполните «Награда по ступеням»"),
 			*GetName());
 		return;
 	}
 	const FEnemyBaseTierReward& Reward = TierRewards[RewardIndex];
 
-	// Позиция мешка — центр базы (как квест-предмет): XY на навмеш, высота — пол.
-	FVector Loc = GetActorLocation();
-	FVector ProjectedOut;
-	if (UNavigationSystemV1::K2_ProjectPointToNavigation(
-			World, Loc, ProjectedOut, /*NavData=*/nullptr, /*FilterClass=*/nullptr,
-			FVector(600.0f, 600.0f, 600.0f)))
-	{
-		Loc.X = ProjectedOut.X;
-		Loc.Y = ProjectedOut.Y;
-	}
-	Loc.Z = SpawnPlacement::ResolveSpawnZ(World, Loc.X, Loc.Y, /*ZOffset=*/20.0f, TEXT("BaseReward"));
+	// Предметы — общий путь списка (строка DT_Items/класс + количество, ADR-076 п.10).
+	TArray<AMasterInventoryItem*> Items =
+		APickup::SpawnLootEntries(World, Reward.Items, GetActorLocation(), GetName());
 
-	// Мешок — штатный пикап со СПИСКОМ содержимого (ADR-076 п.10): то же окно обыска, тот же
-	// единый формат предметов (строка DT_Items/класс). Deferred-спавн: список и деньги — до BeginPlay.
-	TSubclassOf<APickup> BagClass = RewardPickupClass ? RewardPickupClass
-		: (PickupClass ? PickupClass : TSubclassOf<APickup>(APickup::StaticClass()));
-	const FTransform BagTransform(Loc);
-	APickup* Bag = World->SpawnActorDeferred<APickup>(BagClass, BagTransform);
-	if (!Bag)
-	{
-		UE_LOG(LogQA, Warning, TEXT("QA: база '%s' — мешок награды не заспавнился"), *GetName());
-		return;
-	}
-	Bag->SetPlacedLootList(Reward.Items, Reward.Money);
-	UGameplayStatics::FinishSpawningActor(Bag, BagTransform);
+	// Перечень окна обыска (Report1 п.14): название базы + уровень — окно выделит имя
+	// отдельным кубиком и припишет «Ур. N». InitLoot ЗАМЕЩАЕТ содержимое: не забранное с
+	// прошлой зачистки пропадает (допущение — новая зачистка, новый лут). Регистрация в
+	// реестре обыскиваемых даёт подсказку «Обыскать» у центра базы.
+	BaseLoot->SearchObjectName = BaseDisplayName;
+	BaseLoot->StashLevel = ClearedTier;
+	BaseLoot->InitLoot(Reward.Money, Items, /*bRegisterSearchable=*/true);
 
 	UE_LOG(LogQA, Display,
-		TEXT("QA: база '%s' — мешок награды ступени %d создан (%d видов предметов, деньги %.0f)"),
-		*GetName(), ClearedTier, Reward.Items.Num(), Reward.Money);
+		TEXT("QA: база '%s' — хранилище наполнено наградой ступени %d (%d предметов, деньги %.0f)"),
+		*GetName(), ClearedTier, Items.Num(), Reward.Money);
 }
 
 void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)

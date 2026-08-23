@@ -5016,58 +5016,81 @@ namespace
 	}
 
 	// Окно обыска: строка-перечень обыскиваемых («Труп волка; Труп волка; Мешок», ADR-076
-	// п.2 / п.8 отчёта 23.08). Встаёт НАД заголовком от его живой геометрии; текст в игре
-	// ставит код окна, стиль и позицию правит Ринат здесь.
+	// п.2 / п.8 отчёта 23.08) + ВЫДЕЛЕННАЯ строка базы с уровнем («Логово волков — Ур. 4»,
+	// Report1 п.14: «название базы выделялось жирным или цветом… рядом уровень»). Обе встают
+	// НАД заголовком от его живой геометрии; текст в игре ставит код окна, стиль (жирность/
+	// цвет выделения) и позицию правит Ринат здесь. Идемпотентно поблочно: каждый кубик со
+	// своей проверкой — прогон по старому ассету добавит только недостающее.
 	void AugmentCorpseSearchList(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_CorpseLoot");
-		if (Tree->FindWidget(TEXT("SearchObjectsListText")))
-		{
-			return; // уже добавлен
-		}
-
 		UObject* Roboto = LoadRobotoFont();
-		UTextBlock* Line = MakeText(Tree, Roboto, TEXT("SearchObjectsListText"),
-			TEXT("Труп волка; Труп волка; Мешок") /* образец — в игре текст ставит код */,
-			FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular"));
-		Line->bIsVariable = true;
-		Line->SetAutoWrapText(true);
 
-		// Якорь — заголовок окна: встаём строкой НАД ним (та же привязка).
-		UTextBlock* Title = Cast<UTextBlock>(Tree->FindWidget(TEXT("TitleText")));
-		UCanvasPanelSlot* TitleSlot = Title ? Cast<UCanvasPanelSlot>(Title->Slot) : nullptr;
-		UCanvasPanel* Parent = Title ? Cast<UCanvasPanel>(Title->GetParent()) : nullptr;
-		if (TitleSlot && Parent)
+		// Общая посадка строки над заголовком: OffsetY — насколько выше заголовка.
+		auto PlaceAboveTitle = [&](UTextBlock* Line, float OffsetY) -> bool
 		{
-			if (UCanvasPanelSlot* LineSlot = Parent->AddChildToCanvas(Line))
+			UTextBlock* Title = Cast<UTextBlock>(Tree->FindWidget(TEXT("TitleText")));
+			UCanvasPanelSlot* TitleSlot = Title ? Cast<UCanvasPanelSlot>(Title->Slot) : nullptr;
+			UCanvasPanel* Parent = Title ? Cast<UCanvasPanel>(Title->GetParent()) : nullptr;
+			if (TitleSlot && Parent)
 			{
-				LineSlot->SetAnchors(TitleSlot->GetAnchors());
-				LineSlot->SetAlignment(TitleSlot->GetAlignment());
-				LineSlot->SetAutoSize(true);
-				LineSlot->SetPosition(TitleSlot->GetPosition() - FVector2D(0.0f, 26.0f));
+				if (UCanvasPanelSlot* LineSlot = Parent->AddChildToCanvas(Line))
+				{
+					LineSlot->SetAnchors(TitleSlot->GetAnchors());
+					LineSlot->SetAlignment(TitleSlot->GetAlignment());
+					LineSlot->SetAutoSize(true);
+					LineSlot->SetPosition(TitleSlot->GetPosition() - FVector2D(0.0f, OffsetY));
+				}
+				return true;
 			}
-		}
-		else if (UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget))
-		{
-			// Заголовка нет/не в канве — верх-центр окна («сверху в окне или над ним»).
-			if (UCanvasPanelSlot* LineSlot = Root->AddChildToCanvas(Line))
+			if (UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget))
 			{
-				LineSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-				LineSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-				LineSlot->SetAutoSize(true);
-				LineSlot->SetPosition(FVector2D(0.0f, 96.0f));
+				// Заголовка нет/не в канве — верх-центр окна («сверху в окне или над ним»).
+				if (UCanvasPanelSlot* LineSlot = Root->AddChildToCanvas(Line))
+				{
+					LineSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
+					LineSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+					LineSlot->SetAutoSize(true);
+					LineSlot->SetPosition(FVector2D(0.0f, 122.0f - OffsetY));
+				}
+				return true;
 			}
-		}
-		else
-		{
 			UE_LOG(LogGenerateWbp, Warning,
-				TEXT("AUGMENT %s: ни заголовка, ни корневой канвы — перечень не добавлен."), Name);
-			return;
+				TEXT("AUGMENT %s: ни заголовка, ни корневой канвы — строка не добавлена."), Name);
+			return false;
+		};
+
+		if (!Tree->FindWidget(TEXT("SearchObjectsListText")))
+		{
+			UTextBlock* Line = MakeText(Tree, Roboto, TEXT("SearchObjectsListText"),
+				TEXT("Труп волка; Труп волка; Мешок") /* образец — в игре текст ставит код */,
+				FLinearColor(0.8f, 0.8f, 0.8f, 1.0f), 14, TEXT("Regular"));
+			Line->bIsVariable = true;
+			Line->SetAutoWrapText(true);
+			if (PlaceAboveTitle(Line, 26.0f))
+			{
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: добавлена строка перечня обыскиваемых SearchObjectsListText."), Name);
+			}
 		}
 
-		bChanged = true;
-		UE_LOG(LogGenerateWbp, Display,
-			TEXT("AUGMENT %s: добавлена строка перечня обыскиваемых SearchObjectsListText."), Name);
+		// Report1 п.14: строка базы — ВЫШЕ перечня, стартовый стиль «выделено» (жирный,
+		// тёплый золотой — как цифра количества плиток); дальше жирность/цвет крутит Ринат.
+		if (!Tree->FindWidget(TEXT("SearchBaseNameText")))
+		{
+			UTextBlock* BaseLine = MakeText(Tree, Roboto, TEXT("SearchBaseNameText"),
+				TEXT("Логово волков — Ур. 4") /* образец — в игре текст ставит код */,
+				FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 16, TEXT("Bold"));
+			BaseLine->bIsVariable = true;
+			BaseLine->SetAutoWrapText(true);
+			if (PlaceAboveTitle(BaseLine, 52.0f))
+			{
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: добавлена выделенная строка базы SearchBaseNameText (Report1 п.14)."), Name);
+			}
+		}
 	}
 
 	// WBP_SupportAuthor, решение Рината 13.08.2026: строка благодарности после ролика — это

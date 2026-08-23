@@ -11,6 +11,7 @@
 
 class ACharacter;
 class AMasterInventoryItem;
+class UCorpseLootComponent;
 class USceneComponent;
 class USphereComponent;
 class USoundBase;
@@ -37,7 +38,8 @@ enum class EEnemyBaseOccupancy : uint8
  * Награда за ПОЛНУЮ зачистку одной ступени (ТЗ 22.08 §4): деньги + предметы в едином
  * формате мешка (строка таблицы предметов DT_Items ЛИБО класс + количество — тот же
  * FPlacedLootEntry, что у размещаемого пикапа; читает единый конфиг, своих чисел рядом
- * не заводит). По зачистке падает мешком-пикапом в центре базы.
+ * не заводит). Report1 п.11: по зачистке кладётся в ХРАНИЛИЩЕ базы (обыск самого логова),
+ * а не мешком в центре.
  */
 USTRUCT(BlueprintType)
 struct FEnemyBaseTierReward
@@ -255,15 +257,13 @@ protected:
 	// (1-2 ступени расходники, 3+ броня по строкам DT_Items). ===
 
 	// Награда по ступеням (запись 1 = ступень 1 …). Пустая запись ступени — фолбэк на
-	// первую («пусто не бывает никогда»).
+	// первую («пусто не бывает никогда»). Report1 п.11 (Ринат: «не стоит сам мешок ставить…
+	// лут встроен в сам класс базы»): награда кладётся в ХРАНИЛИЩЕ базы (BaseLoot) — игрок
+	// обыскивает само логово/сарай; мешок награды больше не спавнится (ноутбук кв.2 —
+	// по-прежнему мешком, «потом решим этот вопрос»).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Награда", meta = (DisplayPriority = "1",
-		DisplayName = "Награда по ступеням (мешок в центре)"))
+		DisplayName = "Награда по ступеням (в хранилище базы)"))
 	TArray<FEnemyBaseTierReward> TierRewards;
-
-	// Класс мешка награды (пусто = класс пикапа базы PickupClass).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EnemyBase|Награда", meta = (DisplayPriority = "2",
-		DisplayName = "Класс мешка награды"))
-	TSubclassOf<APickup> RewardPickupClass;
 
 	// === НАДПИСЬ ПРИ ВХОДЕ (ТЗ §5): показывается при входе игрока в радиус активации.
 	// Тексты настраиваемые — «их будут править». Виджет кодовый, ассета нет. ===
@@ -327,6 +327,24 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "EnemyBase|Звук")
 	UAudioComponent* AmbientAudio;
 
+	// Хранилище базы (Report1 п.11): лут зачистки живёт В САМОЙ базе — игрок обыскивает
+	// логово/сарай. «Отдельное хранилище» (своё окно, вне групп), после обыска база никуда
+	// не девается. Наполняется в FillBaseStash; настройки скрыты — правда лута в
+	// «Награда по ступеням». Без VisibleAnywhere намеренно (урок п.9 машины: секции
+	// компонентов замусоривают панель).
+	UPROPERTY()
+	UCorpseLootComponent* BaseLoot;
+
+public:
+	// Контейнер обыска базы (автотесты, подсказка контроллера).
+	UCorpseLootComponent* GetLootContainer() const { return BaseLoot; }
+
+	// Report1 п.11: награда зачищенной ступени кладётся в хранилище базы (BaseLoot) —
+	// прежний мешок в центре не спавнится. Содержимое ЗАМЕЩАЕТСЯ (не забранное с прошлой
+	// зачистки пропадает — допущение, доложено лиду). ТЗ §4 «пусто не бывает» — в силе.
+	// Зовётся из HandleBaseCleared; публично — для автотестов (паттерн StartSearchedSink).
+	void FillBaseStash(int32 ClearedTier);
+
 private:
 	FTimerHandle ActivationTimerHandle;
 	FTimerHandle SpawnDelayTimerHandle;
@@ -379,11 +397,8 @@ private:
 	// Все заспавненные враги мертвы/исчезли (и был хотя бы один)?
 	bool AreAllSpawnedEnemiesDead() const;
 
-	// Полная зачистка: ступень вверх (5 → 3), время в сейв, мешок-награда, тишина.
+	// Полная зачистка: ступень вверх (5 → 3), время в сейв, лут в хранилище базы, тишина.
 	void HandleBaseCleared();
-
-	// Мешок-награда зачищенной ступени в центре базы (ТЗ §4; «пусто не бывает»).
-	void SpawnRewardBag(int32 ClearedTier);
 
 	// Надпись при входе (ТЗ §5 + поправка лида 22.08): НАЗВАНИЕ места показывается ВСЕГДА
 	// при входе в радиус — игрок понимает, куда пришёл, даже если база пустая; фраза
