@@ -6,7 +6,8 @@
 //
 // Что здесь доказывается (пункты задания дословно в комментариях тестов):
 //   * п.3.1 — куча из четырёх тел в радиусе забирается ОДНИМ заходом, тело за радиусом не
-//     трогается, ящик (мешок-пикап) в группу не попадает;
+//     трогается; контейнер-«отдельное хранилище» (bStandaloneStash, ADR-076 п.2 — граница
+//     «ящики обыскиваются отдельно»; обычные мешки с 22.08 в группу ВХОДЯТ) не попадает;
 //   * п.3.1 — подсказка называет число тел: «Обыскать (4) — E», при одном теле числа нет;
 //   * п.3.2 — обысканное тело уходит в землю и исчезает (математика погружения + живой
 //     тик мира: тело реально опускается и удаляется);
@@ -319,8 +320,11 @@ bool FGroupSearchRadiusTest::RunTest(const FString& Parameters)
 }
 
 // ===========================================================================
-// 3. п.3.1 дословно: «Ящики, схроны и прочие контейнеры не трогаем, они обыскиваются как
-//    раньше». Мешок-пикап рядом с телом в группу не попадает и содержимое сохраняет.
+// 3. Ящики и схроны обыскиваются отдельно от кучи тел. История: п.3.1 издателя держал вне
+//    группы ЛЮБОЙ мешок-пикап, но ADR-076 п.2 (решение лида 22.08, кейс Рината «в лагере
+//    два мешка») завёл мешки В группу — граница «отдельно» теперь проходит по галочке
+//    «Отдельное хранилище» (bStandaloneStash; так живут база Report1 п.11 и машина п.9).
+//    Тест держит текущую границу: хранилище в группу не попадает и содержимое сохраняет.
 // ===========================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGroupSearchIgnoresBoxTest,
 	"ContrarySurvivor.GroupSearch.BoxStaysOutOfGroup", GroupSearchTestFlags)
@@ -337,7 +341,8 @@ bool FGroupSearchIgnoresBoxTest::RunTest(const FString& Parameters)
 		APlayerCharacter* Player = GroupSearchTestWorld::Spawn<APlayerCharacter>(World);
 		UCorpseLootComponent* Body = GroupSearchTestWorld::SpawnBody(World, FVector(0.f, 0.f, 100.f));
 
-		// Ящик: тот же контейнер, но на пикапе — в реестр обыскиваемых тел он не встаёт.
+		// Ящик-«отдельное хранилище»: контейнер на пикапе с галочкой bStandaloneStash —
+		// так сегодня устроены стационарные хранилища (база/машина).
 		APickup* Box = GroupSearchTestWorld::Spawn<APickup>(World, FVector(200.f, 0.f, 100.f));
 		AConsumableItem* BoxFood = GroupSearchTestWorld::SpawnConsumable(World, EConsumableType::Food, 1);
 		if (!Player || !Body || !Box || !BoxFood)
@@ -354,11 +359,12 @@ bool FGroupSearchIgnoresBoxTest::RunTest(const FString& Parameters)
 			GroupSearchTestWorld::Destroy(World);
 			return false;
 		}
+		BoxContainer->bStandaloneStash = true; // граница «обыскивается отдельно» (ADR-076 п.2)
 
 		const TArray<UCorpseLootComponent*> Group =
 			UCorpseLootComponent::CollectSearchableGroup(Body->GetOwner(), 600.0f);
 		TestEqual(TEXT("В группе только тело"), Group.Num(), 1);
-		TestFalse(TEXT("Ящик в группу тел не попал"), Group.Contains(BoxContainer));
+		TestFalse(TEXT("Хранилище в группу тел не попало"), Group.Contains(BoxContainer));
 
 		UCorpseLootWidget* Window = NewObject<UCorpseLootWidget>();
 		if (Window)

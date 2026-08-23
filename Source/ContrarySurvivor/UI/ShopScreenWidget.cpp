@@ -10,6 +10,7 @@
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AArmor.h"               // «+N% защиты» у позиций брони (как Canvas DrawShop, ADR-043)
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-077 п.12: витрина позиции из строки DT_Items
 #include "AMasterInventoryItem.h"
 #include "AAmmoItem.h"            // стак патронов -> транзакция количества; иконка позиции Ammo
 #include "AConsumableItem.h"      // иконка расходника каталога по типу (Build 1.2.2, тайлы)
@@ -362,23 +363,36 @@ int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 		{
 			const FShopEntry& E = Catalog[i];
 
+			// ADR-077 п.12 (магазин «через раз» без иконок и с «+0%»): позиция, собранная из
+			// таблицы предметов, несёт витрину В СТРОКЕ DT_Items — её класс общий
+			// (BP_ArmorBase), и CDO класса про иконку и защиту конкретного тира не знает.
+			// Строка главнее; CDO остаётся запасным путём легаси-позиций без ItemRow.
+			const FContraryItemRow* Row = E.ItemRow.IsNone() ? nullptr : ContraryItems::FindRow(E.ItemRow);
+
 			// Название позиции: переводимое, если задано; иначе откат на служебный ключ —
 			// то же правило, что у самих предметов (ADR-050, порция 0).
 			FText Name = E.DisplayText.IsEmpty() ? FText::FromString(E.DisplayName) : E.DisplayText;
 			if (E.ItemClass && E.ItemClass->IsChildOf(AArmor::StaticClass()))
 			{
 				const AArmor* ArmorCDO = GetDefault<AArmor>(E.ItemClass);
+				const float Protection = (Row && Row->ArmorProtection > 0.0f)
+					? Row->ArmorProtection : ArmorCDO->GetArmorProtection();
 				FFormatNamedArguments ArmorArgs;
 				ArmorArgs.Add(TEXT("ItemName"), Name);
 				ArmorArgs.Add(TEXT("Percent"),
-					FText::AsNumber(FMath::RoundToInt32(ArmorCDO->GetArmorProtection() * 100.0f)));
+					FText::AsNumber(FMath::RoundToInt32(Protection * 100.0f)));
 				Name = FText::Format(ArmorBonusFormat, ArmorArgs);
 			}
 
-			// Иконка позиции каталога — предмета ещё НЕТ, берём вычислимую: патроны — иконка
-			// пачки, расходник с типом — иконка типа, прочее — иконка CDO класса (GetItemIcon).
+			// Иконка позиции каталога — предмета ещё НЕТ, берём вычислимую: строка таблицы —
+			// первой; дальше как раньше: патроны — иконка пачки, расходник с типом — иконка
+			// типа, прочее — иконка CDO класса (GetItemIcon).
 			TSoftObjectPtr<UTexture2D> SoftIcon;
-			if (E.Kind == EShopEntryKind::Ammo)
+			if (Row && !Row->Icon.IsNull())
+			{
+				SoftIcon = Row->Icon;
+			}
+			else if (E.Kind == EShopEntryKind::Ammo)
 			{
 				SoftIcon = GetDefault<AAmmoItem>()->GetItemIcon();
 			}
