@@ -174,25 +174,29 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Tuning")
 	float WaterHealthRestoreAmount = 3.0f;
 
-	// --- Авто-реген HP при сытости (DRAFT, запрос Рината, Фаза 4) ---
+	// --- Авто-реген HP при сытости (Report1 п.10, решение Рината 23.08: «хотя бы на 50
+	// процентов сыт и на 50 процентов не хочет пить — хп должны восстанавливаться»;
+	// прежние пороги DRAFT Фазы 4 были 80). Настройки крутятся на компоненте Stats
+	// в BP игрока, этот раздел. ---
 
 	// Включать ли авто-реген HP (только для игрока; для врага — выкл, как и деградация).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
 	bool bEnableHealthRegen = true;
 
-	// DRAFT: реген идёт, только если Hunger >= этого порога.
+	// Реген идёт, только если Hunger >= порога. Порог — по шкале голода (максимум 100),
+	// 50 = «хотя бы наполовину сыт» (Ринат, п.10).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
-	float RegenHungerThreshold = 80.0f;
+	float RegenHungerThreshold = 50.0f;
 
-	// DRAFT: реген идёт, только если Thirst >= этого порога.
+	// Реген идёт, только если Thirst >= порога (50 = «наполовину не хочет пить»).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
-	float RegenThirstThreshold = 80.0f;
+	float RegenThirstThreshold = 50.0f;
 
-	// DRAFT: сколько HP восстанавливается за один тик регена.
+	// Скорость восстановления: сколько HP за один тик регена…
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
 	float HealthRegenAmount = 2.0f;
 
-	// DRAFT: период тика авто-регена HP, c (укладывается в «1-3 пункта за 30-50 c»).
+	// …и период тика, c (вместе: «1-3 пункта за 30-50 c»).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stats|Survival|Regen")
 	float HealthRegenInterval = 40.0f;
 
