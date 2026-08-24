@@ -273,6 +273,7 @@ private:
 	// стиля: иначе первый же отменённый переспрос затёр бы тексты, набранные владельцем в WBP.
 	FText OriginalTitleText;
 	FText OriginalResumeText;
+	FText OriginalMainMenuText;
 
 	// Есть ли несохранённый прогресс (ставит владелец). По умолчанию true — безопасная
 	// сторона: лучше лишний раз спросить, чем молча потерять прохождение.
@@ -356,4 +357,9 @@ private:
 
 	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
 	bool bDesignerTree = false;
+
+	// Дерево построили МЫ (кодовая запаска). ⛔ Признак записи текста — именно он: детект
+	// дизайнера ставится в NativeOnInitialized, которую движок зовёт не всегда, и текст
+	// владельца из-за этого можно затереть (UI/OwnerTextGuard.h).
+	bool bCodeTreeBuilt = false;
 };

@@ -198,6 +198,11 @@ private:
 	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
 	bool bDesignerTree = false;
 
+	// Дерево построили МЫ (кодовая запаска). ⛔ Запись подписей решается по нему, а не по
+	// детекту дизайнера: тот живёт в NativeOnInitialized, которую движок зовёт не всегда
+	// (UI/OwnerTextGuard.h).
+	bool bCodeTreeBuilt = false;
+
 	// Текст-статус и ссылка (латчатся в InitContent).
 	FText ChannelPendingText;
 	FString ChannelUrl;

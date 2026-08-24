@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h"  // Б6: согласие, политика, версия
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // UMainMenuSettings: адрес сообщества — один на игру
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "HAL/PlatformProcess.h" // FPlatformProcess::LaunchURL (пункт «Сообщество»)
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
@@ -65,8 +66,11 @@ void UPauseMenuWidget::NativeOnInitialized()
 
 	// Запоминаем подписи ДО того, как их тронет режим переспроса: в дизайнер-дереве это тексты
 	// владельца, и вернуть после отмены надо именно их.
-	OriginalTitleText = TitleText ? TitleText->GetText() : FText::GetEmpty();
-	OriginalResumeText = ResumeText ? ResumeText->GetText() : FText::GetEmpty();
+	ContraryOwnerText::Remember(TitleText, OriginalTitleText);
+	ContraryOwnerText::Remember(ResumeText, OriginalResumeText);
+	// Подпись «В главное меню» тоже перебивается переспросом («Да, выйти») — запоминаем и её,
+	// иначе отменённый вопрос оставил бы в кубике слова кода вместо текста владельца.
+	ContraryOwnerText::Remember(MainMenuText, OriginalMainMenuText);
 
 	// Клики — в обоих путях (в WBP кнопки пришли из дизайнера, обработчики всё равно наши).
 	if (ResumeButton)
@@ -114,6 +118,10 @@ void UPauseMenuWidget::NativeOnInitialized()
 
 void UPauseMenuWidget::BuildCodeTree()
 {
+	// Отметка «дерево наше» — по ней решается, можно ли писать поверх непустой подписи
+	// (UI/OwnerTextGuard.h). В дереве владельца его текст не трогаем.
+	bCodeTreeBuilt = true;
+
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PauseRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -353,7 +361,9 @@ void UPauseMenuWidget::RefreshConsentAndVersion()
 	// переключателя в паузе нет. Освежаем только строку политики и номер версии сборки.
 	if (PolicyText && Settings)
 	{
-		PolicyText->SetText(Settings->PauseMenuPolicyText);
+		// Статичная подпись = собственность владельца ассета: настройка проекта заполняет
+		// только пустой кубик (UI/OwnerTextGuard.h). Номер версии ниже — живые данные.
+		ContraryOwnerText::SetIfCodeOwns(PolicyText, Settings->PauseMenuPolicyText, bCodeTreeBuilt);
 	}
 	if (VersionText)
 	{
@@ -375,43 +385,27 @@ bool UPauseMenuWidget::ShouldConfirmMainMenu(bool bInProgressUnsaved)
 
 void UPauseMenuWidget::ApplyNormalLabels()
 {
-	// В дизайнер-дереве возвращаем подписи ВЛАДЕЛЬЦА (как он набрал их в WBP), в кодовом —
-	// значения стиля с контроллера.
-	if (TitleText)
-	{
-		TitleText->SetText(bDesignerTree ? OriginalTitleText : CachedStyle.TitleText);
-	}
-	if (ResumeText)
-	{
-		ResumeText->SetText(bDesignerTree ? OriginalResumeText : CachedStyle.ResumeText);
-	}
-	if (QuitText && !bDesignerTree)
-	{
-		QuitText->SetText(CachedStyle.QuitText);
-	}
-	// Подпись возврата в меню — всегда наша: у неё два состояния, и оба ведёт код.
-	if (MainMenuText)
-	{
-		MainMenuText->SetText(CachedStyle.MainMenuText);
-	}
-	if (SettingsText && !bDesignerTree)
-	{
-		SettingsText->SetText(CachedStyle.SettingsText);
-	}
-	if (CommunityText && !bDesignerTree)
-	{
-		CommunityText->SetText(CachedStyle.CommunityText);
-	}
-	if (SupportText && !bDesignerTree)
-	{
-		SupportText->SetText(CachedStyle.SupportText);
-	}
-	// ADR-074: подпись о сохранении. В дизайнер-дереве текст владельца не трогаем (в ассет
-	// он приехал из этого же стиля через генератор — одно место правды).
-	if (SaveHintText && !bDesignerTree)
-	{
-		SaveHintText->SetText(CachedStyle.SaveHintText);
-	}
+	// Возвращаем подписи ВЛАДЕЛЬЦА (как он набрал их в WBP), в кодовом дереве — значения стиля.
+	// ⛔ Признак «наше дерево» здесь bCodeTreeBuilt, а НЕ bDesignerTree: детект дизайнера живёт
+	// в NativeOnInitialized, которую движок зовёт не всегда (UI/OwnerTextGuard.h).
+	ContraryOwnerText::Restore(TitleText, OriginalTitleText, CachedStyle.TitleText, bCodeTreeBuilt);
+	ContraryOwnerText::Restore(ResumeText, OriginalResumeText, CachedStyle.ResumeText, bCodeTreeBuilt);
+
+	// ⛔ Подпись возврата в меню РАНЬШЕ ставилась из стиля всегда («у неё два состояния, и оба
+	// ведёт код») — из-за этого текст владельца в WBP_PauseMenu не доживал до экрана вовсе, а
+	// отменённый переспрос заменял его словами кода навсегда. Теперь она работает как заголовок
+	// и «Продолжить»: переспрос временно ставит своё, отмена возвращает авторское.
+	ContraryOwnerText::Restore(MainMenuText, OriginalMainMenuText, CachedStyle.MainMenuText, bCodeTreeBuilt);
+
+	// Эти четыре подписи переспрос не трогает — достаточно заполнить пустой кубик.
+	ContraryOwnerText::SetIfCodeOwns(QuitText, CachedStyle.QuitText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(SettingsText, CachedStyle.SettingsText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(CommunityText, CachedStyle.CommunityText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(SupportText, CachedStyle.SupportText, bCodeTreeBuilt);
+
+	// ADR-074: подпись о сохранении. Текст владельца не трогаем (в ассет он приехал из этого же
+	// стиля через генератор), пустой кубик заполняем.
+	ContraryOwnerText::SetIfCodeOwns(SaveHintText, CachedStyle.SaveHintText, bCodeTreeBuilt);
 
 	// «Настройки» появляются САМИ по факту привязки обработчика владельцем (тот же приём, что
 	// в главном меню): не привязано — пункта нет, чтобы в панели не висела мёртвая кнопка.
@@ -441,6 +435,10 @@ void UPauseMenuWidget::ApplyConfirmMainMenuLabels()
 {
 	// Те же две кнопки, другие подписи: «Продолжить» становится «Отмена», «В главное меню» —
 	// «Да, выйти». Остальные пункты на время вопроса прячутся.
+	//
+	// ⛔ Слова переспроса ставит КОД, и это законно: состояние временное, отдельных кубиков под
+	// него в ассете нет. Правило владельца соблюдается на выходе — авторские подписи запомнены
+	// в NativeOnInitialized и возвращаются в ApplyNormalLabels при отмене.
 	if (TitleText)   { TitleText->SetText(CachedStyle.ConfirmMainMenuTitleText); }
 	if (ResumeText)  { ResumeText->SetText(CachedStyle.ConfirmMainMenuCancelText); }
 	if (MainMenuText) { MainMenuText->SetText(CachedStyle.ConfirmMainMenuYesText); }

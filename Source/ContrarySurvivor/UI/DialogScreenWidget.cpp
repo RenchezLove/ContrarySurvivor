@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "ContrarySurvivor/Save/ContrarySaveGame.h" // признак «крючок показан» (bElderHookShown)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // Build 1.2: запуск сообщения конца сюжета
 #include "Components/TextBlock.h"
@@ -43,6 +44,15 @@ void UDialogScreenWidget::NativeOnInitialized()
 			!CloseButton ? TEXT("CloseButton") : TEXT(""));
 	}
 
+	// ⛔ ПОДПИСИ КНОПОК — ПРАВДА В АССЕТЕ (решение лида 24.08.2026, ADR-077 п.0). Реплики героя
+	// приходят ДАННЫМИ из квеста и их ставит код — это законно; но когда в квесте реплики нет,
+	// вернуть надо подпись ВЛАДЕЛЬЦА из WBP_Dialog, а не значение из C++. Снимаем авторские
+	// подписи один раз, до первой подмены (UI/OwnerTextGuard.h).
+	ContraryOwnerText::Remember(AcceptText, OwnerAcceptText);
+	ContraryOwnerText::Remember(DeclineText, OwnerDeclineText);
+	ContraryOwnerText::Remember(TurnInText, OwnerTurnInText);
+	ContraryOwnerText::Remember(CloseText, OwnerCloseText);
+
 	// ADR-076 п.3 + П.0 ADR-077: крестик — кубик ИЗ АССЕТА, код только вешает обработчик.
 	BindCloseCross();
 }
@@ -61,9 +71,12 @@ void UDialogScreenWidget::BindCloseCross()
 	DialogCloseCrossButton->OnClicked.AddDynamic(this, &UDialogScreenWidget::HandleCloseClicked);
 	DialogCloseCrossButton->SetVisibility(bShowCloseCross
 		? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-	if (DialogCloseCrossText && !CloseCrossLabel.IsEmpty())
+	// Знак крестика — подпись владельца: свой значок он ставит в дизайнере, код только заполняет
+	// пустой кубик. Кодового дерева у этого окна нет вовсе, поэтому признак «наше дерево» здесь
+	// всегда ложь (UI/OwnerTextGuard.h).
+	if (!CloseCrossLabel.IsEmpty())
 	{
-		DialogCloseCrossText->SetText(CloseCrossLabel);
+		ContraryOwnerText::SetIfCodeOwns(DialogCloseCrossText, CloseCrossLabel, /*bCodeTreeBuilt=*/false);
 	}
 }
 
@@ -230,29 +243,53 @@ void UDialogScreenWidget::RefreshDialog()
 	// на прежние подписи (AcceptButtonLabel / формат «Сдать (+N)» / статичный текст WBP).
 	if (AcceptText && State == EQuestState::NotStarted)
 	{
-		AcceptText->SetText(!QData.AcceptReplyText.IsEmpty() ? QData.AcceptReplyText : AcceptButtonLabel);
+		// Реплика из квеста — данные; её нет — подпись владельца окна (запаска из C++ идёт
+		// только если в ассете подпись пуста).
+		if (QData.AcceptReplyText.IsEmpty())
+		{
+			ContraryOwnerText::Restore(AcceptText, OwnerAcceptText, AcceptButtonLabel, /*bCodeTreeBuilt=*/false);
+		}
+		else
+		{
+			AcceptText->SetText(QData.AcceptReplyText);
+		}
 	}
 
 	if (TurnInText && State == EQuestState::Completed)
 	{
 		// {Reward} подставляется и в реплику героя, если Ринат впишет его в текст; без
-		// плейсхолдера Format просто вернёт текст как есть.
+		// плейсхолдера Format просто вернёт текст как есть. Реплики в квесте нет — берём
+		// формулировку владельца из ассета, и только за её отсутствием формат из C++.
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(QData.RewardMoney)));
+		const FText OwnerFallback = OwnerTurnInText.IsEmpty() ? TurnInFormat : OwnerTurnInText;
 		TurnInText->SetText(FText::Format(
-			!QData.TurnInReplyText.IsEmpty() ? QData.TurnInReplyText : TurnInFormat, Args));
+			!QData.TurnInReplyText.IsEmpty() ? QData.TurnInReplyText : OwnerFallback, Args));
 	}
 
-	if (!QData.CloseReplyText.IsEmpty())
+	// «Мне пора.» — и на [Отказаться] (отказ = уйти из диалога), и на [Закрыть]. Реплики в
+	// квесте нет — в кубике обязана остаться подпись владельца, а не реплика прошлого квеста.
+	if (DeclineText && State == EQuestState::NotStarted)
 	{
-		// «Мне пора.» — и на [Отказаться] (отказ = уйти из диалога), и на [Закрыть].
-		if (DeclineText && State == EQuestState::NotStarted)
+		// Пустую подпись не ставим никогда: владелец не подписал кубик — пусть остаётся как есть.
+		if (!QData.CloseReplyText.IsEmpty())
 		{
 			DeclineText->SetText(QData.CloseReplyText);
 		}
-		if (CloseText && (State == EQuestState::Active || State == EQuestState::TurnedIn))
+		else if (!OwnerDeclineText.IsEmpty())
+		{
+			DeclineText->SetText(OwnerDeclineText);
+		}
+	}
+	if (CloseText && (State == EQuestState::Active || State == EQuestState::TurnedIn))
+	{
+		if (!QData.CloseReplyText.IsEmpty())
 		{
 			CloseText->SetText(QData.CloseReplyText);
+		}
+		else if (!OwnerCloseText.IsEmpty())
+		{
+			CloseText->SetText(OwnerCloseText);
 		}
 	}
 }

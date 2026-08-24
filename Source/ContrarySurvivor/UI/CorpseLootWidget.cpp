@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"
 #include "ContrarySurvivor/UI/ItemTileWidget.h" // общая плитка предмета (Build 1.2.2, тайлы)
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
@@ -58,18 +59,14 @@ void UCorpseLootWidget::NativeOnInitialized()
 			TEXT("CorpseLootWidget: кубика SearchObjectsListText нет в ассете окна обыска — перечня обыскиваемых не будет; прогоните генератор в режиме дополнения"));
 	}
 
-	if (TitleText)
-	{
-		TitleText->SetText(TitleLabel);
-	}
-	if (TakeAllText)
-	{
-		TakeAllText->SetText(TakeAllCaption);
-	}
-	if (CloseText)
-	{
-		CloseText->SetText(CloseCaption);
-	}
+	// ⛔ ПОДПИСИ ОКНА — ПРАВДА В АССЕТЕ (решение лида 24.08.2026, ADR-077 п.0): заголовок, «Забрать
+	// всё» и крестик владелец набирает в WBP, и код их не перезаписывает. Заголовок запоминаем:
+	// при обыске контейнера со своим именем окно временно показывает ЕГО имя (это данные), а
+	// потом обязано вернуть авторский заголовок, а не значение из C++ (UI/OwnerTextGuard.h).
+	ContraryOwnerText::Remember(TitleText, OwnerTitleText);
+	ContraryOwnerText::Restore(TitleText, OwnerTitleText, TitleLabel, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(TakeAllText, TakeAllCaption, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(CloseText, CloseCaption, bCodeTreeBuilt);
 
 	if (TakeAllButton)
 	{
@@ -91,6 +88,10 @@ void UCorpseLootWidget::NativeOnInitialized()
 
 void UCorpseLootWidget::BuildFallbackTree()
 {
+	// Отметка «дерево наше» — только в нём код вправе писать поверх непустых подписей
+	// (UI/OwnerTextGuard.h).
+	bCodeTreeBuilt = true;
+
 	// Центр экрана: колонка «заголовок + крестик / список / Забрать всё» на тёмной панели.
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CorpseLootRoot"));
 	WidgetTree->RootWidget = Root;
@@ -210,7 +211,17 @@ void UCorpseLootWidget::InitCorpseLootGroup(const TArray<UCorpseLootComponent*>&
 	{
 		const UCorpseLootComponent* Anchor = Corpses.Num() > 0 ? Corpses[0].Get() : nullptr;
 		const FText ContainerTitle = Anchor ? Anchor->SearchTitle : FText::GetEmpty();
-		TitleText->SetText(ContainerTitle.IsEmpty() ? TitleLabel : ContainerTitle);
+		if (ContainerTitle.IsEmpty())
+		{
+			// Своего имени у контейнера нет — возвращаем заголовок владельца окна (в кодовом
+			// дереве-запаске его роль играет TitleLabel).
+			ContraryOwnerText::Restore(TitleText, OwnerTitleText, TitleLabel, bCodeTreeBuilt);
+		}
+		else
+		{
+			// Имя контейнера — ДАННЫЕ (его задаёт компонент на акторе), их ставит код.
+			TitleText->SetText(ContainerTitle);
+		}
 	}
 
 	// ADR-076 п.2: перечень обыскиваемых через точку с запятой.

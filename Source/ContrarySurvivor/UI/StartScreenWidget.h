@@ -578,4 +578,20 @@ private:
 
 	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized, как TouchControlsWidget.cpp).
 	bool bDesignerTree = false;
+
+	// Дерево построили МЫ (кодовая запаска). ⛔ Именно по этому признаку решается, можно ли
+	// перезаписывать подпись: детект дизайнера живёт в NativeOnInitialized, которую движок
+	// зовёт не всегда, и полагаться на него при записи текста нельзя (UI/OwnerTextGuard.h).
+	bool bCodeTreeBuilt = false;
+
+	// Подписи, с которыми меню пришло из дизайнера. Переспрос «Точно начать заново?» временно
+	// ставит свои слова в заголовок, подзаголовок и обе кнопки — после отмены обязаны вернуться
+	// ИМЕННО авторские, иначе первый же отменённый переспрос навсегда заменил бы текст Рината
+	// значениями стиля (правка ef8edc6 — его собственная).
+	void CaptureOwnerCaptions();
+	bool bOwnerCaptionsSaved = false;
+	FText OwnerTitleText;
+	FText OwnerSubtitleText;
+	FText OwnerContinueText;
+	FText OwnerNewGameText;
 };

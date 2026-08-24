@@ -214,6 +214,21 @@ private:
 	// Дерево пришло из WBP-ассета (детект в NativeOnInitialized).
 	bool bDesignerTree = false;
 
+	// Дерево построили МЫ (кодовая запаска). ⛔ Запись подписей решается по этому признаку, а не
+	// по детекту дизайнера: тот живёт в NativeOnInitialized, которую движок зовёт не всегда
+	// (UI/OwnerTextGuard.h).
+	bool bCodeTreeBuilt = false;
+
+	// Шаблоны смешанных строк («Качество картинки: {Value}»), как их набрал владелец в WBP.
+	// Снимаются ОДИН раз до первой записи; есть {Value} — код подставляет значение в текст
+	// владельца, нет — берёт свою формулировку.
+	void CaptureOwnerRowFormats();
+	bool bOwnerRowFormatsSaved = false;
+	FText OwnerPresetRowFormat;
+	FText OwnerFrameLimitRowFormat;
+	FText OwnerFpsCounterRowFormat;
+	FText OwnerVibrationRowFormat;
+
 	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
 
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UBorder> DimBorder;

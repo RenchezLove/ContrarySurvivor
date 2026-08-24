@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/UI/StartScreenWidget.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA: предупреждения о недостающих кубиках
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "ContrarySurvivor/Analytics/DataConsentSettings.h"  // подпись строки политики
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // версия сборки + открытие политики
 #include "Blueprint/WidgetTree.h"
@@ -137,6 +138,10 @@ void UStartScreenWidget::NativeConstruct()
 
 void UStartScreenWidget::BuildCodeTree()
 {
+	// Отметка «дерево наше»: только по ней код имеет право ставить подписи поверх непустых
+	// (в дереве владельца его текст не трогаем, см. UI/OwnerTextGuard.h).
+	bCodeTreeBuilt = true;
+
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("StartRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -388,13 +393,35 @@ void UStartScreenWidget::ApplyStyle(const FStartScreenStyle& Style)
 	bConfirmingNewGame ? ApplyConfirmLabels(Style) : ApplyChoiceLabels(Style);
 }
 
+void UStartScreenWidget::CaptureOwnerCaptions()
+{
+	// Один раз и ДО первой подмены: дальше в этих кубиках может лежать текст переспроса.
+	if (bOwnerCaptionsSaved)
+	{
+		return;
+	}
+	bOwnerCaptionsSaved = true;
+	ContraryOwnerText::Remember(TitleText, OwnerTitleText);
+	ContraryOwnerText::Remember(SubtitleText, OwnerSubtitleText);
+	ContraryOwnerText::Remember(ContinueText, OwnerContinueText);
+	ContraryOwnerText::Remember(NewGameText, OwnerNewGameText);
+}
+
 void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 {
+	// ⛔ ТЕКСТ МЕНЮ — ПРАВДА В АССЕТЕ (решение лида 24.08.2026, ADR-077 п.0). Ринат правил
+	// подписи главного меню руками (ef8edc6), а прежняя версия этого метода ставила заголовок,
+	// подзаголовок и все шесть подписей кнопок из стиля БЕЗУСЛОВНО — каждый запуск игры молча
+	// возвращал его правки к значениям кода. Теперь код заполняет только пустой кубик и своё
+	// кодовое дерево-запаску (UI/OwnerTextGuard.h). Оформление ниже — как было.
+	CaptureOwnerCaptions();
+
 	// Тексты ставим и в спрятанном состоянии (прячет их ApplyMenuRowVisibility в конце этого
 	// метода): переспрос включается мгновенно, дописывать строки в тот момент негде.
 	if (TitleText)
 	{
-		TitleText->SetText(Style.TitleText);
+		// Заголовок перебивает переспрос — здесь возвращаем авторский, а не значение стиля.
+		ContraryOwnerText::Restore(TitleText, OwnerTitleText, Style.TitleText, bCodeTreeBuilt);
 		if (!bDesignerTree)
 		{
 			TitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.TitleFontSize)));
@@ -403,7 +430,8 @@ void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 	}
 	if (SubtitleText)
 	{
-		SubtitleText->SetText(Style.SubtitleText);
+		// Подзаголовок тоже перебивает переспрос — возвращаем авторский.
+		ContraryOwnerText::Restore(SubtitleText, OwnerSubtitleText, Style.SubtitleText, bCodeTreeBuilt);
 		if (!bDesignerTree)
 		{
 			SubtitleText->SetFont(FCoreStyle::GetDefaultFontStyle("Regular", FMath::Max(8, Style.SubtitleFontSize)));
@@ -411,24 +439,32 @@ void UStartScreenWidget::ApplyChoiceLabels(const FStartScreenStyle& Style)
 		}
 	}
 
-	auto StyleButtonLabel = [this, &Style](UTextBlock* Label, const FText& Text, bool bPrimary)
+	// Оформление подписи кнопки — только в своём дереве; текст ставится отдельно, по правилу
+	// владельца (see UI/OwnerTextGuard.h).
+	auto StyleButtonLook = [this, &Style](UTextBlock* Label, bool bPrimary)
 	{
-		if (Label)
+		if (Label && !bDesignerTree)
 		{
-			Label->SetText(Text);
-			if (!bDesignerTree)
-			{
-				Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
-				Label->SetColorAndOpacity(FSlateColor(MenuButtonTextColor(Style, bPrimary)));
-			}
+			Label->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", FMath::Max(8, Style.ButtonFontSize)));
+			Label->SetColorAndOpacity(FSlateColor(MenuButtonTextColor(Style, bPrimary)));
 		}
 	};
-	StyleButtonLabel(ContinueText, Style.ContinueText, /*bPrimary=*/true);
-	StyleButtonLabel(NewGameText, Style.NewGameText, false);
-	StyleButtonLabel(SettingsText, Style.SettingsText, false);
-	StyleButtonLabel(SupportText, Style.SupportText, false);
-	StyleButtonLabel(CommunityText, Style.CommunityText, false);
-	StyleButtonLabel(ExitText, Style.ExitText, false);
+
+	// «Продолжить» и «Новая игра» перебивает переспрос — им возврат авторской подписи;
+	// остальным четырём переспрос слов не меняет, им хватает заполнения пустого кубика.
+	ContraryOwnerText::Restore(ContinueText, OwnerContinueText, Style.ContinueText, bCodeTreeBuilt);
+	ContraryOwnerText::Restore(NewGameText, OwnerNewGameText, Style.NewGameText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(SettingsText, Style.SettingsText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(SupportText, Style.SupportText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(CommunityText, Style.CommunityText, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(ExitText, Style.ExitText, bCodeTreeBuilt);
+
+	StyleButtonLook(ContinueText, /*bPrimary=*/true);
+	StyleButtonLook(NewGameText, false);
+	StyleButtonLook(SettingsText, false);
+	StyleButtonLook(SupportText, false);
+	StyleButtonLook(CommunityText, false);
+	StyleButtonLook(ExitText, false);
 
 	// Возврат из переспроса «Новая игра» обязан вернуть и спрятанные на его время пункты.
 	ApplyMenuRowVisibility();
@@ -440,6 +476,12 @@ void UStartScreenWidget::ApplyConfirmLabels(const FStartScreenStyle& Style)
 	// «Продолжить» временно становится «Отмена», «Новая игра» — «Да, начать заново».
 	// Вопрос и пояснение показываются ТОЛЬКО здесь: в обычном меню их над кнопками нет
 	// (макет 08-09), но спрашивать о стирании прогресса молча нельзя.
+	//
+	// ⛔ ЗДЕСЬ слова ставит КОД, и это законно: переспрос — временное состояние окна, отдельных
+	// кубиков под него в ассете нет. Условие правила владельца выполняется на выходе: авторские
+	// подписи запомнены до первой подмены и возвращаются в ApplyChoiceLabels при отмене.
+	CaptureOwnerCaptions();
+
 	if (TitleText)
 	{
 		TitleText->SetText(Style.ConfirmTitleText);
@@ -530,7 +572,10 @@ void UStartScreenWidget::RefreshMenuExtras()
 	{
 		if (const UDataConsentSettings* Settings = UDataConsentSettings::Get())
 		{
-			PolicyText->SetText(Settings->PauseMenuPolicyText);
+			// Подпись — статичная, значит принадлежит владельцу ассета: настройка проекта
+			// заполняет только пустой кубик (правило UI/OwnerTextGuard.h). Строка версии ниже —
+			// наоборот, живые данные, её ставит код всегда.
+			ContraryOwnerText::SetIfCodeOwns(PolicyText, Settings->PauseMenuPolicyText, bCodeTreeBuilt);
 		}
 	}
 	if (VersionText)

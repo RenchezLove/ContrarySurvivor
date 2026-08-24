@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/UI/EndOfStoryWidget.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -75,6 +76,9 @@ void UEndOfStoryWidget::NativeOnInitialized()
 
 void UEndOfStoryWidget::BuildCodeTree()
 {
+	// Отметка «дерево наше» — только в нём код пишет подписи поверх непустых (UI/OwnerTextGuard.h).
+	bCodeTreeBuilt = true;
+
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("EndOfStoryRoot"));
 	WidgetTree->RootWidget = Root;
 
@@ -189,18 +193,16 @@ void UEndOfStoryWidget::ApplyStyle(const FEndOfStoryStyle& Style)
 void UEndOfStoryWidget::InitContent(const FText& InMessage, const FText& InWriteButtonLabel,
 	const FText& InPlayButtonLabel, const FText& InChannelPendingText, const FString& InChannelUrl)
 {
-	if (MessageText)
-	{
-		MessageText->SetText(InMessage);
-	}
-	if (WriteButtonText)
-	{
-		WriteButtonText->SetText(InWriteButtonLabel);
-	}
-	if (PlayButtonText)
-	{
-		PlayButtonText->SetText(InPlayButtonLabel);
-	}
+	// ⛔ ТЕКСТ ПЛАШКИ — ПРАВДА В АССЕТЕ (решение лида 24.08.2026, ADR-077 п.0). Сообщение и обе
+	// подписи кнопок раньше приезжали сюда из полей HUD и БЕЗУСЛОВНО ложились поверх WBP —
+	// правки владельца в игре не показывались. Теперь настройки HUD заполняют только пустой
+	// кубик и кодовое дерево-запаску (UI/OwnerTextGuard.h).
+	ContraryOwnerText::SetIfCodeOwns(MessageText, InMessage, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(WriteButtonText, InWriteButtonLabel, bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(PlayButtonText, InPlayButtonLabel, bCodeTreeBuilt);
+
+	// Строка состояния «канала пока нет» — не подпись, а ответ на нажатие: её ставит код в
+	// HandleWriteClicked, а сюда приходит только заготовка текста.
 	ChannelPendingText = InChannelPendingText;
 	ChannelUrl = InChannelUrl;
 }

@@ -210,6 +210,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<APlayerCharacter> Player;
 
+	// Подписи кнопок, с которыми окно пришло из дизайнера. Реплики героя приходят данными из
+	// квеста и временно занимают эти кубики; когда у квеста своей реплики нет, вернуть надо
+	// подпись ВЛАДЕЛЬЦА, а не значение из C++ и не реплику прошлого квеста (UI/OwnerTextGuard.h).
+	FText OwnerAcceptText;
+	FText OwnerDeclineText;
+	FText OwnerTurnInText;
+	FText OwnerCloseText;
+
 	// Кэш для diff-обновления (перестраиваемся только при смене квеста/состояния).
 	FName LastQuestId = NAME_None;
 	EQuestState LastState = EQuestState::NotStarted;

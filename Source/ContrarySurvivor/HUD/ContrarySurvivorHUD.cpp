@@ -1994,6 +1994,10 @@ void AContrarySurvivorHUD::ShowEndOfStoryMessage()
 	EndOfStoryWidgetInstance->ApplyStyle(EndOfStoryStyle);
 	// Адрес канала берём из конфига (UEndOfStorySettings), а не с HUD: его вписывают позже
 	// текстовым редактором, без пересборки кода и без переделки контента.
+	//
+	// ⚠ Тексты отсюда — ЗАПАСКА (решение лида 24.08.2026, ADR-077 п.0): в окно из дизайнера они
+	// попадают, только если владелец оставил кубик пустым. Правду формулировок держит ассет
+	// WBP_EndOfStory, проверку делает сам виджет (UEndOfStoryWidget::InitContent).
 	EndOfStoryWidgetInstance->InitContent(EndOfStoryMessageText, EndOfStoryWriteButtonText,
 		EndOfStoryPlayButtonText, EndOfStoryChannelPendingText, UEndOfStorySettings::GetChannelUrl());
 	if (!EndOfStoryWidgetInstance->IsInViewport())

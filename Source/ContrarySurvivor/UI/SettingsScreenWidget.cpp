@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/UI/StartScreenWidget.h" // UMainMenuSettings: адрес «Сообщить об ошибке»
+#include "ContrarySurvivor/UI/OwnerTextGuard.h" // подписи владельца код не перезаписывает
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // номер версии сборки для отчёта
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
@@ -219,21 +220,33 @@ FIntPoint USettingsScreenWidget::GetViewportPixelSize() const
 
 void USettingsScreenWidget::RefreshLabels()
 {
+	// ⛔ ПОДПИСИ ЭКРАНА — ПРАВДА В АССЕТЕ (решение лида 24.08.2026, ADR-077 п.0). Прежняя версия
+	// ставила все заголовки и подписи кнопок жёстко зашитыми строками при каждом обновлении, и
+	// правки владельца в WBP_Settings не доживали до экрана. Теперь код заполняет только пустой
+	// кубик и своё кодовое дерево-запаску (UI/OwnerTextGuard.h).
+	//
+	// ⚠ Разделение здесь такое: неизменные подписи — владельца; строки со значением настройки —
+	// живые данные, их ставит код; смешанные строки («Качество картинки: высокое») собираются
+	// по шаблону, и владелец может задать СВОЮ формулировку, поставив в кубик {Value}.
 	const UContrarySurvivorGameUserSettings* Settings = UContrarySurvivorGameUserSettings::Get();
 
-	if (TitleText)
-	{
-		TitleText->SetText(LOCTEXT("Title", "НАСТРОЙКИ"));
-	}
-	if (GraphicsHeaderText) { GraphicsHeaderText->SetText(LOCTEXT("GraphicsHeader", "Картинка")); }
-	if (SoundHeaderText)    { SoundHeaderText->SetText(LOCTEXT("SoundHeader", "Звук")); }
-	if (ControlsHeaderText) { ControlsHeaderText->SetText(LOCTEXT("ControlsHeader", "Управление")); }
-	if (MiscHeaderText)     { MiscHeaderText->SetText(LOCTEXT("MiscHeader", "Прочее")); }
+	CaptureOwnerRowFormats();
 
-	if (PresetLowText)    { PresetLowText->SetText(UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Low)); }
-	if (PresetMediumText) { PresetMediumText->SetText(UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Medium)); }
-	if (PresetHighText)   { PresetHighText->SetText(UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::High)); }
-	if (PresetAutoText)   { PresetAutoText->SetText(UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Auto)); }
+	ContraryOwnerText::SetIfCodeOwns(TitleText, LOCTEXT("Title", "НАСТРОЙКИ"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(GraphicsHeaderText, LOCTEXT("GraphicsHeader", "Картинка"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(SoundHeaderText, LOCTEXT("SoundHeader", "Звук"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(ControlsHeaderText, LOCTEXT("ControlsHeader", "Управление"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(MiscHeaderText, LOCTEXT("MiscHeader", "Прочее"), bCodeTreeBuilt);
+
+	// Названия ступеней качества — тоже подписи кнопок: владелец вправе назвать их по-своему.
+	ContraryOwnerText::SetIfCodeOwns(PresetLowText,
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Low), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(PresetMediumText,
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Medium), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(PresetHighText,
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::High), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(PresetAutoText,
+		UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Auto), bCodeTreeBuilt);
 
 	if (PresetValueText)
 	{
@@ -243,22 +256,24 @@ void USettingsScreenWidget::RefreshLabels()
 			: UContrarySurvivorGameUserSettings::MakePresetName(EContraryGraphicsPreset::Auto);
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Value"), Value);
-		PresetValueText->SetText(FText::Format(LOCTEXT("PresetRow", "Качество картинки: {Value}"), Args));
+		PresetValueText->SetText(FText::Format(
+			ContraryOwnerText::FormatOwned(OwnerPresetRowFormat,
+				LOCTEXT("PresetRow", "Качество картинки: {Value}"), bCodeTreeBuilt), Args));
 	}
 
-	if (ResolutionLabelText)
-	{
-		ResolutionLabelText->SetText(LOCTEXT("ResolutionRow", "Масштаб разрешения"));
-	}
+	ContraryOwnerText::SetIfCodeOwns(ResolutionLabelText,
+		LOCTEXT("ResolutionRow", "Масштаб разрешения"), bCodeTreeBuilt);
 	if (ResolutionValueText)
 	{
+		// Живые данные: проценты и реальные пиксели этого экрана. Подписи владельца тут нет.
 		const int32 Percent = Settings ? Settings->GetResolutionScalePercent()
 			: UContrarySurvivorGameUserSettings::DefaultResolutionScalePercent;
 		ResolutionValueText->SetText(
 			UContrarySurvivorGameUserSettings::MakeResolutionScaleLabel(Percent, GetViewportPixelSize()));
 	}
-	if (ResolutionMinusText) { ResolutionMinusText->SetText(LOCTEXT("Minus", "−")); }
-	if (ResolutionPlusText)  { ResolutionPlusText->SetText(LOCTEXT("Plus", "+")); }
+	// Знаки «минус» и «плюс» на кнопках — подписи: владелец мог поставить свои значки.
+	ContraryOwnerText::SetIfCodeOwns(ResolutionMinusText, LOCTEXT("Minus", "−"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(ResolutionPlusText, LOCTEXT("Plus", "+"), bCodeTreeBuilt);
 
 	if (FrameLimitText)
 	{
@@ -267,18 +282,22 @@ void USettingsScreenWidget::RefreshLabels()
 		Args.Add(TEXT("Value"), bLimited
 			? LOCTEXT("FrameLimit30", "30 кадров")
 			: LOCTEXT("FrameLimitOff", "без ограничения"));
-		FrameLimitText->SetText(FText::Format(LOCTEXT("FrameLimitRow", "Ограничение кадров: {Value}"), Args));
+		FrameLimitText->SetText(FText::Format(
+			ContraryOwnerText::FormatOwned(OwnerFrameLimitRowFormat,
+				LOCTEXT("FrameLimitRow", "Ограничение кадров: {Value}"), bCodeTreeBuilt), Args));
 	}
 	if (FpsCounterText)
 	{
 		const bool bShown = Settings ? Settings->IsFpsCounterShown() : false;
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Value"), bShown ? LOCTEXT("On", "включён") : LOCTEXT("Off", "выключен"));
-		FpsCounterText->SetText(FText::Format(LOCTEXT("FpsCounterRow", "Счётчик кадров: {Value}"), Args));
+		FpsCounterText->SetText(FText::Format(
+			ContraryOwnerText::FormatOwned(OwnerFpsCounterRowFormat,
+				LOCTEXT("FpsCounterRow", "Счётчик кадров: {Value}"), bCodeTreeBuilt), Args));
 	}
 
-	if (MusicLabelText)   { MusicLabelText->SetText(LOCTEXT("MusicRow", "Громкость музыки")); }
-	if (EffectsLabelText) { EffectsLabelText->SetText(LOCTEXT("EffectsRow", "Громкость эффектов")); }
+	ContraryOwnerText::SetIfCodeOwns(MusicLabelText, LOCTEXT("MusicRow", "Громкость музыки"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(EffectsLabelText, LOCTEXT("EffectsRow", "Громкость эффектов"), bCodeTreeBuilt);
 	if (MusicValueText)
 	{
 		MusicValueText->SetText(UContrarySurvivorGameUserSettings::MakePercentLabel(
@@ -290,8 +309,10 @@ void USettingsScreenWidget::RefreshLabels()
 			Settings ? Settings->GetEffectsVolume() : UContrarySurvivorGameUserSettings::DefaultVolume));
 	}
 
-	if (SensitivityLabelText) { SensitivityLabelText->SetText(LOCTEXT("SensitivityRow", "Чувствительность управления")); }
-	if (OpacityLabelText)     { OpacityLabelText->SetText(LOCTEXT("OpacityRow", "Прозрачность экранных кнопок")); }
+	ContraryOwnerText::SetIfCodeOwns(SensitivityLabelText,
+		LOCTEXT("SensitivityRow", "Чувствительность управления"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(OpacityLabelText,
+		LOCTEXT("OpacityRow", "Прозрачность экранных кнопок"), bCodeTreeBuilt);
 	if (SensitivityValueText)
 	{
 		SensitivityValueText->SetText(UContrarySurvivorGameUserSettings::MakePercentLabel(
@@ -307,12 +328,14 @@ void USettingsScreenWidget::RefreshLabels()
 		const bool bOn = Settings ? Settings->IsVibrationEnabled() : true;
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("Value"), bOn ? LOCTEXT("VibrationOn", "включена") : LOCTEXT("VibrationOff", "выключена"));
-		VibrationText->SetText(FText::Format(LOCTEXT("VibrationRow", "Вибрация: {Value}"), Args));
+		VibrationText->SetText(FText::Format(
+			ContraryOwnerText::FormatOwned(OwnerVibrationRowFormat,
+				LOCTEXT("VibrationRow", "Вибрация: {Value}"), bCodeTreeBuilt), Args));
 	}
 
-	if (ReportBugText)      { ReportBugText->SetText(LOCTEXT("ReportBug", "Сообщить об ошибке")); }
-	if (ResetProgressText)  { ResetProgressText->SetText(LOCTEXT("ResetProgress", "Сбросить прогресс")); }
-	if (CloseText)          { CloseText->SetText(LOCTEXT("Close", "Назад")); }
+	ContraryOwnerText::SetIfCodeOwns(ReportBugText, LOCTEXT("ReportBug", "Сообщить об ошибке"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(ResetProgressText, LOCTEXT("ResetProgress", "Сбросить прогресс"), bCodeTreeBuilt);
+	ContraryOwnerText::SetIfCodeOwns(CloseText, LOCTEXT("Close", "Назад"), bCodeTreeBuilt);
 
 	// Спека: «Сообщить об ошибке» ведёт в Telegram «с просьбой указать номер версии сборки».
 	// Номер берём из того же места, что меню паузы и главное меню (UDataConsentSubsystem).
@@ -346,6 +369,12 @@ void USettingsScreenWidget::RefreshConfirmPanel()
 	}
 
 	// Двойной переспрос: два РАЗНЫХ вопроса подряд, второй прямо говорит о необратимости.
+	//
+	// ⚠ ЗДЕСЬ ТЕКСТ ОСТАЁТСЯ ЗА КОДОМ, и это осознанно (правило владельца из UI/OwnerTextGuard.h
+	// на него не распространяется): вопрос и подпись согласия МЕНЯЮТСЯ между первой и второй
+	// ступенью, то есть это состояние окна, а не постоянная подпись. Панель вне вопроса
+	// спрятана целиком, так что подписи владельца игрок в этих кубиках не видит никогда.
+	// Кнопка отказа — наоборот, всегда одна и та же, поэтому она ниже идёт как подпись владельца.
 	if (ConfirmTitleText)
 	{
 		ConfirmTitleText->SetText(ResetConfirmStage == EResetConfirmStage::First
@@ -358,10 +387,22 @@ void USettingsScreenWidget::RefreshConfirmPanel()
 			? LOCTEXT("ResetYes1", "Да, сбросить")
 			: LOCTEXT("ResetYes2", "Да, стереть навсегда"));
 	}
-	if (ConfirmNoText)
+	ContraryOwnerText::SetIfCodeOwns(ConfirmNoText, LOCTEXT("ResetNo", "Отмена"), bCodeTreeBuilt);
+}
+
+void USettingsScreenWidget::CaptureOwnerRowFormats()
+{
+	// Один раз и ДО первой записи: после неё в кубике лежит уже собранная строка со значением,
+	// и шаблон владельца из неё не достать.
+	if (bOwnerRowFormatsSaved)
 	{
-		ConfirmNoText->SetText(LOCTEXT("ResetNo", "Отмена"));
+		return;
 	}
+	bOwnerRowFormatsSaved = true;
+	ContraryOwnerText::Remember(PresetValueText, OwnerPresetRowFormat);
+	ContraryOwnerText::Remember(FrameLimitText, OwnerFrameLimitRowFormat);
+	ContraryOwnerText::Remember(FpsCounterText, OwnerFpsCounterRowFormat);
+	ContraryOwnerText::Remember(VibrationText, OwnerVibrationRowFormat);
 }
 
 void USettingsScreenWidget::NotifyChanged()
@@ -676,6 +717,10 @@ USlider* USettingsScreenWidget::MakeRowSlider(UVerticalBox* Column, const FName&
 
 void USettingsScreenWidget::BuildCodeTree()
 {
+	// Отметка «дерево наше»: только здесь код вправе писать поверх непустых подписей
+	// (в окне владельца его текст не трогаем — UI/OwnerTextGuard.h).
+	bCodeTreeBuilt = true;
+
 	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("SettingsRoot"));
 	WidgetTree->RootWidget = Root;
 
