@@ -73,6 +73,8 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 		}
 		// Цвет покоя переключателя БЕГ — тот, что выставил Ринат (не жёсткий белый).
 		SprintIdleColor = SprintButton ? SprintButton->GetBackgroundColor() : FLinearColor::White;
+		// Цвет покоя кнопки ПЕРЕЗАРЯДКА — тот же приём (мигание при малом магазине, 08-29).
+		ReloadIdleColor = ReloadButton ? ReloadButton->GetBackgroundColor() : FLinearColor::White;
 
 		// Кубика иконки оружия может не быть в старом WBP (добавлен 07-19): fallback —
 		// создаём кодом в корневую канву ассета. Двигать мышкой Ринат сможет после
@@ -106,6 +108,7 @@ void UTouchControlsWidget::InitTouch(AContrarySurvivorPlayerController* InContro
 		// Кодовое дерево: применяем настройки контроллера к построенному в NativeOnInitialized
 		// стику (там были дефолты конфига) и строим кнопки — конфиг уже известен.
 		SprintIdleColor = FLinearColor::White;
+		ReloadIdleColor = FLinearColor::White;
 		if (StickBase)
 		{
 			if (UCanvasPanelSlot* BaseSlot = Cast<UCanvasPanelSlot>(StickBase->Slot))
@@ -518,6 +521,17 @@ void UTouchControlsWidget::ResetHeldButtons()
 			SprintButton->SetRenderOpacity(Config.IdleOpacity);
 		}
 	}
+
+	bReloadVisualActive = false; // мигание перезарядки снято — начнёт заново при новом условии
+	ReloadBlinkTime = 0.0f;
+	if (ReloadButton)
+	{
+		ReloadButton->SetBackgroundColor(GetReloadIdleColor());
+		if (!bDesignerTree)
+		{
+			ReloadButton->SetRenderOpacity(Config.IdleOpacity);
+		}
+	}
 }
 
 void UTouchControlsWidget::CreateFpsTextInCanvas(UCanvasPanel* Canvas)
@@ -770,6 +784,80 @@ FLinearColor UTouchControlsWidget::GetSprintIdleColor() const
 	return bUseCustomSprintIdleColor ? SprintIdleColorCustom : SprintIdleColor;
 }
 
+void UTouchControlsWidget::UpdateReloadVisual(float DeltaTime)
+{
+	// Требование владельца 08-29: «когда в магазине оружия остаётся 1 патрон и меньше — мигала
+	// кнопка перезарядки (также как мигает кнопка бега при включённом режиме бега)».
+	if (!ReloadButton || !ReloadButton->IsVisible())
+	{
+		return; // кнопки нет или она спрятана (модалка/дизайнер) — нечего анимировать
+	}
+
+	// Условие мигания: настройка включена, в руках дальнобойное оружие, патронов в магазине
+	// не больше порога. Путь к патронам — тот же защитный, что в PlayerStatsWidget.cpp
+	// (десинк CurrentWeapon/RangedWeaponInstance, находка лида 08-05): «в руках» обязано быть
+	// ИМЕННО отслеживаемым стволом слота, иначе считаем, что дальнобоя нет.
+	bool bShouldBlink = false;
+	if (bBlinkReloadOnLowAmmo && OwnerPC)
+	{
+		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(OwnerPC->GetPawn()))
+		{
+			ARangedWeapon* Ranged = Cast<ARangedWeapon>(Humanoid->GetCurrentWeapon());
+			if (const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(Humanoid))
+			{
+				if (Ranged && Ranged != PlayerChar->GetRangedWeaponInstance())
+				{
+					Ranged = nullptr; // рассинхрон — защитно считаем, что дальнобоя в руках нет
+				}
+				if (Ranged && Ranged->GetCurrentAmmoInClip() <= LowAmmoBlinkThreshold)
+				{
+					// bBlinkOnlyWhenHasAmmoToReload=false (дефолт, буквальное требование
+					// владельца): мигает всегда при пустом/малом магазине, даже нечем
+					// перезарядиться. true — добавляет условие «запас + рюкзак > 0».
+					bShouldBlink = !bBlinkOnlyWhenHasAmmoToReload
+						|| (Ranged->GetCurrentAmmoReserve() + PlayerChar->GetReserveAmmoInInventory() > 0);
+				}
+			}
+		}
+	}
+
+	if (bShouldBlink)
+	{
+		// Тот же приём, что пульсация кнопки БЕГ: яркость ходит по синусу между (1 - глубина)
+		// и 1 от выбранного цвета — цвет не превышается, альфа своя.
+		ReloadBlinkTime += DeltaTime;
+		const float Period = FMath::Max(0.05f, ReloadBlinkPeriod);
+		const float Pulse = 0.5f + 0.5f * FMath::Sin(2.0f * UE_PI * ReloadBlinkTime / Period); // 0..1
+		const float Brightness = 1.0f - ReloadBlinkDepth * (1.0f - Pulse);
+		FLinearColor C = ReloadBlinkColor * Brightness;
+		C.A = ReloadBlinkColor.A;
+		ReloadButton->SetBackgroundColor(C);
+		if (!bDesignerTree)
+		{
+			ReloadButton->SetRenderOpacity(Config.ActiveOpacity);
+		}
+		bReloadVisualActive = true;
+	}
+	else if (bReloadVisualActive)
+	{
+		// Условие пропало (перезарядился/сменил оружие) — один раз возвращаем кнопку к покою.
+		ReloadButton->SetBackgroundColor(GetReloadIdleColor());
+		if (!bDesignerTree)
+		{
+			ReloadButton->SetRenderOpacity(Config.IdleOpacity);
+		}
+		ReloadBlinkTime = 0.0f;
+		bReloadVisualActive = false;
+	}
+}
+
+FLinearColor UTouchControlsWidget::GetReloadIdleColor() const
+{
+	// Задан свой цвет покоя полем — берём поле; иначе тот, что снят с кнопки при создании
+	// виджета (в WBP-режиме это цвет из дизайнера, в кодовом — белый).
+	return bUseCustomReloadIdleColor ? ReloadIdleColorCustom : ReloadIdleColor;
+}
+
 UEnhancedInputLocalPlayerSubsystem* UTouchControlsWidget::GetInputSubsystem() const
 {
 	if (!OwnerPC)
@@ -897,6 +985,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 
 	// Подсветка+пульсация кнопки БЕГ при включённом беге (Блок D): вне модалок, кнопка видна.
 	UpdateSprintVisual(InDeltaTime);
+	// Мигание кнопки ПЕРЕЗАРЯДКА при малом магазине (директива владельца 08-29): тем же
+	// приёмом, вне модалок.
+	UpdateReloadVisual(InDeltaTime);
 
 	// Компас (П.0 ADR-077): только видимость и поворот стрелки — слоты дизайнерские.
 	UpdateCompass();

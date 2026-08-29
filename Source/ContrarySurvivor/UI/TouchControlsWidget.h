@@ -219,6 +219,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Sprint", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5"))
 	float SprintPulseDepth = 0.4f;
 
+	// --- Мигание кнопки ПЕРЕЗАРЯДКА при малом магазине (директива Рината 08-29): «когда в
+	// магазине оружия остаётся 1 патрон и меньше — мигала кнопка перезарядки (также как мигает
+	// кнопка бега при включённом режиме бега)». Настройки — здесь же, в том WBP, где кнопка
+	// (тот же приём, что подсветка кнопки БЕГ выше). ---
+
+	// Включает мигание кнопки ПЕРЕЗАРЯДКА при малом магазине.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (DisplayPriority = "1",
+		DisplayName = "Мигать кнопкой перезарядки при малом магазине"))
+	bool bBlinkReloadOnLowAmmo = true;
+
+	// Порог мигания: мигает, когда патронов в магазине не больше этого числа. 1 (по умолчанию) —
+	// мигает при одном патроне и меньше (включая ноль).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (ClampMin = "0", DisplayPriority = "2",
+		DisplayName = "Мигать, когда патронов в магазине не больше, шт"))
+	int32 LowAmmoBlinkThreshold = 1;
+
+	// Цвет мигания (тревожный красный).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (DisplayPriority = "3",
+		DisplayName = "Цвет мигания"))
+	FLinearColor ReloadBlinkColor = FLinearColor(1.0f, 0.15f, 0.1f, 1.0f);
+
+	// Период мигания: сколько секунд занимает один полный цикл «пригасла — разгорелась».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (ClampMin = "0.05", DisplayPriority = "4",
+		DisplayName = "Период мигания, сек"))
+	float ReloadBlinkPeriod = 1.0f;
+
+	// Глубина мигания: насколько кнопка пригасает в нижней точке цикла. 0 — не мигает совсем
+	// (ровный цвет), 1 — в нижней точке гаснет полностью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "5",
+		DisplayName = "Глубина мигания (0 — ровный цвет, 1 — гаснет полностью)"))
+	float ReloadBlinkDepth = 0.6f;
+
+	// По умолчанию цвет кнопки в покое берётся с самой кнопки, как её нарисовал владелец в
+	// дизайнере (тот же приём, что у кнопки БЕГ выше). Включить — задать цвет покоя вручную
+	// полем ниже.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (DisplayPriority = "6"))
+	bool bUseCustomReloadIdleColor = false;
+
+	// Обычный цвет кнопки ПЕРЕЗАРЯДКА (когда мигание не активно). Действует при
+	// bUseCustomReloadIdleColor = true.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (EditCondition = "bUseCustomReloadIdleColor", DisplayPriority = "7"))
+	FLinearColor ReloadIdleColorCustom = FLinearColor::White;
+
+	// Мигать только когда есть чем перезарядиться (патроны в запасе/рюкзаке). При false (по
+	// умолчанию) мигает всегда при пустом/малом магазине, даже если перезаряжаться нечем —
+	// буквальное требование владельца.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Reload", meta = (DisplayPriority = "8",
+		DisplayName = "Мигать только когда есть чем перезарядиться"))
+	bool bBlinkOnlyWhenHasAmmoToReload = false;
+
 	// --- Компас на стике (ADR-076 п.5). П.0 отчёта Рината 23.08 (ADR-077): кубики компаса
 	// живут В АССЕТЕ WBP_TouchControls (добавляет -augment генератора) — видны и двигаются
 	// в дизайнере, стиль (кегли/цвета/тексты/размер стрелки) правится там же. Код НЕ трогает
@@ -471,6 +521,13 @@ private:
 	// Обычный цвет кнопки БЕГ: заданный Ринатом полем или снятый с кнопки в дизайнере.
 	FLinearColor GetSprintIdleColor() const;
 
+	// Мигание кнопки ПЕРЕЗАРЯДКА при малом магазине (директива владельца 08-29). Зовётся
+	// каждый кадр вне модалок, тем же приёмом, что UpdateSprintVisual.
+	void UpdateReloadVisual(float DeltaTime);
+
+	// Обычный цвет кнопки ПЕРЕЗАРЯДКА: заданный полем или снятый с кнопки в дизайнере.
+	FLinearColor GetReloadIdleColor() const;
+
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
 	void UpdateWeaponIcon(bool bForceHide);
@@ -516,6 +573,11 @@ private:
 	// (см. GetSprintIdleColor): кнопка возвращается к нему, когда бег выключается.
 	FLinearColor SprintIdleColor = FLinearColor::White;
 
+	// Цвет кнопки ПЕРЕЗАРЯДКА в покое, снятый при создании виджета — тот же приём, что
+	// SprintIdleColor выше. Используется, пока bUseCustomReloadIdleColor выключен (см.
+	// GetReloadIdleColor): кнопка возвращается к нему, когда мигание гаснет.
+	FLinearColor ReloadIdleColor = FLinearColor::White;
+
 	bool bStickActive = false;
 	int32 StickPointerIndex = INDEX_NONE;              // какой палец/кнопка держит стик
 	FVector2D StickVector = FVector2D::ZeroVector;     // нормализованный вектор [-1..1] (X вправо, Y вперёд)
@@ -537,4 +599,8 @@ private:
 	// --- Пульсация кнопки БЕГ (Блок D) ---
 	float SprintPulseTime = 0.0f;      // накопитель фазы синуса пульсации
 	bool bSprintVisualActive = false;  // сейчас показана подсветка бега (для сброса к покою один раз)
+
+	// --- Мигание кнопки ПЕРЕЗАРЯДКА при малом магазине (директива владельца 08-29) ---
+	float ReloadBlinkTime = 0.0f;      // накопитель фазы синуса мигания
+	bool bReloadVisualActive = false;  // сейчас показано мигание (для сброса к покою один раз)
 };
