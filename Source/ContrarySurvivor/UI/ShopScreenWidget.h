@@ -15,6 +15,7 @@ class USlider;
 class UItemTileWidget;
 class APlayerCharacter;
 class AMasterInventoryItem;
+class UInventoryScreenWidget; // ADR-082: окно-напарник (правая панель, режим Trade)
 
 /**
  * Экран магазина на UMG (ADR-048, этап 1). Логика — здесь; раскладку WBP_Shop строит
@@ -47,6 +48,13 @@ public:
 
 	// Пересобрать списки и денежную строку (после покупки/продажи: составы и цены сменились).
 	void RefreshAll();
+
+	// ADR-082, этап 3 (ТЗ: «нажатие в правой панели продаёт его торговцу»): плитка ПРАВОЙ
+	// панели — теперь настоящий инвентарь-напарник (bUseExternalInventoryPanel), клик по ней
+	// зовёт этот метод вместо собственного HandleTileAction. Гейт (модальная панель
+	// количества / предмет не в рюкзаке) + существующий ArmSellTransaction — саму сделку
+	// не переписываем.
+	void BeginSellFromInventory(AMasterInventoryItem* Item);
 
 	// Б8 (издатель 08-05, п.5): сколько плиток шириной TileWidth с зазором Spacing помещается
 	// в ряд шириной InnerWidth. Ряд из N плиток занимает N ширин и (N-1) зазоров.
@@ -128,6 +136,16 @@ public:
 		DisplayName = "Наименьший размер кнопки под палец"))
 	float MinTouchSize = 48.0f;
 
+	// ADR-082 (ТЗ издателя 29.08: «справа — полноценный инвентарь игрока, именно тот же
+	// виджет, что открывается по кнопке и используется при обыске, а не отдельный урезанный
+	// список»): включено (по умолчанию) — собственные SellList/SellHeaderText всегда спрятаны
+	// и НЕ строятся, продажу ведёт настоящее окно инвентаря-напарника (контроллер открывает
+	// его связкой в OpenShop, режим Trade). Выключить — вернуть прежний собственный список
+	// (запасной путь, если пары окон почему-то нет).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop", meta = (DisplayPriority = "10",
+		DisplayName = "Рюкзак показывает отдельное окно инвентаря"))
+	bool bUseExternalInventoryPanel = true;
+
 	// Тексты магазина. Подстановки в фигурных скобках подставляет код, остальное — твой
 	// текст. Статичные подписи («Монеты», «Количество») — отдельные кубики в дизайнере,
 	// код их не пишет; здесь только то, что меняется по ходу сделки (ADR-050).
@@ -191,19 +209,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "1.0", DisplayPriority = "1"))
 	float SellAdBonusMultiplier = 1.5f;
 
-	// Порог суммы сделки для показа золотой кнопки (ТЗ: 50 монет — защита от «рекламы
-	// ради трёх монет»).
+	// Порог суммы сделки для показа золотой кнопки (правка Рината 29.08: снижен с 50 до 25
+	// монет — защита от «рекламы ради трёх монет» остаётся, но мягче).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "0.0", DisplayPriority = "2"))
-	float SellAdMinTotal = 50.0f;
+	float SellAdMinTotal = 25.0f;
 
-	// Лимит просмотров точки в календарные сутки (ТЗ: 4).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "0", DisplayPriority = "3"))
-	int32 SellAdDailyLimit = 4;
+	// Лимит просмотров точки в календарные сутки. Правка Рината 29.08: ограничение снято —
+	// 0 означает «без ограничения» (было 4).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "0", DisplayPriority = "3",
+		DisplayName = "Лимит показов в сутки (0 — без ограничения)"))
+	int32 SellAdDailyLimit = 0;
 
-	// Кулдаун между просмотрами точки, сек (ТЗ: 3 минуты — защита от «продал по одной
-	// шкуре пять раз подряд»).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "0.0", DisplayPriority = "4"))
-	float SellAdCooldownSeconds = 180.0f;
+	// Кулдаун между просмотрами точки, сек. Правка Рината 29.08: пауза снята — 0 означает
+	// «без паузы» (было 180 = 3 минуты).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Ads", meta = (ClampMin = "0.0", DisplayPriority = "4",
+		DisplayName = "Пауза между показами, сек (0 — без паузы)"))
+	float SellAdCooldownSeconds = 0.0f;
 
 	// Надпись золотой кнопки — КОНКРЕТНЫЕ числа, не проценты (ТЗ №2 раздел 3):
 	// {Bonus} — сумма с надбавкой, {Base} — обычная сумма.
@@ -282,6 +303,11 @@ protected:
 
 	// Текущие деньги игрока (0 при отсутствии статов).
 	float GetPlayerMoney() const;
+
+	// ADR-082, этап 3, п.6: окно-напарник (правая панель) ищем через HUD владеющего
+	// контроллера КАЖДЫЙ раз — без хранения владеющей ссылки (слабая связь: инвентарь могло
+	// не создаться вовсе, если игрок ни разу его не открывал). nullptr — напарника нет.
+	UInventoryScreenWidget* GetPartnerInventoryWidget() const;
 
 	// --- Кубики WBP_Shop (имена ТОЧНЫЕ — см. umg-layout-guide.md) ---
 

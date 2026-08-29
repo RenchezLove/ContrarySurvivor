@@ -3,6 +3,7 @@
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h" // окно-напарник режима Search (ADR-082)
+#include "ContrarySurvivor/UI/ShopScreenWidget.h" // окно-напарник режима Trade (ADR-082)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
@@ -410,10 +411,17 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 		break;
 	}
 	case EItemPanelMode::Trade:
-		// Реализация — этап 3 ADR-082 (готовое мини-окно количества); интерфейс здесь не
-		// придумываем заранее.
-		UE_LOG(LogQA, Display, TEXT("QA: режим торговли, этап 3"));
+	{
+		// Клик по плитке ПРАВОЙ панели продаёт предмет торговцу (ТЗ: «нажатие в правой
+		// панели продаёт его торговцу») — гейт и панель количества уже в BeginSellFromInventory
+		// (переиспользует существующий ArmSellTransaction, ничего не дублируем). Свою панель
+		// НЕ обновляем сразу: продажа произойдёт позже, по кнопке «Подтвердить» в мини-окне.
+		if (UShopScreenWidget* ShopWindow = Cast<UShopScreenWidget>(PanelPartner.Get()))
+		{
+			ShopWindow->BeginSellFromInventory(Item);
+		}
 		break;
+	}
 	case EItemPanelMode::Stash:
 		UE_LOG(LogQA, Display, TEXT("QA: личный ящик пока не реализован"));
 		break;

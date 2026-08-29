@@ -1201,6 +1201,12 @@ private:
 	UPROPERTY()
 	TObjectPtr<UShopScreenWidget> ShopWidgetInstance;
 
+public:
+	// Живой экземпляр окна магазина (ADR-082): напарник инвентаря в режиме Trade.
+	// nullptr — окно ни разу не открывалось. Поле-экземпляр выше остаётся private.
+	UShopScreenWidget* GetShopWidgetInstance() const { return ShopWidgetInstance; }
+private:
+
 	// Магазин живёт в UMG-пути? (слот назначен и экземпляр показан)
 	bool IsUmgShopActive() const;
 

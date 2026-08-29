@@ -2,6 +2,9 @@
 
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
+#include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-082: окно-напарник (правая панель, Trade)
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"  // ADR-082: поиск напарника через HUD владельца
+#include "GameFramework/PlayerController.h"            // ADR-082: PC->GetHUD() в GetPartnerInventoryWidget
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Actors/ShopTypes.h"
@@ -241,12 +244,48 @@ float UShopScreenWidget::GetPlayerMoney() const
 	return Stats ? Stats->GetMoney() : 0.0f;
 }
 
+UInventoryScreenWidget* UShopScreenWidget::GetPartnerInventoryWidget() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const AContrarySurvivorHUD* CSHUD = PC ? Cast<AContrarySurvivorHUD>(PC->GetHUD()) : nullptr;
+	return CSHUD ? CSHUD->GetInventoryWidgetInstance() : nullptr;
+}
+
+void UShopScreenWidget::BeginSellFromInventory(AMasterInventoryItem* Item)
+{
+	if (bTransactionActive)
+	{
+		return; // панель количества модальна — тот же гейт, что в HandleTileAction
+	}
+	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	if (!IsValid(Item) || !Inventory || !Inventory->GetInventoryItems().Contains(Item))
+	{
+		return; // предмета нет / не в рюкзаке (например, устаревшая плитка после двойного клика)
+	}
+	ArmSellTransaction(Item);
+}
+
 void UShopScreenWidget::RefreshAll()
 {
 	// Порядок важен: сперва рюкзак — по числу его плиток видно, пуста ли правая половина
 	// окна; затем раскладка половин; и только потом товары.
-	const int32 SellColumns = ComputeColumns(GetListInnerWidth(SellList));
-	const int32 SellTiles = RebuildList(/*bBuyList=*/false, SellColumns);
+	int32 SellTiles = 0;
+	if (bUseExternalInventoryPanel)
+	{
+		// ADR-082, этап 3: рюкзак теперь ОТДЕЛЬНОЕ окно-напарник (тот же UInventoryScreenWidget,
+		// что у кнопки СУМКА и у обыска) — собственный урезанный список не строим, кадры на
+		// RebuildList(bBuyList=false) не тратим. UpdateListsLayout прячет SellList/SellHeaderText.
+		if (SellList)
+		{
+			SellList->ClearChildren();
+		}
+	}
+	else
+	{
+		const int32 SellColumns = ComputeColumns(GetListInnerWidth(SellList));
+		SellTiles = RebuildList(/*bBuyList=*/false, SellColumns);
+		LastSellColumns = SellColumns;
+	}
 
 	UpdateListsLayout(/*bBackpackEmpty=*/SellTiles == 0);
 
@@ -257,7 +296,6 @@ void UShopScreenWidget::RefreshAll()
 	RebuildList(/*bBuyList=*/true, BuyColumns);
 
 	LastBuyColumns = BuyColumns;
-	LastSellColumns = SellColumns;
 }
 
 void UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
@@ -294,15 +332,17 @@ void UShopScreenWidget::UpdateListsLayout(bool bBackpackEmpty)
 		BuySlot->SetLayout(Layout);
 	}
 
-	// Половина рюкзака вместе со своим заголовком уходит с экрана целиком: пустая
-	// подписанная половина и была тем самым «пустующим правым краем» из замечания издателя.
+	// Половина рюкзака вместе со своим заголовком уходит с экрана целиком: либо старой
+	// причиной (bExpand — растяжка на пустой рюкзак, bExpandBuyListWhenBackpackEmpty не
+	// трогаем), либо новой (ADR-082: рюкзак теперь окно-напарник, свою половину не строим).
+	const bool bHideSellHalf = bExpand || bUseExternalInventoryPanel;
 	if (SellList)
 	{
-		SellList->SetVisibility(bExpand ? ESlateVisibility::Collapsed : SellListVisibility);
+		SellList->SetVisibility(bHideSellHalf ? ESlateVisibility::Collapsed : SellListVisibility);
 	}
 	if (SellHeaderText)
 	{
-		SellHeaderText->SetVisibility(bExpand ? ESlateVisibility::Collapsed : SellHeaderVisibility);
+		SellHeaderText->SetVisibility(bHideSellHalf ? ESlateVisibility::Collapsed : SellHeaderVisibility);
 	}
 }
 
@@ -524,9 +564,15 @@ void UShopScreenWidget::ArmBuyTransaction(int32 CatalogIndex)
 	{
 		SliderPanel->SetVisibility(ESlateVisibility::Visible);
 	}
-	// Списки на время транзакции гаснут (модальность панели количества).
+	// Списки на время транзакции гаснут (модальность панели количества). ADR-082: и
+	// окно-напарник (правая панель, настоящий инвентарь) — иначе игрок кликнет по рюкзаку
+	// поверх открытой панели количества.
 	if (BuyList)  { BuyList->SetIsEnabled(false); }
 	if (SellList) { SellList->SetIsEnabled(false); }
+	if (UInventoryScreenWidget* Partner = GetPartnerInventoryWidget())
+	{
+		Partner->SetInteractionEnabled(false);
+	}
 
 	if (QtySlider)
 	{
@@ -579,16 +625,25 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 	TransactionQtyMax = GetSellQtyMax(Item);
 	TransactionQty = TransactionQtyMax; // по умолчанию продать всё (STALKER-стиль, как Canvas)
 
-	// Снимок лимита/кулдауна точки рекламы на момент открытия сделки (см. заголовок).
-	bAdLimitOk = Player && Player->GetShopAdUsesToday() < SellAdDailyLimit;
+	// Снимок лимита/кулдауна точки рекламы на момент открытия сделки (см. заголовок). Правка
+	// Рината 29.08: SellAdDailyLimit=0 означает «без ограничения» — иначе UsesToday() < 0
+	// было бы ложью всегда (ограничение выключено, а условие никогда бы не пропускало).
+	// SellAdCooldownSeconds=0 отдельной ветки не требует: AdGatingLogic::IsCooldownPassed
+	// считает SecondsSince >= CooldownSeconds, при 0 это истинно уже в первое же мгновение.
+	bAdLimitOk = Player && (SellAdDailyLimit <= 0 || Player->GetShopAdUsesToday() < SellAdDailyLimit);
 	bAdCooldownOk = Player && Player->IsShopAdCooldownPassed(SellAdCooldownSeconds);
 
 	if (SliderPanel)
 	{
 		SliderPanel->SetVisibility(ESlateVisibility::Visible);
 	}
+	// ADR-082: и окно-напарник (правая панель) гаснет вместе со списками — см. ArmBuyTransaction.
 	if (BuyList)  { BuyList->SetIsEnabled(false); }
 	if (SellList) { SellList->SetIsEnabled(false); }
+	if (UInventoryScreenWidget* Partner = GetPartnerInventoryWidget())
+	{
+		Partner->SetInteractionEnabled(false);
+	}
 
 	if (QtySlider)
 	{
@@ -622,6 +677,11 @@ void UShopScreenWidget::CloseTransaction()
 	}
 	if (BuyList)  { BuyList->SetIsEnabled(true); }
 	if (SellList) { SellList->SetIsEnabled(true); }
+	// ADR-082: возвращаем интерактивность окну-напарнику вместе со списками.
+	if (UInventoryScreenWidget* Partner = GetPartnerInventoryWidget())
+	{
+		Partner->SetInteractionEnabled(true);
+	}
 }
 
 void UShopScreenWidget::SetTransactionQty(int32 NewQty)
@@ -820,6 +880,11 @@ void UShopScreenWidget::HandleConfirmClicked()
 
 	CloseTransaction();
 	RefreshAll();
+	// ADR-082: деньги и состав рюкзака сменились — окно-напарник тоже просит пересчёт.
+	if (UInventoryScreenWidget* Partner = GetPartnerInventoryWidget())
+	{
+		Partner->RefreshInventoryDisplay();
+	}
 }
 
 void UShopScreenWidget::HandleCancelClicked()
@@ -891,6 +956,11 @@ void UShopScreenWidget::HandleShopAdSuccess()
 
 	CloseTransaction();
 	RefreshAll();
+	// ADR-082: деньги и состав рюкзака сменились — окно-напарник тоже просит пересчёт.
+	if (UInventoryScreenWidget* Partner = GetPartnerInventoryWidget())
+	{
+		Partner->RefreshInventoryDisplay();
+	}
 }
 
 void UShopScreenWidget::HandleShopAdFail()

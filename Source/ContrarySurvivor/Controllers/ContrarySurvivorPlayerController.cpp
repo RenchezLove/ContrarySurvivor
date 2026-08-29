@@ -30,6 +30,7 @@
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): обыск трупов
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-082: SetPanelMode при связке окон
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"      // ADR-082: окно-напарник режима Search
+#include "ContrarySurvivor/UI/ShopScreenWidget.h"      // ADR-082: окно-напарник режима Trade
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"          // ADR-074: граница деревни для подсказки о сохранении
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
@@ -2212,6 +2213,16 @@ void AContrarySurvivorPlayerController::OpenShop(TScriptInterface<IShopVendor> T
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetShopOpen(true, Trader);
+
+		// ADR-082: торговля — тоже пара окон, тем же приёмом, что обыск. Справа открывается
+		// связкой настоящий инвентарь в режиме Trade — оба окна обязаны существовать ДО
+		// SetPanelMode (SetInventoryOpen создаёт/переиспользует UMG-экземпляр инвентаря).
+		bInventoryOpen = true;
+		CSHUD->SetInventoryOpen(true);
+		if (UInventoryScreenWidget* InvWidget = CSHUD->GetInventoryWidgetInstance())
+		{
+			InvWidget->SetPanelMode(EItemPanelMode::Trade, CSHUD->GetShopWidgetInstance());
+		}
 	}
 
 	FInputModeGameAndUI Mode;
@@ -2236,6 +2247,14 @@ void AContrarySurvivorPlayerController::CloseShop()
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetShopOpen(false, nullptr);
+
+		// ADR-082: закрываем и напарника — инвентарь возвращается в обычный режим.
+		bInventoryOpen = false;
+		CSHUD->SetInventoryOpen(false);
+		if (UInventoryScreenWidget* InvWidget = CSHUD->GetInventoryWidgetInstance())
+		{
+			InvWidget->SetPanelMode(EItemPanelMode::Normal, nullptr);
+		}
 	}
 
 	SetInputMode(FInputModeGameOnly());
