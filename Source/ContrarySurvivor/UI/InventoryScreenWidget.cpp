@@ -14,6 +14,7 @@
 #include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
+#include "Components/Border.h"    // DimBorder — затемнение мира (ADR-082, гашение при связке окон)
 #include "Components/Image.h"
 #include "Components/ScrollBox.h"
 #include "Components/UniformGridPanel.h"
@@ -52,6 +53,13 @@ void UInventoryScreenWidget::NativeOnInitialized()
 	}
 	// Кнопки закрытия может и не быть: инвентарь закрывается клавишей Tab/кнопкой СУМКА —
 	// предупреждение не пишем, это законная раскладка.
+
+	if (DimBorder)
+	{
+		// Снимок тем же приёмом, что CloseButton выше (правка лида 29.08, см. класс-комментарий
+		// у поля DimBorder): в паре окон затемнение мира ведёт только окно-напарник слева.
+		DimBorderShownVisibility = DimBorder->GetVisibility();
+	}
 }
 
 void UInventoryScreenWidget::SetPanelMode(EItemPanelMode InMode, UObject* InPartner)
@@ -64,6 +72,16 @@ void UInventoryScreenWidget::SetPanelMode(EItemPanelMode InMode, UObject* InPart
 	{
 		CloseButton->SetVisibility(InMode == EItemPanelMode::Normal
 			? CloseButtonShownVisibility
+			: ESlateVisibility::Collapsed);
+	}
+
+	// Правка лида 29.08: полноэкранное DimBorder этого окна прячем в любом режиме кроме
+	// Normal — иначе оно (ZOrder=30, как и окно-напарник) ловит клики по левой панели
+	// (обыск/магазин) и удваивает затемнение экрана. Мир затемняет окно-напарник, оно ниже.
+	if (DimBorder)
+	{
+		DimBorder->SetVisibility(InMode == EItemPanelMode::Normal
+			? DimBorderShownVisibility
 			: ESlateVisibility::Collapsed);
 	}
 

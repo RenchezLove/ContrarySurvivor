@@ -11,6 +11,7 @@ class UTextBlock;
 class UButton;
 class UImage;
 class UScrollBox;
+class UBorder;
 class UItemTileWidget;
 class APlayerCharacter;
 class AMasterWeapon;
@@ -244,6 +245,14 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> CloseButton;
 
+	// Затемнение на весь экран (генератор WBP, GenerateWbpCommandlet.cpp: «Visible — ловит
+	// клик мимо кнопок»). Правка лида 29.08: при ЛЮБОМ режиме кроме Normal этот кубик ловил
+	// клики по левому окну-напарнику (обыск/магазин) — оба окна выводятся на одном ZOrder,
+	// и полноэкранное затемнение верхнего (инвентарь) перекрывало нижнее. Прячем свой —
+	// затемнение мира берёт на себя окно-напарник, оно ниже.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> DimBorder;
+
 private:
 	UPROPERTY()
 	TObjectPtr<APlayerCharacter> Player;
@@ -267,6 +276,11 @@ private:
 	// (тот же приём, что цвет покоя кнопки БЕГ в TouchControlsWidget::SprintIdleColor) —
 	// возвращаем её при выходе обратно в Normal, а не жёсткий Visible.
 	ESlateVisibility CloseButtonShownVisibility = ESlateVisibility::Visible;
+
+	// Видимость DimBorder «как сгенерировал коммандлет», снятая тем же приёмом ОДИН раз при
+	// инициализации — возвращаем её в Normal, в остальных режимах кубик Collapsed (см. класс-
+	// комментарий у поля DimBorder).
+	ESlateVisibility DimBorderShownVisibility = ESlateVisibility::Visible;
 
 	// Защита от двойного клика по одной и той же плитке, пока перенос предмета (режим Search)
 	// не завершён: повтор по тому же предмету, пока эта ссылка на него ещё держится, игнорируем.
