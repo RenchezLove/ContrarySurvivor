@@ -12,7 +12,7 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 //#include "PlayerController.h"
 #include "AMasterWeapon.h"
-#include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // FLimpIndicatorStyle + FLimpFirstHintState (индикатор хромоты, Build 1)
+#include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // ULimpIndicatorWidget + FLimpFirstHintState (индикатор хромоты, Build 1)
 #include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
 #include "ContrarySurvivor/Debug/QADebug.h"      // CONTRARY_WITH_QA_CHEATS: отладочной клавиши нет в Shipping
 #include "PlayerCharacter.generated.h"
@@ -246,32 +246,10 @@ protected:
     USoundBase* LimpBreathingSound = nullptr;
 
     // --- Индикация хромоты игроку (приёмка Рината 07-27: «обозначить, что герой хромает
-    // из-за низкого здоровья, а не ходит так всегда»). Кодовый UMG-виджет без .uasset. ---
-
-    // Текст ПОСТОЯННОГО индикатора: плашка под стеком статов, видна всё время, пока игрок хромает.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (DisplayPriority = "4"))
-    FText LimpIndicatorText = NSLOCTEXT("LimpIndicator", "IndicatorText", "Ранен: скорость снижена");
-
-    // РАЗОВАЯ развёрнутая подсказка (раз за игровую сессию, при первом входе в хромоту со
-    // свободным управлением): объясняет причину и что скорость ВЕРНЁТСЯ после лечения.
-    // Названные способы лечения сверены с кодом: аптечка лечит напрямую (AConsumableItem,
-    // тип Medkit), еда и вода лечат понемногу (UStatsComponent::Food/WaterHealthRestoreAmount).
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (DisplayPriority = "5", MultiLine = "true"))
-    FText LimpFirstHintText = NSLOCTEXT("LimpIndicator", "FirstHintText",
-        "Тебя сильно потрепали: пока здоровья мало, герой хромает и идёт медленно. Подлечись — аптечкой, едой или водой — и скорость вернётся.");
-
-    // Задержка развёрнутой подсказки после того, как управление стало свободным (сек), чтобы не
-    // спорить за внимание с подсказкой движения — та всплывает ровно в момент передачи управления.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (ClampMin = "0.0", DisplayPriority = "6"))
-    float LimpFirstHintDelay = 2.5f;
-
-    // Сколько секунд висит развёрнутая подсказка; затем плашка сжимается до постоянного индикатора.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (ClampMin = "1.0", DisplayPriority = "7"))
-    float LimpFirstHintDuration = 8.0f;
-
-    // Стиль плашки индикатора: цвета, шрифт, позиция/отступы на экране, ширина.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Limp", meta = (DisplayPriority = "8"))
-    FLimpIndicatorStyle LimpIndicatorStyle;
+    // из-за низкого здоровья, а не ходит так всегда»). Окно — WBP_LimpIndicator.
+    // Тексты, тайминги подсказки и стиль плашки переехали на сам виджет — ULimpIndicatorWidget
+    // (директива владельца 08-29, ADR-077 п.0: вид ЛЮБОГО окна настраивается в его WBP, а не
+    // на владельце). Здесь остались только правила игры (порог/скорость/звук выше). ---
 
     // Компонент статов игрока (ADR-015) — ИСТОЧНИК ИСТИНЫ по HP/голоду/жажде/деньгам
     // (Фаза 2). Инлайн-Health базы AMasterHumanoidCharacter для игрока не используется,
@@ -967,8 +945,9 @@ protected:
     // Зовётся из Tick — дёшево, сплошные ранние выходы. Видимость плашки ведёт сам виджет.
     void UpdateLimpIndicator();
 
-    // Разовая развёрнутая подсказка: показать (по таймеру задержки LimpFirstHintDelay) и по
-    // истечении LimpFirstHintDuration вернуть плашке компактный текст индикатора.
+    // Разовая развёрнутая подсказка: показать (по таймеру задержки — поле FirstHintDelay на
+    // ULimpIndicatorWidget) и по истечении его же FirstHintDuration вернуть плашке компактный
+    // текст индикатора.
     void ShowLimpFirstHint();
     void EndLimpFirstHint();
 

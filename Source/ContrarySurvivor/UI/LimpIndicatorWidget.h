@@ -94,13 +94,57 @@ class CONTRARYSURVIVOR_API ULimpIndicatorWidget : public USelfHidingWidget
 
 public:
 	// Текст плашки (компактный индикатор либо развёрнутая разовая подсказка) — готовый
-	// переводимый FText (ADR-050), собирает APlayerCharacter из своих EditAnywhere-полей.
+	// переводимый FText (ADR-050). Публичный для случаев, когда вызывающему код нужен
+	// произвольный текст; для двух штатных состояний хромоты — см. ApplyStateText ниже.
 	void SetIndicatorText(const FText& Text);
 
-	// Применяет стиль к уже построенному дереву (NativeOnInitialized отработал в CreateWidget
-	// с дефолтами). Зовёт APlayerCharacter сразу после создания виджета.
-	// При дизайнер-дереве не делает ничего — вид целиком в ассете.
-	void ApplyStyle(const FLimpIndicatorStyle& Style);
+	// Ставит один из двух штатных текстов индикатора (WoundedText/FirstHintText) — сам решает,
+	// какой: true = развёрнутая разовая подсказка, false = постоянная строка «ранен». Владелец
+	// (APlayerCharacter) ведёт только МОМЕНТ переключения (по правилам игры), сами тексты ему
+	// знать не нужно — они целиком на виджете.
+	void ApplyStateText(bool bExpandedHint);
+
+	// Тайминги разовой подсказки для владельца (таймеры показа/скрытия ставит APlayerCharacter,
+	// значения — отсюда, поле ниже он больше не хранит).
+	float GetFirstHintDelay() const { return FirstHintDelay; }
+	float GetFirstHintDuration() const { return FirstHintDuration; }
+
+	// --- Тексты, тайминги и стиль индикатора хромоты (директива владельца 08-29: «перенеси
+	// внутрь окна, чтобы крутить мышью там же» — ADR-077 п.0, внешний вид ЛЮБОГО окна
+	// настраивается в его собственном WBP). Раньше жили на APlayerCharacter — теперь здесь,
+	// видны в Class Defaults ассета WBP_LimpIndicator. Правила игры (порог HP/скорость/звук
+	// хромоты) остались на персонаже — это не вид окна, а механика. ---
+
+	// Постоянная строка, пока игрок ранен: плашка под стеком статов, видна всё время хромоты.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LimpIndicator", meta = (DisplayPriority = "1",
+		DisplayName = "Постоянная строка, пока игрок ранен"))
+	FText WoundedText = NSLOCTEXT("LimpIndicator", "IndicatorText", "Ранен: скорость снижена");
+
+	// РАЗОВАЯ развёрнутая подсказка (раз за игровую сессию, при первом входе в хромоту со
+	// свободным управлением): объясняет причину и что скорость ВЕРНЁТСЯ после лечения.
+	// Названные способы лечения сверены с кодом: аптечка лечит напрямую (AConsumableItem,
+	// тип Medkit), еда и вода лечат понемногу (UStatsComponent::Food/WaterHealthRestoreAmount).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LimpIndicator", meta = (DisplayPriority = "2",
+		DisplayName = "Разовая развёрнутая подсказка при первом ранении", MultiLine = "true"))
+	FText FirstHintText = NSLOCTEXT("LimpIndicator", "FirstHintText",
+		"Тебя сильно потрепали: пока здоровья мало, герой хромает и идёт медленно. Подлечись — аптечкой, едой или водой — и скорость вернётся.");
+
+	// Задержка развёрнутой подсказки после того, как управление стало свободным (сек), чтобы не
+	// спорить за внимание с подсказкой движения — та всплывает ровно в момент передачи управления.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LimpIndicator", meta = (ClampMin = "0.0", DisplayPriority = "3",
+		DisplayName = "Задержка развёрнутой подсказки, сек"))
+	float FirstHintDelay = 2.5f;
+
+	// Сколько секунд висит развёрнутая подсказка; затем плашка сжимается до постоянного индикатора.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LimpIndicator", meta = (ClampMin = "1.0", DisplayPriority = "4",
+		DisplayName = "Сколько секунд висит развёрнутая подсказка"))
+	float FirstHintDuration = 8.0f;
+
+	// Стиль плашки: цвета, шрифт, позиция/отступы на экране, ширина. Действует ТОЛЬКО когда
+	// ассета нет и дерево строится кодом (BuildCodeTree, см. ApplyStyle ниже); при дереве из
+	// WBP_LimpIndicator вид целиком в дизайнере, код его не трогает (ADR-077 п.0).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LimpIndicator", meta = (DisplayPriority = "5"))
+	FLimpIndicatorStyle Style;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -114,6 +158,12 @@ private:
 	// Строит прежнее кодовое дерево (путь «ассета нет»). Имена кубиков = именам полей —
 	// те же, что генерирует коммандлет в WBP_LimpIndicator.
 	void BuildCodeTree();
+
+	// Раскладывает собственное поле Style по уже построенному кодовому дереву (зовётся из
+	// NativeOnInitialized СРАЗУ после BuildCodeTree — дерево обязано быть готово). При
+	// дизайнер-дереве ничего не делает — вид целиком в ассете (было публичным ApplyStyle,
+	// параметр убран: с 08-29 виджет владеет своим стилем сам, снаружи он больше не задаётся).
+	void ApplyStyle();
 
 	// --- Кубики: из WBP по BindWidgetOptional ЛИБО из BuildCodeTree (имена совпадают) ---
 

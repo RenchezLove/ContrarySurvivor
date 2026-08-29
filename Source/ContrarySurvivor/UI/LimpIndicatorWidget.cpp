@@ -34,7 +34,7 @@ void ULimpIndicatorWidget::NativeOnInitialized()
 	}
 
 	BuildCodeTree();
-	ApplyStyle(FLimpIndicatorStyle());
+	ApplyStyle(); // дерево построено — раскладываем по нему собственное поле Style
 }
 
 void ULimpIndicatorWidget::BuildCodeTree()
@@ -59,10 +59,11 @@ void ULimpIndicatorWidget::BuildCodeTree()
 	}
 }
 
-void ULimpIndicatorWidget::ApplyStyle(const FLimpIndicatorStyle& Style)
+void ULimpIndicatorWidget::ApplyStyle()
 {
 	// Дерево владельца из WBP_LimpIndicator: плашка/шрифт/позиция — его, код не трогает
-	// (ТЗ Рината 08-07). Текст ставит SetIndicatorText в обоих путях.
+	// (ADR-077 п.0). Текст ставит SetIndicatorText в обоих путях. Style — собственное поле
+	// виджета (с 08-29; было параметром, который передавал APlayerCharacter).
 	if (bDesignerTree)
 	{
 		return;
@@ -95,6 +96,11 @@ void ULimpIndicatorWidget::SetIndicatorText(const FText& Text)
 	{
 		IndicatorText->SetText(Text);
 	}
+}
+
+void ULimpIndicatorWidget::ApplyStateText(bool bExpandedHint)
+{
+	SetIndicatorText(bExpandedHint ? FirstHintText : WoundedText);
 }
 
 void ULimpIndicatorWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)

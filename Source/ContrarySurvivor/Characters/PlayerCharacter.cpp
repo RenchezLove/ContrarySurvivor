@@ -551,7 +551,8 @@ void APlayerCharacter::UpdateLimpState(float NewHealth, float InMaxHealth)
 
 void APlayerCharacter::UpdateLimpIndicator()
 {
-    // Кодовый UMG-виджет без .uasset (паттерн ADR-048: новые экраны — UMG из C++). Владелец —
+    // Виджет создаётся из WBP_LimpIndicator (слот LimpIndicatorWidgetClass на HUD, ссылка есть
+    // в BP_ContrarySurvivorHUD); кодовое дерево — только запасной путь, если слот пуст. Владелец —
     // локальный контроллер; без него или без вьюпорта (headless-тесты/коммандлеты) тихо выходим.
     AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController());
     UWorld* World = GetWorld();
@@ -582,8 +583,9 @@ void APlayerCharacter::UpdateLimpIndicator()
             UE_LOG(LogTemp, Warning, TEXT("LimpIndicator: widget creation failed"));
             return;
         }
-        LimpIndicatorWidget->ApplyStyle(LimpIndicatorStyle);
-        LimpIndicatorWidget->SetIndicatorText(bLimpHintExpandedActive ? LimpFirstHintText : LimpIndicatorText);
+        // Стиль виджет раскладывает сам (собственное поле Style, ADR-077 п.0) — снаружи больше
+        // не задаётся. Тексты — тоже его: ApplyStateText сам выбирает WoundedText/FirstHintText.
+        LimpIndicatorWidget->ApplyStateText(bLimpHintExpandedActive);
     }
 
     // Постоянные панели живут на ZOrder 5 (как в BeginPlay HUD); интро-экран (50) и модалки (30)
@@ -600,8 +602,11 @@ void APlayerCharacter::UpdateLimpIndicator()
     const bool bControlFree = !PC->IsIntroMoveInputLocked() && !PC->IsAnyModalUIOpen();
     if (LimpFirstHint.ShouldTrigger(bLimping, bControlFree))
     {
+        // Задержка — геттер виджета; запасное значение 2.5 (прежний дефолт поля на игроке) на
+        // случай, если виджета вдруг нет — поведение не меняется.
+        const float HintDelay = LimpIndicatorWidget ? LimpIndicatorWidget->GetFirstHintDelay() : 2.5f;
         GetWorldTimerManager().SetTimer(LimpHintTimer, this, &APlayerCharacter::ShowLimpFirstHint,
-            FMath::Max(LimpFirstHintDelay, 0.01f), false);
+            FMath::Max(HintDelay, 0.01f), false);
     }
 }
 
@@ -615,13 +620,17 @@ void APlayerCharacter::ShowLimpFirstHint()
         return;
     }
     bLimpHintExpandedActive = true;
+    // Длительность — геттер виджета; запасное значение 8.0 (прежний дефолт поля на игроке) на
+    // случай, если виджета вдруг нет — поведение не меняется.
+    float HintDuration = 8.0f;
     if (LimpIndicatorWidget)
     {
-        LimpIndicatorWidget->SetIndicatorText(LimpFirstHintText);
+        LimpIndicatorWidget->ApplyStateText(/*bExpandedHint=*/true);
+        HintDuration = LimpIndicatorWidget->GetFirstHintDuration();
     }
     GetWorldTimerManager().SetTimer(LimpHintTimer, this, &APlayerCharacter::EndLimpFirstHint,
-        FMath::Max(LimpFirstHintDuration, 1.0f), false);
-    UE_LOG(LogQA, Display, TEXT("QA: limp first-hint shown (expanded for %.1f s)"), LimpFirstHintDuration);
+        FMath::Max(HintDuration, 1.0f), false);
+    UE_LOG(LogQA, Display, TEXT("QA: limp first-hint shown (expanded for %.1f s)"), HintDuration);
 }
 
 void APlayerCharacter::EndLimpFirstHint()
@@ -629,7 +638,7 @@ void APlayerCharacter::EndLimpFirstHint()
     bLimpHintExpandedActive = false;
     if (LimpIndicatorWidget)
     {
-        LimpIndicatorWidget->SetIndicatorText(LimpIndicatorText);
+        LimpIndicatorWidget->ApplyStateText(/*bExpandedHint=*/false);
     }
 }
 
