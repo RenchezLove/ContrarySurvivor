@@ -9,6 +9,7 @@
 class AMasterInventoryItem;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class UMeshComponent;
 class USkeletalMeshComponent;
 
 /**
@@ -130,6 +131,18 @@ public:
 	// Забрать предмет: убирает его из списка трупа (true — предмет был здесь).
 	// Сам актор НЕ уничтожается — его дальше несёт инвентарь игрока.
 	bool TakeItem(AMasterInventoryItem* Item);
+
+	// --- Пауза исчезновения на время открытого окна обыска (ADR-082 п.6, лид 29.08:
+	// «связка окон не должна ронять тело по таймеру, пока игрок стоит с открытым окном») ---
+
+	// Запоминает остаток LifeSpan владельца (0 = таймера и не было) и ставит LifeSpan в 0
+	// (движок: 0 = не исчезать). Повторный вызов, пока пауза уже активна, ничего не
+	// перезаписывает — так несколько вложенных открытий окна не теряют исходный остаток.
+	void PauseLifeSpanForSearchWindow();
+
+	// Возвращает LifeSpan к запомненному остатку (окно закрылось). Остаток был <= 0
+	// (таймера не было) или паузы не было вовсе — ничего не делает.
+	void ResumeLifeSpanAfterSearchWindow();
 
 	// Реестр обыскиваемых трупов (для UpdateNearbyInteractable контроллера).
 	// Слабые ссылки: труп исчезает по таймеру — запись отмирает сама, но чистим в EndPlay.
@@ -267,8 +280,25 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> DissolveMID;
 
+	// Кэш ОРИГИНАЛЬНЫХ материалов до подмены на DissolveMID (ADR-082 п.7, лид 29.08: «если
+	// игрок положил вещь обратно ПОСЛЕ начала растворения, добыча не должна оказаться в
+	// исчезающем теле»). Три массива идут ПАРАЛЛЕЛЬНО (индекс i — один слот одного меша),
+	// заполняются в StartSearchedDissolve, возвращаются на место и чистятся в
+	// CancelSearchedRemoval. UPROPERTY на мешах/материалах — защита от GC, пока кэш жив.
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMeshComponent>> DissolveOriginalMeshes;
+	TArray<int32> DissolveOriginalSlotIndices;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInterface>> DissolveOriginalMaterials;
+
 	// Запуск растворения; false — материал не задан или не загрузился (тело уйдёт в землю).
 	bool StartSearchedDissolve();
+
+	// Отменяет начатое убирание (ADR-082 п.7): возвращает оригинальные материалы (растворение)
+	// или высоту и гравитацию рэгдолла (уход в землю), сбрасывает bSinking/bDissolving и
+	// выключает тик. Зовётся из AddLoot, когда в контейнер, уже начавший исчезать, снова
+	// попал предмет или деньги. Ничего не начато — тихо выходит.
+	void CancelSearchedRemoval();
 
 	// Меш, упавший рэгдоллом: его физические тела живут в МИРОВЫХ координатах и за актором
 	// не едут, поэтому такому мешу двигаем сами тела. Пусто — меш обычный, хватит переноса актора.
@@ -276,6 +306,11 @@ private:
 
 	// Конец погружения: убрать тело и то, что к нему привязано (оружие в руке).
 	void FinishSearchedSink();
+
+	// Остаток LifeSpan владельца на момент постановки на паузу окном обыска (ADR-082 п.6).
+	// -1 = паузы сейчас нет; 0 = пауза была, но таймера и так не было (восстанавливать нечего);
+	// >0 = сколько секунд оставалось — вернуть при ResumeLifeSpanAfterSearchWindow.
+	float SavedLifeSpanOnWindowOpen = -1.0f;
 
 	static TArray<TWeakObjectPtr<UCorpseLootComponent>> SearchableCorpses;
 };

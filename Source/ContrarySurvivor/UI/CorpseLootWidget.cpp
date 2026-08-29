@@ -561,6 +561,49 @@ bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem,
 	return true;
 }
 
+bool UCorpseLootWidget::TakeItemFromPlayer(AMasterInventoryItem* Item)
+{
+	// Зеркально TakeItemToBackpack выше (там — из трупа в рюкзак: Holder->TakeItem +
+	// Inventory->AddItem). Здесь наоборот: Inventory->RemoveItem + Holder->AddLoot — тот же
+	// метод, которым труп/мешок наполняется порциями лута (Build 1.2.2), деньги просто 0.
+	if (!IsValid(Item) || !Player)
+	{
+		return false;
+	}
+
+	UInventoryComponent* Inventory = Player->GetInventory();
+	if (!Inventory)
+	{
+		return false;
+	}
+
+	// Честная проверка ДО переноса (правка лида): предмет обязан реально лежать в рюкзаке И не
+	// быть экипированным. Без неё повторный клик по устаревшей плитке (предмет уже унесён
+	// предыдущим переносом) проходил бы внутрь вслепую — спасала только идемпотентность
+	// RemoveItem/AddUnique, а на такое полагаться нельзя.
+	if (!Inventory->GetInventoryItems().Contains(Item) || Inventory->IsItemEquipped(Item))
+	{
+		return false;
+	}
+
+	// Группа из нескольких тел — кладём в ПЕРВЫЙ ЖИВОЙ контейнер (тот же, у которого берётся
+	// заголовок окна, см. InitCorpseLootGroup выше). GetGroupCorpses() уже отсеивает мёртвые
+	// записи; группа опустела — класть некуда.
+	const TArray<UCorpseLootComponent*> LiveCorpses = GetGroupCorpses();
+	if (LiveCorpses.Num() == 0)
+	{
+		return false;
+	}
+
+	// bRegisterSearchable=false: контейнер уже в нужном состоянии реестра обыскиваемых (труп —
+	// уже зарегистрирован, мешок-пикап — намеренно НЕ зарегистрирован, у него свой путь через
+	// реестр APickup, см. класс-комментарий UCorpseLootComponent) — простая докладка предмета
+	// не вправе это трогать, иначе мешок задвоил бы интерактив.
+	Inventory->RemoveItem(Item);
+	LiveCorpses[0]->AddLoot(0.0f, { Item }, /*bRegisterSearchable=*/false);
+	return true;
+}
+
 float UCorpseLootWidget::TakeMoneyToPlayer()
 {
 	UStatsComponent* Stats = Player ? Player->FindComponentByClass<UStatsComponent>() : nullptr;

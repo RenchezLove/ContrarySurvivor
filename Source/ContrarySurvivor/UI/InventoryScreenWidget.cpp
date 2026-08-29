@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
+#include "ContrarySurvivor/UI/CorpseLootWidget.h" // окно-напарник режима Search (ADR-082)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
@@ -44,9 +45,28 @@ void UInventoryScreenWidget::NativeOnInitialized()
 	if (CloseButton)
 	{
 		CloseButton->OnClicked.AddDynamic(this, &UInventoryScreenWidget::HandleCloseClicked);
+		// Снимок «показанной» видимости ОДИН раз (ADR-082, тот же приём, что SprintIdleColor в
+		// TouchControlsWidget) — SetPanelMode вернёт кнопку ровно к ней при выходе в Normal.
+		CloseButtonShownVisibility = CloseButton->GetVisibility();
 	}
 	// Кнопки закрытия может и не быть: инвентарь закрывается клавишей Tab/кнопкой СУМКА —
 	// предупреждение не пишем, это законная раскладка.
+}
+
+void UInventoryScreenWidget::SetPanelMode(EItemPanelMode InMode, UObject* InPartner)
+{
+	PanelMode = InMode;
+	PanelPartner = InPartner;
+	PendingTransferItem.Reset(); // смена режима — старый перенос уже не актуален
+
+	if (CloseButton)
+	{
+		CloseButton->SetVisibility(InMode == EItemPanelMode::Normal
+			? CloseButtonShownVisibility
+			: ESlateVisibility::Collapsed);
+	}
+
+	RefreshAll();
 }
 
 void UInventoryScreenWidget::InitInventory(APlayerCharacter* InPlayer)
@@ -336,24 +356,67 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 	{
 		return;
 	}
-	// Клик по плитке = применить. Действие есть у расходника (использовать), брони (надеть)
-	// и огнестрела (занять слот оружия — ТЗ Рината 08-08); прочие предметы (квест/патроны)
-	// по клику молчат, как раньше строка без кнопки «Использовать».
-	const EItemCategory Category = Item->GetItemCategory();
-	if (Category == EItemCategory::Consumable || Category == EItemCategory::Armor)
+
+	// Развилка по режиму панели (ADR-082): Normal — прежнее поведение дословно, ни строчки
+	// смысла не поменяно. Остальные режимы решают, куда уходит клик по плитке.
+	switch (PanelMode)
 	{
-		Player->Inv_UseBackpackItem(Item); // тот же вызов, что раньше кнопка строки
-		RefreshAll();
-	}
-	else if (Category == EItemCategory::Weapon)
+	case EItemPanelMode::Normal:
 	{
-		// STALKER-поток: тап по огнестрелу в рюкзаке переносит его в пустой слот оружия
-		// (в кобуру). Занят слот или это не дальнобойное оружие — TryAdoptRangedWeapon
-		// вернёт false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
-		if (Player->TryAdoptRangedWeapon(Item))
+		// Клик по плитке = применить. Действие есть у расходника (использовать), брони (надеть)
+		// и огнестрела (занять слот оружия — ТЗ Рината 08-08); прочие предметы (квест/патроны)
+		// по клику молчат, как раньше строка без кнопки «Использовать».
+		const EItemCategory Category = Item->GetItemCategory();
+		if (Category == EItemCategory::Consumable || Category == EItemCategory::Armor)
 		{
+			Player->Inv_UseBackpackItem(Item); // тот же вызов, что раньше кнопка строки
 			RefreshAll();
 		}
+		else if (Category == EItemCategory::Weapon)
+		{
+			// STALKER-поток: тап по огнестрелу в рюкзаке переносит его в пустой слот оружия
+			// (в кобуру). Занят слот или это не дальнобойное оружие — TryAdoptRangedWeapon
+			// вернёт false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
+			if (Player->TryAdoptRangedWeapon(Item))
+			{
+				RefreshAll();
+			}
+		}
+		break;
+	}
+	case EItemPanelMode::Search:
+	{
+		// Защита от двойного нажатия: пока перенос этого же предмета не завершён, повтор —
+		// молчаливый выход. Слабая ссылка чистится сразу после (успех или отказ — не важно).
+		if (PendingTransferItem.IsValid() && PendingTransferItem.Get() == Item)
+		{
+			return;
+		}
+		PendingTransferItem = Item;
+
+		if (UCorpseLootWidget* SearchWindow = Cast<UCorpseLootWidget>(PanelPartner.Get()))
+		{
+			if (SearchWindow->TakeItemFromPlayer(Item))
+			{
+				// Успех — пересчитать ОБЕ панели: напарника (предмет появился в списке обыска)
+				// и свою (предмет пропал из рюкзака). TakeItemFromPlayer — чистый перенос
+				// данных, тем же приёмом, что TakeItemToBackpack: список перерисовывает
+				// вызывающий код, а не сам метод переноса.
+				SearchWindow->RefreshLootDisplay();
+				RefreshAll();
+			}
+		}
+		PendingTransferItem.Reset();
+		break;
+	}
+	case EItemPanelMode::Trade:
+		// Реализация — этап 3 ADR-082 (готовое мини-окно количества); интерфейс здесь не
+		// придумываем заранее.
+		UE_LOG(LogQA, Display, TEXT("QA: режим торговли, этап 3"));
+		break;
+	case EItemPanelMode::Stash:
+		UE_LOG(LogQA, Display, TEXT("QA: личный ящик пока не реализован"));
+		break;
 	}
 }
 

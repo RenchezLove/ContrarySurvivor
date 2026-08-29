@@ -1158,6 +1158,13 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInventoryScreenWidget> InventoryWidgetInstance;
 
+public:
+	// Живой экземпляр окна инвентаря (ADR-082: связка режимов панелей контроллером — обыск,
+	// торговля, позже личный ящик). nullptr — инвентарь ни разу не открывался. Поле-экземпляр
+	// выше остаётся private — наружу только чтение через геттер.
+	UInventoryScreenWidget* GetInventoryWidgetInstance() const { return InventoryWidgetInstance; }
+private:
+
 	bool IsUmgInventoryActive() const;
 
 	// Кликабельные зоны, пересобираемые каждый DrawInventory. Используются HandleInventoryClick.
@@ -1204,6 +1211,12 @@ private:
 	// переиспользуется между трупами.
 	UPROPERTY()
 	TObjectPtr<class UCorpseLootWidget> CorpseLootWidgetInstance;
+
+public:
+	// Живой экземпляр окна обыска (ADR-082): окно-напарник инвентаря в режиме Search.
+	// nullptr — окно ни разу не открывалось. Поле-экземпляр выше остаётся private.
+	class UCorpseLootWidget* GetCorpseLootWidgetInstance() const { return CorpseLootWidgetInstance; }
+private:
 
 	// Вендор, чей каталог отрисовываем (источник цен/товаров). Интерфейс — развязка от
 	// конкретного класса торговца (A2). TScriptInterface держит и UObject, и интерфейс-указатель.

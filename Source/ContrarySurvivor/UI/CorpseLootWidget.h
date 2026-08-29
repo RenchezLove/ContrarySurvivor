@@ -258,6 +258,21 @@ public:
 	// проверяется автотестом.
 	static FText PickMoneyWord(int32 Amount, const FText& One, const FText& Few, const FText& Many);
 
+	// --- Приём предмета от окна-напарника (ADR-082, режим Search окна инвентаря) ---
+
+	// Кладёт предмет ИГРОКА в обыскиваемый контейнер — зеркально TakeItemToBackpack (там
+	// предмет уходит из трупа в рюкзак, здесь наоборот). В группе из нескольких тел уходит в
+	// ПЕРВЫЙ ЖИВОЙ контейнер группы (тот же, у которого берётся заголовок окна). Только
+	// переносит данные — список НЕ перестраивает, это дело вызывающего (см. RefreshLootDisplay
+	// ниже), тем же приёмом, что HandleTileTake сам зовёт RefreshList после TakeItemToBackpack.
+	// false — предмета нет в рюкзаке / он экипирован / живых контейнеров в группе не осталось.
+	bool TakeItemFromPlayer(AMasterInventoryItem* Item);
+
+	// Публичная пересборка списка лута — открыта для окна-напарника (ADR-082): после успешного
+	// TakeItemFromPlayer инвентарь зовёт её сам, чтобы показать новый предмет в списке обыска.
+	// Сама логика — RefreshList ниже.
+	void RefreshLootDisplay() { RefreshList(); }
+
 protected:
 	virtual void NativeOnInitialized() override;
 

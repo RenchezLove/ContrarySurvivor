@@ -930,6 +930,11 @@ private:
 	// обрабатывают Slate-кнопки окна, движение подавлено. Источник — OpenCorpseLoot/CloseCorpseLoot.
 	bool bCorpseLootOpen = false;
 
+	// Группа тел ТЕКУЩЕГО открытого окна обыска (ADR-082 п.6): OpenCorpseLootGroup запоминает
+	// её, чтобы CloseCorpseLoot вернул остановленный таймер исчезновения (LifeSpan) ровно тем
+	// же контейнерам. Слабые ссылки — тело может исчезнуть/раствориться, пока окно открыто.
+	TArray<TWeakObjectPtr<UCorpseLootComponent>> CurrentCorpseLootGroup;
+
 	// Открыт ли экран смерти (#26): геймплей-ввод (движение/огонь/интеракт) подавлен,
 	// клик уходит в кнопку «Возродиться». Источник — ShowDeathScreen/HideDeathScreen.
 	bool bDeathScreen = false;

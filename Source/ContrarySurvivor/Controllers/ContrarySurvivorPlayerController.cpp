@@ -28,6 +28,8 @@
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): обыск трупов
+#include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-082: SetPanelMode при связке окон
+#include "ContrarySurvivor/UI/CorpseLootWidget.h"      // ADR-082: окно-напарник режима Search
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"          // ADR-074: граница деревни для подсказки о сохранении
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
@@ -2263,11 +2265,37 @@ void AContrarySurvivorPlayerController::OpenCorpseLootGroup(const TArray<UCorpse
 	bCorpseLootOpen = true;
 	bUIClickConsumed = false;
 
+	// ADR-082 п.6: пока окно открыто, тела/мешок группы не исчезают по таймеру — запоминаем и
+	// останавливаем каждому живому контейнеру (остаток хранится в самом контейнере, см.
+	// UCorpseLootComponent::PauseLifeSpanForSearchWindow). Список — чтобы CloseCorpseLoot
+	// вернул таймер ровно тем же контейнерам, даже если сюда попадёт новая группа раньше.
+	CurrentCorpseLootGroup.Reset();
+	for (UCorpseLootComponent* Corpse : InCorpses)
+	{
+		if (IsValid(Corpse))
+		{
+			Corpse->PauseLifeSpanForSearchWindow();
+			CurrentCorpseLootGroup.Add(Corpse);
+		}
+	}
+
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetCorpseLootGroupOpen(true, InCorpses);
+
+		// ADR-082: обыск — это ПАРА окон, а не одно. Слева уже открылось окно обыска (выше),
+		// справа связкой открывается инвентарь в режиме Search — оба окна обязаны существовать
+		// ДО SetPanelMode (SetInventoryOpen создаёт/переиспользует UMG-экземпляр инвентаря).
+		bInventoryOpen = true;
+		CSHUD->SetInventoryOpen(true);
+		if (UInventoryScreenWidget* InvWidget = CSHUD->GetInventoryWidgetInstance())
+		{
+			InvWidget->SetPanelMode(EItemPanelMode::Search, CSHUD->GetCorpseLootWidgetInstance());
+		}
 	}
 
+	// Режим ввода — общий для пары окон, ставим один раз здесь (SetInventoryOpen сам его не
+	// трогает, в отличие от самостоятельного открытия инвентаря клавишей Tab).
 	FInputModeGameAndUI Mode;
 	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 	Mode.SetHideCursorDuringCapture(false);
@@ -2287,9 +2315,29 @@ void AContrarySurvivorPlayerController::CloseCorpseLoot()
 	bCorpseLootOpen = false;
 	bUIClickConsumed = false;
 
+	// ADR-082 п.6: вернуть остановленный таймер исчезновения каждому контейнеру группы — кто
+	// ещё жив (мог полностью раствориться/уйти в землю, пока окно было открыто).
+	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : CurrentCorpseLootGroup)
+	{
+		if (UCorpseLootComponent* Corpse = Ptr.Get())
+		{
+			Corpse->ResumeLifeSpanAfterSearchWindow();
+		}
+	}
+	CurrentCorpseLootGroup.Reset();
+
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetCorpseLootOpen(false, nullptr);
+
+		// ADR-082: закрываем и напарника — инвентарь возвращается в обычный режим (кнопка
+		// закрытия рюкзака снова видна, клик по плитке снова применяет предмет).
+		bInventoryOpen = false;
+		CSHUD->SetInventoryOpen(false);
+		if (UInventoryScreenWidget* InvWidget = CSHUD->GetInventoryWidgetInstance())
+		{
+			InvWidget->SetPanelMode(EItemPanelMode::Normal, nullptr);
+		}
 	}
 
 	SetInputMode(FInputModeGameOnly());
@@ -2299,6 +2347,17 @@ void AContrarySurvivorPlayerController::CloseCorpseLoot()
 
 void AContrarySurvivorPlayerController::OnToggleInventory()
 {
+	// ADR-082 п.2 (ТЗ издателя): «Если игрок нажмёт эту кнопку во время обыска, поверх
+	// откроется второе окно инвентаря, и получится каша» — во время обыска/торговли кнопка
+	// рюкзака и клавиша Tab не делают ничего. Экранная кнопка рюкзака идёт этим же путём
+	// (TouchToggleInventory() зовёт этот метод), отдельно её трогать не нужно.
+	if (bCorpseLootOpen || bShopOpen)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: OnToggleInventory проигнорирован — открыт %s"),
+			bCorpseLootOpen ? TEXT("обыск") : TEXT("магазин"));
+		return;
+	}
+
 	bInventoryOpen = !bInventoryOpen;
 	bUIClickConsumed = false; // свежее состояние edge-клика на смене экрана (BUG1)
 

@@ -67,6 +67,15 @@ void UCorpseLootComponent::AddLoot(float InMoney, const TArray<AMasterInventoryI
 		UE_LOG(LogQA, Display, TEXT("QA: CORPSE loot init on '%s' - money=%.0f items=%d"),
 			*GetNameSafe(GetOwner()), Money, Items.Num());
 	}
+
+	// ADR-082 п.7: контейнер уже опустел и начал исчезать (StartSearchedSink), а сюда снова
+	// попал лут (игрок доложил вещь обратно, режим Search) — отменяем начатое убирание,
+	// иначе добыча оказалась бы в теле, которое вот-вот удалят. HasLoot() — после укладки
+	// выше, чтобы не отменять на пустой (InMoney<=0 и InItems пуст/невалиден) докладке.
+	if ((bSinking || bDissolving) && HasLoot())
+	{
+		CancelSearchedRemoval();
+	}
 }
 
 void UCorpseLootComponent::ClearLoot()
@@ -304,6 +313,12 @@ bool UCorpseLootComponent::StartSearchedDissolve()
 		}
 	}
 
+	// Кэш оригиналов ПЕРЕД подменой (ADR-082 п.7): без него отменить начатое растворение
+	// (CancelSearchedRemoval) было бы нечем — вернуть на место можно только то, что запомнили.
+	DissolveOriginalMeshes.Reset();
+	DissolveOriginalSlotIndices.Reset();
+	DissolveOriginalMaterials.Reset();
+
 	int32 SlotCount = 0;
 	for (UMeshComponent* Mesh : Meshes)
 	{
@@ -314,6 +329,9 @@ bool UCorpseLootComponent::StartSearchedDissolve()
 		const int32 NumMaterials = Mesh->GetNumMaterials();
 		for (int32 Index = 0; Index < NumMaterials; ++Index)
 		{
+			DissolveOriginalMeshes.Add(Mesh);
+			DissolveOriginalSlotIndices.Add(Index);
+			DissolveOriginalMaterials.Add(Mesh->GetMaterial(Index));
 			Mesh->SetMaterial(Index, DissolveMID);
 			++SlotCount;
 		}
@@ -365,6 +383,96 @@ void UCorpseLootComponent::StartSearchedSink()
 	SetComponentTickEnabled(true);
 	UE_LOG(LogQA, Display, TEXT("QA: CORPSE searched -> sink started on '%s' (пауза %.1f с, спуск %.1f с, глубина %.0f см)"),
 		*GetNameSafe(CorpseOwner), SearchedSinkDelay, SearchedSinkDuration, SearchedSinkDepth);
+}
+
+void UCorpseLootComponent::CancelSearchedRemoval()
+{
+	// ADR-082 п.7 (лид 29.08): игрок положил вещь обратно в контейнер, который уже опустел и
+	// начал исчезать (StartSearchedSink из TakeItem/TakeMoney) — новая добыча не должна
+	// оказаться в теле, которое вот-вот удалят. Отменяем ровно то, что было начато.
+	if (!bDissolving && !bSinking)
+	{
+		return; // ничего не начато — нечего отменять
+	}
+	AActor* CorpseOwner = GetOwner();
+
+	if (bDissolving)
+	{
+		// Возвращаем оригиналы, снятые в StartSearchedDissolve (три массива параллельны).
+		const int32 SlotCount = FMath::Min3(DissolveOriginalMeshes.Num(),
+			DissolveOriginalSlotIndices.Num(), DissolveOriginalMaterials.Num());
+		for (int32 Index = 0; Index < SlotCount; ++Index)
+		{
+			UMeshComponent* Mesh = DissolveOriginalMeshes[Index];
+			if (IsValid(Mesh))
+			{
+				Mesh->SetMaterial(DissolveOriginalSlotIndices[Index], DissolveOriginalMaterials[Index]);
+			}
+		}
+		DissolveOriginalMeshes.Reset();
+		DissolveOriginalSlotIndices.Reset();
+		DissolveOriginalMaterials.Reset();
+		DissolveMID = nullptr;
+		bDissolving = false;
+		DissolveElapsed = 0.0f;
+	}
+
+	if (bSinking)
+	{
+		// Возвращаем тело на исходную высоту (сдвинули вниз на SinkAppliedDepth) и гравитацию
+		// рэгдоллу, если снимали её в StartSearchedSink.
+		if (IsValid(CorpseOwner) && SinkAppliedDepth > 0.0f)
+		{
+			CorpseOwner->SetActorLocation(
+				CorpseOwner->GetActorLocation() + FVector(0.0f, 0.0f, SinkAppliedDepth),
+				/*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		if (USkeletalMeshComponent* Ragdoll = SinkRagdollMesh.Get())
+		{
+			Ragdoll->SetEnableGravity(true);
+		}
+		SinkRagdollMesh = nullptr;
+		bSinking = false;
+		SinkElapsed = 0.0f;
+		SinkAppliedDepth = 0.0f;
+	}
+
+	SetComponentTickEnabled(false);
+	UE_LOG(LogQA, Display, TEXT("QA: CORPSE '%s' searched-removal CANCELLED - new loot arrived"),
+		*GetNameSafe(CorpseOwner));
+}
+
+void UCorpseLootComponent::PauseLifeSpanForSearchWindow()
+{
+	// ADR-082 п.6: пока окно обыска открыто, тело/мешок группы не исчезает по таймеру.
+	if (SavedLifeSpanOnWindowOpen >= 0.0f)
+	{
+		return; // уже на паузе — повторный вызов не перезаписывает запомненный остаток
+	}
+	AActor* CorpseOwner = GetOwner();
+	if (!IsValid(CorpseOwner))
+	{
+		return;
+	}
+	SavedLifeSpanOnWindowOpen = CorpseOwner->GetLifeSpan(); // остаток; 0 = таймера и не было
+	if (SavedLifeSpanOnWindowOpen > 0.0f)
+	{
+		CorpseOwner->SetLifeSpan(0.0f); // движок: 0 = не исчезать
+	}
+}
+
+void UCorpseLootComponent::ResumeLifeSpanAfterSearchWindow()
+{
+	if (SavedLifeSpanOnWindowOpen < 0.0f)
+	{
+		return; // паузы не было
+	}
+	AActor* CorpseOwner = GetOwner();
+	if (SavedLifeSpanOnWindowOpen > 0.0f && IsValid(CorpseOwner))
+	{
+		CorpseOwner->SetLifeSpan(SavedLifeSpanOnWindowOpen);
+	}
+	SavedLifeSpanOnWindowOpen = -1.0f;
 }
 
 void UCorpseLootComponent::TickComponent(float DeltaTime, ELevelTick TickType,

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "ContrarySurvivor/UI/ItemPanelMode.h" // EItemPanelMode (ADR-082)
 #include "InventoryScreenWidget.generated.h"
 
 class UTextBlock;
@@ -13,6 +14,7 @@ class UScrollBox;
 class UItemTileWidget;
 class APlayerCharacter;
 class AMasterWeapon;
+class AMasterInventoryItem;
 enum class EArmorSlot : uint8;
 
 /**
@@ -37,6 +39,19 @@ public:
 
 	// Кнопка закрытия нажата — подписан контроллер (переключение инвентаря, как Tab).
 	FSimpleMulticastDelegate OnCloseRequested;
+
+	// --- Режим панели (ADR-082): обыск/торговля/(позже) личный ящик — это РЕЖИМЫ этого же
+	// окна, а не отдельные экраны. Пока никто не позвал SetPanelMode, окно работает ровно как
+	// раньше (Normal) — поведение по умолчанию не меняется. ---
+
+	EItemPanelMode GetPanelMode() const { return PanelMode; }
+
+	// Переключает режим и напоминает, какое окно слева сейчас работает в паре (InPartner —
+	// UCorpseLootWidget при Search; при Trade/Stash пока не используется, этап 3/задел).
+	// НЕ Normal — кнопка закрытия рюкзака прячется (её роль в паре берёт окно-напарник слева,
+	// ТЗ п.10); Normal — кнопка возвращается к видимости, снятой с кубика при инициализации.
+	// Партнёра храним слабой ссылкой — окно-напарник может закрыться/умереть раньше рюкзака.
+	void SetPanelMode(EItemPanelMode InMode, UObject* InPartner);
 
 	// --- Настройки (Class Defaults WBP_Inventory; владение переехало из HUD — ADR-048) ---
 
@@ -226,4 +241,21 @@ private:
 	int32 LastBackpackCount = -1;
 	int32 LastProtectionPct = -1;
 	FString LastWeaponName;
+
+	// --- Режим панели (ADR-082) ---
+
+	EItemPanelMode PanelMode = EItemPanelMode::Normal;
+
+	// Окно-напарник текущего режима (UCorpseLootWidget при Search) — слабая ссылка, оно может
+	// закрыться/умереть раньше рюкзака.
+	TWeakObjectPtr<UObject> PanelPartner;
+
+	// Видимость CloseButton «как нарисовал Ринат», снятая с кубика ОДИН РАЗ при инициализации
+	// (тот же приём, что цвет покоя кнопки БЕГ в TouchControlsWidget::SprintIdleColor) —
+	// возвращаем её при выходе обратно в Normal, а не жёсткий Visible.
+	ESlateVisibility CloseButtonShownVisibility = ESlateVisibility::Visible;
+
+	// Защита от двойного клика по одной и той же плитке, пока перенос предмета (режим Search)
+	// не завершён: повтор по тому же предмету, пока эта ссылка на него ещё держится, игнорируем.
+	TWeakObjectPtr<AMasterInventoryItem> PendingTransferItem;
 };
