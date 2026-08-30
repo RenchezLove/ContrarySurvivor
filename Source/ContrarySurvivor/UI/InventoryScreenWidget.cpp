@@ -75,14 +75,15 @@ void UInventoryScreenWidget::SetPanelMode(EItemPanelMode InMode, UObject* InPart
 			: ESlateVisibility::Collapsed);
 	}
 
-	// Правка лида 29.08: полноэкранное DimBorder этого окна прячем в любом режиме кроме
-	// Normal — иначе оно (ZOrder=30, как и окно-напарник) ловит клики по левой панели
-	// (обыск/магазин) и удваивает затемнение экрана. Мир затемняет окно-напарник, оно ниже.
+	// Правило ADR-084: полноэкранное затемнение остаётся ровно у НИЖНЕГО окна пары.
+	// Search/Stash: инвентарь ВЕРХНИЙ (равный слой, добавлен последним) — своё прячем,
+	// мир затемняет окно-напарник. Trade (ADR-085): магазин выводится слоем ВЫШЕ, чтобы
+	// его панель количества была модалкой по центру, — нижним становится инвентарь,
+	// затемнение ведёт он (магазин своё гасит сам в NativeOnInitialized).
 	if (DimBorder)
 	{
-		DimBorder->SetVisibility(InMode == EItemPanelMode::Normal
-			? DimBorderShownVisibility
-			: ESlateVisibility::Collapsed);
+		const bool bDimStays = (InMode == EItemPanelMode::Normal || InMode == EItemPanelMode::Trade);
+		DimBorder->SetVisibility(bDimStays ? DimBorderShownVisibility : ESlateVisibility::Collapsed);
 	}
 
 	RefreshAll();

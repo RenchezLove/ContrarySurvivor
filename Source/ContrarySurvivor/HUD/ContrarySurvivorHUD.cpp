@@ -847,8 +847,13 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 				ShopWidgetInstance->InitShop(Trader, PlayerChar);
 				if (!ShopWidgetInstance->IsInViewport())
 				{
-					// Z=30: над тач-слоем (10), под подсказками (40)/ежедневкой (50)/паузой (60).
-					ShopWidgetInstance->AddToViewport(/*ZOrder=*/30);
+					// ADR-085: в паре с инвентарём (Z=30) магазин идёт слоем ВЫШЕ (31) — его
+					// панель количества обязана лечь ПОВЕРХ правой панели, а не под неё
+					// (затемнение при этом ведёт нижний инвентарь, магазин своё гасит).
+					// Запасной одиночный режим — прежний Z=30. Всё по-прежнему над тач-слоем
+					// (10) и под подсказками (40)/ежедневкой (50)/паузой (60).
+					ShopWidgetInstance->AddToViewport(
+						/*ZOrder=*/ShopWidgetInstance->bUseExternalInventoryPanel ? 31 : 30);
 				}
 			}
 		}

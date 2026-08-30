@@ -21,6 +21,7 @@
 #include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
+#include "Components/Border.h"    // ADR-085: DimBorder гасится в паре окон (магазин сверху)
 #include "Components/ScrollBox.h"
 #include "Components/Slider.h"
 #include "Components/UniformGridPanel.h"
@@ -47,6 +48,16 @@ void UShopScreenWidget::NativeOnInitialized()
 		// Без Close магазин закрывается только клавишей E / кнопкой ДЕЙСТВИЕ — играбельно,
 		// но предупреждаем (BindWidgetOptional: не краш, ADR-048).
 		UE_LOG(LogQA, Warning, TEXT("ShopScreenWidget: кубик CloseButton не найден в WBP_Shop"));
+	}
+
+	// ADR-085: в паре окон магазин рисуется ПОВЕРХ инвентаря (HUD даёт ему слой выше),
+	// чтобы панель количества была настоящей модалкой по центру экрана. Полноэкранное
+	// затемнение тогда обязано остаться ровно у НИЖНЕГО окна (правило ADR-084) — своё
+	// гасим, иначе оно съест клики по правой панели (инвентарю). Запасной одиночный
+	// режим (флаг выключен) — затемнение остаётся как нарисовано.
+	if (DimBorder && bUseExternalInventoryPanel)
+	{
+		DimBorder->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
 	if (QtySlider)

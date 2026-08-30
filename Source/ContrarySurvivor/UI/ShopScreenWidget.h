@@ -10,6 +10,7 @@
 
 class UTextBlock;
 class UButton;
+class UBorder; // ADR-085: кубик DimBorder (полноэкранное затемнение)
 class UScrollBox;
 class USlider;
 class UItemTileWidget;
@@ -331,6 +332,14 @@ protected:
 	// Кнопка закрытия магазина.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> CloseButton;
+
+	// Затемнение на весь экран (кубик генератора WBP, «Visible — ловит клик мимо кнопок»).
+	// ADR-085: в паре окон (bUseExternalInventoryPanel) магазин выводится ПОВЕРХ инвентаря,
+	// чтобы панель количества была настоящей модалкой по центру экрана, — тогда этот слой
+	// гасится при инициализации, иначе он съест клики по правой панели (зеркало ADR-084:
+	// затемнение мира остаётся ровно у НИЖНЕГО окна, здесь это инвентарь).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> DimBorder;
 
 	// --- Панель количества (показывается на время транзакции, иначе спрятана) ---
 
