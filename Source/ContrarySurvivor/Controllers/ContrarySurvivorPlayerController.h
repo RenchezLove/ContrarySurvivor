@@ -16,6 +16,7 @@
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h" // FSupportAuthorStyle (окно «Поддержать автора»)
 #include "ContrarySurvivor/Debug/QADebug.h"         // CONTRARY_WITH_QA_CHEATS: отладочных клавиш нет в Shipping
 #include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h" // EContraryWorldEntryIntent (намерение перехода в мир)
+#include "Containers/Ticker.h"                      // FTSTicker (опрос боевой музыки, задача №5)
 #include "ContrarySurvivorPlayerController.generated.h"
 
 class UStatsComponent;
@@ -199,6 +200,32 @@ public:
 	// снимаем — вернём к жизни ровно то, что усыпили сами.
 	static bool ShouldSilenceWorldSound(bool bIsUISound, bool bIsPlaying, bool bAlreadyPaused);
 
+	// --- Боевая музыка (задача №5, ТЗ издателя 30.08) ---
+
+	// Враг перешёл из НЕбоевого состояния в боевое (зовёт AEnemyAIController::NotifyEnteredCombat
+	// из мест смены CurrentState). Уже играет — ничего (ошибка 7 ТЗ: два врага — один трек, не две
+	// копии); гаснет — немедленно вернуть на полную громкость БЕЗ рестарта трека (ошибка 1);
+	// молчит — старт нового боя тем треком, которого не было в прошлом бою. Далёкий бой (дальше
+	// радиуса «рядом») музыку не включает.
+	void OnEnemyEnteredCombat(class AEnemyAIController* Enemy);
+
+	// --- Чистые правила боевой музыки (без мира — их гоняют автотесты) ---
+
+	// Какой трек взять для НОВОГО боя: 0 — первый, 1 — второй, INDEX_NONE — оба поля пустые.
+	// Правило ТЗ: «при каждом новом бое выбирается тот трек, которого не было в предыдущем бое»;
+	// самый первый бой (LastTrackIndex = -1) берёт первый трек. Если назначен только один трек —
+	// играет он, чередовать нечего.
+	static int32 PickCombatTrackIndex(int32 LastTrackIndex, bool bTrackAValid, bool bTrackBValid);
+
+	// Считается ли враг «живым врагом в бою рядом с игроком» (критерий выключения музыки из ТЗ:
+	// «ориентир — то, что происходит рядом с игроком»). Живость отдельно не передаётся: мёртвый
+	// враг сам выпадает из реестра контроллеров (HandleDeath зовёт UnPossess).
+	static bool ShouldCountEnemyForCombatMusic(bool bEngaging, float DistSquared, float RadiusSquared);
+
+	// Глушить ли боевую музыку прямо сейчас (пауза мира — включая рекламу-заглушку, главное
+	// меню, экран смерти). Пауза, не остановка: после снятия гейта бой продолжается со звуком.
+	static bool ShouldGateSilenceCombatMusic(bool bWorldPaused, bool bMainMenuOnScreen, bool bDeathScreen);
+
 	// Подавлен ли сейчас ввод движения интро-последовательностью (чёрный экран строк /
 	// авто-подход к деревне). Нужно индикатору хромоты (Build 1): разовая расшифровка
 	// «почему герой идёт медленно» показывается только когда управление уже у игрока.
@@ -283,6 +310,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+
+	// Снимает тикер опроса боевой музыки (задача №5): тикер живёт в ядре движка и сам
+	// со смертью контроллера не исчезает.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// Каждый кадр поддерживает авто-лок на ближайшей живой цели (см. UpdateAutoTarget).
 	virtual void Tick(float DeltaTime) override;
@@ -539,6 +570,60 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pause Menu|Музыка",
 		meta = (DisplayName = "Громкость трека в паузе", ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "2"))
 	float PauseMusicVolume = 1.0f;
+
+	// --- Боевая музыка (задача №5, ТЗ издателя 30.08): включается, когда враг вступает в бой,
+	// плавно гаснет, когда рядом с игроком не осталось живых врагов в бою. Звучит ПОВЕРХ
+	// лесного фона; сам фон на время боя приглушается. Ссылки на треки МЯГКИЕ (приём
+	// PauseMusic): подтягиваются в момент старта боя, в памяти телефона постоянно не висят.
+	// Блок ПУБЛИЧНЫЙ (прецедент — блок подсказки Interact ниже): автотест сверяет значения
+	// по умолчанию с ТЗ (два разных трека, приглушение на 30 %, затихание 2-3 с). ---
+public:
+
+	// Первый боевой трек. Пустые ОБА поля — боевой музыки нет (допустимая настройка).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Боевой трек 1", DisplayPriority = "1"))
+	TSoftObjectPtr<class USoundBase> CombatMusicTrackA =
+		TSoftObjectPtr<class USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/Music/S_Music_CombatOppressive.S_Music_CombatOppressive")));
+
+	// Второй боевой трек: каждый новый бой берёт тот трек, которого не было в предыдущем бою.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Боевой трек 2", DisplayPriority = "2"))
+	TSoftObjectPtr<class USoundBase> CombatMusicTrackB =
+		TSoftObjectPtr<class USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/Music/S_Music_CombatRusted.S_Music_CombatRusted")));
+
+	// Громкость боевой музыки (сверх ручки музыки в настройках). 0.45 — чтобы не забивала
+	// выстрелы и рычание (ошибка 8 ТЗ: «их слышно поверх музыки, а не наоборот»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Громкость боевой музыки", ClampMin = "0.0", ClampMax = "2.0", DisplayPriority = "3"))
+	float CombatMusicVolume = 0.45f;
+
+	// Радиус «бой рядом с игроком» (см). Больше дистанции обнаружения врага (1500), чтобы
+	// музыка не мигала на границе; враг, гонящийся где-то далеко, музыку не держит.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Радиус «бой рядом» (см)", ClampMin = "0.0", DisplayPriority = "4"))
+	float CombatMusicNearbyRadius = 2500.0f;
+
+	// Период опроса «есть ли рядом бой» (сек). Читается один раз при создании тикера.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Период опроса боя (сек)", ClampMin = "0.1", DisplayPriority = "5"))
+	float CombatMusicPollPeriod = 0.5f;
+
+	// Длительность затихания после боя (сек): «плавное затихание примерно за две-три секунды».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Затихание после боя (сек)", ClampMin = "0.0", DisplayPriority = "6"))
+	float CombatMusicFadeOutSeconds = 2.5f;
+
+	// Множитель громкости лесного фона на время боя: 0.7 = «приглушается на 30 %» (ТЗ).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Приглушение фона в бою (множитель)", ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "7"))
+	float CombatAmbienceDuckFactor = 0.7f;
+
+	// За сколько секунд громкость фона плавно доезжает до цели (в бой и обратно).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio|Combat Music",
+		meta = (DisplayName = "Плавность приглушения фона (сек)", ClampMin = "0.05", DisplayPriority = "8"))
+	float CombatAmbienceDuckLerpSeconds = 1.0f;
+
+protected:
 
 	// Стиль стартового экрана «Продолжить»/«Новая игра» (Б3) — тот же паттерн настройки
 	// без пересборки, что у меню паузы.
@@ -998,6 +1083,59 @@ private:
 	// Держать музыку на переходе «пауза -> главное меню»: на один шаг не открыто ни то, ни
 	// другое, и без этого флага трек оборвался бы и начался заново с начала.
 	bool bHoldMenuMusicThroughTransition = false;
+
+	// --- Боевая музыка: рантайм (задача №5, ТЗ 30.08) ---
+
+	// Играющий боевой трек. Заведён через SpawnSound2D → помечен ЗВУКОМ ИНТЕРФЕЙСА, поэтому
+	// пауза мира и отбор ApplyWorldAudioGate его НЕ глушат — тишину на паузе/в меню/на смерти
+	// обеспечиваем руками (гейт в TickCombatMusic). bAutoDestroy=false — ссылку держим и
+	// отпускаем сами; bPersistAcrossLevelTransition=false — перезапуск уровня музыку не переживёт
+	// (ошибка 6 ТЗ).
+	UPROPERTY()
+	TObjectPtr<class UAudioComponent> CombatMusicComponent;
+
+	// Трек текущего/последнего боя: 0 — первый, 1 — второй, -1 — боёв ещё не было.
+	// Новый бой берёт другой (PickCombatTrackIndex); внутри одного боя трек не меняется.
+	int32 LastCombatTrackIndex = INDEX_NONE;
+
+	// Музыка сейчас затихает (FadeOut запущен, компонент дозвучивает). Возврат боя в этот
+	// момент — AdjustVolume на полную БЕЗ рестарта трека (ошибка 1 ТЗ).
+	bool bCombatMusicFadingOut = false;
+
+	// Музыка приостановлена НАШИМ гейтом тишины (пауза мира/меню/экран смерти) — чтобы не
+	// дёргать SetPaused каждый тик и не путать свою паузу с чужой.
+	bool bCombatMusicGatePaused = false;
+
+	// Текущий множитель приглушения лесного фона [DuckFactor..1]: плавно ползёт к цели в опросе.
+	float CombatAmbienceDuckCurrent = 1.0f;
+
+	// Ручка тикера ядра (FTSTicker). Тикер РЕАЛЬНОГО времени, а не таймер мира: таймеры мира
+	// стоят на паузе, а гейт тишины обязан работать и под паузой (реклама-заглушка ставит
+	// SetGamePaused без уведомления). Снимается в EndPlay.
+	FTSTicker::FDelegateHandle CombatMusicTickerHandle;
+
+	// Шаг опроса (раз в CombatMusicPollPeriod): выключение музыки по «рядом боя нет», страховка
+	// от «залипла навечно» (ошибка 2 ТЗ — это ОДИН и тот же дешёвый проход по реестру врагов),
+	// гейт тишины, ползунок громкости на лету и приглушение лесного фона. Возвращает true —
+	// тикер живёт до EndPlay.
+	bool TickCombatMusic(float DeltaTime);
+
+	// Центральный вход «бой рядом, музыка должна звучать»: уже играет — ничего; гаснет —
+	// вернуть на полную; молчит — завести новый бой. Зовут событие входа в бой и опрос.
+	void StartOrRecoverCombatMusic();
+
+	// Старт нового боя: выбор трека (не тот, что в прошлый раз), принудительное зацикливание
+	// волны (bLooping — свойство ассета, у SpawnSound2D параметра нет; приём StartAmbience),
+	// запуск сразу на полной громкости (ТЗ: «никакого нарастания»).
+	void StartCombatMusicForNewFight();
+
+	// Мгновенная остановка и сброс (смерть игрока — ошибка 3 ТЗ; уборка в EndPlay).
+	void StopCombatMusicImmediately();
+
+	// Есть ли рядом с игроком живой враг в боевом состоянии: проход по реестру
+	// AEnemyAIController::GetActiveControllers() (единицы врагов, сравнение состояния и
+	// квадрата дистанции — без обхода всех акторов мира; это и есть «оптимизированно» из ТЗ).
+	bool IsAnyEnemyEngagingNearby() const;
 
 	// Когда в последний раз проверяли мир на новые звуки (живое время, идёт и на паузе).
 	double LastWorldAudioSweepTime = -1000.0;

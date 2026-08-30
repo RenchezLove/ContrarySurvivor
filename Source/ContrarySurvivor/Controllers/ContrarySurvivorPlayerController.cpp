@@ -22,6 +22,7 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
 #include "Components/AudioComponent.h" // заглушение звуков мира на время меню (08-09)
 #include "Sound/SoundBase.h"                 // трек музыки паузы (мягкая ссылка)
+#include "Sound/SoundWave.h"                 // задача №5: форс bLooping у боевого трека (приём StartAmbience)
 #include "UObject/UObjectIterator.h"    // обход живых звуков мира
 #include "ContrarySurvivor/Actors/ShopTypes.h"          // FShopEntry (каталог в OnQABuyCheapest, A2)
 #include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
@@ -221,6 +222,34 @@ void AContrarySurvivorPlayerController::BeginPlay()
 					: TEXT("code-built tree"));
 		}
 	}
+
+	// Опрос боевой музыки (задача №5, ТЗ 30.08). Тикер ЯДРА, а не таймер мира: таймеры мира
+	// стоят на паузе, а гейт тишины обязан работать и под ней (реклама-заглушка ставит
+	// SetGamePaused без уведомления). Приём — как у ContraryShowcaseCheats/DataConsentWait.
+	{
+		TWeakObjectPtr<AContrarySurvivorPlayerController> WeakThis(this);
+		CombatMusicTickerHandle = FTSTicker::GetCoreTicker().AddTicker(TEXT("ContraryCombatMusic"),
+			FMath::Max(0.1f, CombatMusicPollPeriod),
+			[WeakThis](float DeltaSeconds) -> bool
+			{
+				AContrarySurvivorPlayerController* Self = WeakThis.Get();
+				return Self ? Self->TickCombatMusic(DeltaSeconds) : false;
+			});
+	}
+}
+
+void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Тикер живёт в ядре движка и со смертью контроллера сам не исчезает — снимаем руками.
+	if (CombatMusicTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(CombatMusicTickerHandle);
+		CombatMusicTickerHandle.Reset();
+	}
+	// Музыку глушим тут же: компонент и так умрёт вместе с миром (ошибка 6 ТЗ), но при
+	// переезде уровней аккуратная остановка дешевле догадок, кто кого переживёт.
+	StopCombatMusicImmediately();
+	Super::EndPlay(EndPlayReason);
 }
 
 void AContrarySurvivorPlayerController::SetupInputComponent()
@@ -368,6 +397,14 @@ void AContrarySurvivorPlayerController::ShowDeathScreen()
 {
 	bDeathScreen = true;
 	bUIClickConsumed = false;
+
+	// Боевая музыка гаснет СРАЗУ (ошибка 3 ТЗ 30.08: не играет на экране смерти). Здесь —
+	// мгновенная тишина паузой; совсем остановит и отпустит компонент ближайший тик опроса.
+	if (CombatMusicComponent && !bCombatMusicGatePaused)
+	{
+		CombatMusicComponent->SetPaused(true);
+		bCombatMusicGatePaused = true;
+	}
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
@@ -596,6 +633,272 @@ void AContrarySurvivorPlayerController::StopPauseMusic()
 	PauseMusicComponent->Stop();
 	PauseMusicComponent = nullptr; // создан с bAutoDestroy=false — освобождаем ссылку сами
 	UE_LOG(LogQA, Display, TEXT("QA: музыка паузы выключена"));
+}
+
+// ---------------------------------------------------------------------------
+// Боевая музыка (задача №5, ТЗ издателя 30.08)
+// ---------------------------------------------------------------------------
+
+int32 AContrarySurvivorPlayerController::PickCombatTrackIndex(int32 LastTrackIndex, bool bTrackAValid, bool bTrackBValid)
+{
+	if (!bTrackAValid && !bTrackBValid)
+	{
+		return INDEX_NONE; // оба поля пустые — боевой музыки нет (допустимая настройка)
+	}
+	if (!bTrackAValid)
+	{
+		return 1;
+	}
+	if (!bTrackBValid)
+	{
+		return 0;
+	}
+	// Оба трека на месте: берём тот, которого не было в прошлом бою; самый первый бой
+	// (LastTrackIndex = INDEX_NONE) начинает с первого трека.
+	return LastTrackIndex == 0 ? 1 : 0;
+}
+
+bool AContrarySurvivorPlayerController::ShouldCountEnemyForCombatMusic(bool bEngaging, float DistSquared, float RadiusSquared)
+{
+	// «Рядом с игроком есть живой враг в бою»: боевое состояние + дистанция в радиусе.
+	// Живость отдельно не передаётся — мёртвый враг выпадает из реестра сам (UnPossess).
+	return bEngaging && DistSquared <= RadiusSquared;
+}
+
+bool AContrarySurvivorPlayerController::ShouldGateSilenceCombatMusic(bool bWorldPaused, bool bMainMenuOnScreen, bool bDeathScreen)
+{
+	// Пауза мира ловит и меню паузы, и рекламу-заглушку (та ставит SetGamePaused); реальная
+	// рекламная сеть глушит весь звук игры сама (FApp::SetVolumeMultiplier(0)). Обыск и
+	// торговец мир НЕ останавливают — там музыка продолжает играть (ошибка 4 ТЗ).
+	return bWorldPaused || bMainMenuOnScreen || bDeathScreen;
+}
+
+bool AContrarySurvivorPlayerController::IsAnyEnemyEngagingNearby() const
+{
+	const APawn* MyPawn = GetPawn();
+	if (!MyPawn)
+	{
+		return false;
+	}
+
+	const FVector MyLocation = MyPawn->GetActorLocation();
+	const float RadiusSquared = FMath::Square(CombatMusicNearbyRadius);
+
+	// Реестр живых контроллеров врагов — единицы записей; сравнение состояния и квадрата
+	// дистанции. Никакого обхода всех акторов мира — это и есть «оптимизированно» из ТЗ
+	// (ошибка 2: проверка-страховка не должна подлагивать игру).
+	for (const TWeakObjectPtr<AEnemyAIController>& WeakEnemy : AEnemyAIController::GetActiveControllers())
+	{
+		const AEnemyAIController* Enemy = WeakEnemy.Get();
+		const APawn* EnemyPawn = Enemy ? Enemy->GetPawn() : nullptr;
+		if (!EnemyPawn)
+		{
+			continue;
+		}
+		if (ShouldCountEnemyForCombatMusic(Enemy->IsEngagingPlayer(),
+			FVector::DistSquared(MyLocation, EnemyPawn->GetActorLocation()), RadiusSquared))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AContrarySurvivorPlayerController::OnEnemyEnteredCombat(AEnemyAIController* Enemy)
+{
+	// Вход в бой — мгновенный старт музыки, без ожидания тика опроса («между условием и первой
+	// нотой не должно быть заметной паузы»). Под гейтом тишины новый бой музыку не заводит:
+	// на экране смерти она не нужна, а на паузе ИИ и не тикает.
+	UWorld* World = GetWorld();
+	if (!World || bDeathScreen || IsMainMenuOnScreen() || World->IsPaused())
+	{
+		return;
+	}
+
+	const APawn* MyPawn = GetPawn();
+	const APawn* EnemyPawn = Enemy ? Enemy->GetPawn() : nullptr;
+	if (!MyPawn || !EnemyPawn)
+	{
+		return;
+	}
+
+	// Радиусный фильтр «рядом»: далёкий бой (Standoff где-то за экраном) музыку не включает.
+	if (!ShouldCountEnemyForCombatMusic(true,
+		FVector::DistSquared(MyPawn->GetActorLocation(), EnemyPawn->GetActorLocation()),
+		FMath::Square(CombatMusicNearbyRadius)))
+	{
+		return;
+	}
+
+	StartOrRecoverCombatMusic();
+}
+
+void AContrarySurvivorPlayerController::StartOrRecoverCombatMusic()
+{
+	if (CombatMusicComponent && CombatMusicComponent->IsPlaying())
+	{
+		if (bCombatMusicFadingOut)
+		{
+			// Ошибка 1 ТЗ: бой возобновился во время затихания — музыка возвращается немедленно
+			// и на полную громкость, БЕЗ рестарта трека. AdjustVolume с ненулевой целью снимает
+			// запрос остановки (ActiveSound.FadeOut = None) и поднимает громкость затухателя
+			// обратно к единице (сверено с движком 5.5: AudioComponent.cpp,
+			// AdjustVolumeInternal + ActiveSound.cpp, проверка EFadeOut::None). Короткие 0.2 с —
+			// «немедленно» на слух, но без щелчка.
+			CombatMusicComponent->AdjustVolume(0.2f, 1.0f);
+			bCombatMusicFadingOut = false;
+			UE_LOG(LogQA, Display, TEXT("QA: боевая музыка возвращена из затихания (бой возобновился)"));
+		}
+		// Уже играет — ничего: два врага, заметившие игрока одновременно, дают ОДИН трек,
+		// а не две наложенные копии (ошибка 7 ТЗ).
+		return;
+	}
+
+	StartCombatMusicForNewFight();
+}
+
+void AContrarySurvivorPlayerController::StartCombatMusicForNewFight()
+{
+	const int32 Pick = PickCombatTrackIndex(LastCombatTrackIndex,
+		!CombatMusicTrackA.IsNull(), !CombatMusicTrackB.IsNull());
+	if (Pick == INDEX_NONE)
+	{
+		return; // оба поля пустые — боевой музыки нет
+	}
+
+	const TSoftObjectPtr<USoundBase>& TrackRef = (Pick == 0) ? CombatMusicTrackA : CombatMusicTrackB;
+	USoundBase* Music = TrackRef.LoadSynchronous();
+	if (!Music)
+	{
+		// Типовая причина на телефоне: на мягкую ссылку упаковщик не смотрит — папка звука
+		// должна быть в списке обязательной упаковки (Config/DefaultGame.ini). Папка
+		// /Game/Audio/Music там уже есть, но страховка от переименования ассета не помешает.
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: боевой трек не загрузился ('%s') — бой пойдёт без музыки [combat-music: load failed]"),
+			*TrackRef.ToString());
+		return;
+	}
+
+	// Зацикливание в UE 5.5 — свойство САМОГО ассета (USoundWave::bLooping); у SpawnSound2D
+	// параметра loop нет. Форсим на загруженном ассете (приём StartAmbience): трек доиграл —
+	// начинается снова без паузы, циклы у волн сшиты при импорте.
+	if (USoundWave* Wave = Cast<USoundWave>(Music))
+	{
+		Wave->bLooping = true;
+	}
+
+	// Сразу на полной громкости — «никакого нарастания» (ТЗ). Звук плоский, без точки мира.
+	// bPersistAcrossLevelTransition=false — перезапуск уровня музыку не переживёт (ошибка 6);
+	// bAutoDestroy=false — компонент держим ссылкой и отпускаем сами (опрос/смерть/EndPlay).
+	CombatMusicComponent = UGameplayStatics::SpawnSound2D(this, Music,
+		FMath::Max(0.0f, CombatMusicVolume) * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe(),
+		/*PitchMultiplier=*/1.0f, /*StartTime=*/0.0f, /*ConcurrencySettings=*/nullptr,
+		/*bPersistAcrossLevelTransition=*/false, /*bAutoDestroy=*/false);
+	if (!CombatMusicComponent)
+	{
+		return;
+	}
+
+	bCombatMusicFadingOut = false;
+	bCombatMusicGatePaused = false;
+	LastCombatTrackIndex = Pick;
+
+	UE_LOG(LogQA, Display, TEXT("QA: боевая музыка включена ('%s', трек %d, громкость %.2f)"),
+		*Music->GetName(), Pick + 1, CombatMusicVolume);
+}
+
+void AContrarySurvivorPlayerController::StopCombatMusicImmediately()
+{
+	bCombatMusicFadingOut = false;
+	bCombatMusicGatePaused = false;
+	if (!CombatMusicComponent)
+	{
+		return;
+	}
+	CombatMusicComponent->Stop();
+	CombatMusicComponent = nullptr; // создан с bAutoDestroy=false — освобождаем ссылку сами
+	UE_LOG(LogQA, Display, TEXT("QA: боевая музыка остановлена"));
+}
+
+bool AContrarySurvivorPlayerController::TickCombatMusic(float DeltaTime)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return true; // мир в переезде — просто ждём следующего тика (тикер снимет EndPlay)
+	}
+
+	// Уборка: затихание дошло до нуля и звук остановился сам (FadeOut на нуле останавливает
+	// активный звук) — отпускаем компонент. Приостановленный гейтом компонент сюда не попадёт:
+	// на паузе IsPlaying() у него по-прежнему true (IsActive).
+	if (CombatMusicComponent && !CombatMusicComponent->IsPlaying())
+	{
+		CombatMusicComponent = nullptr;
+		bCombatMusicFadingOut = false;
+		bCombatMusicGatePaused = false;
+		UE_LOG(LogQA, Display, TEXT("QA: боевая музыка дозатихла и выключена (бой кончился)"));
+	}
+
+	// Смерть игрока: мгновенную тишину дал ShowDeathScreen (SetPaused), здесь останавливаем
+	// совсем — после возрождения бой начнётся заново, с новым треком, а не с хвоста затихания.
+	if (bDeathScreen)
+	{
+		StopCombatMusicImmediately();
+	}
+
+	const bool bCombatNearby = !bDeathScreen && IsAnyEnemyEngagingNearby();
+
+	// Гейт тишины (идемпотентно): пауза мира (меню паузы, реклама-заглушка) или главное меню —
+	// музыка приостанавливается, НЕ останавливается: гейт снят — бой продолжается со звуком.
+	// Руками, потому что звук из SpawnSound2D помечен звуком интерфейса и пауза мира его не глушит.
+	const bool bGateSilence = ShouldGateSilenceCombatMusic(
+		World->IsPaused(), IsMainMenuOnScreen(), bDeathScreen);
+	if (CombatMusicComponent && bGateSilence != bCombatMusicGatePaused)
+	{
+		CombatMusicComponent->SetPaused(bGateSilence);
+		bCombatMusicGatePaused = bGateSilence;
+	}
+
+	if (!bGateSilence)
+	{
+		// Рядом боя нет — плавное затихание (2.5 с по умолчанию), потом звук остановится сам.
+		// Тот же опрос — страховка от «залипла навечно» (ошибка 2 ТЗ): даже если событие
+		// окончания боя не пришло, отсутствие врагов рядом выключит музыку.
+		if (CombatMusicComponent && !bCombatMusicFadingOut && !bCombatNearby)
+		{
+			CombatMusicComponent->FadeOut(FMath::Max(0.1f, CombatMusicFadeOutSeconds), 0.0f);
+			bCombatMusicFadingOut = true;
+			UE_LOG(LogQA, Display, TEXT("QA: боевая музыка затихает (%.1f с) — рядом не осталось врагов в бою"),
+				CombatMusicFadeOutSeconds);
+		}
+
+		// Бой рядом, а музыка молчит или гаснет — тот же путь, что событие входа в бой.
+		// Закрывает дыру событийного старта: игрок вернулся к врагу, который бой и не
+		// прекращал, — события «вход в бой» не будет, музыку заводит опрос.
+		if (bCombatNearby)
+		{
+			StartOrRecoverCombatMusic();
+		}
+
+		// Ползунок громкости музыки на лету (пока не идёт затихание — его не перетираем).
+		if (CombatMusicComponent && !bCombatMusicFadingOut)
+		{
+			CombatMusicComponent->SetVolumeMultiplier(
+				FMath::Max(0.0f, CombatMusicVolume) * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe());
+		}
+	}
+
+	// Приглушение лесного фона на время боя (ТЗ: «на 30 %, после боя возвращается»).
+	// Плавно: полный ход множителя [DuckFactor..1] проходит за CombatAmbienceDuckLerpSeconds.
+	const float DuckTarget = bCombatNearby ? FMath::Clamp(CombatAmbienceDuckFactor, 0.0f, 1.0f) : 1.0f;
+	CombatAmbienceDuckCurrent = FMath::FInterpConstantTo(CombatAmbienceDuckCurrent, DuckTarget,
+		DeltaTime, 1.0f / FMath::Max(0.05f, CombatAmbienceDuckLerpSeconds));
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->SetAmbienceCombatDuck(CombatAmbienceDuckCurrent);
+	}
+
+	return true; // тикер живёт до EndPlay
 }
 
 void AContrarySurvivorPlayerController::ClosePauseMenu()

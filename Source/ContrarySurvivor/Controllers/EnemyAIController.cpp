@@ -19,6 +19,7 @@
 #include "NavigationSystem.h" // UNavigationSystemV1::GetCurrent / ProjectPointToNavigation + FNavLocation (QA-диагностика навмеша)
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог погони (дросселированный)
 #include "ContrarySurvivor/Navigation/NavQueryFilter_ExcludeVillage.h" // BugReport 12: обход деревни
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // задача №5: уведомление «враг вступил в бой» (боевая музыка)
 
 TArray<TWeakObjectPtr<AEnemyAIController>> AEnemyAIController::ActiveControllers;
 
@@ -91,6 +92,18 @@ void AEnemyAIController::SetLeash(const FVector& InHomeLocation, float InLeashRa
 APawn* AEnemyAIController::GetPlayerPawn() const
 {
 	return UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+}
+
+void AEnemyAIController::NotifyEnteredCombat()
+{
+	// Боевая музыка (задача №5, ТЗ 30.08): вход в бой — мгновенно, без ожидания опроса.
+	// Контроллер игрока сам решает, что делать (уже играет / гаснет / молчит) и сам
+	// фильтрует по радиусу «рядом» — здесь только уведомление, ноль влияния на бой.
+	if (AContrarySurvivorPlayerController* CSPC =
+		Cast<AContrarySurvivorPlayerController>(UGameplayStatics::GetPlayerController(GetWorld(), 0)))
+	{
+		CSPC->OnEnemyEnteredCombat(this);
+	}
 }
 
 bool AEnemyAIController::CanSensePlayer(APawn* Player) const
@@ -615,8 +628,14 @@ void AEnemyAIController::Tick(float DeltaTime)
 		SetVillageSlowdown(false);
 		if (CurrentState != EEnemyAIState::Attack)
 		{
+			// Боевая музыка (задача №5): «был ли в бою» смотрим ДО присваивания состояния.
+			const bool bWasEngaging = IsEngagingPlayer();
 			StopMovement();
 			CurrentState = EEnemyAIState::Attack;
+			if (!bWasEngaging)
+			{
+				NotifyEnteredCombat();
+			}
 		}
 		PerformAttack(Player);
 		return;
@@ -628,8 +647,14 @@ void AEnemyAIController::Tick(float DeltaTime)
 		SetVillageSlowdown(false);
 		if (CurrentState != EEnemyAIState::Standoff)
 		{
+			// Боевая музыка (задача №5): Standoff — тоже боевое состояние (IsEngagingPlayer).
+			const bool bWasEngaging = IsEngagingPlayer();
 			StopMovement();
 			CurrentState = EEnemyAIState::Standoff;
+			if (!bWasEngaging)
+			{
+				NotifyEnteredCombat();
+			}
 			FQADebug::QA(GetWorld(), FString::Printf(
 				TEXT("QA: %s standoff (attack slots full, max=%d)"),
 				*Self->GetName(), MaxSimultaneousAttackers), /*bScreen=*/true);
@@ -646,8 +671,14 @@ void AEnemyAIController::Tick(float DeltaTime)
 		SetVillageSlowdown(false);
 		if (CurrentState != EEnemyAIState::Attack)
 		{
+			// Боевая музыка (задача №5): «был ли в бою» смотрим ДО присваивания состояния.
+			const bool bWasEngaging = IsEngagingPlayer();
 			StopMovement();
 			CurrentState = EEnemyAIState::Attack;
+			if (!bWasEngaging)
+			{
+				NotifyEnteredCombat();
+			}
 		}
 		PerformRangedAttack(Player);
 		return;
@@ -657,7 +688,13 @@ void AEnemyAIController::Tick(float DeltaTime)
 	{
 		if (CurrentState != EEnemyAIState::Chase)
 		{
+			// Боевая музыка (задача №5): «был ли в бою» смотрим ДО присваивания состояния.
+			const bool bWasEngaging = IsEngagingPlayer();
 			CurrentState = EEnemyAIState::Chase;
+			if (!bWasEngaging)
+			{
+				NotifyEnteredCombat();
+			}
 			LastMoveIssueTime = -1000.0f; // на входе в Chase отдать move немедленно
 			// На входе даём nav честный первый шанс (оптимистично RequestSuccessful), сбрасываем
 			// трекинг сближения от текущей дистанции. Если первый MoveToActor реально вернёт Failed —

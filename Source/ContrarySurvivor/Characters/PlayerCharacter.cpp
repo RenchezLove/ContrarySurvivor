@@ -378,14 +378,33 @@ bool APlayerCharacter::SetAmbienceSilenced(bool bSilenced)
     return true;
 }
 
+void APlayerCharacter::SetAmbienceCombatDuck(float InMultiplier)
+{
+    // Приглушение фона на время боя (задача №5, ТЗ 30.08). Плавность даёт вызывающий
+    // (опрос боевой музыки контроллера) — здесь только применение текущего множителя.
+    InMultiplier = FMath::Clamp(InMultiplier, 0.0f, 1.0f);
+    if (FMath::IsNearlyEqual(AmbienceCombatDuck, InMultiplier))
+    {
+        return;
+    }
+    AmbienceCombatDuck = InMultiplier;
+
+    if (AmbienceComponent)
+    {
+        AmbienceComponent->SetVolumeMultiplier(
+            AmbienceVolume * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe() * AmbienceCombatDuck);
+    }
+}
+
 void APlayerCharacter::ApplyAudioSettings()
 {
     // Зацикленные звуки уже играют — им громкость меняем прямо на компоненте
     // (SetVolumeMultiplier), иначе настройка подействовала бы только после перезапуска звука.
+    // Боевой множитель (задача №5) участвует здесь же — смена настроек его не перетирает.
     if (AmbienceComponent)
     {
         AmbienceComponent->SetVolumeMultiplier(
-            AmbienceVolume * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe());
+            AmbienceVolume * UContrarySurvivorGameUserSettings::GetMusicVolumeSafe() * AmbienceCombatDuck);
     }
     if (LimpBreathingComponent)
     {

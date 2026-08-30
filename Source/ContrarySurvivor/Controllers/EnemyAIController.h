@@ -62,6 +62,14 @@ public:
 		return bRangedAttacker && IsEngagingPlayer();
 	}
 
+	// --- Боевая музыка (задача №5, ТЗ 30.08) ---
+
+	// Уведомляет контроллер игрока: этот враг перешёл из НЕбоевого состояния в боевое
+	// (Chase/Attack/Standoff). Зовётся в местах присваивания CurrentState в Tick, только
+	// когда ДО присваивания IsEngagingPlayer() было false. Только уведомление — на сам
+	// бой не влияет никак.
+	void NotifyEnteredCombat();
+
 	// Реестр живых контроллеров врагов (для боевой камеры игрока и лимита атакующих).
 	static const TArray<TWeakObjectPtr<AEnemyAIController>>& GetActiveControllers()
 	{
