@@ -35,17 +35,43 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Spread;
 
-	// --- Звук выстрела (Демо) ---
-	// Проигрывается в момент реального выстрела (не на пустой обойме). Дефолт грузится
-	// из /Game/Audio/Demo/pistol_22_gunshot через FObjectFinder в конструкторе; можно
-	// переопределить в редакторе/BP. Выстрел бандита переиспользует ЭТОТ же звук
-	// (PlayFireVisuals с bPlaySound=true).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio")
+	// --- Звук выстрела (Демо; вариации — Ринат 30.08) ---
+	// Проигрывается в момент реального выстрела (не на пустой обойме). Выстрел бандита
+	// переиспользует ту же логику (PlayFireVisuals с bPlaySound=true), сам выбор звука —
+	// PlayFireSound().
+
+	// Набор звуков выстрела: каждый раз берётся НЕ тот, что играл в прошлый выстрел
+	// (задание Рината 30.08 «каждый выстрел не похож на предыдущий»). Дефолт — два куска
+	// нарезки A_34P (1911): /Game/Audio/Demo/pistol_1911_shot_1 и _2, грузятся в
+	// конструкторе. Пустой список — запасной путь на одиночный «Звук выстрела» ниже.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (DisplayPriority = "1",
+		DisplayName = "Звуки выстрела (вариации)"))
+	TArray<TObjectPtr<USoundBase>> FireSoundVariations;
+
+	// Разброс высоты тона на выстрел: 0.05 = каждый выстрел случайно на ±5% выше/ниже.
+	// Дешёвая добавка к вариациям, чтобы даже один и тот же сэмпл не звучал штампом.
+	// 0 — выключено.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0", ClampMax = "0.5", DisplayPriority = "2",
+		DisplayName = "Разброс высоты тона (доля)"))
+	float FireSoundPitchVariation = 0.05f;
+
+	// Одиночный звук выстрела — запасной путь, если список вариаций пуст (и совместимость
+	// со старыми BP-переопределениями). Дефолт — прежний pistol_22_gunshot.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (DisplayPriority = "3"))
 	USoundBase* FireSound;
 
 	// Громкость выстрела. Тюнингуется (дефолт 1.0 — фидбек Рината 07-17 «слишком тихо»).
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0"))
+	// Итог в игре = эта громкость x ползунок «Эффекты» на экране настроек.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (ClampMin = "0.0", DisplayPriority = "4"))
 	float FireSoundVolume;
+
+	// Выбрать и проиграть звук выстрела в точке оружия (вариации + разброс тона + громкость
+	// с настройками). Общая точка для выстрела игрока (Fire) и бандита (PlayFireVisuals).
+	void PlayFireSound();
+
+	// Индекс звука, игравшего в ПРОШЛЫЙ выстрел (-1 — ещё не стреляли): следующий выбор
+	// его избегает; при двух звуках это чистое чередование.
+	int32 LastFireSoundIndex = -1;
 
 	// --- Вспышка выстрела + след пули (D2, Этап D) ---
 	// Дёшево для слабого Android: два ПЕРЕИСПОЛЬЗУЕМЫХ StaticMesh-компонента на оружии

@@ -34,6 +34,17 @@ ARangedWeapon::ARangedWeapon()
 		FireSound = FireSoundAsset.Object;
 	}
 
+	// Вариации выстрела (Ринат 30.08): два куска нарезки A_34P (1911) чередуются, чтобы
+	// подряд не звучал один и тот же сэмпл. Жёсткие ссылки конструктора — как у прочих
+	// звуков /Game/Audio/Demo (папка не в DirectoriesToAlwaysCook, в пак они попадают
+	// именно по таким ссылкам).
+	static ConstructorHelpers::FObjectFinder<USoundBase> Shot1Asset(
+		TEXT("/Game/Audio/Demo/pistol_1911_shot_1.pistol_1911_shot_1"));
+	static ConstructorHelpers::FObjectFinder<USoundBase> Shot2Asset(
+		TEXT("/Game/Audio/Demo/pistol_1911_shot_2.pistol_1911_shot_2"));
+	if (Shot1Asset.Succeeded()) { FireSoundVariations.Add(Shot1Asset.Object); }
+	if (Shot2Asset.Succeeded()) { FireSoundVariations.Add(Shot2Asset.Object); }
+
 	// --- Вспышка + след пули (D2): переиспользуемые компоненты, скрыты до выстрела ---
 	// Меши — базовые фигуры движка; материал — BasicShapeMaterial (параметр Color),
 	// оператор может заменить FXMaterial на светящийся без правок кода.
@@ -115,6 +126,37 @@ void ARangedWeapon::EnsureFXMaterial()
 	}
 }
 
+void ARangedWeapon::PlayFireSound()
+{
+	// Вариации выстрела (Ринат 30.08: «каждый выстрел не похож на предыдущий»): из списка
+	// берём случайный, ИЗБЕГАЯ игравшего в прошлый раз (при двух звуках — чередование).
+	// Пустой список — запасной путь на одиночный FireSound (старое поведение).
+	USoundBase* Sound = FireSound;
+	if (FireSoundVariations.Num() > 0)
+	{
+		int32 Index = FMath::RandRange(0, FireSoundVariations.Num() - 1);
+		if (FireSoundVariations.Num() > 1 && Index == LastFireSoundIndex)
+		{
+			Index = (Index + 1) % FireSoundVariations.Num();
+		}
+		LastFireSoundIndex = Index;
+		Sound = FireSoundVariations[Index];
+	}
+	if (!Sound)
+	{
+		return;
+	}
+
+	// Разброс высоты тона: дешёвая вариативность поверх смены сэмпла (0 — выключен).
+	const float Pitch = (FireSoundPitchVariation > 0.0f)
+		? FMath::RandRange(1.0f - FireSoundPitchVariation, 1.0f + FireSoundPitchVariation)
+		: 1.0f;
+
+	// Громкость эффектов с экрана настроек (ADR-062).
+	UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation(),
+		FireSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe(), Pitch);
+}
+
 void ARangedWeapon::PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound)
 {
 	UWorld* World = GetWorld();
@@ -124,11 +166,9 @@ void ARangedWeapon::PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound)
 	}
 
 	// Звук выстрела (для ИИ бандита; игрок проигрывает его сам в Fire()).
-	if (bPlaySound && FireSound)
+	if (bPlaySound)
 	{
-		// Громкость эффектов с экрана настроек (ADR-062).
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(),
-			FireSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
+		PlayFireSound();
 	}
 
 	if (!bEnableFireVisuals)
@@ -270,12 +310,7 @@ void ARangedWeapon::Fire(AActor* Target)
 	}
 
 	// Звук выстрела — только при реальном выстреле (CanFire() уже прошёл, обойма не пуста).
-	if (FireSound)
-	{
-		// Громкость эффектов с экрана настроек (ADR-062).
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation(),
-			FireSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
-	}
+	PlayFireSound();
 
 	// Тратим патрон и обновляем время последнего выстрела
 	CurrentAmmoInClip--;
