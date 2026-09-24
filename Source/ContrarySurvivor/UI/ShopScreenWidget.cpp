@@ -16,7 +16,6 @@
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-077 п.12: витрина позиции из строки DT_Items
 #include "AMasterInventoryItem.h"
 #include "AAmmoItem.h"            // стак патронов -> транзакция количества; иконка позиции Ammo
-#include "AConsumableItem.h"      // иконка расходника каталога по типу (Build 1.2.2, тайлы)
 #include "UInventoryComponent.h"
 #include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
@@ -435,21 +434,20 @@ int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 				Name = FText::Format(ArmorBonusFormat, ArmorArgs);
 			}
 
-			// Иконка позиции каталога — предмета ещё НЕТ, берём вычислимую: строка таблицы —
-			// первой; дальше как раньше: патроны — иконка пачки, расходник с типом — иконка
-			// типа, прочее — иконка CDO класса (GetItemIcon).
+			// Иконка позиции каталога — предмета ещё НЕТ. ADR-088: если у позиции есть строка
+			// таблицы (по имени строки или по служебному ключу позиции), картинка берётся ТОЛЬКО
+			// из неё — ровно та же, что будет у купленного предмета. Без строки (таблица не
+			// назначена) — как раньше: патроны — иконка пачки, прочее — иконка CDO класса.
+			const FContraryItemRow* IconRow = Row ? Row
+				: ContraryItems::FindRow(ContraryItems::FindRowNameByLegacyKey(E.DisplayName));
 			TSoftObjectPtr<UTexture2D> SoftIcon;
-			if (Row && !Row->Icon.IsNull())
+			if (IconRow)
 			{
-				SoftIcon = Row->Icon;
+				SoftIcon = IconRow->Icon;
 			}
 			else if (E.Kind == EShopEntryKind::Ammo)
 			{
 				SoftIcon = GetDefault<AAmmoItem>()->GetItemIcon();
-			}
-			else if (E.bApplyConsumableType)
-			{
-				SoftIcon = AConsumableItem::GetDefaultIcon(E.ConsumableType);
 			}
 			else if (E.ItemClass)
 			{

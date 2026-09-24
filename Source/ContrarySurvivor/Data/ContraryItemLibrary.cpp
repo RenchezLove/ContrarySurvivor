@@ -7,6 +7,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/StaticMeshComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "AMasterInventoryItem.h"
 #include "AConsumableItem.h"
 #include "AArmor.h"
@@ -75,11 +76,11 @@ void ApplyRowToItem(AMasterInventoryItem& Item, const FContraryItemRow& Row, FNa
 	}
 	Item.ItemCategory = Row.Category;
 
-	// Витрина: иконка и меш в мире (пусто в строке = остаются значения класса/BP).
-	if (!Row.Icon.IsNull())
-	{
-		Item.ItemIcon = Row.Icon;
-	}
+	// Витрина. Иконка — ВСЕГДА из строки (ADR-088): таблица — единственный источник картинки,
+	// картинка чертежа или класса её больше не перебивает. Пустая ячейка = предмет без
+	// картинки (плитка покажет подпись) — это сигнал заполнить таблицу, а не молчаливый откат.
+	Item.ItemIcon = Row.Icon;
+	// Меш в мире: пусто в строке = остаётся меш класса/BP.
 	if (!Row.WorldMesh.IsNull() && Item.ItemMesh)
 	{
 		if (UStaticMesh* Mesh = Row.WorldMesh.LoadSynchronous())
@@ -123,7 +124,30 @@ void ApplyRowToItem(AMasterInventoryItem& Item, const FContraryItemRow& Row, FNa
 	}
 }
 
-AMasterInventoryItem* SpawnItemFromRow(UWorld* World, FName RowName, int32 StackCount, const FTransform& Transform)
+AMasterInventoryItem* SpawnItem(UWorld* World, UClass* ItemClass, const FTransform& Transform,
+	AActor* Owner, const TFunction<void(AMasterInventoryItem&)>& Init)
+{
+	if (!World || !ItemClass || !ItemClass->IsChildOf(AMasterInventoryItem::StaticClass()))
+	{
+		return nullptr;
+	}
+	AMasterInventoryItem* Item = World->SpawnActorDeferred<AMasterInventoryItem>(ItemClass, Transform, Owner,
+		/*Instigator=*/nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!Item)
+	{
+		return nullptr;
+	}
+	if (Init)
+	{
+		Init(*Item);
+	}
+	// Здесь движок вызывает PostInitializeComponents — предмет накладывает свою строку.
+	UGameplayStatics::FinishSpawningActor(Item, Transform);
+	return IsValid(Item) ? Item : nullptr;
+}
+
+AMasterInventoryItem* SpawnItemFromRow(UWorld* World, FName RowName, int32 StackCount, const FTransform& Transform,
+	AActor* Owner)
 {
 	if (!World)
 	{
@@ -144,15 +168,15 @@ AMasterInventoryItem* SpawnItemFromRow(UWorld* World, FName RowName, int32 Stack
 		return nullptr;
 	}
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(ItemClass, Transform, SpawnParams);
-	if (!Item)
+	// Строку накладывает сам предмет при появлении (единая точка) — здесь только передаём её.
+	return SpawnItem(World, ItemClass, Transform, Owner, [RowName, StackCount](AMasterInventoryItem& Item)
 	{
-		return nullptr;
-	}
-	ApplyRowToItem(*Item, *Row, RowName, StackCount);
-	return Item;
+		Item.SourceItemRow = RowName;
+		if (StackCount > 0)
+		{
+			Item.StackCount = StackCount; // обрежется лимитом строки при наложении
+		}
+	});
 }
 
 } // namespace ContraryItems

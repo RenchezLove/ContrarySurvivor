@@ -34,6 +34,35 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	// ADR-088: ЕДИНАЯ ТОЧКА наложения строки DT_Items (ApplyOwnItemRow). Раньше BeginPlay:
+	// движок зовёт её и для размещённого на карте предмета (при старте игры), и для
+	// созданного кодом — внутри SpawnActor/FinishSpawning, даже в мире, где BeginPlay ещё
+	// не разослан. Поэтому сразу после спавна предмет уже несёт данные своей строки.
+	virtual void PostInitializeComponents() override;
+
+	// Ключ для поиска строки, когда SourceItemRow не задан: служебный ключ ItemName.
+	// AConsumableItem добавляет запасной ключ по типу (голый класс расходника ключа не несёт).
+	virtual FName ResolveItemRowName() const;
+
+public:
+	// ADR-088: накладывает на предмет его строку таблицы предметов — ОДИН раз за жизнь
+	// экземпляра (повторный вызов ничего не делает). Строка находится так: SourceItemRow
+	// (задан спавнером по строке, сейвом или дизайнером на экземпляре) -> служебный ключ
+	// ItemName (колонка LegacyKey) -> у расходника ключ по типу. Не нашлась — предмет
+	// остаётся со значениями своего класса (вещи вне таблицы). Вызывается только из
+	// PostInitializeComponents; публичная — для автотестов.
+	void ApplyOwnItemRow();
+
+	// Строка уже наложена (или поиск уже прошёл и строки нет).
+	bool IsItemRowResolved() const { return bItemRowResolved; }
+
+	// Выпадающий список строк таблицы для поля SourceItemRow в редакторе (meta GetOptions).
+	UFUNCTION()
+	TArray<FName> GetItemRowOptions() const;
+
+private:
+	bool bItemRowResolved = false;
+
 public:
 	// Variables:
 
@@ -51,7 +80,11 @@ public:
 	// дефолты класса (баг 24.08: броня торса и штанов возвращалась тряпкой Т0 с защитой 0).
 	// Пусто = предмет создан не из таблицы (прежние пути C++) — тогда строку ищут по ключу
 	// ItemName (ContraryItems::FindRowNameByLegacyKey).
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
+	// ADR-088: поле редактируемое — предмету ОБЩЕГО класса, поставленному на карту руками
+	// (BP_ArmorBase без ключа), строку выбирают здесь из списка; дальше всё берётся из таблицы.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (GetOptions = "GetItemRowOptions",
+		DisplayName = "Строка таблицы предметов",
+		ToolTip = "Строка DT_Items, из которой предмет берёт название, картинку, меш, стак и броню. Пусто = строка ищется по служебному ключу предмета."))
 	FName SourceItemRow;
 
 	// ПЕРЕВОДИМОЕ название, которое видит игрок («Пистолет», «Шкура волка»). Живёт на
@@ -115,11 +148,9 @@ public:
 	virtual FText GetItemDisplayText() const;
 
 	// ЕДИНСТВЕННЫЙ способ получить иконку предмета для UI (Build 1.2.2, тайлы). База отдаёт
-	// поле ItemIcon как есть; классы, обслуживающие НЕСКОЛЬКО предметов, переопределяют:
-	// AConsumableItem — по типу (еда/вода/аптечка), AQuestItem — по служебному ключу
-	// (шкура/ноутбук). Это покрывает ВСЕ пути создания предмета (дроп, труп, каталог,
-	// размещённый пикап) без обязанности каждого спавнера прописывать иконку руками.
-	// Явно заданный ItemIcon (экземпляр/BP) всегда главнее вычисленного.
+	// поле ItemIcon как есть — с ADR-088 его заполняет строка таблицы предметов при
+	// появлении предмета (ApplyOwnItemRow), на всех путях создания. AQuestItem ещё
+	// вычисляет картинку по ключу, если ItemIcon пуст (предмет вне таблицы).
 	UFUNCTION(BlueprintPure, Category = "Item")
 	virtual TSoftObjectPtr<UTexture2D> GetItemIcon() const { return ItemIcon; }
 

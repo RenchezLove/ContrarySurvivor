@@ -11,6 +11,7 @@
 #include "ContrarySurvivor/Debug/QADebug.h" // QA-лог гарантированного дропа шкуры
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "AConsumableItem.h"
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-088: единая дверь создания предметов
 #include "AQuestItem.h" // Фаза 5: «Шкура волка» — квест-предмет (категория Quest, не теряется при смерти)
 #include "Kismet/GameplayStatics.h" // GetPlayerPawn (поиск журнала квестов игрока)
 #include "Components/CapsuleComponent.h"
@@ -321,19 +322,19 @@ void AWolfCharacter::DropLoot()
 	TArray<AMasterInventoryItem*> Loot;
 	if (QuestLootItemClass)
 	{
-		FActorSpawnParameters Sp;
-		Sp.Owner = this;
-		Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-		AMasterInventoryItem* Pelt = World->SpawnActor<AMasterInventoryItem>(
-			QuestLootItemClass, GetActorLocation(), FRotator::ZeroRotator, Sp);
+		// ADR-088: ключ и название — ДО появления предмета; строку таблицы (wolf_pelt)
+		// шкура накладывает на себя сама по ключу.
+		AMasterInventoryItem* Pelt = ContraryItems::SpawnItem(World, QuestLootItemClass,
+			FTransform(GetActorLocation()), this, [this](AMasterInventoryItem& Item)
+			{
+				Item.ItemName = QuestLootItemName;
+				Item.ItemDisplayText = QuestLootItemText;
+			});
 		if (Pelt)
 		{
 			// Предмет лута — данные рюкзака, не объект сцены (как в APickup::DropLoot).
 			Pelt->SetActorHiddenInGame(true);
 			Pelt->SetActorEnableCollision(false);
-			Pelt->ItemName = QuestLootItemName;
-			Pelt->ItemDisplayText = QuestLootItemText;
 			Loot.Add(Pelt);
 		}
 	}

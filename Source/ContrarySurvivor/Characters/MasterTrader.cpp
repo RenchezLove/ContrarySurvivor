@@ -380,6 +380,9 @@ void AMasterTrader::BuildLegacyCatalog()
 		E.ItemClass = AConsumableItem::StaticClass();
 		E.bApplyConsumableType = true;
 		E.ConsumableType = Type;
+		// ADR-088: имя строки таблицы = латинский ид позиции (решение лида 22.08). Если
+		// таблица есть, купленный предмет возьмёт всё из строки, как в пути таблицы.
+		E.ItemRow = FName(*AnalyticsId);
 		return E;
 	};
 
@@ -396,6 +399,7 @@ void AMasterTrader::BuildLegacyCatalog()
 		E.Price = Price;
 		E.Kind = EShopEntryKind::Item;
 		E.ItemClass = Cls;
+		E.ItemRow = FName(*AnalyticsId); // ADR-088: см. MakeConsumable
 		return E;
 	};
 

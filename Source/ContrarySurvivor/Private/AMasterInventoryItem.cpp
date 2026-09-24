@@ -3,6 +3,9 @@
 
 #include "AMasterInventoryItem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"
+#include "Engine/DataTable.h"
+#include "Engine/World.h"
 
 #define LOCTEXT_NAMESPACE "InventoryItem"
 
@@ -24,6 +27,69 @@ AMasterInventoryItem::AMasterInventoryItem()
 void AMasterInventoryItem::BeginPlay()
 {
 	Super::BeginPlay();
+}
+
+void AMasterInventoryItem::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// Только в игровом мире (игра, PIE, автотесты): в редакторе и в превью чертежа данные
+	// строки не должны записываться в экземпляр на карте и сохраняться вместе с уровнем.
+	const UWorld* World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		ApplyOwnItemRow();
+	}
+}
+
+FName AMasterInventoryItem::ResolveItemRowName() const
+{
+	if (!SourceItemRow.IsNone() && ContraryItems::FindRow(SourceItemRow))
+	{
+		return SourceItemRow;
+	}
+	return ContraryItems::FindRowNameByLegacyKey(ItemName);
+}
+
+void AMasterInventoryItem::ApplyOwnItemRow()
+{
+	if (bItemRowResolved)
+	{
+		return; // строка накладывается один раз — повторный вызов не должен перетирать данные
+	}
+	bItemRowResolved = true;
+
+	const FName RowName = ResolveItemRowName();
+	if (const FContraryItemRow* Row = ContraryItems::FindRow(RowName))
+	{
+		// StackCount спавнер выставил ДО этой точки — здесь он лишь обрезается лимитом строки.
+		ContraryItems::ApplyRowToItem(*this, *Row, RowName, StackCount);
+	}
+	else if (!SourceItemRow.IsNone() && ContraryItems::GetItemTable())
+	{
+		// Строку назначили явно, а в таблице её нет — ошибка данных, молчать нельзя
+		// (таблица не назначена вовсе — штатный режим без таблиц, не спамим).
+		UE_LOG(LogQA, Warning,
+			TEXT("AMasterInventoryItem '%s': строка '%s' не найдена в таблице предметов — остаются значения класса"),
+			*GetName(), *SourceItemRow.ToString());
+	}
+
+	// Вне таблицы лимит стака остаётся классовым — счётчик не должен его превышать.
+	if (StackCount > MaxStackCount)
+	{
+		StackCount = FMath::Max(1, MaxStackCount);
+	}
+}
+
+TArray<FName> AMasterInventoryItem::GetItemRowOptions() const
+{
+	TArray<FName> Options;
+	Options.Add(NAME_None); // пусто = строка по служебному ключу
+	if (const UDataTable* Table = ContraryItems::GetItemTable())
+	{
+		Options.Append(Table->GetRowNames());
+	}
+	return Options;
 }
 
 void AMasterInventoryItem::Use()

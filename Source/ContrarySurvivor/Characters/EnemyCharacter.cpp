@@ -9,6 +9,7 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // D5: всплывающие цифры урона по врагам
 #include "ContrarySurvivor/Debug/QADebug.h" // force-drop (Z) + QA-лог дропа
 #include "AConsumableItem.h"
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h" // ADR-088: единая дверь создания предметов
 #include "APistol.h" // D1/D6: пистолет в руке бандита (дефолт SidearmWeaponClass)
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -284,9 +285,6 @@ void AEnemyCharacter::DropLoot()
 	const float Roll = FMath::FRand();
 	const bool bChanceHit = (LootTable.Num() > 0) && (Roll <= EffectiveChance);
 
-	FActorSpawnParameters Sp;
-	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
 	TArray<AMasterInventoryItem*> Items;
 	FString ItemNamesLog;
 	if (bChanceHit)
@@ -297,9 +295,35 @@ void AEnemyCharacter::DropLoot()
 		for (int32 i = 0; i < Count; ++i)
 		{
 			const FBanditLootEntry& Entry = LootTable[FMath::RandRange(0, LootTable.Num() - 1)];
-			UClass* ItemClass = Entry.ItemClass ? *Entry.ItemClass : AConsumableItem::StaticClass();
-			AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
-				ItemClass, Loc, FRotator::ZeroRotator, Sp);
+			AMasterInventoryItem* Item = nullptr;
+			if (!Entry.ItemRow.IsNone())
+			{
+				// ADR-088 п.3: запись строкой таблицы — всё о предмете берётся из строки.
+				Item = ContraryItems::SpawnItemFromRow(World, Entry.ItemRow, /*StackCount=*/0, FTransform(Loc));
+			}
+			else
+			{
+				// ВРЕМЕННЫЙ запасной путь по классу: ключ/название/тип — ДО появления
+				// предмета, строку таблицы он найдёт по ключу сам.
+				UClass* ItemClass = Entry.ItemClass ? *Entry.ItemClass : AConsumableItem::StaticClass();
+				Item = ContraryItems::SpawnItem(World, ItemClass, FTransform(Loc), /*Owner=*/nullptr,
+					[&Entry](AMasterInventoryItem& It)
+					{
+						// Служебный ключ; пустое поле таблицы -> ключ по типу расходника.
+						It.ItemName = !Entry.DisplayName.IsEmpty()
+							? Entry.DisplayName
+							: AConsumableItem::GetDefaultDisplayName(Entry.ConsumableType);
+						// Переводимое название рядом с ключом: класс AConsumableItem один на воду,
+						// консервы и бинт, поэтому название задаётся здесь, а не в конструкторе класса.
+						It.ItemDisplayText = !Entry.DisplayText.IsEmpty()
+							? Entry.DisplayText
+							: AConsumableItem::GetDefaultDisplayText(Entry.ConsumableType);
+						if (AConsumableItem* Cons = Cast<AConsumableItem>(&It))
+						{
+							Cons->ConsumableType = Entry.ConsumableType;
+						}
+					});
+			}
 			if (!Item)
 			{
 				continue;
@@ -307,19 +331,6 @@ void AEnemyCharacter::DropLoot()
 			// Предмет лута — данные рюкзака, не объект сцены (тот же приём, что в APickup::DropLoot).
 			Item->SetActorHiddenInGame(true);
 			Item->SetActorEnableCollision(false);
-			// Служебный ключ; пустое поле таблицы -> ключ по типу расходника.
-			Item->ItemName = !Entry.DisplayName.IsEmpty()
-				? Entry.DisplayName
-				: AConsumableItem::GetDefaultDisplayName(Entry.ConsumableType);
-			// Переводимое название рядом с ключом: класс AConsumableItem один на воду,
-			// консервы и бинт, поэтому название задаётся здесь, а не в конструкторе класса.
-			Item->ItemDisplayText = !Entry.DisplayText.IsEmpty()
-				? Entry.DisplayText
-				: AConsumableItem::GetDefaultDisplayText(Entry.ConsumableType);
-			if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
-			{
-				Cons->ConsumableType = Entry.ConsumableType;
-			}
 			Items.Add(Item);
 			ItemNamesLog += (ItemNamesLog.IsEmpty() ? TEXT("") : TEXT(", ")) + Item->ItemName;
 		}

@@ -207,16 +207,16 @@ void APickup::SpawnPlacedLoot()
 		return;
 	}
 
-	FActorSpawnParameters Sp;
-	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
 	TArray<AMasterInventoryItem*> PlacedItems;
 
 	// Предмет лута — данные рюкзака, не объект на сцене (тот же приём, что в DropLoot).
-	auto SpawnHiddenItem = [&](TSubclassOf<AMasterInventoryItem> ItemClass) -> AMasterInventoryItem*
+	// ADR-088: ключ/название/стак — в Init, ДО появления предмета: строку таблицы он
+	// накладывает на себя сам по этому ключу (у голого расходника — по типу).
+	auto SpawnHiddenItem = [&](TSubclassOf<AMasterInventoryItem> ItemClass,
+		const TFunction<void(AMasterInventoryItem&)>& Init) -> AMasterInventoryItem*
 	{
-		AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
-			ItemClass, GetActorLocation(), FRotator::ZeroRotator, Sp);
+		AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, ItemClass,
+			FTransform(GetActorLocation()), /*Owner=*/nullptr, Init);
 		if (Item)
 		{
 			Item->SetActorHiddenInGame(true);
@@ -228,23 +228,31 @@ void APickup::SpawnPlacedLoot()
 
 	int32 SpawnedCount = 0;
 
+	// Ключ и название, заданные на пикапе (старые поля карты), — до появления предмета.
+	auto ApplyPlacedNames = [this](AMasterInventoryItem& Item)
+	{
+		if (!PlacedItemDisplayName.IsEmpty())
+		{
+			Item.ItemName = PlacedItemDisplayName;
+		}
+		if (!PlacedItemDisplayText.IsEmpty())
+		{
+			Item.ItemDisplayText = PlacedItemDisplayText;
+		}
+	};
+
 	if (PlacedItemClass)
 	{
 		if (PlacedItemClass->IsChildOf(AAmmoItem::StaticClass()))
 		{
 			// Патроны — стак-предмет: ОДНА пачка со StackCount=PlacedItemCount
 			// (N пустых пачек были бы ошибкой конфигурации).
-			if (AAmmoItem* Pack = Cast<AAmmoItem>(SpawnHiddenItem(PlacedItemClass)))
+			if (SpawnHiddenItem(PlacedItemClass, [&](AMasterInventoryItem& Item)
+				{
+					Item.StackCount = FMath::Max(1, PlacedItemCount);
+					ApplyPlacedNames(Item);
+				}))
 			{
-				Pack->StackCount = FMath::Max(1, PlacedItemCount);
-				if (!PlacedItemDisplayName.IsEmpty())
-				{
-					Pack->ItemName = PlacedItemDisplayName;
-				}
-				if (!PlacedItemDisplayText.IsEmpty())
-				{
-					Pack->ItemDisplayText = PlacedItemDisplayText;
-				}
 				++SpawnedCount;
 			}
 		}
@@ -252,33 +260,27 @@ void APickup::SpawnPlacedLoot()
 		{
 			for (int32 i = 0; i < FMath::Max(1, PlacedItemCount); ++i)
 			{
-				if (AMasterInventoryItem* Item = SpawnHiddenItem(PlacedItemClass))
+				if (SpawnHiddenItem(PlacedItemClass, [&](AMasterInventoryItem& Item)
+					{
+						ApplyPlacedNames(Item);
+						// Фикс 08-07 (Ринат: «тушёнка называется "Предмет"»): дизайнер не заполнил
+						// поля имени на пикапе, а голый класс расходника имён по умолчанию не несёт
+						// (один класс на воду/консервы/аптечку). Заполняем штатными именами типа —
+						// как все остальные пути спавна (лут бандита, магазин, отладочная выдача).
+						// Если строка таблицы найдётся, она всё равно перекроет их своими.
+						if (AConsumableItem* Cons = Cast<AConsumableItem>(&Item))
+						{
+							if (Cons->ItemName.IsEmpty())
+							{
+								Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
+							}
+							if (Cons->ItemDisplayText.IsEmpty())
+							{
+								Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
+							}
+						}
+					}))
 				{
-					if (!PlacedItemDisplayName.IsEmpty())
-					{
-						Item->ItemName = PlacedItemDisplayName;
-					}
-					if (!PlacedItemDisplayText.IsEmpty())
-					{
-						Item->ItemDisplayText = PlacedItemDisplayText;
-					}
-					// Фикс 08-07 (Ринат: «тушёнка называется "Предмет"»): дизайнер не заполнил
-					// поля имени на пикапе, а голый класс расходника имён по умолчанию не несёт
-					// (один класс на воду/консервы/аптечку). Раньше ключ и название оставались
-					// ПУСТЫМИ: окно обыска показывало заглушку «Предмет», а стак не сливался с
-					// таким же купленным. Заполняем штатными именами типа — как это делают все
-					// остальные пути спавна (лут бандита, магазин, отладочная выдача).
-					if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
-					{
-						if (Cons->ItemName.IsEmpty())
-						{
-							Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
-						}
-						if (Cons->ItemDisplayText.IsEmpty())
-						{
-							Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
-						}
-					}
 					++SpawnedCount;
 				}
 			}
@@ -288,9 +290,11 @@ void APickup::SpawnPlacedLoot()
 	// Патроны В ДОПОЛНЕНИЕ к предмету (D8: стоянка = расходник + патроны одним пикапом).
 	if (PlacedAmmoAmount > 0)
 	{
-		if (AAmmoItem* Pack = Cast<AAmmoItem>(SpawnHiddenItem(AAmmoItem::StaticClass())))
+		if (SpawnHiddenItem(AAmmoItem::StaticClass(), [this](AMasterInventoryItem& Item)
+			{
+				Item.StackCount = PlacedAmmoAmount;
+			}))
 		{
-			Pack->StackCount = PlacedAmmoAmount;
 			++SpawnedCount;
 		}
 	}
@@ -318,9 +322,6 @@ TArray<AMasterInventoryItem*> APickup::SpawnLootEntries(UWorld* World,
 	{
 		return PlacedItems;
 	}
-
-	FActorSpawnParameters Sp;
-	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 	// Предмет лута — данные рюкзака, не объект на сцене (тот же приём, что у одиночных полей).
 	auto HideAsData = [&](AMasterInventoryItem* Item)
@@ -351,27 +352,36 @@ TArray<AMasterInventoryItem*> APickup::SpawnLootEntries(UWorld* World,
 		}
 		else if (Entry.ItemClass)
 		{
-			Item = World->SpawnActor<AMasterInventoryItem>(
-				Entry.ItemClass, Location, FRotator::ZeroRotator, Sp);
+			// ВРЕМЕННЫЙ запасной путь по классу (ADR-088 п.3: записи списков переводятся на
+			// строки; пока в картах остались записи классом — они не должны пропасть). Строку
+			// таблицы предмет всё равно наложит на себя сам — по ключу класса, а голый
+			// расходник по своему типу. Стак — до появления, обрежется лимитом строки/класса.
+			Item = ContraryItems::SpawnItem(World, Entry.ItemClass, FTransform(Location), /*Owner=*/nullptr,
+				[StackCount](AMasterInventoryItem& It)
+				{
+					if (StackCount > 0)
+					{
+						It.StackCount = StackCount;
+					}
+					// Голый класс расходника имён не несёт (один класс на воду/консервы/аптечку) —
+					// штатные имена типа, как во всех путях спавна (фикс 08-07 «тушёнка = Предмет»).
+					if (AConsumableItem* Cons = Cast<AConsumableItem>(&It))
+					{
+						if (Cons->ItemName.IsEmpty())
+						{
+							Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
+						}
+						if (Cons->ItemDisplayText.IsEmpty())
+						{
+							Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
+						}
+					}
+				});
 			if (Item)
 			{
-				if (StackCount > 0 && Item->IsStackable())
-				{
-					Item->StackCount = FMath::Clamp(StackCount, 1, FMath::Max(1, Item->MaxStackCount));
-				}
-				// Голый класс расходника имён не несёт (один класс на воду/консервы/аптечку) —
-				// штатные имена типа, как во всех путях спавна (фикс 08-07 «тушёнка = Предмет»).
-				if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
-				{
-					if (Cons->ItemName.IsEmpty())
-					{
-						Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
-					}
-					if (Cons->ItemDisplayText.IsEmpty())
-					{
-						Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
-					}
-				}
+				UE_LOG(LogTemp, Log,
+					TEXT("%s: запись списка задана КЛАССОМ '%s' (строка '%s') — перевести запись на строку таблицы предметов."),
+					*ContextName, *Entry.ItemClass->GetName(), *Item->SourceItemRow.ToString());
 			}
 		}
 		// Обе ссылки пустые — запись-заготовка, молча пропускаем (дизайнер ещё заполнит).
@@ -574,24 +584,28 @@ APickup* APickup::DropLoot(UWorld* World, const FVector& Location, float MoneyAm
 	const bool bItemChanceHit = (ItemClass != nullptr) && (ItemRoll <= ItemDropChance);
 	if (bItemChanceHit)
 	{
-		DroppedItem = World->SpawnActor<AMasterInventoryItem>(
-			ItemClass, Location, FRotator::ZeroRotator, SpawnParams);
+		// ADR-088: ключ и название — ДО появления предмета; строку таблицы (ноутбук, шкура)
+		// предмет накладывает на себя сам по этому ключу.
+		DroppedItem = ContraryItems::SpawnItem(World, ItemClass, FTransform(Location), /*Owner=*/nullptr,
+			[&ItemDisplayName, &ItemDisplayText](AMasterInventoryItem& Item)
+			{
+				// Служебный ключ (напр. «Шкура волка») — по нему сходится зачёт квеста.
+				if (!ItemDisplayName.IsEmpty())
+				{
+					Item.ItemName = ItemDisplayName;
+				}
+				// Переводимое название рядом с ключом: один класс AQuestItem обслуживает и
+				// шкуру, и ноутбук, поэтому название задаёт тот, кто создаёт предмет.
+				if (!ItemDisplayText.IsEmpty())
+				{
+					Item.ItemDisplayText = ItemDisplayText;
+				}
+			});
 		if (DroppedItem)
 		{
 			// Предмет лута — данные рюкзака, не объект на сцене: прячем визуал/коллизию.
 			DroppedItem->SetActorHiddenInGame(true);
 			DroppedItem->SetActorEnableCollision(false);
-			// Служебный ключ (напр. «Шкура волка») — по нему сходится зачёт квеста.
-			if (!ItemDisplayName.IsEmpty())
-			{
-				DroppedItem->ItemName = ItemDisplayName;
-			}
-			// Переводимое название рядом с ключом: один класс AQuestItem обслуживает и
-			// шкуру, и ноутбук, поэтому название задаёт тот, кто создаёт предмет.
-			if (!ItemDisplayText.IsEmpty())
-			{
-				DroppedItem->ItemDisplayText = ItemDisplayText;
-			}
 		}
 	}
 

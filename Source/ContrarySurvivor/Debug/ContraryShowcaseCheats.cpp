@@ -32,6 +32,7 @@
 #include "AMeleeWeapon.h"
 #include "ARangedWeapon.h"
 #include "AMasterInventoryItem.h"
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"                // ADR-088: единая дверь создания предметов
 #include "UInventoryComponent.h"
 
 #include "Engine/World.h"
@@ -141,16 +142,16 @@ namespace
 	}
 
 	// Предмет рюкзака — данные, не объект сцены (тот же приём, что у покупки и лута).
-	AMasterInventoryItem* SpawnHiddenItem(UWorld* World, TSubclassOf<AMasterInventoryItem> Cls, AActor* Owner)
+	// ADR-088: ключ/название — в Init, ДО появления предмета (строку он наложит сам).
+	AMasterInventoryItem* SpawnHiddenItem(UWorld* World, TSubclassOf<AMasterInventoryItem> Cls, AActor* Owner,
+		const TFunction<void(AMasterInventoryItem&)>& Init = nullptr)
 	{
 		if (!World || !Cls || !Owner)
 		{
 			return nullptr;
 		}
-		FActorSpawnParameters Sp;
-		Sp.Owner = Owner;
-		Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(Cls, Owner->GetActorLocation(), Owner->GetActorRotation(), Sp);
+		AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, Cls,
+			FTransform(Owner->GetActorRotation(), Owner->GetActorLocation()), Owner, Init);
 		if (Item)
 		{
 			Item->SetActorHiddenInGame(true);
@@ -1149,10 +1150,13 @@ void UContraryCheatManager::CmdGiveShowcaseLoot(const TCHAR* /*Args*/, FOutputDe
 		{
 			for (int32 i = 0; i < 3; ++i)
 			{
-				if (AMasterInventoryItem* Pelt = SpawnHiddenItem(World, WolfCDO->QuestLootItemClass, Player))
+				if (AMasterInventoryItem* Pelt = SpawnHiddenItem(World, WolfCDO->QuestLootItemClass, Player,
+					[WolfCDO](AMasterInventoryItem& Item)
+					{
+						Item.ItemName = WolfCDO->QuestLootItemName;
+						Item.ItemDisplayText = WolfCDO->QuestLootItemText;
+					}))
 				{
-					Pelt->ItemName = WolfCDO->QuestLootItemName;
-					Pelt->ItemDisplayText = WolfCDO->QuestLootItemText;
 					if (Inv->AddItem(Pelt)) { ++Given; } else { Pelt->Destroy(); }
 				}
 			}

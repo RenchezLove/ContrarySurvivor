@@ -2,6 +2,7 @@
 
 #include "AConsumableItem.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"
 
 AConsumableItem::AConsumableItem()
 {
@@ -79,25 +80,17 @@ FText AConsumableItem::GetDefaultDisplayText(EConsumableType Type)
 	}
 }
 
-TSoftObjectPtr<UTexture2D> AConsumableItem::GetDefaultIcon(EConsumableType Type)
+FName AConsumableItem::ResolveItemRowName() const
 {
-	// Рендеры модельера (Build 1.2.2, тайлы) — мягкие ссылки: текстуры может не быть
-	// в копии проекта, UI обязан жить без неё (тайл покажет только подпись).
-	const TCHAR* Path = nullptr;
-	switch (Type)
+	const FName ByKey = Super::ResolveItemRowName();
+	if (!ByKey.IsNone() || ItemName.IsEmpty())
 	{
-		case EConsumableType::Food:   Path = TEXT("/Game/UI/Icons/Items/T_Item_CannedFood.T_Item_CannedFood"); break;
-		case EConsumableType::Water:  Path = TEXT("/Game/UI/Icons/Items/T_Item_Water.T_Item_Water"); break;
-		case EConsumableType::Medkit: Path = TEXT("/Game/UI/Icons/Items/T_Item_Medkit.T_Item_Medkit"); break;
-		default: return TSoftObjectPtr<UTexture2D>();
+		// Ни строки, ни ключа — у предмета вообще нет идентичности (голый класс с дефолтным
+		// типом «еда»). Угадывать нельзя: спавнер, выставляющий тип ПОСЛЕ появления, унёс бы
+		// в сейв чужую строку (вода восстанавливалась консервами — пойман автотестом).
+		return ByKey;
 	}
-	return TSoftObjectPtr<UTexture2D>(FSoftObjectPath(Path));
-}
-
-TSoftObjectPtr<UTexture2D> AConsumableItem::GetItemIcon() const
-{
-	// Явно заданная иконка (экземпляр/BP) главнее вычисленной по типу.
-	return ItemIcon.IsNull() ? GetDefaultIcon(ConsumableType) : ItemIcon;
+	return ContraryItems::FindRowNameByLegacyKey(GetDefaultDisplayName(ConsumableType));
 }
 
 FText AConsumableItem::GetItemDisplayText() const

@@ -1288,25 +1288,24 @@ int32 APlayerCharacter::GiveConsumableToBackpack(EConsumableType Type, int32 Cou
         return 0;
     }
 
-    FActorSpawnParameters Sp;
-    Sp.Owner = this;
-    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
+    const FTransform SpawnTM(GetActorRotation(), GetActorLocation());
     int32 Given = 0;
     for (int32 i = 0; i < Count; ++i)
     {
-        AConsumableItem* Item = World->SpawnActor<AConsumableItem>(
-            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+        // ADR-088: тип и ключ — ДО появления предмета, строку таблицы он наложит сам.
+        AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, AConsumableItem::StaticClass(), SpawnTM, this,
+            [Type](AMasterInventoryItem& It)
+            {
+                CastChecked<AConsumableItem>(&It)->ConsumableType = Type;
+                // Служебный ключ (по нему сходится логика квестов) и переводимое название —
+                // оба из одного источника, как при покупке и отладочной выдаче (ADR-050, порция 0).
+                It.ItemName = AConsumableItem::GetDefaultDisplayName(Type);
+                It.ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Type);
+            });
         if (!Item)
         {
             continue;
         }
-
-        Item->ConsumableType = Type;
-        // Служебный ключ (по нему сходится логика квестов) и переводимое название —
-        // оба из одного источника, как при покупке и отладочной выдаче (ADR-050, порция 0).
-        Item->ItemName = AConsumableItem::GetDefaultDisplayName(Type);
-        Item->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Type);
 
         // Предмет рюкзака — не объект на сцене: прячем визуал/коллизию, держим как данные.
         Item->SetActorHiddenInGame(true);
@@ -1373,48 +1372,38 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             return false;
         }
 
-        FActorSpawnParameters Sp;
-        Sp.Owner = this;
-        Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
+        const FTransform SpawnTM(GetActorRotation(), GetActorLocation());
         for (int32 i = 0; i < Qty; ++i)
         {
-            AMasterInventoryItem* Bought = World->SpawnActor<AMasterInventoryItem>(
-                Entry.ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+            // ADR-088: идентичность позиции (строка таблицы, а для позиций без строки — ключ,
+            // название и тип расходника) передаётся ДО появления предмета; всю строку
+            // (ключ/название/иконку/меш/стак/броню) предмет накладывает на себя сам, один раз.
+            AMasterInventoryItem* Bought = ContraryItems::SpawnItem(World, Entry.ItemClass, SpawnTM, this,
+                [&Entry](AMasterInventoryItem& Item)
+                {
+                    Item.SourceItemRow = Entry.ItemRow;
+                    // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
+                    if (Entry.bApplyConsumableType)
+                    {
+                        if (AConsumableItem* Cons = Cast<AConsumableItem>(&Item))
+                        {
+                            Cons->ConsumableType = Entry.ConsumableType;
+                        }
+                    }
+                    if (Item.ItemName.IsEmpty())
+                    {
+                        Item.ItemName = Entry.DisplayName;
+                    }
+                    // Переводимое название с позиции каталога: один класс AConsumableItem стоит в
+                    // каталоге трижды (вода/консервы/бинт), поэтому имя класса их не различает.
+                    if (Item.ItemDisplayText.IsEmpty() && !Entry.DisplayText.IsEmpty())
+                    {
+                        Item.ItemDisplayText = Entry.DisplayText;
+                    }
+                });
             if (!Bought)
             {
                 continue;
-            }
-
-            // ADR-075: позиция собрана из таблицы предметов — накладываем на купленный предмет
-            // ВСЮ строку (ключ/название/иконку/меш/лимит стака/слот-защиту-меш брони), а не
-            // только имя и тип, как ниже. Проверки ниже после этого тихо пропускаются
-            // (ItemName/ItemDisplayText уже заполнены) — двойной записи нет.
-            if (!Entry.ItemRow.IsNone())
-            {
-                if (const FContraryItemRow* Row = ContraryItems::FindRow(Entry.ItemRow))
-                {
-                    ContraryItems::ApplyRowToItem(*Bought, *Row, Entry.ItemRow);
-                }
-            }
-
-            // Если это расходник и задан тип — выставляем (еда/вода/аптечка).
-            if (Entry.bApplyConsumableType)
-            {
-                if (AConsumableItem* Cons = Cast<AConsumableItem>(Bought))
-                {
-                    Cons->ConsumableType = Entry.ConsumableType;
-                }
-            }
-            if (Bought->ItemName.IsEmpty())
-            {
-                Bought->ItemName = Entry.DisplayName;
-            }
-            // Переводимое название с позиции каталога: один класс AConsumableItem стоит в
-            // каталоге трижды (вода/консервы/бинт), поэтому имя класса их не различает.
-            if (Bought->ItemDisplayText.IsEmpty() && !Entry.DisplayText.IsEmpty())
-            {
-                Bought->ItemDisplayText = Entry.DisplayText;
             }
 
             Bought->SetActorHiddenInGame(true);
@@ -1680,10 +1669,6 @@ void APlayerCharacter::GiveTestItems()
         return;
     }
 
-    FActorSpawnParameters Sp;
-    Sp.Owner = this;
-    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
     // Предметы рюкзака — не объекты на сцене: прячем визуал/коллизию, держим как данные.
     auto AddHidden = [&](AMasterInventoryItem* It)
     {
@@ -1696,40 +1681,35 @@ void APlayerCharacter::GiveTestItems()
         Inventory->AddItem(It);
     };
 
+    // ADR-088: ключ/тип — ДО появления предмета (строку таблицы он наложит сам).
+    const FTransform SpawnTM(GetActorRotation(), GetActorLocation());
+    auto SpawnNamed = [&](UClass* Cls, const FString& Key, const FText& Text, EConsumableType Type)
+    {
+        return ContraryItems::SpawnItem(World, Cls, SpawnTM, this, [&](AMasterInventoryItem& It)
+        {
+            if (AConsumableItem* Cons = Cast<AConsumableItem>(&It))
+            {
+                Cons->ConsumableType = Type;
+            }
+            It.ItemName = Key;
+            It.ItemDisplayText = Text;
+        });
+    };
+
     // Расходники: еда (+Hunger) и вода (+Thirst).
-    if (AConsumableItem* Food = World->SpawnActor<AConsumableItem>(
-            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
-    {
-        Food->ConsumableType = EConsumableType::Food;
-        Food->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Food);
-        Food->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(EConsumableType::Food);
-        AddHidden(Food);
-    }
-    if (AConsumableItem* Water = World->SpawnActor<AConsumableItem>(
-            AConsumableItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
-    {
-        Water->ConsumableType = EConsumableType::Water;
-        Water->ItemName = AConsumableItem::GetDefaultDisplayName(EConsumableType::Water);
-        Water->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(EConsumableType::Water);
-        AddHidden(Water);
-    }
+    AddHidden(SpawnNamed(AConsumableItem::StaticClass(),
+        AConsumableItem::GetDefaultDisplayName(EConsumableType::Food),
+        AConsumableItem::GetDefaultDisplayText(EConsumableType::Food), EConsumableType::Food));
+    AddHidden(SpawnNamed(AConsumableItem::StaticClass(),
+        AConsumableItem::GetDefaultDisplayName(EConsumableType::Water),
+        AConsumableItem::GetDefaultDisplayText(EConsumableType::Water), EConsumableType::Water));
 
     // Запасная броня (Head_02 / Torso_02) — лежит в рюкзаке неэкипированной,
     // чтобы было что надеть через paper-doll.
-    if (AHeadArmor* Head = World->SpawnActor<AHeadArmor>(
-            AHeadArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
-    {
-        Head->ItemName = TEXT("Spare Head Armor (Head_02)");
-        Head->ItemDisplayText = NSLOCTEXT("Items", "SpareHeadArmor", "Броня — голова (запасная)");
-        AddHidden(Head);
-    }
-    if (ATorsoArmor* Torso = World->SpawnActor<ATorsoArmor>(
-            ATorsoArmor::StaticClass(), GetActorLocation(), GetActorRotation(), Sp))
-    {
-        Torso->ItemName = TEXT("Spare Torso Armor (Torso_02)");
-        Torso->ItemDisplayText = NSLOCTEXT("Items", "SpareTorsoArmor", "Броня — торс (запасная)");
-        AddHidden(Torso);
-    }
+    AddHidden(SpawnNamed(AHeadArmor::StaticClass(), TEXT("Spare Head Armor (Head_02)"),
+        NSLOCTEXT("Items", "SpareHeadArmor", "Броня — голова (запасная)"), EConsumableType::Food));
+    AddHidden(SpawnNamed(ATorsoArmor::StaticClass(), TEXT("Spare Torso Armor (Torso_02)"),
+        NSLOCTEXT("Items", "SpareTorsoArmor", "Броня — торс (запасная)"), EConsumableType::Food));
 
     UE_LOG(LogTemp, Log, TEXT("GiveTestItems: added 2 consumables + 2 spare armor pieces. Backpack size now %d"),
         Inventory->GetInventoryItems().Num());
@@ -2227,10 +2207,7 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         return;
     }
 
-    FActorSpawnParameters Sp;
-    Sp.Owner = this;
-    Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
+    const FTransform SpawnTM(GetActorRotation(), GetActorLocation());
     int32 Restored = 0;
     int32 MigratedByKey = 0; // записей старого формата, которым строку нашли по служебному ключу
     for (const FSavedInventoryEntry& Entry : Save->InventoryEntries)
@@ -2243,8 +2220,51 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
             continue;
         }
 
-        AMasterInventoryItem* Item = World->SpawnActor<AMasterInventoryItem>(
-            ItemClass, GetActorLocation(), GetActorRotation(), Sp);
+        // ⛔ КОРЕНЬ БАГА 24.08 «после сохранения пропала броня торса и штанов»: со времён
+        // ADR-075 идентичность предмета живёт в СТРОКЕ DT_Items, а не в классе — все девять
+        // броней собраны из одной BP_ArmorBase, и слот, защита и меш экипировки приходят
+        // строкой. Восстановление же поднимало только класс, поэтому обе надетые брони
+        // возвращались заготовкой BP_ArmorBase: слот «торс», меш SK_Cloth_T0_Torso, защита 0 —
+        // штаны садились поверх торса, вещь пропадала молча.
+        // ADR-088: всё записанное в сейве (строка, ключ, название, стак, тип расходника)
+        // передаётся ДО появления предмета, и строку он накладывает на себя сам — до AddItem
+        // (слияние стаков сверяет ItemName, а его тоже задаёт строка). МИГРАЦИЯ старых сейвов
+        // (магазинная 0.1.0, телефонный сейв Рината): имени строки в них нет, но есть
+        // служебный ключ ADR-050 из колонки LegacyKey той же строки («Броня Т2 — штаны» ->
+        // armor_t2_pants) — единая точка находит строку по нему.
+        AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, ItemClass, SpawnTM, this,
+            [&Entry](AMasterInventoryItem& It)
+            {
+                It.SourceItemRow = Entry.ItemRow;
+                if (!Entry.ItemName.IsEmpty())
+                {
+                    It.ItemName = Entry.ItemName;
+                }
+                if (!Entry.ItemDisplayText.IsEmpty())
+                {
+                    It.ItemDisplayText = Entry.ItemDisplayText;
+                }
+                // Лимитом стака (строки или класса) счётчик обрежет единая точка.
+                It.StackCount = FMath::Max(0, Entry.StackCount);
+
+                // AConsumableItem: тип (еда/вода/аптечка) — на экземпляре, класс его не определяет.
+                if (AConsumableItem* Cons = Cast<AConsumableItem>(&It))
+                {
+                    Cons->ConsumableType = Entry.ConsumableType;
+
+                    // Лечение сейвов, записанных ДО фикса 08-07 (лут лагеря спавнился без имён и в
+                    // таком виде уезжал в сейв): запись без ключа и названия получает штатные имена
+                    // своего типа — иначе «Предмет» пережил бы фикс через старый сейв.
+                    if (Cons->ItemName.IsEmpty())
+                    {
+                        Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
+                    }
+                    if (Cons->ItemDisplayText.IsEmpty())
+                    {
+                        Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
+                    }
+                }
+            });
         if (!Item)
         {
             continue;
@@ -2253,63 +2273,12 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         // Предмет рюкзака — данные, не объект сцены (как везде: GiveTestItems и т.п.).
         Item->SetActorHiddenInGame(true);
         Item->SetActorEnableCollision(false);
-        if (!Entry.ItemName.IsEmpty())
-        {
-            Item->ItemName = Entry.ItemName;
-        }
-        if (!Entry.ItemDisplayText.IsEmpty())
-        {
-            Item->ItemDisplayText = Entry.ItemDisplayText;
-        }
-        Item->StackCount = FMath::Clamp(Entry.StackCount, 0, FMath::Max(1, Item->MaxStackCount));
 
-        // AConsumableItem: тип (еда/вода/аптечка) — на экземпляре, класс его не определяет.
-        if (AConsumableItem* Cons = Cast<AConsumableItem>(Item))
+        if (Entry.ItemRow.IsNone() && !Item->SourceItemRow.IsNone())
         {
-            Cons->ConsumableType = Entry.ConsumableType;
-
-            // Лечение сейвов, записанных ДО фикса 08-07 (лут лагеря спавнился без имён и в
-            // таком виде уезжал в сейв): запись без ключа и названия получает штатные имена
-            // своего типа — иначе «Предмет» пережил бы фикс через старый сейв. Тип к этому
-            // моменту уже восстановлен строкой выше, имена выводятся по нему.
-            if (Cons->ItemName.IsEmpty())
-            {
-                Cons->ItemName = AConsumableItem::GetDefaultDisplayName(Cons->ConsumableType);
-            }
-            if (Cons->ItemDisplayText.IsEmpty())
-            {
-                Cons->ItemDisplayText = AConsumableItem::GetDefaultDisplayText(Cons->ConsumableType);
-            }
+            ++MigratedByKey;
         }
-
-        // ⛔ КОРЕНЬ БАГА 24.08 «после сохранения пропала броня торса и штанов»: со времён
-        // ADR-075 идентичность предмета живёт в СТРОКЕ DT_Items, а не в классе — все девять
-        // броней собраны из одной BP_ArmorBase, и слот, защита и меш экипировки приходят
-        // строкой (ContraryItems::ApplyRowToItem). Восстановление же поднимало только класс,
-        // поэтому обе надетые брони возвращались заготовкой BP_ArmorBase: слот «торс», меш
-        // SK_Cloth_T0_Torso, защита 0 — штаны садились поверх торса, вещь пропадала молча.
-        // Поэтому строку накладываем ЗАНОВО, и до AddItem: слияние стаков сверяет ItemName,
-        // а его тоже задаёт строка.
-        FName RowName = Entry.ItemRow;
-        if (RowName.IsNone())
-        {
-            // МИГРАЦИЯ старых сейвов (в том числе магазинной 0.1.0 и телефонного сейва
-            // Рината): имени строки в них нет, но есть служебный ключ ADR-050, и он лежит
-            // в колонке LegacyKey той же строки («Броня Т2 — штаны» -> armor_t2_pants).
-            // Переименование брони 23.08 тронуло только показываемые названия, ключи целы,
-            // поэтому связь находится однозначно.
-            RowName = ContraryItems::FindRowNameByLegacyKey(Entry.ItemName);
-            if (!RowName.IsNone())
-            {
-                ++MigratedByKey;
-            }
-        }
-        const FContraryItemRow* Row = ContraryItems::FindRow(RowName);
-        if (Row)
-        {
-            ContraryItems::ApplyRowToItem(*Item, *Row, RowName, Entry.StackCount);
-        }
-        else if (Item->IsA(AArmor::StaticClass()))
+        if (Item->SourceItemRow.IsNone() && Item->IsA(AArmor::StaticClass()))
         {
             // Молчать здесь нельзя: без строки у брони остались дефолты класса, и игрок
             // недосчитается защиты. У брони старых тиров (AHeadArmorT1…) дефолты честные,

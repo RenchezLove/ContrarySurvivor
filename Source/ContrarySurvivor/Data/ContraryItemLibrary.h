@@ -32,15 +32,26 @@ namespace ContraryItems
 	// стыковке старых сейвов. NAME_None = не найдено.
 	FName FindRowNameByLegacyKey(const FString& Key);
 
-	// Накладывает данные строки на УЖЕ созданный предмет: служебный ключ (LegacyKey/имя
-	// строки), переводимое название, иконку, меш, лимит стака, тип расходника, слот/защиту/
-	// меш брони. StackCount > 0 — выставить стак (обрезается лимитом). Категорию строки
-	// применяет ТОЛЬКО поверх стандартной: заполняющий таблицу отвечает за сходство
-	// категории с классом (комментарий у FContraryItemRow::Category).
+	// Накладывает данные строки на предмет: служебный ключ (LegacyKey/имя строки),
+	// переводимое название, иконку, меш, лимит стака, тип расходника, слот/защиту/меш брони.
+	// StackCount > 0 — выставить стак (обрезается лимитом). Категорию строки применяет
+	// ТОЛЬКО поверх стандартной: заполняющий таблицу отвечает за сходство категории с
+	// классом (комментарий у FContraryItemRow::Category).
+	// ADR-088: в игре зовётся ТОЛЬКО из единой точки AMasterInventoryItem::ApplyOwnItemRow
+	// (при появлении предмета). Спавнерам вызывать не нужно — строку они передают через
+	// SourceItemRow/ключ в Init функции SpawnItem.
 	void ApplyRowToItem(AMasterInventoryItem& Item, const FContraryItemRow& Row, FName RowName, int32 StackCount = 0);
 
-	// Спавнит предмет по строке таблицы: класс из Row.ItemClass + ApplyRowToItem.
+	// ADR-088: ЕДИНАЯ ДВЕРЬ создания предмета из кода. Спавн отложенный: Init заполняет
+	// идентичность (SourceItemRow, ключ ItemName, тип расходника, стак) ДО того, как предмет
+	// наложит на себя строку таблицы (AMasterInventoryItem::PostInitializeComponents).
+	// Заполнять эти поля ПОСЛЕ обычного SpawnActor нельзя: строка к тому моменту уже
+	// наложена по пустым данным. Init может быть пустым. nullptr = нет мира/класса.
+	AMasterInventoryItem* SpawnItem(UWorld* World, UClass* ItemClass, const FTransform& Transform,
+		AActor* Owner = nullptr, const TFunction<void(AMasterInventoryItem&)>& Init = nullptr);
+
+	// Спавнит предмет по строке таблицы: класс из Row.ItemClass, строка — через SpawnItem.
 	// nullptr = нет мира/строки/класса (в лог — одно предупреждение по месту).
 	AMasterInventoryItem* SpawnItemFromRow(UWorld* World, FName RowName, int32 StackCount = 0,
-		const FTransform& Transform = FTransform::Identity);
+		const FTransform& Transform = FTransform::Identity, AActor* Owner = nullptr);
 }

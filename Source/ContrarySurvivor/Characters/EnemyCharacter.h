@@ -24,6 +24,13 @@ struct FBanditLootEntry
 {
 	GENERATED_BODY()
 
+	// ADR-088 п.3: предмет СТРОКОЙ таблицы предметов (canned_food, water_bottle, bandage…).
+	// Заполнено — всё берётся из строки, поля ниже не смотрятся. Пусто — ВРЕМЕННЫЙ запасной
+	// путь по-старому (класс + ключ + тип), строку предмет всё равно найдёт по ключу.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot", meta = (DisplayPriority = "1",
+		DisplayName = "Предмет (строка таблицы предметов)"))
+	FName ItemRow;
+
 	// СЛУЖЕБНЫЙ КЛЮЧ предмета. Пусто -> ключ по типу расходника
 	// (AConsumableItem::GetDefaultDisplayName). НЕ переводится (ADR-050, порция 0).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Loot")
