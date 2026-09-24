@@ -162,8 +162,8 @@ bool FItemsSingleSourceClassSpawnTest::RunTest(const FString& Parameters)
 	}
 	ItemsSingleSourceTest::FScopedItemTable Table;
 
-	TestFalse(TEXT("У класса пистолета своя картинка есть (иначе проверка ниже пустая)"),
-		GetDefault<APistol>()->ItemIcon.IsNull());
+	// ADR-088 п.2: у классов предметов прошитых картинок больше нет.
+	TestTrue(TEXT("У класса пистолета своей картинки нет"), GetDefault<APistol>()->ItemIcon.IsNull());
 
 	FActorSpawnParameters Sp;
 	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -172,8 +172,18 @@ bool FItemsSingleSourceClassSpawnTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("Строка наложена сразу при появлении"), Pistol->IsItemRowResolved());
 		TestEqual(TEXT("Строка найдена по ключу класса «Pistol»"), Pistol->SourceItemRow, FName(TEXT("qa_pistol")));
-		TestTrue(TEXT("Пустая картинка строки убрала картинку класса (таблица — единственный источник)"),
-			Pistol->GetItemIcon().IsNull());
+	}
+
+	// Картинка, заданная чертежом (здесь — до появления), строку не перебивает: пустая
+	// ячейка строки её убирает — таблица единственный источник картинки.
+	AMasterInventoryItem* WithBpIcon = ContraryItems::SpawnItem(World, APistol::StaticClass(),
+		FTransform::Identity, nullptr, [](AMasterInventoryItem& It)
+		{
+			It.ItemIcon = ItemsSingleSourceTest::Icon(ItemsSingleSourceTest::IconWater);
+		});
+	if (TestNotNull(TEXT("Пистолет с картинкой чертежа заспавнен"), WithBpIcon))
+	{
+		TestTrue(TEXT("Пустая картинка строки убрала картинку чертежа"), WithBpIcon->GetItemIcon().IsNull());
 	}
 
 	ItemsSingleSourceTest::Destroy(World);

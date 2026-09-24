@@ -101,8 +101,7 @@ public:
 	// Иконка предмета для UI (ADR-043, этап E). МЯГКАЯ ссылка (была мёртвым жёстким
 	// UTexture2D*, в коде нигде не читалась): текстур может ещё не быть в проекте — UI
 	// обязан работать без них (текстовый фолбэк, см. AContrarySurvivorHUD::ResolveIcon).
-	// Дефолт-пути для брони Т1-Т3 задаются в конструкторах AArmorTiers
-	// (/Game/UI/Icons/T_Icon_Armor_T{1..3}_{Head,Torso,Legs}); у прочих предметов пусто.
+	// ADR-088: заполняется ТОЛЬКО строкой таблицы DT_Items; в классах и чертежах пусто.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (DisplayPriority = "2"))
 	TSoftObjectPtr<UTexture2D> ItemIcon;
 
@@ -147,10 +146,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item")
 	virtual FText GetItemDisplayText() const;
 
-	// ЕДИНСТВЕННЫЙ способ получить иконку предмета для UI (Build 1.2.2, тайлы). База отдаёт
+	// ЕДИНСТВЕННЫЙ способ получить иконку предмета для UI (Build 1.2.2, тайлы). Отдаёт
 	// поле ItemIcon как есть — с ADR-088 его заполняет строка таблицы предметов при
-	// появлении предмета (ApplyOwnItemRow), на всех путях создания. AQuestItem ещё
-	// вычисляет картинку по ключу, если ItemIcon пуст (предмет вне таблицы).
+	// появлении предмета (ApplyOwnItemRow), на всех путях создания. Прошитых путей
+	// картинок в классах предметов нет: предмет вне таблицы остаётся без картинки.
 	UFUNCTION(BlueprintPure, Category = "Item")
 	virtual TSoftObjectPtr<UTexture2D> GetItemIcon() const { return ItemIcon; }
 
