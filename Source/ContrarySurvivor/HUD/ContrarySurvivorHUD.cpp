@@ -123,55 +123,6 @@ void AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel()
 		AudioPC->ApplyWorldAudioGate();
 	}
 
-	LogStatsPanelDiagnostics(bMainMenuOnScreen);
-}
-
-void AContrarySurvivorHUD::LogStatsPanelDiagnostics(bool bMainMenuOnScreen)
-{
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	// Живое (не игровое) время: идёт и на паузе, а меню как раз ставит мир на паузу.
-	const double Now = World->GetRealTimeSeconds();
-
-	auto Describe = [](const UWidget* W) -> FString
-	{
-		if (!W)
-		{
-			return TEXT("НЕТ");
-		}
-		const FVector2D Size = W->GetCachedGeometry().GetLocalSize();
-		return FString::Printf(TEXT("vis=%d geom=%.0fx%.0f"),
-			static_cast<int32>(W->GetVisibility()), Size.X, Size.Y);
-	};
-
-	// Корень дерева панели — именно его прячет гейт (сам виджет обязан оставаться видимым
-	// для Slate, иначе перестанет тикать).
-	const UWidget* ContentRoot = (PlayerStatsWidgetInstance && PlayerStatsWidgetInstance->WidgetTree)
-		? PlayerStatsWidgetInstance->WidgetTree->RootWidget.Get()
-		: nullptr;
-
-	const FString Snapshot = FString::Printf(
-		TEXT("menu=%d панель=%s содержимое=%s путь=%s panel[%s] content[%s] parent[%s]"),
-		bMainMenuOnScreen ? 1 : 0,
-		PlayerStatsWidgetInstance ? TEXT("есть") : TEXT("НЕТ"),
-		(PlayerStatsWidgetInstance && PlayerStatsWidgetInstance->IsStatsContentVisible()) ? TEXT("видно") : TEXT("спрятано"),
-		PlayerStatsWidgetInstance ? TEXT("UMG") : (bMainMenuOnScreen ? TEXT("никто(меню)") : TEXT("Canvas")),
-		*Describe(PlayerStatsWidgetInstance),
-		*Describe(ContentRoot),
-		*Describe(PlayerStatsWidgetInstance ? PlayerStatsWidgetInstance->GetParent() : nullptr));
-
-	// Пишем при каждой СМЕНЕ состояния (в том числе сразу после закрытия меню) и раз в
-	// секунду поверх этого — регресс 08-09 доказан именно тем, что строка не появлялась.
-	if (!Snapshot.Equals(StatsPanelLastSnapshot) || (Now - StatsPanelLastLogTime) >= 1.0)
-	{
-		StatsPanelLastSnapshot = Snapshot;
-		StatsPanelLastLogTime = Now;
-		UE_LOG(LogQA, Display, TEXT("QA: STATS-PANEL %s"), *Snapshot);
-	}
 }
 
 void AContrarySurvivorHUD::DrawHUD()

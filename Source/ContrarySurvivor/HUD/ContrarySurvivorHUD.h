@@ -1340,12 +1340,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<UPlayerStatsWidget> PlayerStatsWidgetInstance;
 
-	// Диагностика панели статов (регресс 08-09 «полос и денег нет вовсе»): пишет живое
-	// состояние панели в журнал при КАЖДОЙ его смене и раз в секунду поверх этого — чтобы
-	// телефонная сессия показывала не один кадр 0, а всю картину до и после меню.
-	void LogStatsPanelDiagnostics(bool bMainMenuOnScreen);
-	FString StatsPanelLastSnapshot;
-	double StatsPanelLastLogTime = -1000.0;
 
 	UPROPERTY()
 	TObjectPtr<UQuestTrackerWidget> QuestTrackerWidgetInstance;

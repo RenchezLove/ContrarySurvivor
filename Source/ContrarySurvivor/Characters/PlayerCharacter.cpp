@@ -1850,8 +1850,11 @@ bool APlayerCharacter::SaveGame()
     }
 
     const bool bOk = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, SaveUserIndex);
-    UE_LOG(LogTemp, Log, TEXT("APlayerCharacter::SaveGame -> slot '%s' : %s"),
-        *SaveSlotName, bOk ? TEXT("OK") : TEXT("FAIL"));
+    // Успешную запись не логируем — она идёт при каждом автосейве костра (Ринат 26.09: мусор в журнале).
+    if (!bOk)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("APlayerCharacter::SaveGame -> slot '%s' : FAIL"), *SaveSlotName);
+    }
 
     // Записалось — значит заработанное на диске: с этой секунды несохранённого прогресса нет.
     if (bOk)
@@ -1876,8 +1879,6 @@ bool APlayerCharacter::SaveGameAtCampfire()
     {
         Onboarding->ShowTransientHint(ProgressSavedMessage);
     }
-    UE_LOG(LogQA, Display, TEXT("QA: campfire save OK — показана надпись «%s»"),
-        *ProgressSavedMessage.ToString());
     return true;
 }
 

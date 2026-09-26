@@ -100,9 +100,12 @@ void ACampfire::OnSafeZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AAct
 	// Автосейв: костёр = точка сейва и респауна (сохраняется текущая позиция игрока
 	// в безопасной зоне -> туда же респаун при смерти, GDD §7.8). Версия «у костра» вдобавок
 	// показывает игроку короткую надпись «Прогресс сохранён» (спека glavnoe-menu-spec.md).
-	const bool bOk = Player->SaveGameAtCampfire();
-	UE_LOG(LogTemp, Log, TEXT("Campfire '%s' autosave for player: %s"),
-		*GetName(), bOk ? TEXT("OK") : TEXT("FAIL"));
+	// В журнал пишем только провал: успешный автосейв повторяется при каждом входе в зону
+	// и засорял журнал (Ринат 26.09).
+	if (!Player->SaveGameAtCampfire())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Campfire '%s' autosave for player: FAIL"), *GetName());
+	}
 }
 
 bool ACampfire::SaveAtCampfire(APlayerCharacter* Player)
