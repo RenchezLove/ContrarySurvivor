@@ -123,6 +123,12 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
+	// 0) Общий размер: множитель на кузов, всё остальное прикреплено к нему.
+	if (Body)
+	{
+		Body->SetRelativeScale3D(FVector(FMath::Max(CarScale, 0.1f)));
+	}
+
 	// 1) Наличие деталей.
 	SetPartVisible(DoorFL, bDoorFL);
 	SetPartVisible(DoorFR, bDoorFR);
