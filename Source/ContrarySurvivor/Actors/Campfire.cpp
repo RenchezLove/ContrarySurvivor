@@ -75,6 +75,13 @@ void ACampfire::OnSafeZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AAct
 		return;
 	}
 
+	// Костёр без галочки «Точка сохранения» (например, у автобусной остановки) просто горит:
+	// ни автосейва, ни надписи «Прогресс сохранён».
+	if (!bIsSavePoint)
+	{
+		return;
+	}
+
 	// ⛔ ФИКС КРИТИЧЕСКОГО бага сейвов (ADR-076 п.1): «Продолжить» телепортирует игрока в
 	// зону костра ДО того, как память полностью восстановлена, и этот overlap срабатывает
 	// прямо внутри телепорта — автосейв здесь перезаписывал слот пустым состоянием (второй
@@ -110,7 +117,7 @@ void ACampfire::OnSafeZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AAct
 
 bool ACampfire::SaveAtCampfire(APlayerCharacter* Player)
 {
-	if (!Player)
+	if (!Player || !bIsSavePoint)
 	{
 		return false;
 	}

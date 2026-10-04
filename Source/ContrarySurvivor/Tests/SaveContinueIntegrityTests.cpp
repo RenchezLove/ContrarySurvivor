@@ -393,4 +393,76 @@ bool FSaveSlotFirearmSurvivesContinueTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ===========================================================================
+// Костёр БЕЗ галочки «Точка сохранения» (Ринат 04.10.2026, костёр у автобусной остановки):
+// горит, но вход в его зону не сохраняет, ручное сохранение отказывает, и возрождение к
+// нему не ведёт. С возвращённой галочкой тот же костёр снова точка возрождения.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCampfireNotSavePointTest,
+	"ContrarySurvivor.SaveIntegrity.CampfireNotSavePointDoesNotSave", SaveIntegrityTestFlags)
+
+bool FCampfireNotSavePointTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContraryNoSavePointQA");
+	if (UGameplayStatics::DoesSaveGameExist(Slot, 0))
+	{
+		UGameplayStatics::DeleteGameInSlot(Slot, 0); // хвост прошлого прогона
+	}
+
+	UWorld* World = SaveIntegrityTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	const FVector CampfireLoc(0.0f, 0.0f, 100.0f);
+	const FVector FarLoc(5000.0f, 0.0f, 100.0f);
+	ACampfire* Campfire = SaveIntegrityTestWorld::Spawn<ACampfire>(World, CampfireLoc);
+	ASaveTestPlayerCharacter* Player = SaveIntegrityTestWorld::Spawn<ASaveTestPlayerCharacter>(World, FarLoc);
+	if (!Campfire || !Player)
+	{
+		AddError(TEXT("Не заспавнились костёр или тестовый игрок"));
+		SaveIntegrityTestWorld::Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+
+	TestTrue(TEXT("Обычный костёр по умолчанию — точка сохранения"), Campfire->IsSavePoint());
+	Campfire->SetIsSavePoint(false);
+	if (FFloatProperty* CooldownProp = FindFProperty<FFloatProperty>(ACampfire::StaticClass(), TEXT("AutoSaveCooldown")))
+	{
+		CooldownProp->SetPropertyValue_InContainer(Campfire, 0.0f);
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства AutoSaveCooldown"));
+	}
+
+	// Вход в зону (тот же телепорт, которым соседний тест доказывает живой автосейв) — слота нет.
+	Player->SetActorLocation(CampfireLoc + FVector(100.0f, 0.0f, 0.0f), /*bSweep=*/false,
+		nullptr, ETeleportType::TeleportPhysics);
+	TestFalse(TEXT("Вход в зону костра без галочки НЕ сохранил игру"),
+		UGameplayStatics::DoesSaveGameExist(Slot, 0));
+	TestFalse(TEXT("Ручное сохранение у такого костра отказывает"), Campfire->SaveAtCampfire(Player));
+	TestFalse(TEXT("Слота по-прежнему нет"), UGameplayStatics::DoesSaveGameExist(Slot, 0));
+
+	// Возрождение без сохранения: к костру без галочки не ведёт — игрок остаётся далеко от него.
+	Player->Respawn(/*bBackpackRescued=*/false);
+	TestTrue(FString::Printf(TEXT("Возрождение НЕ у костра без галочки (%.0f см от него)"),
+		FVector::Dist2D(Player->GetActorLocation(), CampfireLoc)),
+		FVector::Dist2D(Player->GetActorLocation(), CampfireLoc) > 1000.0f);
+
+	// Галочку вернули — тот же костёр снова точка возрождения.
+	Campfire->SetIsSavePoint(true);
+	Player->Respawn(/*bBackpackRescued=*/false);
+	TestTrue(FString::Printf(TEXT("С галочкой возрождение у костра (%.0f см от него)"),
+		FVector::Dist2D(Player->GetActorLocation(), CampfireLoc)),
+		FVector::Dist2D(Player->GetActorLocation(), CampfireLoc) <= 300.0f);
+
+	UGameplayStatics::DeleteGameInSlot(Slot, 0);
+	SaveIntegrityTestWorld::Destroy(World);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

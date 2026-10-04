@@ -22,6 +22,7 @@
 #include "ContrarySurvivor/Characters/MasterTrader.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/AbandonedCar.h"
+#include "ContrarySurvivor/Actors/BusStop.h"                   // автобусная остановка (04.10.2026)
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"           // лут в хранилище базы (Report1 пп.11+14)
 #include "ContrarySurvivor/Actors/Pickup.h"                    // список содержимого мешка (ADR-076 п.10)
 #include "ContrarySurvivor/Actors/Campfire.h"                  // лёгкий актор-носитель контейнера (тест группы)
@@ -553,6 +554,255 @@ bool FContentToolsCarLootTest::RunTest(const FString& Parameters)
 	else
 	{
 		AddError(TEXT("Не заспавнена пустая машина"));
+	}
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 5в. Автобусная остановка (Ринат 04.10.2026): создаётся с навесом, знаком и урной; знак
+//     завален на заданный угол в заданную сторону; костёр появляется и исчезает по галочке;
+//     признак «точка сохранения» доходит до костра.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsBusStopTest,
+	"ContrarySurvivor.ContentTools.BusStopSignAndCampfire", ContentToolsTestFlags)
+
+bool FContentToolsBusStopTest::RunTest(const FString& Parameters)
+{
+	// Чистое правило наклона: верх знака уходит в сторону завала ровно на угол наклона.
+	{
+		const FVector Up = ABusStop::ComputeSignTilt(20.0f, 90.0f).RotateVector(FVector::UpVector);
+		const float Rad = FMath::DegreesToRadians(20.0f);
+		TestTrue(TEXT("Знак завален на 20° к открытой стороне (+Y)"),
+			Up.Equals(FVector(0.0f, FMath::Sin(Rad), FMath::Cos(Rad)), 0.001f));
+		TestTrue(TEXT("Нулевой наклон — знак стоит ровно"),
+			ABusStop::ComputeSignTilt(0.0f, 45.0f).RotateVector(FVector::UpVector).Equals(FVector::UpVector, 0.001f));
+	}
+
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	// Настройки ставим НА ОТЛОЖЕННОМ спавне (детали остановки неподвижные — после начала
+	// игры движок двигать их не даёт), через рефлексию: поля protected.
+	const FTransform TM(FVector(0.f, 0.f, 100.f));
+	ABusStop* Stop = World->SpawnActorDeferred<ABusStop>(ABusStop::StaticClass(), TM);
+	if (!Stop)
+	{
+		AddError(TEXT("Не заспавнена остановка (deferred)"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	auto SetBoolProp = [&](const TCHAR* Name, bool bValue)
+	{
+		if (FBoolProperty* P = FindFProperty<FBoolProperty>(ABusStop::StaticClass(), Name))
+		{
+			P->SetPropertyValue_InContainer(Stop, bValue);
+		}
+		else
+		{
+			AddError(FString::Printf(TEXT("Нет свойства %s"), Name));
+		}
+	};
+	auto SetFloatProp = [&](const TCHAR* Name, float Value)
+	{
+		if (FFloatProperty* P = FindFProperty<FFloatProperty>(ABusStop::StaticClass(), Name))
+		{
+			P->SetPropertyValue_InContainer(Stop, Value);
+		}
+		else
+		{
+			AddError(FString::Printf(TEXT("Нет свойства %s"), Name));
+		}
+	};
+	auto FindPart = [&](const TCHAR* Name) -> UStaticMeshComponent*
+	{
+		TArray<UStaticMeshComponent*> Parts;
+		Stop->GetComponents<UStaticMeshComponent>(Parts);
+		for (UStaticMeshComponent* Part : Parts)
+		{
+			if (Part && Part->GetName() == Name)
+			{
+				return Part;
+			}
+		}
+		return nullptr;
+	};
+	auto Reconstruct = [&]()
+	{
+		// Как правка галочки в редакторе (см. комментарий про ExecuteConstruction в тесте машины).
+		Stop->ExecuteConstruction(Stop->GetActorTransform(), /*TransformRotationCache=*/nullptr,
+			/*InstanceDataCache=*/nullptr);
+	};
+
+	// Класс костра — голый C++ костёр: тест не зависит от чертежа BP_Campfire.
+	if (FObjectPropertyBase* ClassProp = FindFProperty<FObjectPropertyBase>(ABusStop::StaticClass(), TEXT("CampfireClass")))
+	{
+		ClassProp->SetObjectPropertyValue_InContainer(Stop, ACampfire::StaticClass());
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства CampfireClass"));
+	}
+	SetBoolProp(TEXT("bHasLoot"), false);
+	SetBoolProp(TEXT("bHasCampfire"), true);
+	SetBoolProp(TEXT("bCampfireIsSavePoint"), false);
+	SetFloatProp(TEXT("SignTiltDeg"), 20.0f);
+	SetFloatProp(TEXT("SignTiltDirectionDeg"), 90.0f);
+	UGameplayStatics::FinishSpawningActor(Stop, TM);
+
+	// Детали на месте, все неподвижные; знак завален как задано.
+	UStaticMeshComponent* Shelter = FindPart(TEXT("Shelter"));
+	UStaticMeshComponent* Sign = FindPart(TEXT("Sign"));
+	UStaticMeshComponent* Urn = FindPart(TEXT("Urn"));
+	if (!Shelter || !Sign || !Urn)
+	{
+		AddError(TEXT("Не найдены компоненты остановки Shelter/Sign/Urn"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("Навес неподвижный (тени запекаются)"), Shelter->Mobility == EComponentMobility::Static);
+	TestTrue(TEXT("Навес — преграда"), Shelter->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
+	TestTrue(TEXT("Урна — преграда"), Urn->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
+	TestTrue(TEXT("Знак преграды не несёт"), Sign->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+	{
+		const FVector Up = Sign->GetRelativeRotation().Quaternion().RotateVector(FVector::UpVector);
+		const float Rad = FMath::DegreesToRadians(20.0f);
+		TestTrue(TEXT("Наклон знака применён к компоненту"),
+			Up.Equals(FVector(0.0f, FMath::Sin(Rad), FMath::Cos(Rad)), 0.01f));
+	}
+
+	// Костёр появился напротив остановки (смещение по умолчанию — 3 м в +Y) и НЕ точка сохранения.
+	ACampfire* Campfire = Stop->GetCampfire();
+	if (TestNotNull(TEXT("Костёр появился по галочке"), Campfire))
+	{
+		TestFalse(TEXT("Костёр остановки — не точка сохранения"), Campfire->IsSavePoint());
+		TestTrue(TEXT("Костёр стоит на смещении от остановки"),
+			Campfire->GetActorLocation().Equals(TM.TransformPosition(FVector(0.0f, 300.0f, 0.0f)), 1.0f));
+	}
+
+	// Галочка точки сохранения доходит до УЖЕ стоящего костра (костёр не пересоздаётся).
+	SetBoolProp(TEXT("bCampfireIsSavePoint"), true);
+	Reconstruct();
+	TestTrue(TEXT("Костёр тот же самый"), Stop->GetCampfire() == Campfire);
+	TestTrue(TEXT("Костёр остановки стал точкой сохранения"),
+		Stop->GetCampfire() && Stop->GetCampfire()->IsSavePoint());
+
+	// Галочку костра сняли — костра нет; вернули — снова есть, признак доехал.
+	SetBoolProp(TEXT("bHasCampfire"), false);
+	Reconstruct();
+	TestNull(TEXT("Костёр исчез по снятой галочке"), Stop->GetCampfire());
+
+	SetBoolProp(TEXT("bHasCampfire"), true);
+	SetBoolProp(TEXT("bCampfireIsSavePoint"), false);
+	Reconstruct();
+	TestTrue(TEXT("Костёр вернулся и снова не точка сохранения"),
+		Stop->GetCampfire() && !Stop->GetCampfire()->IsSavePoint());
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 5г. Обыск остановки: деньги из диапазона, предметы из списка, контейнер — «отдельное
+//     хранилище» (как у машины); «лута нет» — обыскать нечего.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsBusStopLootTest,
+	"ContrarySurvivor.ContentTools.BusStopLoot", ContentToolsTestFlags)
+
+bool FContentToolsBusStopLootTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+
+	const FTransform TM(FVector(0.f, 0.f, 100.f));
+	ABusStop* Stop = World->SpawnActorDeferred<ABusStop>(ABusStop::StaticClass(), TM);
+	if (!Stop)
+	{
+		AddError(TEXT("Не заспавнена остановка (deferred)"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+
+	if (FStructProperty* RangeProp = FindFProperty<FStructProperty>(ABusStop::StaticClass(), TEXT("MoneyRange")))
+	{
+		*RangeProp->ContainerPtrToValuePtr<FInt32Interval>(Stop) = FInt32Interval(7, 9);
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства MoneyRange"));
+	}
+	if (FArrayProperty* ListProp = FindFProperty<FArrayProperty>(ABusStop::StaticClass(), TEXT("PlacedLootList")))
+	{
+		FScriptArrayHelper Helper(ListProp, ListProp->ContainerPtrToValuePtr<void>(Stop));
+		const int32 Index = Helper.AddValue();
+		FPlacedLootEntry* Entry = reinterpret_cast<FPlacedLootEntry*>(Helper.GetRawPtr(Index));
+		Entry->ItemClass = AConsumableItem::StaticClass();
+		Entry->Count = 2; // стакаемый расходник — ОДИН предмет со счётчиком 2
+	}
+	else
+	{
+		AddError(TEXT("Нет свойства PlacedLootList"));
+	}
+	UGameplayStatics::FinishSpawningActor(Stop, TM); // BeginPlay -> наполнение контейнера
+
+	UCorpseLootComponent* Loot = Stop->GetLootContainer();
+	if (!TestNotNull(TEXT("Контейнер обыска остановки создан"), Loot))
+	{
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("На остановке есть что обыскать"), Loot->HasLoot());
+	TestTrue(TEXT("Деньги в заданном диапазоне (7..9)"),
+		Loot->GetMoney() >= 7.0f && Loot->GetMoney() <= 9.0f);
+	TestEqual(TEXT("Предмет списка лёг одним стаком"), Loot->GetLootItems().Num(), 1);
+	if (Loot->GetLootItems().Num() == 1)
+	{
+		TestEqual(TEXT("Счётчик стака — 2"), Loot->GetLootItems()[0]->GetStackCount(), 2);
+	}
+
+	// Обыскивается так же, как машина: стоит в реестре обыскиваемых (по нему контроллер даёт
+	// подсказку «Обыскать»), своё окно, группу вокруг себя не собирает.
+	bool bRegistered = false;
+	for (const TWeakObjectPtr<UCorpseLootComponent>& Ptr : UCorpseLootComponent::GetSearchableCorpses())
+	{
+		if (Ptr.Get() == Loot)
+		{
+			bRegistered = true;
+			break;
+		}
+	}
+	TestTrue(TEXT("Остановка стоит в реестре обыскиваемых"), bRegistered);
+	TestTrue(TEXT("Контейнер остановки — отдельное хранилище"), Loot->bStandaloneStash);
+	const TArray<UCorpseLootComponent*> Group =
+		UCorpseLootComponent::CollectSearchableGroup(Stop, 600.0f);
+	TestEqual(TEXT("Группа от остановки — одна остановка"), Group.Num(), 1);
+
+	// Остановка без лута: обыскивать нечего.
+	const FTransform TM2(FVector(2000.f, 0.f, 100.f));
+	ABusStop* EmptyStop = World->SpawnActorDeferred<ABusStop>(ABusStop::StaticClass(), TM2);
+	if (EmptyStop)
+	{
+		if (FBoolProperty* HasLootProp = FindFProperty<FBoolProperty>(ABusStop::StaticClass(), TEXT("bHasLoot")))
+		{
+			HasLootProp->SetPropertyValue_InContainer(EmptyStop, false);
+		}
+		UGameplayStatics::FinishSpawningActor(EmptyStop, TM2);
+		TestFalse(TEXT("Остановка без лута пуста"),
+			EmptyStop->GetLootContainer() && EmptyStop->GetLootContainer()->HasLoot());
+	}
+	else
+	{
+		AddError(TEXT("Не заспавнена пустая остановка"));
 	}
 
 	ContentToolsTestWorld::Destroy(World);

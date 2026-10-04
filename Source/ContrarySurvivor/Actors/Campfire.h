@@ -59,6 +59,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Campfire", meta = (ClampMin = "0.0", UIMin = "0.0", DisplayPriority = "5"))
 	float AutoSaveCooldown = 2.0f;
 
+	// Точка сохранения (Ринат 04.10.2026, костёр у автобусной остановки): выключено — костёр
+	// горит как обычно, но НЕ сохраняет игру и НЕ служит точкой возрождения. По умолчанию
+	// включено — поведение всех уже расставленных костров прежнее.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Campfire", meta = (DisplayPriority = "6",
+		DisplayName = "Точка сохранения",
+		ToolTip = "Включено — костёр сохраняет игру при входе в его зону и служит точкой возрождения. Выключено — костёр просто горит."))
+	bool bIsSavePoint = true;
+
 	// === Компоненты (визуал/триггер; имена совпадают с компонентами BP_Campfire для репарента) ===
 
 	// Корень.
@@ -88,7 +96,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Campfire")
 	float GetSafeZoneRadius() const { return SafeZoneRadius; }
 
+	// Служит ли костёр точкой сохранения и возрождения (поле «Точка сохранения»).
+	UFUNCTION(BlueprintPure, Category = "Campfire")
+	bool IsSavePoint() const { return bIsSavePoint; }
+
+	// Ставит признак точки сохранения снаружи — так его передаёт костру автобусная остановка
+	// (ABusStop), у которой костёр живёт дочерним актором.
+	UFUNCTION(BlueprintCallable, Category = "Campfire")
+	void SetIsSavePoint(bool bInIsSavePoint) { bIsSavePoint = bInIsSavePoint; }
+
 	// Ручной сейв через костёр (задел под вызов из UI/кнопки). Сохраняет переданного игрока.
+	// Костёр, не являющийся точкой сохранения, отказывает (false).
 	UFUNCTION(BlueprintCallable, Category = "Campfire")
 	bool SaveAtCampfire(class APlayerCharacter* Player);
 

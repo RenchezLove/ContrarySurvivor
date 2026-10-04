@@ -2487,6 +2487,12 @@ void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag
     const FVector CurrentLoc = GetActorLocation();
     for (TActorIterator<ACampfire> It(World); It; ++It)
     {
+        // Костёр без галочки «Точка сохранения» (у автобусной остановки) точкой возрождения
+        // не служит: возле него не возрождаем и сохранённую точку рядом с ним не узакониваем.
+        if (!It->IsSavePoint())
+        {
+            continue;
+        }
         const float DistSq = FVector::DistSquared2D(It->GetActorLocation(), CurrentLoc);
         if (DistSq < BestDistSq)
         {
@@ -2497,8 +2503,9 @@ void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag
 
     if (!NearestCampfire)
     {
-        // Мир без костра (служебный/тестовый) — переставлять некуда, точка остаётся прежней.
-        UE_LOG(LogTemp, Warning, TEXT("%s: no ACampfire in world - loaded spawn point left as is."), ContextTag);
+        // Мир без костра-точки сохранения (служебный/тестовый) — переставлять некуда, точка
+        // остаётся прежней.
+        UE_LOG(LogTemp, Warning, TEXT("%s: no save-point ACampfire in world - loaded spawn point left as is."), ContextTag);
         return;
     }
 
