@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/Ads/MockAdService.h"
 #include "ContrarySurvivor/Ads/MockAdWidget.h"
+#include "ContrarySurvivor/Ads/MockBannerWidget.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот MockAdWidgetClass (ТЗ 08-07)
@@ -52,6 +53,7 @@ void UMockAdService::ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FS
 	}
 
 	PendingSuccess = OnSuccess;
+	bActiveIsInterstitial = false;
 
 	ActiveWidget->SetPlacement(Placement);
 	ActiveWidget->OnClosed.AddUObject(this, &UMockAdService::HandleAdClosed);
@@ -80,10 +82,73 @@ void UMockAdService::HandleAdClosed()
 
 	ActiveWidget = nullptr;
 
+	// Метка «игрок только что смотрел ролик с наградой» (как у боевой рекламы): по ней
+	// полноэкранный показ без награды пропускается.
+	if (!bActiveIsInterstitial)
+	{
+		LastRewardedShowUtc = FDateTime::UtcNow();
+	}
+	bActiveIsInterstitial = false;
+
 	// Делегат зовём ПОСЛЕДНИМ: обработчик успеха может открыть следующий экран/новый показ.
 	FSimpleDelegate Success = PendingSuccess;
 	PendingSuccess.Unbind();
 	Success.ExecuteIfBound();
+}
+
+void UMockAdService::ShowInterstitial(FName Placement, FSimpleDelegate OnClosed)
+{
+	// Тот же экран-заглушка, что у ролика; и отказ показа, и закрытие — это «закрылся».
+	const bool bBusy = (ActiveWidget != nullptr);
+	ShowRewarded(Placement, OnClosed, OnClosed);
+	if (!bBusy && ActiveWidget)
+	{
+		bActiveIsInterstitial = true;
+	}
+}
+
+void UMockAdService::ShowBanner(FName Placement)
+{
+	UGameInstance* GI = GetGameInstance();
+	APlayerController* PC = GI ? GI->GetFirstLocalPlayerController() : nullptr;
+	if (!PC)
+	{
+		return;
+	}
+
+	if (BannerWidget)
+	{
+		BannerWidget->RemoveFromParent();
+		BannerWidget = nullptr;
+	}
+
+	BannerWidget = CreateWidget<UMockBannerWidget>(PC, UMockBannerWidget::StaticClass());
+	if (!BannerWidget)
+	{
+		return;
+	}
+	ActiveBannerPlacement = Placement;
+
+	// Положение и высота — из тех же настроек, что у боевой рекламы на телефоне.
+	const UYandexAdService& Settings = UYandexAdService::GetSettings();
+	BannerWidget->Setup(Placement, Settings.IsBannerAtTop(Placement), Settings.BannerMaxHeightFraction);
+	// Поверх экрана смерти и окна торговли (они живут на ZOrder <= 100), но под «роликом» (300).
+	BannerWidget->AddToViewport(/*ZOrder=*/250);
+
+	UE_LOG(LogQA, Display, TEXT("QA: MOCK-AD banner '%s' shown (%s)"), *Placement.ToString(),
+		Settings.IsBannerAtTop(Placement) ? TEXT("top") : TEXT("bottom"));
+}
+
+void UMockAdService::HideBanner(FName Placement)
+{
+	if (!BannerWidget || ActiveBannerPlacement != Placement)
+	{
+		return;
+	}
+	BannerWidget->RemoveFromParent();
+	BannerWidget = nullptr;
+	ActiveBannerPlacement = NAME_None;
+	UE_LOG(LogQA, Display, TEXT("QA: MOCK-AD banner '%s' removed"), *Placement.ToString());
 }
 
 IAdService* AdService::Get(const UObject* WorldContextObject)

@@ -48,6 +48,58 @@ public:
 	// --- IAdService ---
 	virtual bool IsRewardedReady() const override;
 	virtual void ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail) override;
+	virtual FDateTime GetLastRewardedShowTimeUtc() const override { return LastRewardedShowUtc; }
+	virtual bool IsInterstitialReady(FName Placement) const override;
+	virtual void ShowInterstitial(FName Placement, FSimpleDelegate OnClosed) override;
+	virtual void ShowBanner(FName Placement) override;
+	virtual void HideBanner(FName Placement) override;
+
+	// Идентификатор места для точки показа РОЛИКА: свой, если задан, иначе общий.
+	// Открыт для автотеста «старые точки ролика настроены как раньше».
+	FString GetAdUnitIdForPlacement(FName Placement) const;
+
+	// --- Настройки двух новых форматов (решение Рината 04.10.2026). Лежат в той же секции
+	// конфига; читаются через объект класса по умолчанию, поэтому ими пользуется и заглушка
+	// редактора (UMockAdService), и игровой код точек показа. ---
+	static const UYandexAdService& GetSettings() { return *GetDefault<UYandexAdService>(); }
+
+	// Идентификатор места полноэкранного показа без награды после сдачи задания про бандитов.
+	// Пусто — точка выключена. Демонстрационный идентификатор Яндекса сюда НЕ вписан: взять
+	// его дословно из документации было неоткуда (доступа к ней не было) — вписывается в конфиг.
+	UPROPERTY(Config)
+	FString AdUnitIdQuestInterstitial;
+
+	// Идентификаторы мест баннера на экране смерти и в окне торговли. Пусто — баннера нет.
+	UPROPERTY(Config)
+	FString AdUnitIdBannerDeath;
+
+	UPROPERTY(Config)
+	FString AdUnitIdBannerShop;
+
+	// Полноэкранный показ пропускается, если с конца последнего ролика с наградой прошло
+	// меньше этого числа секунд (решение Рината: 3 минуты).
+	UPROPERTY(Config)
+	float QuestInterstitialRewardedCooldownSeconds = 180.0f;
+
+	// Где стоит баннер: true — у верхнего края экрана, false — у нижнего. Сверху по умолчанию
+	// в обеих точках: на экране смерти верх пуст, а кнопки внизу; в окне торговли внизу
+	// кнопка «Закрыть» (раскладка окон сверена по снимку слотов от 30.08.2026).
+	UPROPERTY(Config)
+	bool bBannerDeathAtTop = true;
+
+	UPROPERTY(Config)
+	bool bBannerShopAtTop = true;
+
+	// Предельная высота баннера долей высоты экрана (но не ниже 50 dp — меньше баннеров нет).
+	UPROPERTY(Config)
+	float BannerMaxHeightFraction = 0.10f;
+
+	// Идентификатор места и положение баннера для точки (пустой идентификатор — точки нет).
+	FString GetBannerAdUnitId(FName Placement) const;
+	bool IsBannerAtTop(FName Placement) const;
+
+	// Имя точки для аналитики: death_backpack -> backpack и так далее.
+	static FString PlacementToAnalyticsPoint(FName Placement);
 
 	// Общий идентификатор рекламного места для всех трёх точек. Значение по умолчанию —
 	// демонстрационное из документации Яндекса; боевое (вида R-M-XXXXXX-Y) подставляется
@@ -92,13 +144,14 @@ private:
 	// Приложение вернулось на передний план — проверяем, не завис ли показ.
 	void HandleApplicationForeground();
 
-	// Идентификатор места для точки показа: свой, если задан, иначе общий.
-	FString GetAdUnitIdForPlacement(FName Placement) const;
-
-	// Все различные идентификаторы, которые вообще используются игрой.
+	// Все различные идентификаторы РОЛИКОВ, которые вообще используются игрой.
 	TArray<FString> GetConfiguredAdUnitIds() const;
 
+	// Это идентификатор полноэкранного показа без награды (а не ролика)?
+	bool IsInterstitialUnit(const FString& AdUnitId) const;
+
 	// Заказать предзагрузку (с защитой от повторного заказа — её держит Java-сторона).
+	// Формат (ролик или полноэкранный показ) определяется по идентификатору.
 	void RequestLoad(const FString& AdUnitId);
 
 	// Отложенный перезаказ после неудачи, с растущей задержкой.
@@ -111,11 +164,20 @@ private:
 	void PauseGameForAd();
 	void RestoreGameAfterAd();
 
-	// Имя точки для аналитики: death_backpack -> backpack и так далее.
-	static FString PlacementToAnalyticsPoint(FName Placement);
-
-	// Какие идентификаторы прямо сейчас лежат готовыми к показу.
+	// Какие идентификаторы прямо сейчас лежат готовыми к показу (и ролики, и полноэкранный
+	// показ: идентификаторы у форматов разные, спутать их нельзя).
 	TSet<FString> LoadedAdUnitIds;
+
+	// Идёт именно полноэкранный показ без награды (тогда по закрытии зовётся OnClosed).
+	bool bShowingInterstitial = false;
+	FSimpleDelegate PendingInterstitialClosed;
+
+	// Когда закончился последний показ ролика с наградой (UTC).
+	FDateTime LastRewardedShowUtc;
+
+	// Баннер какой точки сейчас заказан или стоит (NAME_None — никакого).
+	FName ActiveBannerPlacement;
+	FString ActiveBannerAdUnitId;
 
 	// Сколько раз подряд не удалось загрузить — задаёт задержку следующей попытки.
 	TMap<FString, int32> LoadFailureCounts;

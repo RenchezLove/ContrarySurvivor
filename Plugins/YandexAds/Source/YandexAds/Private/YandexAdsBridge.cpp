@@ -103,6 +103,66 @@ void FYandexAdsBridge::ShowRewarded(const FString& AdUnitId)
 	AndroidJavaEnv::CheckJavaException();
 }
 
+void FYandexAdsBridge::LoadInterstitial(const FString& AdUnitId)
+{
+	JNIEnv* Env = nullptr;
+	jclass Class = nullptr;
+	jmethodID Method = nullptr;
+	if (!YandexAdsBridgeInternal::GetStaticMethod("loadInterstitial", "(Ljava/lang/String;)V", Env, Class, Method))
+	{
+		return;
+	}
+
+	auto JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
+	Env->CallStaticVoidMethod(Class, Method, *JavaAdUnitId);
+	AndroidJavaEnv::CheckJavaException();
+}
+
+void FYandexAdsBridge::ShowInterstitial(const FString& AdUnitId)
+{
+	JNIEnv* Env = nullptr;
+	jclass Class = nullptr;
+	jmethodID Method = nullptr;
+	if (!YandexAdsBridgeInternal::GetStaticMethod("showInterstitial", "(Ljava/lang/String;)V", Env, Class, Method))
+	{
+		return;
+	}
+
+	auto JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
+	Env->CallStaticVoidMethod(Class, Method, *JavaAdUnitId);
+	AndroidJavaEnv::CheckJavaException();
+}
+
+void FYandexAdsBridge::ShowBanner(const FString& AdUnitId, bool bAtTop, float MaxHeightFraction)
+{
+	JNIEnv* Env = nullptr;
+	jclass Class = nullptr;
+	jmethodID Method = nullptr;
+	if (!YandexAdsBridgeInternal::GetStaticMethod("showBanner", "(Ljava/lang/String;ZF)V", Env, Class, Method))
+	{
+		return;
+	}
+
+	auto JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
+	Env->CallStaticVoidMethod(Class, Method, *JavaAdUnitId,
+		static_cast<jboolean>(bAtTop), static_cast<jfloat>(MaxHeightFraction));
+	AndroidJavaEnv::CheckJavaException();
+}
+
+void FYandexAdsBridge::HideBanner()
+{
+	JNIEnv* Env = nullptr;
+	jclass Class = nullptr;
+	jmethodID Method = nullptr;
+	if (!YandexAdsBridgeInternal::GetStaticMethod("hideBanner", "()V", Env, Class, Method))
+	{
+		return;
+	}
+
+	Env->CallStaticVoidMethod(Class, Method);
+	AndroidJavaEnv::CheckJavaException();
+}
+
 void FYandexAdsBridge::ShowDebugPanel()
 {
 	JNIEnv* Env = nullptr;
@@ -122,7 +182,7 @@ void FYandexAdsBridge::ShowDebugPanel()
 JNI_METHOD void Java_com_contrarysurvivor_ads_YandexAdBridge_nativeOnAdEvent(
 	JNIEnv* Env, jclass /*Clazz*/, jstring AdUnitId, jint EventId, jstring Detail)
 {
-	if (EventId < static_cast<jint>(EYandexAdEvent::Initialized) || EventId > static_cast<jint>(EYandexAdEvent::NoAdToShow))
+	if (EventId < static_cast<jint>(EYandexAdEvent::Initialized) || EventId > static_cast<jint>(EYandexAdEvent::BannerLoadFailed))
 	{
 		return;
 	}
@@ -153,6 +213,22 @@ void FYandexAdsBridge::LoadRewarded(const FString& /*AdUnitId*/)
 }
 
 void FYandexAdsBridge::ShowRewarded(const FString& /*AdUnitId*/)
+{
+}
+
+void FYandexAdsBridge::LoadInterstitial(const FString& /*AdUnitId*/)
+{
+}
+
+void FYandexAdsBridge::ShowInterstitial(const FString& /*AdUnitId*/)
+{
+}
+
+void FYandexAdsBridge::ShowBanner(const FString& /*AdUnitId*/, bool /*bAtTop*/, float /*MaxHeightFraction*/)
+{
+}
+
+void FYandexAdsBridge::HideBanner()
 {
 }
 

@@ -15,7 +15,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "ContrarySurvivor/Ads/AdGatingLogic.h"
+#include "ContrarySurvivor/Ads/AdPointsLogic.h"
+#include "ContrarySurvivor/Ads/AdService.h"
 #include "ContrarySurvivor/Ads/DeathLossLogic.h"
+#include "ContrarySurvivor/Ads/YandexAdService.h"
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"
 
 static constexpr EAutomationTestFlags AdsTestFlags =
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter;
@@ -124,6 +128,270 @@ bool FAdGatingCooldownTest::RunTest(const FString& Parameters)
 		AdGating::IsCooldownPassed(Now, FDateTime(2026, 7, 31, 12, 7, 1), 180.0));
 	TestFalse(TEXT("метка в будущем (часы назад): не пройден"),
 		AdGating::IsCooldownPassed(Now, FDateTime(2026, 7, 31, 12, 30, 0), 180.0));
+	return true;
+}
+
+// ===========================================================================
+// Два новых формата (решение Рината 04.10.2026): полноэкранный показ без награды после
+// сдачи задания про бандитов и маленький баннер. Правила точек (AdPointsLogic) гоняются на
+// подставной рекламной службе, которая только считает вызовы. НЕ покрывается headless:
+// сам вызов из контроллера при закрытии диалога и открытии экранов, запись признака в слот
+// сохранения, настоящий показ на телефоне.
+// ===========================================================================
+namespace AdsTestLocal
+{
+	// Подставная рекламная служба: считает вызовы, ничего не показывает.
+	struct FCountingAdService : public IAdService
+	{
+		bool bInterstitialReady = true;
+		FDateTime LastRewardedUtc;
+		int32 RewardedShows = 0;
+		int32 InterstitialShows = 0;
+		TArray<FName> BannerShows;
+		TArray<FName> BannerHides;
+
+		virtual bool IsRewardedReady() const override { return true; }
+		virtual void ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail) override
+		{
+			++RewardedShows;
+			OnSuccess.ExecuteIfBound();
+		}
+		virtual FDateTime GetLastRewardedShowTimeUtc() const override { return LastRewardedUtc; }
+		virtual bool IsInterstitialReady(FName Placement) const override { return bInterstitialReady; }
+		virtual void ShowInterstitial(FName Placement, FSimpleDelegate OnClosed) override
+		{
+			++InterstitialShows;
+			OnClosed.ExecuteIfBound();
+		}
+		virtual void ShowBanner(FName Placement) override { BannerShows.Add(Placement); }
+		virtual void HideBanner(FName Placement) override { BannerHides.Add(Placement); }
+	};
+}
+
+// Полноэкранный показ вызывается ОДИН раз за сохранение: первый закрытый диалог сдачи
+// показывает и поднимает признак, с поднятым признаком показа больше нет; диалог без сдачи
+// точку не трогает вовсе.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdQuestInterstitialOncePerSaveTest,
+	"ContrarySurvivor.Ads.Points.QuestInterstitialOncePerSave", AdsTestFlags)
+bool FAdQuestInterstitialOncePerSaveTest::RunTest(const FString& Parameters)
+{
+	using namespace AdPoints;
+	AdsTestLocal::FCountingAdService Ads;
+	const FDateTime Now(2026, 10, 4, 12, 0, 0);
+	int32 ClosedCalls = 0;
+	const FSimpleDelegate OnClosed = FSimpleDelegate::CreateLambda([&ClosedCalls]() { ++ClosedCalls; });
+
+	bool bUsed = false; // признак из сохранения
+
+	// Обычный разговор со старостой (задание в этом диалоге не сдавали) — точка не наступила.
+	TestTrue(TEXT("диалог без сдачи: точка не наступила"),
+		RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, /*bTurnedInDuringDialog=*/false,
+			bUsed, true, Now, 180.0, OnClosed) == EInterstitialDecision::NotThisDialog);
+	TestFalse(TEXT("диалог без сдачи: признак не поднят"), bUsed);
+	TestEqual(TEXT("диалог без сдачи: показа нет"), Ads.InterstitialShows, 0);
+
+	// Диалог сдачи закрылся — показ один, признак поднят, «закрыто» пришло один раз.
+	TestTrue(TEXT("диалог сдачи: показываем"),
+		RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 180.0, OnClosed)
+			== EInterstitialDecision::Show);
+	TestTrue(TEXT("диалог сдачи: признак поднят"), bUsed);
+	TestEqual(TEXT("диалог сдачи: показ вызван один раз"), Ads.InterstitialShows, 1);
+	TestEqual(TEXT("диалог сдачи: «закрыто» пришло один раз"), ClosedCalls, 1);
+
+	// Повтор с поднятым признаком (то же сохранение) — показа больше нет.
+	TestTrue(TEXT("повтор в том же сохранении: уже отработала"),
+		RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 180.0, OnClosed)
+			== EInterstitialDecision::AlreadyUsed);
+	TestEqual(TEXT("повтор в том же сохранении: показ по-прежнему один"), Ads.InterstitialShows, 1);
+
+	// Новое сохранение (признак снова false) — точка работает заново.
+	bool bUsedNewSave = false;
+	RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsedNewSave, true, Now, 180.0, OnClosed);
+	TestEqual(TEXT("новое сохранение: показ вызван ещё раз"), Ads.InterstitialShows, 2);
+
+	// Признак переживает автосохранение костра (перенос полей удержания).
+	UContrarySaveGame* From = NewObject<UContrarySaveGame>();
+	UContrarySaveGame* To = NewObject<UContrarySaveGame>();
+	From->bQuestBanditsInterstitialUsed = true;
+	UContrarySaveGame::CopyRetentionData(From, To);
+	TestTrue(TEXT("признак точки переносится в свежий объект сохранения"), To->bQuestBanditsInterstitialUsed);
+	return true;
+}
+
+// Полноэкранный показ НЕ вызывается, если игрок только что смотрел ролик с наградой, если нет
+// согласия или показ не готов. Точка при этом считается отработавшей — позже не догоняется.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdQuestInterstitialSkipsTest,
+	"ContrarySurvivor.Ads.Points.QuestInterstitialSkips", AdsTestFlags)
+bool FAdQuestInterstitialSkipsTest::RunTest(const FString& Parameters)
+{
+	using namespace AdPoints;
+	const FDateTime Now(2026, 10, 4, 12, 0, 0);
+	const FSimpleDelegate NoOp;
+
+	// Ролик с наградой закончился минуту назад — пропуск.
+	{
+		AdsTestLocal::FCountingAdService Ads;
+		Ads.LastRewardedUtc = Now - FTimespan::FromSeconds(60.0);
+		bool bUsed = false;
+		const EInterstitialDecision Decision = RunQuestInterstitial(&Ads,
+			AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 180.0, NoOp);
+		TestTrue(TEXT("ролик минуту назад: пропуск"), Decision == EInterstitialDecision::RecentRewarded);
+		TestEqual(TEXT("ролик минуту назад: показа нет"), Ads.InterstitialShows, 0);
+		TestTrue(TEXT("ролик минуту назад: точка отработала, позже не догоняется"), bUsed);
+		TestEqual(TEXT("причина пропуска для аналитики"), InterstitialSkipReason(Decision), FString(TEXT("cooldown")));
+	}
+
+	// Ролик закончился ровно три минуты назад — граница включительно, показываем.
+	{
+		AdsTestLocal::FCountingAdService Ads;
+		Ads.LastRewardedUtc = Now - FTimespan::FromSeconds(180.0);
+		bool bUsed = false;
+		RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 180.0, NoOp);
+		TestEqual(TEXT("ролик три минуты назад: показ есть"), Ads.InterstitialShows, 1);
+	}
+
+	// Порог берётся из переданного числа (настройка конфига), а не зашит.
+	{
+		AdsTestLocal::FCountingAdService Ads;
+		Ads.LastRewardedUtc = Now - FTimespan::FromSeconds(60.0);
+		bool bUsed = false;
+		RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 30.0, NoOp);
+		TestEqual(TEXT("свой порог 30 с: ролик минуту назад не мешает"), Ads.InterstitialShows, 1);
+	}
+
+	// Нет согласия игрока.
+	{
+		AdsTestLocal::FCountingAdService Ads;
+		bool bUsed = false;
+		const EInterstitialDecision Decision = RunQuestInterstitial(&Ads,
+			AdPlacements::QuestBanditsDone, true, bUsed, /*bConsentGranted=*/false, Now, 180.0, NoOp);
+		TestTrue(TEXT("нет согласия: пропуск"), Decision == EInterstitialDecision::NoConsent);
+		TestEqual(TEXT("нет согласия: показа нет"), Ads.InterstitialShows, 0);
+	}
+
+	// Показ не готов; рекламной службы нет вовсе — молча мимо, без падения.
+	{
+		AdsTestLocal::FCountingAdService Ads;
+		Ads.bInterstitialReady = false;
+		bool bUsed = false;
+		TestTrue(TEXT("показ не готов: пропуск"),
+			RunQuestInterstitial(&Ads, AdPlacements::QuestBanditsDone, true, bUsed, true, Now, 180.0, NoOp)
+				== EInterstitialDecision::NoAd);
+		TestEqual(TEXT("показ не готов: показа нет"), Ads.InterstitialShows, 0);
+
+		bool bUsedNoService = false;
+		TestTrue(TEXT("службы нет: пропуск"),
+			RunQuestInterstitial(nullptr, AdPlacements::QuestBanditsDone, true, bUsedNoService, true, Now, 180.0, NoOp)
+				== EInterstitialDecision::NoAd);
+	}
+
+	// Значение настройки по умолчанию — три минуты (решение Рината).
+	TestEqual(TEXT("порог по умолчанию в настройках — 180 с"),
+		UYandexAdService::GetSettings().QuestInterstitialRewardedCooldownSeconds, 180.0f);
+	return true;
+}
+
+// Баннер запрашивается при открытии экрана смерти и окна торговли и убирается при закрытии;
+// без согласия не запрашивается, но убирается всегда.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdScreenBannerTest,
+	"ContrarySurvivor.Ads.Points.BannerFollowsScreen", AdsTestFlags)
+bool FAdScreenBannerTest::RunTest(const FString& Parameters)
+{
+	using namespace AdPoints;
+	AdsTestLocal::FCountingAdService Ads;
+
+	TestTrue(TEXT("экран смерти открылся: баннер заказан"),
+		SetScreenBanner(&Ads, AdPlacements::BannerDeath, /*bScreenOpen=*/true, /*bConsentGranted=*/true));
+	TestEqual(TEXT("экран смерти: один заказ"), Ads.BannerShows.Num(), 1);
+	TestTrue(TEXT("экран смерти: заказана именно его точка"),
+		Ads.BannerShows.Num() == 1 && Ads.BannerShows[0] == AdPlacements::BannerDeath);
+	TestEqual(TEXT("экран смерти открыт: баннер не убирали"), Ads.BannerHides.Num(), 0);
+
+	SetScreenBanner(&Ads, AdPlacements::BannerDeath, false, true);
+	TestTrue(TEXT("экран смерти закрылся: баннер убран"),
+		Ads.BannerHides.Num() == 1 && Ads.BannerHides[0] == AdPlacements::BannerDeath);
+
+	TestTrue(TEXT("окно торговли открылось: баннер заказан"),
+		SetScreenBanner(&Ads, AdPlacements::BannerShop, true, true));
+	TestTrue(TEXT("окно торговли: заказана именно его точка"),
+		Ads.BannerShows.Num() == 2 && Ads.BannerShows[1] == AdPlacements::BannerShop);
+	SetScreenBanner(&Ads, AdPlacements::BannerShop, false, true);
+	TestTrue(TEXT("окно торговли закрылось: баннер убран"),
+		Ads.BannerHides.Num() == 2 && Ads.BannerHides[1] == AdPlacements::BannerShop);
+
+	// Нет согласия: при открытии баннер не заказывается, при закрытии всё равно убирается.
+	TestFalse(TEXT("нет согласия: баннер не заказан"),
+		SetScreenBanner(&Ads, AdPlacements::BannerDeath, true, /*bConsentGranted=*/false));
+	TestEqual(TEXT("нет согласия: заказов не прибавилось"), Ads.BannerShows.Num(), 2);
+	SetScreenBanner(&Ads, AdPlacements::BannerDeath, false, false);
+	TestEqual(TEXT("нет согласия: уборка всё равно прошла"), Ads.BannerHides.Num(), 3);
+
+	// Службы нет — без падения.
+	TestFalse(TEXT("службы нет: баннер не заказан"),
+		SetScreenBanner(nullptr, AdPlacements::BannerShop, true, true));
+
+	// Баннер и полноэкранный показ ролик с наградой не трогают.
+	TestEqual(TEXT("ролик с наградой не вызывался"), Ads.RewardedShows, 0);
+	return true;
+}
+
+// Старые точки ролика работают как раньше: ключи четырёх точек не изменились, каждая
+// по-прежнему берёт свой идентификатор места (или общий, если свой пуст), а идентификаторы
+// новых форматов в ролики не подмешаны.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdRewardedPointsUnchangedTest,
+	"ContrarySurvivor.Ads.Points.RewardedPointsUnchanged", AdsTestFlags)
+bool FAdRewardedPointsUnchangedTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("ключ точки «Спасти рюкзак»"), AdPlacements::DeathBackpack, FName(TEXT("death_backpack")));
+	TestEqual(TEXT("ключ точки «Продать дороже»"), AdPlacements::ShopSellBonus, FName(TEXT("shop_sell_bonus")));
+	TestEqual(TEXT("ключ точки ежедневной награды"), AdPlacements::DailyDouble, FName(TEXT("daily_double")));
+	TestEqual(TEXT("ключ точки «Поддержать автора»"), AdPlacements::SupportAuthor, FName(TEXT("support_author")));
+
+	const UYandexAdService& Service = UYandexAdService::GetSettings();
+	auto Expected = [&Service](const FString& OwnId)
+	{
+		return OwnId.IsEmpty() ? Service.RewardedAdUnitId : OwnId;
+	};
+	TestEqual(TEXT("место ролика «Спасти рюкзак»"),
+		Service.GetAdUnitIdForPlacement(AdPlacements::DeathBackpack), Expected(Service.AdUnitIdDeathBackpack));
+	TestEqual(TEXT("место ролика «Продать дороже»"),
+		Service.GetAdUnitIdForPlacement(AdPlacements::ShopSellBonus), Expected(Service.AdUnitIdShopSellBonus));
+	TestEqual(TEXT("место ролика ежедневной награды"),
+		Service.GetAdUnitIdForPlacement(AdPlacements::DailyDouble), Expected(Service.AdUnitIdDailyDouble));
+	TestEqual(TEXT("место ролика «Поддержать автора»"),
+		Service.GetAdUnitIdForPlacement(AdPlacements::SupportAuthor), Expected(Service.AdUnitIdSupportAuthor));
+
+	// Идентификаторы новых форматов (если заданы) не совпадают ни с одним местом ролика:
+	// иначе служба приняла бы ролик за полноэкранный показ без награды.
+	const FName RewardedPoints[] = { AdPlacements::DeathBackpack, AdPlacements::ShopSellBonus,
+		AdPlacements::DailyDouble, AdPlacements::SupportAuthor };
+	const FString NewIds[] = { Service.AdUnitIdQuestInterstitial, Service.AdUnitIdBannerDeath,
+		Service.AdUnitIdBannerShop };
+	for (const FName& Point : RewardedPoints)
+	{
+		for (const FString& NewId : NewIds)
+		{
+			TestTrue(FString::Printf(TEXT("место ролика '%s' не занято новым форматом"), *Point.ToString()),
+				NewId.IsEmpty() || NewId != Service.GetAdUnitIdForPlacement(Point));
+		}
+	}
+
+	// Имена точек в аналитике: старые прежние, новые — свои.
+	TestEqual(TEXT("аналитика: рюкзак"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::DeathBackpack), FString(TEXT("backpack")));
+	TestEqual(TEXT("аналитика: магазин"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::ShopSellBonus), FString(TEXT("shop")));
+	TestEqual(TEXT("аналитика: ежедневная"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::DailyDouble), FString(TEXT("daily")));
+	TestEqual(TEXT("аналитика: поддержка"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::SupportAuthor), FString(TEXT("support")));
+	TestEqual(TEXT("аналитика: показ после задания"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::QuestBanditsDone), FString(TEXT("quest_bandits")));
+	TestEqual(TEXT("аналитика: баннер смерти"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::BannerDeath), FString(TEXT("banner_death")));
+	TestEqual(TEXT("аналитика: баннер торговли"), UYandexAdService::PlacementToAnalyticsPoint(AdPlacements::BannerShop), FString(TEXT("banner_shop")));
+
+	// Подставная служба: ролик с наградой по-прежнему зовёт «успех» и не трогает новые форматы.
+	AdsTestLocal::FCountingAdService Ads;
+	int32 Successes = 0;
+	Ads.ShowRewarded(AdPlacements::DeathBackpack,
+		FSimpleDelegate::CreateLambda([&Successes]() { ++Successes; }), FSimpleDelegate());
+	TestEqual(TEXT("ролик: успех пришёл один раз"), Successes, 1);
+	TestEqual(TEXT("ролик: полноэкранный показ не вызывался"), Ads.InterstitialShows, 0);
 	return true;
 }
 

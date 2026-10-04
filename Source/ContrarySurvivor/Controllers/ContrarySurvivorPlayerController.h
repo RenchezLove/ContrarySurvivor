@@ -1011,6 +1011,25 @@ private:
 	// Открыт ли экран диалога (модальный, как магазин): клик уходит в диалог, движение подавлено.
 	bool bDialogOpen = false;
 
+	// --- Два новых рекламных формата (решение Рината 04.10.2026). Правила — AdPointsLogic. ---
+
+	// Задание старосты про бандитов, за сдачей которого следит открытый диалог, и было ли оно
+	// уже сдано на момент ОТКРЫТИЯ диалога. Сдано при закрытии, но не при открытии — значит,
+	// закрылся именно диалог сдачи, и наступает точка полноэкранного показа без награды.
+	FName DialogBanditQuestId;
+	bool bBanditQuestTurnedInAtDialogOpen = false;
+
+	// Сдано ли игроком задание QuestId (State == TurnedIn).
+	bool IsQuestTurnedIn(FName QuestId) const;
+
+	// Точка «диалог сдачи задания про бандитов закрылся»: один раз за сохранение, если есть
+	// согласие, показ готов и игрок не смотрел ролик с наградой только что. Иначе молча мимо.
+	void TryShowQuestBanditsInterstitial();
+	void HandleQuestInterstitialClosed();
+
+	// Баннер экрана смерти / окна торговли: поставить при открытии, убрать при закрытии.
+	void SetAdBannerForScreen(FName Placement, bool bScreenOpen);
+
 	// Открыто ли окно обыска трупа (Build 1.2.1, ТЗ А1; модальное, как магазин): клики
 	// обрабатывают Slate-кнопки окна, движение подавлено. Источник — OpenCorpseLoot/CloseCorpseLoot.
 	bool bCorpseLootOpen = false;

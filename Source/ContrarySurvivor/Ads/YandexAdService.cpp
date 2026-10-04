@@ -97,6 +97,14 @@ void UYandexAdService::Deinitialize()
 		WatchdogHandle.Reset();
 	}
 
+	// Баннер — родное окно Android и вместе с игровым объектом сам не исчезнет.
+	if (!ActiveBannerPlacement.IsNone())
+	{
+		FYandexAdsBridge::HideBanner();
+		ActiveBannerPlacement = NAME_None;
+		ActiveBannerAdUnitId.Reset();
+	}
+
 	Super::Deinitialize();
 }
 
@@ -174,6 +182,103 @@ void UYandexAdService::ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, 
 	FYandexAdsBridge::ShowRewarded(AdUnitId);
 }
 
+bool UYandexAdService::IsInterstitialReady(FName Placement) const
+{
+	if (!bSdkInitialized || bShowInProgress || Placement != AdPlacements::QuestBanditsDone)
+	{
+		return false;
+	}
+	return !AdUnitIdQuestInterstitial.IsEmpty() && LoadedAdUnitIds.Contains(AdUnitIdQuestInterstitial);
+}
+
+void UYandexAdService::ShowInterstitial(FName Placement, FSimpleDelegate OnClosed)
+{
+	if (!IsInterstitialReady(Placement))
+	{
+		// Точки показа сами проверяют готовность; сюда попадаем, только если показ успел
+		// разгрузиться или уже идёт другая реклама. Игру не задерживаем.
+		UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD interstitial '%s' skipped - not ready"), *Placement.ToString());
+		if (bSdkInitialized)
+		{
+			RequestLoad(AdUnitIdQuestInterstitial);
+		}
+		OnClosed.ExecuteIfBound();
+		return;
+	}
+
+	bShowInProgress = true;
+	bShowingInterstitial = true;
+	bRewardGranted = false;
+	ShowingPlacement = Placement;
+	ShowingAdUnitId = AdUnitIdQuestInterstitial;
+	PendingInterstitialClosed = OnClosed;
+
+	// Показ одноразовый: с этого момента он больше не «готовый».
+	LoadedAdUnitIds.Remove(ShowingAdUnitId);
+
+	// Пауза и звук — ровно как у ролика.
+	PauseGameForAd();
+
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD interstitial '%s' show requested (unit '%s')"),
+		*Placement.ToString(), *ShowingAdUnitId);
+
+	FYandexAdsBridge::ShowInterstitial(ShowingAdUnitId);
+}
+
+void UYandexAdService::ShowBanner(FName Placement)
+{
+	const FString AdUnitId = GetBannerAdUnitId(Placement);
+	if (!bSdkInitialized || AdUnitId.IsEmpty())
+	{
+		// SDK не поднят (игрок ещё не ответил про данные) или место не настроено — баннера
+		// нет, экран работает как раньше.
+		return;
+	}
+
+	ActiveBannerPlacement = Placement;
+	ActiveBannerAdUnitId = AdUnitId;
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' requested (unit '%s', %s)"),
+		*Placement.ToString(), *AdUnitId, IsBannerAtTop(Placement) ? TEXT("top") : TEXT("bottom"));
+
+	FYandexAdsBridge::ShowBanner(AdUnitId, IsBannerAtTop(Placement),
+		FMath::Clamp(BannerMaxHeightFraction, 0.05f, 0.25f));
+}
+
+void UYandexAdService::HideBanner(FName Placement)
+{
+	if (ActiveBannerPlacement.IsNone() || ActiveBannerPlacement != Placement)
+	{
+		return;
+	}
+	ActiveBannerPlacement = NAME_None;
+	ActiveBannerAdUnitId.Reset();
+	FYandexAdsBridge::HideBanner();
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' removed"), *Placement.ToString());
+}
+
+FString UYandexAdService::GetBannerAdUnitId(FName Placement) const
+{
+	if (Placement == AdPlacements::BannerDeath)
+	{
+		return AdUnitIdBannerDeath;
+	}
+	if (Placement == AdPlacements::BannerShop)
+	{
+		return AdUnitIdBannerShop;
+	}
+	return FString();
+}
+
+bool UYandexAdService::IsBannerAtTop(FName Placement) const
+{
+	return (Placement == AdPlacements::BannerShop) ? bBannerShopAtTop : bBannerDeathAtTop;
+}
+
+bool UYandexAdService::IsInterstitialUnit(const FString& AdUnitId) const
+{
+	return !AdUnitId.IsEmpty() && AdUnitId == AdUnitIdQuestInterstitial;
+}
+
 void UYandexAdService::HandleAdEvent(const FString& AdUnitId, EYandexAdEvent Event, const FString& Detail)
 {
 	switch (Event)
@@ -188,6 +293,27 @@ void UYandexAdService::HandleAdEvent(const FString& AdUnitId, EYandexAdEvent Eve
 		for (const FString& Unit : GetConfiguredAdUnitIds())
 		{
 			RequestLoad(Unit);
+		}
+		// Полноэкранный показ без награды — тоже заранее (пустой идентификатор — точки нет).
+		RequestLoad(AdUnitIdQuestInterstitial);
+		break;
+	}
+
+	case EYandexAdEvent::BannerLoaded:
+	case EYandexAdEvent::BannerLoadFailed:
+	{
+		// Событие баннера, который уже убрали или заменили, не интересно.
+		if (ActiveBannerPlacement.IsNone() || AdUnitId != ActiveBannerAdUnitId)
+		{
+			break;
+		}
+		const bool bLoaded = (Event == EYandexAdEvent::BannerLoaded);
+		UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' %s %s"), *ActiveBannerPlacement.ToString(),
+			bLoaded ? TEXT("shown") : TEXT("failed -"), *Detail);
+		if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+		{
+			Analytics->RecordAdStage(PlacementToAnalyticsPoint(ActiveBannerPlacement),
+				bLoaded ? TEXT("shown") : TEXT("failed"));
 		}
 		break;
 	}
@@ -310,9 +436,21 @@ void UYandexAdService::FinishShow(bool bGrantReward, const TCHAR* Reason)
 
 	const FString FinishedUnit = ShowingAdUnitId;
 	const FName FinishedPlacement = ShowingPlacement;
+	const bool bWasInterstitial = bShowingInterstitial;
 	ShowingAdUnitId.Reset();
 	ShowingPlacement = NAME_None;
 	bRewardGranted = false;
+	bShowingInterstitial = false;
+
+	FSimpleDelegate InterstitialClosed = PendingInterstitialClosed;
+	PendingInterstitialClosed.Unbind();
+
+	// Метка «игрок только что смотрел ролик с наградой» — по ней полноэкранный показ без
+	// награды пропускается (досмотрен ролик или закрыт — не важно, рекламу он видел).
+	if (!bWasInterstitial)
+	{
+		LastRewardedShowUtc = FDateTime::UtcNow();
+	}
 
 	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD '%s' finished (%s), reward=%s"),
 		*FinishedPlacement.ToString(), Reason, bGrantReward ? TEXT("yes") : TEXT("no"));
@@ -330,7 +468,12 @@ void UYandexAdService::FinishShow(bool bGrantReward, const TCHAR* Reason)
 	}
 
 	// Делегат зовём последним — он может привести к новому показу.
-	if (bGrantReward)
+	if (bWasInterstitial)
+	{
+		// Награды у полноэкранного показа нет: любой исход для игры — просто «закрылся».
+		InterstitialClosed.ExecuteIfBound();
+	}
+	else if (bGrantReward)
 	{
 		Success.ExecuteIfBound();
 	}
@@ -413,6 +556,11 @@ void UYandexAdService::RequestLoad(const FString& AdUnitId)
 	{
 		return;
 	}
+	if (IsInterstitialUnit(AdUnitId))
+	{
+		FYandexAdsBridge::LoadInterstitial(AdUnitId);
+		return;
+	}
 	FYandexAdsBridge::LoadRewarded(AdUnitId);
 }
 
@@ -473,6 +621,18 @@ FString UYandexAdService::PlacementToAnalyticsPoint(FName Placement)
 	if (Placement == AdPlacements::SupportAuthor)
 	{
 		return TEXT("support");
+	}
+	if (Placement == AdPlacements::QuestBanditsDone)
+	{
+		return TEXT("quest_bandits");
+	}
+	if (Placement == AdPlacements::BannerDeath)
+	{
+		return TEXT("banner_death");
+	}
+	if (Placement == AdPlacements::BannerShop)
+	{
+		return TEXT("banner_shop");
 	}
 	return TEXT("unknown");
 }

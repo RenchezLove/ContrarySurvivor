@@ -93,6 +93,14 @@ public:
 	//   ad_daily_dismissed         -> ad:daily:dismissed
 	//   ad_daily_failed            -> ad:daily:failed
 	//   ad_daily_not_shown         -> ad:daily:not_shown:{first_day|under_15min|no_ad}
+	// --- Два новых формата (решение Рината 04.10.2026): полноэкранный показ без награды после
+	// сдачи задания про бандитов и маленький баннер. Те же RecordAdStage/RecordAdNotShown. ---
+	//   полноэкранный показ запрошен -> ad:quest_bandits:started
+	//   полноэкранный показ закрыт   -> ad:quest_bandits:completed
+	//   сбой показа                  -> ad:quest_bandits:failed
+	//   показ пропущен               -> ad:quest_bandits:not_shown:{no_consent|cooldown|no_ad}
+	//   баннер встал на экран        -> ad:banner_death:shown / ad:banner_shop:shown
+	//   баннер не загрузился         -> ad:banner_death:failed / ad:banner_shop:failed
 	//   shop_sell_completed        -> shop:sell_completed        [сумма продажи]
 	//   daily_reward_claimed       -> retention:daily_reward_claimed [день серии]
 	// --- Б4 (задание издателя ADR-059): первый запуск и обучение ---

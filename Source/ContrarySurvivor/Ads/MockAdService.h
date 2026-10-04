@@ -8,6 +8,7 @@
 #include "MockAdService.generated.h"
 
 class UMockAdWidget;
+class UMockBannerWidget;
 
 /**
  * Заглушка слоя рекламы (Build 1.2, указание Рината): IsRewardedReady() всегда true,
@@ -28,12 +29,34 @@ public:
 	// --- IAdService ---
 	virtual bool IsRewardedReady() const override { return true; }
 	virtual void ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail) override;
+	virtual FDateTime GetLastRewardedShowTimeUtc() const override { return LastRewardedShowUtc; }
+
+	// Полноэкранный показ без награды: тот же экран-заглушка, по закрытию зовётся OnClosed.
+	virtual bool IsInterstitialReady(FName Placement) const override { return true; }
+	virtual void ShowInterstitial(FName Placement, FSimpleDelegate OnClosed) override;
+
+	// Баннер-заглушка: серая полоса с подписью на месте будущего баннера (верх или низ экрана
+	// и высота — из тех же настроек, что у боевой рекламы), чтобы в редакторе было видно место.
+	virtual void ShowBanner(FName Placement) override;
+	virtual void HideBanner(FName Placement) override;
 
 private:
 	void HandleAdClosed();
 
 	UPROPERTY()
 	TObjectPtr<UMockAdWidget> ActiveWidget;
+
+	UPROPERTY()
+	TObjectPtr<UMockBannerWidget> BannerWidget;
+
+	// Баннер какой точки сейчас стоит (NAME_None — никакого).
+	FName ActiveBannerPlacement;
+
+	// На экране полноэкранный показ без награды, а не ролик.
+	bool bActiveIsInterstitial = false;
+
+	// Когда закрылся последний «ролик с наградой» (UTC).
+	FDateTime LastRewardedShowUtc;
 
 	FSimpleDelegate PendingSuccess;
 

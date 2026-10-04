@@ -35,6 +35,16 @@ namespace AdPlacements
 	//     AdGating::IsAdGatePassed) на неё НЕ распространяется и не проверяется вовсе;
 	//   • за просмотр игроку НИЧЕГО не выдаётся — иначе это обычная ежедневка и замер сломан.
 	inline const FName SupportAuthor(TEXT("support_author"));
+
+	// --- Два новых формата (решение Рината 04.10.2026). Четыре точки ролика выше не тронуты. ---
+
+	// Полноэкранный показ БЕЗ награды после сдачи старосте задания «Зачистить базу бандитов»
+	// — один раз за сохранение, когда диалог сдачи закрылся.
+	inline const FName QuestBanditsDone(TEXT("quest_bandits_done"));
+
+	// Маленький баннер на экране смерти и в окне торговли — виден только пока экран открыт.
+	inline const FName BannerDeath(TEXT("banner_death"));
+	inline const FName BannerShop(TEXT("banner_shop"));
 }
 
 UINTERFACE(MinimalAPI)
@@ -58,6 +68,29 @@ public:
 	// техническая ошибка СЕТИ на середине ролика у реального SDK пойдёт в OnSuccess —
 	// это решение реализации, не интерфейса). Делегаты зовутся ровно один раз.
 	virtual void ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail) = 0;
+
+	// Когда закончился последний показ ролика с наградой (UTC; досмотрен он или закрыт — не
+	// важно). Ticks == 0 — роликов в этом запуске игры не было. По этой метке полноэкранный
+	// показ без награды пропускается, если игрок только что смотрел ролик.
+	virtual FDateTime GetLastRewardedShowTimeUtc() const = 0;
+
+	// --- Полноэкранный показ без награды (решение Рината 04.10.2026) ---
+
+	// Готов ли полноэкранный показ для точки. Не готов — точка молча пропускается.
+	virtual bool IsInterstitialReady(FName Placement) const = 0;
+
+	// Показать. OnClosed зовётся ровно один раз: когда показ закрылся, сорвался или не
+	// начался вовсе. Награды нет, поэтому разницы между этими исходами для игры нет.
+	virtual void ShowInterstitial(FName Placement, FSimpleDelegate OnClosed) = 0;
+
+	// --- Маленький баннер поверх экрана (решение Рината 04.10.2026) ---
+
+	// Поставить баннер точки. Не загрузился или не настроен — на экране ничего нет, ошибок
+	// наружу нет. Баннер одновременно один: новый вызов заменяет прежний.
+	virtual void ShowBanner(FName Placement) = 0;
+
+	// Убрать баннер точки сразу. Стоит баннер другой точки или никакого — ничего не делает.
+	virtual void HideBanner(FName Placement) = 0;
 };
 
 namespace AdService

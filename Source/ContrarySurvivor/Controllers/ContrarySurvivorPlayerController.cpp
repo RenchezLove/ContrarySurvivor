@@ -59,6 +59,9 @@
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h"       // Экран настроек (ADR-062, подход 2)
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h"        // Окно «Поддержать автора» (задание издателя)
 #include "ContrarySurvivor/Ads/AdService.h"                 // показ ролика в окне «Поддержать автора»
+#include "ContrarySurvivor/Ads/AdPointsLogic.h"             // полноэкранный показ после задания и баннер (04.10.2026)
+#include "ContrarySurvivor/Ads/YandexAdService.h"           // настройки новых рекламных точек из конфига
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"         // признак «точка показа уже отработала»
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // применение настроек при запуске
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // ждём ли ответа про сбор данных (загрузочный уровень)
@@ -249,6 +252,10 @@ void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPl
 	// Музыку глушим тут же: компонент и так умрёт вместе с миром (ошибка 6 ТЗ), но при
 	// переезде уровней аккуратная остановка дешевле догадок, кто кого переживёт.
 	StopCombatMusicImmediately();
+	// Баннер рекламы на телефоне — родное окно Android: вместе с экраном смерти или окном
+	// торговли сам он не исчезнет, поэтому при уходе контроллера убираем его явно.
+	SetAdBannerForScreen(AdPlacements::BannerDeath, false);
+	SetAdBannerForScreen(AdPlacements::BannerShop, false);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -420,6 +427,9 @@ void AContrarySurvivorPlayerController::ShowDeathScreen()
 
 	FQADebug::QA(this, TEXT("QA: death screen opened (input disabled)"), /*bScreen=*/true);
 
+	// Маленький рекламный баннер — только пока экран смерти открыт (решение Рината 04.10.2026).
+	SetAdBannerForScreen(AdPlacements::BannerDeath, true);
+
 	// Этап F (онбординг): первая смерть — подсказка со СТРОГОЙ формулировкой ADR-044 п.3
 	// (без «можно вернуться и забрать»). Сам экран смерти не трогаем.
 	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
@@ -436,6 +446,7 @@ void AContrarySurvivorPlayerController::HideDeathScreen()
 	}
 	bDeathScreen = false;
 	bUIClickConsumed = false;
+	SetAdBannerForScreen(AdPlacements::BannerDeath, false);
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
@@ -2282,6 +2293,11 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 			PlayerQuests->OfferQuest(Elder->GetQuestForPlayer(PlayerQuests));
 		}
 
+		// Запоминаем, сдано ли задание про бандитов ДО этого диалога: по разнице «при
+		// открытии не сдано — при закрытии сдано» CloseDialog узнаёт диалог сдачи.
+		DialogBanditQuestId = Elder->GetSecondQuest().QuestId;
+		bBanditQuestTurnedInAtDialogOpen = IsQuestTurnedIn(DialogBanditQuestId);
+
 		// Build 1: подарок первой встречи (аптечка) больше НЕ выдаётся при открытии — иначе
 		// подсказка «Получена аптечка» всплывала бы до реплики. Теперь аптечку выдаёт
 		// скриптовое интро на реплике «Держи, затяни раны» (DialogScreenWidget::AdvanceIntro,
@@ -2337,6 +2353,89 @@ void AContrarySurvivorPlayerController::CloseDialog()
 			Daily->NotifyElderDialogClosed();
 		}
 	}
+
+	// Точка полноэкранного показа без награды (решение Рината 04.10.2026): диалог, в котором
+	// игрок сдал задание про бандитов, закрылся. Стоит последней — показ ставит игру на паузу.
+	TryShowQuestBanditsInterstitial();
+}
+
+bool AContrarySurvivorPlayerController::IsQuestTurnedIn(FName QuestId) const
+{
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	const UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
+	const FQuest* Quest = (PlayerQuests && !QuestId.IsNone()) ? PlayerQuests->FindQuest(QuestId) : nullptr;
+	return Quest && Quest->State == EQuestState::TurnedIn;
+}
+
+void AContrarySurvivorPlayerController::TryShowQuestBanditsInterstitial()
+{
+	const FName QuestId = DialogBanditQuestId;
+	const bool bTurnedInDuringDialog = !QuestId.IsNone()
+		&& !bBanditQuestTurnedInAtDialogOpen && IsQuestTurnedIn(QuestId);
+	DialogBanditQuestId = NAME_None;
+	if (!bTurnedInDuringDialog)
+	{
+		return; // обычный разговор — сохранение зря не читаем
+	}
+
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	UContrarySaveGame* Save = PlayerChar ? PlayerChar->LoadOrCreateSaveObject() : nullptr;
+	if (!Save)
+	{
+		return;
+	}
+
+	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
+	bool bUsed = Save->bQuestBanditsInterstitialUsed;
+	const AdPoints::EInterstitialDecision Decision = AdPoints::RunQuestInterstitial(
+		AdService::Get(this), AdPlacements::QuestBanditsDone, bTurnedInDuringDialog, bUsed,
+		Consent && Consent->IsConsentGranted(), FDateTime::UtcNow(),
+		UYandexAdService::GetSettings().QuestInterstitialRewardedCooldownSeconds,
+		FSimpleDelegate::CreateUObject(this, &AContrarySurvivorPlayerController::HandleQuestInterstitialClosed));
+
+	if (bUsed && !Save->bQuestBanditsInterstitialUsed)
+	{
+		// Точка наступила (показана реклама или пропущена — не важно): в этом сохранении
+		// она больше не сработает. Пишем только своё поле (приём сценки-намёка старосты).
+		Save->bQuestBanditsInterstitialUsed = true;
+		PlayerChar->WriteSaveObject(Save);
+	}
+
+	UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this);
+	if (Decision == AdPoints::EInterstitialDecision::Show)
+	{
+		if (Analytics)
+		{
+			Analytics->RecordAdStage(TEXT("quest_bandits"), TEXT("started"));
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: AD quest_bandits_done — полноэкранный показ запрошен"));
+	}
+	else
+	{
+		const FString Reason = AdPoints::InterstitialSkipReason(Decision);
+		if (Analytics && !Reason.IsEmpty())
+		{
+			Analytics->RecordAdNotShown(TEXT("quest_bandits"), Reason);
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: AD quest_bandits_done — показ пропущен (%s)"),
+			Reason.IsEmpty() ? TEXT("уже был в этом сохранении") : *Reason);
+	}
+}
+
+void AContrarySurvivorPlayerController::HandleQuestInterstitialClosed()
+{
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordAdStage(TEXT("quest_bandits"), TEXT("completed"));
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: AD quest_bandits_done — полноэкранный показ закрыт"));
+}
+
+void AContrarySurvivorPlayerController::SetAdBannerForScreen(FName Placement, bool bScreenOpen)
+{
+	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
+	AdPoints::SetScreenBanner(AdService::Get(this), Placement, bScreenOpen,
+		Consent && Consent->IsConsentGranted());
 }
 
 void AContrarySurvivorPlayerController::CloseAllUI()
@@ -2535,6 +2634,9 @@ void AContrarySurvivorPlayerController::OpenShop(TScriptInterface<IShopVendor> T
 	bShowMouseCursor = true;
 
 	UE_LOG(LogTemp, Log, TEXT("Shop OPEN (trader %s)"), *GetNameSafe(Trader.GetObject()));
+
+	// Маленький рекламный баннер — только пока окно торговли открыто (решение Рината 04.10.2026).
+	SetAdBannerForScreen(AdPlacements::BannerShop, true);
 }
 
 void AContrarySurvivorPlayerController::CloseShop()
@@ -2546,6 +2648,7 @@ void AContrarySurvivorPlayerController::CloseShop()
 	bShopOpen = false;
 	bUIClickConsumed = false;
 	ResetShopTouchState(); // G2: палец мог остаться «в жесте» — не тащить его в закрытый экран
+	SetAdBannerForScreen(AdPlacements::BannerShop, false);
 
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{

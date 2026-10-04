@@ -232,6 +232,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
 	FDateTime LastShopAdTime;
 
+	// Точка полноэкранного показа без награды после сдачи старосте задания про бандитов
+	// (решение Рината 04.10.2026) уже отработала в этом сохранении — один раз за сохранение.
+	// Старые сохранения читают поле как false. Пишет контроллер игрока при закрытии диалога.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Ads")
+	bool bQuestBanditsInterstitialUsed = false;
+
 	// --- Мир: память баз противника (ТЗ издателя 22.08.2026, возрождение баз) ---
 	// Заполняет AMasterEnemyBase (retention-паттерн); SaveGame() игрока переносит через
 	// CopyRetentionData — иначе автосейв костра стирал бы ступени и таймеры возрождения.
