@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivorHUD.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "Engine/Canvas.h"
 #include "CanvasItem.h"    // FCanvasTextItem (текст с тенью/обводкой, #18)
 #include "Engine/Engine.h" // GEngine->GetMediumFont
@@ -69,7 +70,7 @@ void AContrarySurvivorHUD::BeginPlay()
 		PlayerStatsWidgetInstance = CreateWidget<UPlayerStatsWidget>(PC, PlayerStatsWidgetClass);
 		if (PlayerStatsWidgetInstance)
 		{
-			PlayerStatsWidgetInstance->AddToViewport(/*ZOrder=*/5);
+			ContraryUI::AddToGameScreen(PlayerStatsWidgetInstance, /*ZOrder=*/5);
 		}
 	}
 	if (QuestTrackerWidgetClass && !QuestTrackerWidgetInstance)
@@ -77,7 +78,7 @@ void AContrarySurvivorHUD::BeginPlay()
 		QuestTrackerWidgetInstance = CreateWidget<UQuestTrackerWidget>(PC, QuestTrackerWidgetClass);
 		if (QuestTrackerWidgetInstance)
 		{
-			QuestTrackerWidgetInstance->AddToViewport(/*ZOrder=*/5);
+			ContraryUI::AddToGameScreen(QuestTrackerWidgetInstance, /*ZOrder=*/5);
 		}
 	}
 	if (InteractPromptWidgetClass && !InteractPromptWidgetInstance)
@@ -85,7 +86,7 @@ void AContrarySurvivorHUD::BeginPlay()
 		InteractPromptWidgetInstance = CreateWidget<UInteractPromptWidget>(PC, InteractPromptWidgetClass);
 		if (InteractPromptWidgetInstance)
 		{
-			InteractPromptWidgetInstance->AddToViewport(/*ZOrder=*/5);
+			ContraryUI::AddToGameScreen(InteractPromptWidgetInstance, /*ZOrder=*/5);
 		}
 	}
 	// Строка задачи вступления (переезд с холста 08-09): слот назначен — окно владельца из
@@ -98,7 +99,7 @@ void AContrarySurvivorHUD::BeginPlay()
 			IntroObjectiveWidgetClass ? IntroObjectiveWidgetClass.Get() : UIntroObjectiveWidget::StaticClass());
 		if (IntroObjectiveWidgetInstance)
 		{
-			IntroObjectiveWidgetInstance->AddToViewport(/*ZOrder=*/5);
+			ContraryUI::AddToGameScreen(IntroObjectiveWidgetInstance, /*ZOrder=*/5);
 		}
 	}
 }
@@ -441,7 +442,7 @@ void AContrarySurvivorHUD::SetInventoryOpen(bool bOpen)
 				if (!InventoryWidgetInstance->IsInViewport())
 				{
 					// Z=30: как магазин — над тач-слоем (10), под подсказками (40)/паузой (60).
-					InventoryWidgetInstance->AddToViewport(/*ZOrder=*/30);
+					ContraryUI::AddToGameScreen(InventoryWidgetInstance, /*ZOrder=*/30);
 				}
 			}
 		}
@@ -803,7 +804,7 @@ void AContrarySurvivorHUD::SetShopOpen(bool bOpen, TScriptInterface<IShopVendor>
 					// (затемнение при этом ведёт нижний инвентарь, магазин своё гасит).
 					// Запасной одиночный режим — прежний Z=30. Всё по-прежнему над тач-слоем
 					// (10) и под подсказками (40)/ежедневкой (50)/паузой (60).
-					ShopWidgetInstance->AddToViewport(
+					ContraryUI::AddToGameScreen(ShopWidgetInstance, 
 						/*ZOrder=*/ShopWidgetInstance->bUseExternalInventoryPanel ? 31 : 30);
 				}
 			}
@@ -874,7 +875,7 @@ void AContrarySurvivorHUD::SetCorpseLootGroupOpen(bool bOpen, const TArray<UCorp
 			if (!CorpseLootWidgetInstance->IsInViewport())
 			{
 				// Z=30: модальные окна (магазин/диалог) — тот же слой.
-				CorpseLootWidgetInstance->AddToViewport(/*ZOrder=*/30);
+				ContraryUI::AddToGameScreen(CorpseLootWidgetInstance, /*ZOrder=*/30);
 			}
 		}
 	}
@@ -1570,7 +1571,7 @@ void AContrarySurvivorHUD::SetDialogOpen(bool bOpen, AElderNPC* Elder)
 				if (!DialogWidgetInstance->IsInViewport())
 				{
 					// Z=30: как магазин/инвентарь.
-					DialogWidgetInstance->AddToViewport(/*ZOrder=*/30);
+					ContraryUI::AddToGameScreen(DialogWidgetInstance, /*ZOrder=*/30);
 				}
 			}
 		}
@@ -1960,7 +1961,7 @@ void AContrarySurvivorHUD::ShowEndOfStoryMessage()
 	{
 		// Над модальными окнами (30), под экраном смерти (35) и интро (50); при открытой
 		// модалке плашка сама прячет содержимое (SelfHiding) и возвращается после.
-		EndOfStoryWidgetInstance->AddToViewport(/*ZOrder=*/34);
+		ContraryUI::AddToGameScreen(EndOfStoryWidgetInstance, /*ZOrder=*/34);
 	}
 
 	// Кнопки должны кликаться: режим ввода Game+UI (как у диалога), мир НЕ на паузе (решение
@@ -2070,7 +2071,7 @@ void AContrarySurvivorHUD::SetDeathScreenOpen(bool bOpen)
 				if (!DeathWidgetInstance->IsInViewport())
 				{
 					// Z=35: поверх модальных окон (30) — смерть замещает всё, под ежедневкой/паузой.
-					DeathWidgetInstance->AddToViewport(/*ZOrder=*/35);
+					ContraryUI::AddToGameScreen(DeathWidgetInstance, /*ZOrder=*/35);
 				}
 			}
 		}

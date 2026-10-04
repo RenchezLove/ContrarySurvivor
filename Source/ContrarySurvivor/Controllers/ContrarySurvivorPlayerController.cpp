@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputCoreTypes.h" // EKeys (детект Shift для слайдера ±10)
@@ -60,7 +61,8 @@
 #include "ContrarySurvivor/UI/SupportAuthorWidget.h"        // Окно «Поддержать автора» (задание издателя)
 #include "ContrarySurvivor/Ads/AdService.h"                 // показ ролика в окне «Поддержать автора»
 #include "ContrarySurvivor/Ads/AdPointsLogic.h"             // полноэкранный показ после задания и баннер (04.10.2026)
-#include "ContrarySurvivor/Ads/YandexAdService.h"           // настройки новых рекламных точек из конфига
+#include "ContrarySurvivor/Ads/YandexAdService.h"           // имена точек рекламы для аналитики
+#include "ContrarySurvivor/Ads/ContraryAdSettings.h"        // настройки показа рекламы (Project Settings → Game → Реклама)
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"         // признак «точка показа уже отработала»
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // применение настроек при запуске
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
@@ -217,7 +219,7 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			// Поверх настроек контроллера — выбор игрока (прозрачность кнопок, чувствительность).
 			Layer->ApplyPlayerSettings();
 			// Z=10: под онбординг-подсказками (40) и модальными окнами (50/60).
-			Layer->AddToViewport(/*ZOrder=*/10);
+			ContraryUI::AddToGameScreen(Layer, /*ZOrder=*/10);
 			TouchControlsLayer = Layer;
 			UE_LOG(LogQA, Display, TEXT("QA: touch layer created (%s)"),
 				TouchControlsWidgetClass
@@ -544,7 +546,7 @@ void AContrarySurvivorPlayerController::OpenPauseMenu()
 		PauseMenuWidget->SetProgressUnsaved(!PausePawn || PausePawn->IsProgressUnsaved());
 	}
 	// Z=60: поверх окна ежедневки (50) и остального UI.
-	PauseMenuWidget->AddToViewport(/*ZOrder=*/60);
+	ContraryUI::AddToGameScreen(PauseMenuWidget, /*ZOrder=*/60);
 
 	bPauseMenuOpen = true;
 	bUIClickConsumed = false;
@@ -1191,7 +1193,7 @@ void AContrarySurvivorPlayerController::OpenStartScreen()
 	StartScreenWidget->SetHasSave(bMenuHasSave);
 
 	// Z=70: выше меню паузы (60) и интро (50) — при интро экран не появляется, запас на будущее.
-	StartScreenWidget->AddToViewport(/*ZOrder=*/70);
+	ContraryUI::AddToGameScreen(StartScreenWidget, /*ZOrder=*/70);
 
 	bStartScreenOpen = true;
 	bUIClickConsumed = false;
@@ -1452,7 +1454,7 @@ void AContrarySurvivorPlayerController::OpenSettingsScreen()
 	SettingsScreenWidget->RefreshFromSettings();
 
 	// Z=75: выше главного меню (70) — настройки открываются поверх него, меню остаётся под ними.
-	SettingsScreenWidget->AddToViewport(/*ZOrder=*/75);
+	ContraryUI::AddToGameScreen(SettingsScreenWidget, /*ZOrder=*/75);
 
 	bSettingsScreenOpen = true;
 	bUIClickConsumed = false;
@@ -1637,7 +1639,7 @@ void AContrarySurvivorPlayerController::OpenSupportScreen(const FString& Source)
 	SupportScreenWidget->SetAdInProgress(false);
 
 	// Z=78: выше экрана настроек (75) и главного меню (70), ниже экрана согласия (90).
-	SupportScreenWidget->AddToViewport(/*ZOrder=*/78);
+	ContraryUI::AddToGameScreen(SupportScreenWidget, /*ZOrder=*/78);
 
 	bSupportScreenOpen = true;
 	bUIClickConsumed = false;
@@ -2377,6 +2379,10 @@ void AContrarySurvivorPlayerController::TryShowQuestBanditsInterstitial()
 	{
 		return; // обычный разговор — сохранение зря не читаем
 	}
+	if (!UContraryAdSettings::Get().bQuestInterstitialEnabled)
+	{
+		return; // показ выключен в настройках рекламы (Project Settings → Game → Реклама)
+	}
 
 	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
 	UContrarySaveGame* Save = PlayerChar ? PlayerChar->LoadOrCreateSaveObject() : nullptr;
@@ -2390,7 +2396,7 @@ void AContrarySurvivorPlayerController::TryShowQuestBanditsInterstitial()
 	const AdPoints::EInterstitialDecision Decision = AdPoints::RunQuestInterstitial(
 		AdService::Get(this), AdPlacements::QuestBanditsDone, bTurnedInDuringDialog, bUsed,
 		Consent && Consent->IsConsentGranted(), FDateTime::UtcNow(),
-		UYandexAdService::GetSettings().QuestInterstitialRewardedCooldownSeconds,
+		UContraryAdSettings::Get().QuestInterstitialRewardedCooldownSeconds,
 		FSimpleDelegate::CreateUObject(this, &AContrarySurvivorPlayerController::HandleQuestInterstitialClosed));
 
 	if (bUsed && !Save->bQuestBanditsInterstitialUsed)
@@ -2434,8 +2440,49 @@ void AContrarySurvivorPlayerController::HandleQuestInterstitialClosed()
 void AContrarySurvivorPlayerController::SetAdBannerForScreen(FName Placement, bool bScreenOpen)
 {
 	const UDataConsentSubsystem* Consent = UDataConsentSubsystem::Get(this);
-	AdPoints::SetScreenBanner(AdService::Get(this), Placement, bScreenOpen,
-		Consent && Consent->IsConsentGranted());
+	const bool bConsent = Consent && Consent->IsConsentGranted();
+	IAdService* Ads = AdService::Get(this);
+
+	if (!bScreenOpen)
+	{
+		AdPoints::SetScreenBanner(Ads, Placement, false, bConsent);
+		return;
+	}
+
+	// Решение «показывать или нет» — ОДИН раз при открытии экрана (решение Рината
+	// 04.10.2026): первые открытия без баннера, дальше по шансу. Счётчик открытий растёт
+	// всегда, показан баннер или нет, и живёт в памяти на установку — «Новая игра» и смерть
+	// его не сбрасывают.
+	const bool bShopScreen = (Placement == AdPlacements::BannerShop);
+	const UContraryAdSettings& Settings = UContraryAdSettings::Get();
+	UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this);
+	const int32 OpenNumber = Analytics ? Analytics->CountAdBannerScreenOpen(bShopScreen) : 0;
+
+	// Баннер этого экрана выключен в настройках рекламы — счётчик открытий всё равно идёт.
+	if (!(bShopScreen ? Settings.bBannerShopEnabled : Settings.bBannerDeathEnabled))
+	{
+		return;
+	}
+
+	const AdPoints::EBannerDecision Decision = AdPoints::DecideScreenBanner(OpenNumber,
+		bShopScreen ? Settings.BannerShopSkipFirstOpens : Settings.BannerDeathSkipFirstOpens,
+		bShopScreen ? Settings.BannerShopShowChance : Settings.BannerDeathShowChance,
+		FMath::FRand());
+
+	if (Decision != AdPoints::EBannerDecision::Show)
+	{
+		// Баннер не запрашивается, игра остаётся на весь экран.
+		const FString Reason = AdPoints::BannerSkipReason(Decision);
+		if (Analytics && bConsent)
+		{
+			Analytics->RecordAdNotShown(UYandexAdService::PlacementToAnalyticsPoint(Placement), Reason);
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: AD %s — баннер не показан (%s, открытие №%d)"),
+			*Placement.ToString(), *Reason, OpenNumber);
+		return;
+	}
+
+	AdPoints::SetScreenBanner(Ads, Placement, true, bConsent);
 }
 
 void AContrarySurvivorPlayerController::CloseAllUI()
@@ -3004,7 +3051,7 @@ void AContrarySurvivorPlayerController::StartIntro(bool bSkippable)
 		IntroWidget->SetSkipHint(IntroSkipHintText, bIntroSkippable);
 		if (!IntroWidget->IsInViewport())
 		{
-			IntroWidget->AddToViewport(/*ZOrder=*/50); // выше HUD/модалок
+			ContraryUI::AddToGameScreen(IntroWidget, /*ZOrder=*/50); // выше HUD/модалок
 		}
 	}
 

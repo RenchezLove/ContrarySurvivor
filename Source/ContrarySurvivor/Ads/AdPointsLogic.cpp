@@ -70,6 +70,25 @@ namespace AdPoints
 		}
 	}
 
+	EBannerDecision DecideScreenBanner(int32 OpenNumber, int32 SkipFirstOpens, float ShowChance, float Roll)
+	{
+		if (OpenNumber <= FMath::Max(SkipFirstOpens, 0))
+		{
+			return EBannerDecision::FirstOpens;
+		}
+		return (Roll < ShowChance) ? EBannerDecision::Show : EBannerDecision::Chance;
+	}
+
+	FString BannerSkipReason(EBannerDecision Decision)
+	{
+		switch (Decision)
+		{
+		case EBannerDecision::FirstOpens: return TEXT("first_opens");
+		case EBannerDecision::Chance:     return TEXT("chance");
+		default:                          return FString();
+		}
+	}
+
 	bool SetScreenBanner(IAdService* Ads, FName Placement, bool bScreenOpen, bool bConsentGranted)
 	{
 		if (!Ads)

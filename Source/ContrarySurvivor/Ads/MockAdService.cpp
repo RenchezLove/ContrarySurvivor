@@ -4,6 +4,7 @@
 #include "ContrarySurvivor/Ads/MockAdWidget.h"
 #include "ContrarySurvivor/Ads/MockBannerWidget.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
+#include "ContrarySurvivor/Ads/ContraryAdSettings.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот MockAdWidgetClass (ТЗ 08-07)
 #include "Blueprint/UserWidget.h"
@@ -125,30 +126,55 @@ void UMockAdService::ShowBanner(FName Placement)
 	BannerWidget = CreateWidget<UMockBannerWidget>(PC, UMockBannerWidget::StaticClass());
 	if (!BannerWidget)
 	{
+		BannerState.Reset();
+		AdGameArea::Apply(GI, 0.0f);
 		return;
 	}
-	ActiveBannerPlacement = Placement;
 
-	// Положение и высота — из тех же настроек, что у боевой рекламы на телефоне.
-	const UYandexAdService& Settings = UYandexAdService::GetSettings();
-	BannerWidget->Setup(Placement, Settings.IsBannerAtTop(Placement), Settings.BannerMaxHeightFraction);
-	// Поверх экрана смерти и окна торговли (они живут на ZOrder <= 100), но под «роликом» (300).
+	// Заглушка «загружается» мгновенно, а её высота — предельная высота баннера из тех же
+	// настроек, что у боевой рекламы на телефоне. Игра сжимается ровно на эту высоту
+	// (решение Рината 04.10.2026: в редакторе должно быть видно то же, что на телефоне).
+	BannerState.OnRequested(Placement);
+	BannerState.OnLoaded(UContraryAdSettings::Get().BannerMaxHeightFraction);
+
+	BannerWidget->Setup(Placement, BannerState.GetHeightFraction());
+	// На ПОЛНОМ экране (AddToViewport, а не в области игры): полоса стоит в освободившемся
+	// месте под сжатой игрой. Над окнами игры, но под «роликом» (300).
 	BannerWidget->AddToViewport(/*ZOrder=*/250);
+	AdGameArea::Apply(GI, BannerState.GetHeightFraction());
 
-	UE_LOG(LogQA, Display, TEXT("QA: MOCK-AD banner '%s' shown (%s)"), *Placement.ToString(),
-		Settings.IsBannerAtTop(Placement) ? TEXT("top") : TEXT("bottom"));
+	UE_LOG(LogQA, Display, TEXT("QA: MOCK-AD banner '%s' shown (height %.3f of screen)"),
+		*Placement.ToString(), BannerState.GetHeightFraction());
 }
 
 void UMockAdService::HideBanner(FName Placement)
 {
-	if (!BannerWidget || ActiveBannerPlacement != Placement)
+	if (!BannerState.OnHidden(Placement))
 	{
 		return;
 	}
-	BannerWidget->RemoveFromParent();
-	BannerWidget = nullptr;
-	ActiveBannerPlacement = NAME_None;
+	if (BannerWidget)
+	{
+		BannerWidget->RemoveFromParent();
+		BannerWidget = nullptr;
+	}
+	// Игра сразу возвращается на весь экран.
+	AdGameArea::Apply(GetGameInstance(), 0.0f);
 	UE_LOG(LogQA, Display, TEXT("QA: MOCK-AD banner '%s' removed"), *Placement.ToString());
+}
+
+void UMockAdService::Deinitialize()
+{
+	// Масштаб интерфейса — общая настройка движка: при остановке игры в редакторе с
+	// открытым экраном смерти или окном торговли обязаны вернуть её как была.
+	if (BannerWidget)
+	{
+		BannerWidget->RemoveFromParent();
+		BannerWidget = nullptr;
+	}
+	BannerState.Reset();
+	AdGameArea::Apply(GetGameInstance(), 0.0f);
+	Super::Deinitialize();
 }
 
 IAdService* AdService::Get(const UObject* WorldContextObject)

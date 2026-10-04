@@ -28,6 +28,14 @@ bool UAnalyticsProfileSave::Write(UAnalyticsProfileSave* Save)
 	return UGameplayStatics::SaveGameToSlot(Save, GetSlotName(), GetUserIndex());
 }
 
+int32 UAnalyticsProfileSave::CountAdBannerScreenOpen(bool bShopScreen)
+{
+	int32& Counter = bShopScreen ? BannerShopOpens : BannerDeathOpens;
+	// Потолок — чтобы счётчик не переполнился за годы игры; правилу нужны только первые открытия.
+	Counter = FMath::Min(FMath::Max(Counter, 0) + 1, 1000000);
+	return Counter;
+}
+
 bool UAnalyticsProfileSave::MarkFirstLaunchReported()
 {
 	if (bFirstLaunchReported)

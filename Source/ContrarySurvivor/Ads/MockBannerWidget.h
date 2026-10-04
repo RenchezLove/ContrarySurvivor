@@ -11,9 +11,10 @@ class UTextBlock;
 
 /**
  * Заглушка маленького рекламного баннера для редактора и компьютера (решение Рината
- * 04.10.2026): серая полоса с подписью у верхнего или нижнего края экрана — на том месте
- * и той высоты, где на телефоне встанет настоящий баннер Яндекса. Нужна, чтобы видеть в
- * редакторе, что баннер накрывает. Нажатий не перехватывает. Никакого реального SDK.
+ * 04.10.2026): серая полоса с подписью у нижнего края экрана — на том месте, где на
+ * телефоне встанет настоящий баннер Яндекса. Игра при этом сжимается и освобождает под
+ * полосу место (Ads/AdGameArea.h), поэтому полоса лежит на ПОЛНОМ экране, а не в области
+ * игры. Нажатий не перехватывает. Никакого реального SDK.
  */
 UCLASS()
 class CONTRARYSURVIVOR_API UMockBannerWidget : public UUserWidget
@@ -21,9 +22,9 @@ class CONTRARYSURVIVOR_API UMockBannerWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	// Поставить полосу: bAtTop — у верхнего края (иначе у нижнего), HeightFraction — высота
+	// Поставить полосу у НИЖНЕГО края экрана: HeightFraction — высота
 	// долей высоты экрана, Placement — имя точки в подписи.
-	void Setup(FName Placement, bool bAtTop, float HeightFraction);
+	void Setup(FName Placement, float HeightFraction);
 
 protected:
 	virtual void NativeOnInitialized() override;

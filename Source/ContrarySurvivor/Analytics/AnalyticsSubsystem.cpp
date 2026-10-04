@@ -397,6 +397,18 @@ int32 UAnalyticsSubsystem::GetCompiledSecretKeyLength()
 #endif
 }
 
+int32 UAnalyticsSubsystem::CountAdBannerScreenOpen(bool bShopScreen)
+{
+	UAnalyticsProfileSave* Save = LoadOrCreateProfileSave();
+	if (!Save)
+	{
+		return 0; // памяти нет — считаем «открытий ещё не было», баннер не покажется
+	}
+	const int32 OpenNumber = Save->CountAdBannerScreenOpen(bShopScreen);
+	WriteProfileSave(Save);
+	return OpenNumber;
+}
+
 UAnalyticsProfileSave* UAnalyticsSubsystem::LoadOrCreateProfileSave()
 {
 	if (!ProfileSave)

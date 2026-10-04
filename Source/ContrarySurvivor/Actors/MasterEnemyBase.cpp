@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "MasterEnemyBase.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "Components/SceneComponent.h"
 #include "Components/SphereComponent.h" // визуализатор радиуса активации (каркас-сфера во вьюпорте)
 #include "Engine/World.h"
@@ -742,7 +743,7 @@ void AMasterEnemyBase::ShowEntryAnnounce(bool bBaseOccupied)
 		{
 			return;
 		}
-		Widget->AddToViewport(/*ZOrder=*/15); // над постоянными панелями (5), под модалками (30)
+		ContraryUI::AddToGameScreen(Widget, /*ZOrder=*/15); // над постоянными панелями (5), под модалками (30)
 		AnnounceWidget = Widget;
 	}
 	LastAnnounceTime = Now;

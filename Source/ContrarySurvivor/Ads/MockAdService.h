@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "ContrarySurvivor/Ads/AdGameArea.h"
 #include "ContrarySurvivor/Ads/AdService.h"
 #include "MockAdService.generated.h"
 
@@ -35,10 +36,17 @@ public:
 	virtual bool IsInterstitialReady(FName Placement) const override { return true; }
 	virtual void ShowInterstitial(FName Placement, FSimpleDelegate OnClosed) override;
 
-	// Баннер-заглушка: серая полоса с подписью на месте будущего баннера (верх или низ экрана
-	// и высота — из тех же настроек, что у боевой рекламы), чтобы в редакторе было видно место.
+	// Баннер-заглушка: серая полоса с подписью у нижнего края экрана, а игра сжимается и
+	// освобождает под неё место — как на телефоне (решение Рината 04.10.2026). Высота полосы —
+	// предельная высота баннера из настроек боевой рекламы.
 	virtual void ShowBanner(FName Placement) override;
 	virtual void HideBanner(FName Placement) override;
+
+	// Возвращает игру на весь экран, если её остановили с показанным баннером.
+	virtual void Deinitialize() override;
+
+	// Сколько места сейчас занято баннером (доля высоты экрана; 0 — игра на весь экран).
+	float GetBannerHeightFraction() const { return BannerState.GetHeightFraction(); }
 
 private:
 	void HandleAdClosed();
@@ -49,8 +57,8 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMockBannerWidget> BannerWidget;
 
-	// Баннер какой точки сейчас стоит (NAME_None — никакого).
-	FName ActiveBannerPlacement;
+	// Какая точка заказала баннер и сколько места он занимает (правила — AdGameArea).
+	AdGameArea::FBannerState BannerState;
 
 	// На экране полноэкранный показ без награды, а не ролик.
 	bool bActiveIsInterstitial = false;

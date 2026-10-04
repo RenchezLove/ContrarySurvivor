@@ -101,6 +101,8 @@ public:
 	//   показ пропущен               -> ad:quest_bandits:not_shown:{no_consent|cooldown|no_ad}
 	//   баннер встал на экран        -> ad:banner_death:shown / ad:banner_shop:shown
 	//   баннер не загрузился         -> ad:banner_death:failed / ad:banner_shop:failed
+	//   баннер не показан по правилу -> ad:banner_death:not_shown:{first_opens|chance}
+	//                                   ad:banner_shop:not_shown:{first_opens|chance}
 	//   shop_sell_completed        -> shop:sell_completed        [сумма продажи]
 	//   daily_reward_claimed       -> retention:daily_reward_claimed [день серии]
 	// --- Б4 (задание издателя ADR-059): первый запуск и обучение ---
@@ -226,6 +228,13 @@ public:
 	// во вступление — спека главного меню). Живёт здесь, потому что владелец слота памяти
 	// на установку — эта подсистема (кэш ProfileSave; два снимка затирали бы друг друга). ---
 	bool MarkLaunchAndCheckWasLaunchedBefore();
+
+	// --- Рекламный баннер (решение Рината 04.10.2026): сколько раз за всю установку игры
+	// открывались окно торговли и экран смерти. Прибавляет единицу к счётчику экрана и
+	// возвращает его новое значение (1 = самое первое открытие). Счётчик лежит в памяти на
+	// установку, поэтому «Новая игра» и смерть его НЕ сбрасывают. bShopScreen: true — окно
+	// торговли, false — экран смерти. Работает и при выключенной статистике. ---
+	int32 CountAdBannerScreenOpen(bool bShopScreen);
 
 	// Служебная память на установку игры (первый запуск, шаги обучения, ответ по согласию).
 	// Единственный на игру снимок слота — им пользуется и подсистема согласия, чтобы два

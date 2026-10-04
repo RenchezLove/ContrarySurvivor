@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "ContrarySurvivor/Retention/DailyRewardLogic.h"
 #include "ContrarySurvivor/Ads/AdService.h"      // Build 1.2: «Забрать вдвое больше» (ТЗ №3)
 #include "ContrarySurvivor/Ads/AdGatingLogic.h"
@@ -226,7 +227,7 @@ void UDailyRewardComponent::EvaluateDailyReward()
 		bShowDouble ? TEXT("") : TEXT(" reason="), *DenyReason,
 		Result.NewStreak, Result.Reward);
 
-	ActiveWindow->AddToViewport(/*ZOrder=*/50);
+	ContraryUI::AddToGameScreen(ActiveWindow, /*ZOrder=*/50);
 
 	FInputModeGameAndUI Mode;
 	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);

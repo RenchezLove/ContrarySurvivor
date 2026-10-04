@@ -67,6 +67,19 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Analytics")
 	EDataConsentState ConsentState = EDataConsentState::Unknown;
 
+	// Рекламный баннер (решение Рината 04.10.2026): сколько раз за всю установку открывались
+	// окно торговли и экран смерти — первые открытия идут без баннера. Здесь, а не в игровом
+	// слоте: игровой слот стирается кнопкой «Новая игра» целиком, а эти счётчики считаются
+	// «с самого первого запуска игры» и новой игрой сбрасываться не должны.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ads")
+	int32 BannerShopOpens = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ads")
+	int32 BannerDeathOpens = 0;
+
+	// Прибавляет единицу к счётчику экрана и возвращает новое значение (1 = первое открытие).
+	int32 CountAdBannerScreenOpen(bool bShopScreen);
+
 	// --- Пометки «отправлено». Возвращают true ТОЛЬКО в первый раз: вызывающий по этому
 	// признаку решает, слать событие или промолчать. Диска не касаются — запись слота
 	// делает UAnalyticsSubsystem, чтобы место записи было одно. ---

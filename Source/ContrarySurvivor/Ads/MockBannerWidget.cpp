@@ -36,7 +36,7 @@ void UMockBannerWidget::NativeOnInitialized()
 	SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
-void UMockBannerWidget::Setup(FName Placement, bool bAtTop, float HeightFraction)
+void UMockBannerWidget::Setup(FName Placement, float HeightFraction)
 {
 	if (Label)
 	{
@@ -48,11 +48,9 @@ void UMockBannerWidget::Setup(FName Placement, bool bAtTop, float HeightFraction
 	if (UCanvasPanelSlot* StripSlot = Strip ? Cast<UCanvasPanelSlot>(Strip->Slot) : nullptr)
 	{
 		// Якоря-растяжка по всей ширине и по доле высоты: полоса занимает ровно
-		// HeightFraction высоты экрана у выбранного края.
-		const float Fraction = FMath::Clamp(HeightFraction, 0.05f, 0.25f);
-		StripSlot->SetAnchors(bAtTop
-			? FAnchors(0.0f, 0.0f, 1.0f, Fraction)
-			: FAnchors(0.0f, 1.0f - Fraction, 1.0f, 1.0f));
+		// HeightFraction высоты экрана у нижнего края.
+		const float Fraction = FMath::Clamp(HeightFraction, 0.0f, 0.25f);
+		StripSlot->SetAnchors(FAnchors(0.0f, 1.0f - Fraction, 1.0f, 1.0f));
 		StripSlot->SetOffsets(FMargin(0.0f));
 	}
 }

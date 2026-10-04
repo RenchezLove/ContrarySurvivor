@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h" // Б4: события шагов обучения
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот OnboardingHintWidgetClass (ТЗ 08-07)
@@ -239,7 +240,7 @@ void UOnboardingComponent::ShowWidget(const FText& Text)
 	ActiveWidget->SetHintText(Text);
 	if (!ActiveWidget->IsInViewport())
 	{
-		ActiveWidget->AddToViewport(/*ZOrder=*/40);
+		ContraryUI::AddToGameScreen(ActiveWidget, /*ZOrder=*/40);
 	}
 
 	if (UWorld* World = GetWorld())

@@ -6,6 +6,7 @@
 
 
 #include "PlayerCharacter.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "Camera/CameraComponent.h"
 #include "Engine/Scene.h" // FPostProcessSettings / AEM_Manual (постобработка камеры, Build 1)
 #include "GameFramework/SpringArmComponent.h"
@@ -611,7 +612,7 @@ void APlayerCharacter::UpdateLimpIndicator()
     // выше. Дальше видимость ведёт сам виджет (NativeTick: хромота + отсутствие модалок).
     if (!LimpIndicatorWidget->IsInViewport())
     {
-        LimpIndicatorWidget->AddToViewport(/*ZOrder=*/5);
+        ContraryUI::AddToGameScreen(LimpIndicatorWidget, /*ZOrder=*/5);
     }
 
     // Разовая развёрнутая подсказка — при ПЕРВОМ входе в хромоту со свободным управлением:

@@ -40,6 +40,7 @@ import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
@@ -426,7 +427,30 @@ public class YandexAdBridge
 	// выбирает SDK сам, но не больше maxHeightFraction высоты экрана (и не меньше 50 dp —
 	// ниже баннеров не бывает). Пока баннер не загрузился, вид пуст и ничего не закрывает. ---
 
-	public static void showBanner(final String adUnitId, final boolean atTop, final float maxHeightFraction)
+	//
+	// Баннер всегда стоит у НИЖНЕГО края (решение Рината 04.10.2026): игра под него сжимается
+	// и освобождает полосу. Поэтому вместе с событием «баннер загрузился» в C++ уходит его
+	// ФАКТИЧЕСКАЯ высота долей высоты окна (строка вида "0.1234") — по ней игра считает,
+	// сколько места освободить. Высота известна только после раскладки вида, поэтому событие
+	// шлётся из слушателя раскладки (и повторно, если высота изменилась).
+
+	private static void reportBannerHeight(final BannerAdView view, final String adUnitId)
+	{
+		if (bannerView != view)
+		{
+			return; // баннер успели убрать
+		}
+		final ViewParent parent = view.getParent();
+		final int parentHeight = (parent instanceof View) ? ((View) parent).getHeight() : 0;
+		final int height = view.getHeight();
+		if (height <= 0 || parentHeight <= 0)
+		{
+			return; // вид ещё не разложен — слушатель раскладки позовёт нас снова
+		}
+		nativeOnAdEvent(adUnitId, EVENT_BANNER_LOADED, Float.toString((float) height / (float) parentHeight));
+	}
+
+	public static void showBanner(final String adUnitId, final float maxHeightFraction)
 	{
 		final Activity gameActivity = activity;
 		if (gameActivity == null)
@@ -448,17 +472,29 @@ public class YandexAdBridge
 					Math.round(metrics.heightPixels * maxHeightFraction / metrics.density));
 
 				final BannerAdView view = new BannerAdView(gameActivity);
+				final boolean[] loaded = new boolean[] { false };
 				view.setAdSize(BannerAdSize.inline(gameActivity, widthDp, maxHeightDp));
+				view.addOnLayoutChangeListener(new View.OnLayoutChangeListener()
+				{
+					@Override
+					public void onLayoutChange(final View v, final int left, final int top, final int right, final int bottom,
+						final int oldLeft, final int oldTop, final int oldRight, final int oldBottom)
+					{
+						// Сообщаем высоту только загруженного баннера и только когда она изменилась.
+						if (loaded[0] && (bottom - top) != (oldBottom - oldTop))
+						{
+							reportBannerHeight(view, adUnitId);
+						}
+					}
+				});
 				view.setBannerAdEventListener(new BannerAdEventListener()
 				{
 					@Override
 					public void onAdLoaded()
 					{
-						// Баннер успели убрать, пока он грузился, — молчим.
-						if (bannerView == view)
-						{
-							nativeOnAdEvent(adUnitId, EVENT_BANNER_LOADED, "");
-						}
+						loaded[0] = true;
+						// Вид уже разложен — высота известна сразу; иначе её сообщит слушатель раскладки.
+						reportBannerHeight(view, adUnitId);
 					}
 
 					@Override
@@ -487,7 +523,7 @@ public class YandexAdBridge
 
 				final FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
 					ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-					(atTop ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL);
+					Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
 				gameActivity.addContentView(view, params);
 				bannerView = view;
 

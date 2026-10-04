@@ -19,6 +19,9 @@
 #include "ContrarySurvivor/Ads/AdService.h"
 #include "ContrarySurvivor/Ads/DeathLossLogic.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
+#include "ContrarySurvivor/Ads/ContraryAdSettings.h"
+#include "ContrarySurvivor/Analytics/AnalyticsProfileSave.h"
+#include "UObject/UnrealType.h" // FindFProperty
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 
 static constexpr EAutomationTestFlags AdsTestFlags =
@@ -285,9 +288,10 @@ bool FAdQuestInterstitialSkipsTest::RunTest(const FString& Parameters)
 				== EInterstitialDecision::NoAd);
 	}
 
-	// Значение настройки по умолчанию — три минуты (решение Рината).
-	TestEqual(TEXT("порог по умолчанию в настройках — 180 с"),
-		UYandexAdService::GetSettings().QuestInterstitialRewardedCooldownSeconds, 180.0f);
+	// Настройку Ринат крутит в редакторе (Project Settings → Game → Реклама), поэтому тест
+	// не пришпиливает её к числу, а проверяет только здравость.
+	TestTrue(TEXT("пауза после ролика в настройках не отрицательная"),
+		UContraryAdSettings::Get().QuestInterstitialRewardedCooldownSeconds >= 0.0f);
 	return true;
 }
 
@@ -335,6 +339,162 @@ bool FAdScreenBannerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Баннер не ложится поверх игры — игра сжимается и освобождает полосу снизу (решение Рината
+// 04.10.2026). Показан баннер — область игры уменьшена ровно на его высоту; убран — весь
+// экран; заказан, но не загрузился, или не заказан вовсе (нет согласия) — весь экран.
+// НЕ покрывается headless: применение области к живому окну игры (AdGameArea::Apply).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdBannerGameAreaTest,
+	"ContrarySurvivor.Ads.Points.BannerShrinksGameArea", AdsTestFlags)
+bool FAdBannerGameAreaTest::RunTest(const FString& Parameters)
+{
+	using namespace AdGameArea;
+	const float Banner = 0.12f; // высота баннера, которую сообщил SDK (доля высоты экрана)
+
+	// Чистое правило: низ области игры = 1 − высота баннера ровно, верх на месте.
+	{
+		const FArea Area = Compute(Banner);
+		TestTrue(TEXT("область игры начинается у верхнего края"), FMath::IsNearlyZero(Area.Origin.Y));
+		TestTrue(TEXT("высота области = экран минус высота баннера"),
+			FMath::IsNearlyEqual(Area.Size.Y, 1.0 - static_cast<double>(Banner), 1.e-6));
+		TestTrue(TEXT("полоса под областью игры — ровно высота баннера"),
+			FMath::IsNearlyEqual(1.0 - (Area.Origin.Y + Area.Size.Y), static_cast<double>(Banner), 1.e-6));
+		TestTrue(TEXT("сжатие равномерное: ширина уменьшена на ту же долю"),
+			FMath::IsNearlyEqual(Area.Size.X, Area.Size.Y, 1.e-6));
+		TestTrue(TEXT("область игры стоит по центру"),
+			FMath::IsNearlyEqual(Area.Origin.X, (1.0 - Area.Size.X) * 0.5, 1.e-6));
+		TestFalse(TEXT("при баннере игра не на весь экран"), Area.IsFullScreen());
+
+		TestTrue(TEXT("без баннера — весь экран"), Compute(0.0f).IsFullScreen());
+		TestTrue(TEXT("мусорная отрицательная высота — весь экран"), Compute(-0.3f).IsFullScreen());
+		TestTrue(TEXT("слишком высокий баннер подрезается до предела"),
+			FMath::IsNearlyEqual(Compute(0.9f).Size.Y, 1.0 - static_cast<double>(MaxBannerFraction), 1.e-6));
+	}
+
+	// Память рекламной службы о баннере (ею пользуются и боевая служба, и заглушка редактора).
+	FBannerState State;
+	TestTrue(TEXT("баннера нет: игра на весь экран"), State.GetGameArea().IsFullScreen());
+
+	// Событие загрузки без заказа (нет согласия — баннер не заказывали) места не отнимает.
+	TestFalse(TEXT("не заказан: высота не принята"), State.OnLoaded(Banner));
+	TestTrue(TEXT("не заказан: игра на весь экран"), State.GetGameArea().IsFullScreen());
+
+	// Заказан, но ещё не загрузился — весь экран.
+	State.OnRequested(AdPlacements::BannerDeath);
+	TestTrue(TEXT("заказан, не загружен: игра на весь экран"), State.GetGameArea().IsFullScreen());
+	TestFalse(TEXT("заказан, не загружен: баннера на экране нет"), State.IsOnScreen());
+
+	// Не загрузился — весь экран.
+	State.OnLoadFailed();
+	TestTrue(TEXT("не загрузился: игра на весь экран"), State.GetGameArea().IsFullScreen());
+
+	// Загрузился — область уменьшена ровно на высоту баннера.
+	TestTrue(TEXT("загрузился: высота принята"), State.OnLoaded(Banner));
+	TestTrue(TEXT("загрузился: область уменьшена ровно на высоту баннера"),
+		FMath::IsNearlyEqual(State.GetGameArea().Size.Y, 1.0 - static_cast<double>(Banner), 1.e-6));
+
+	// SDK сообщил другую высоту — область следует за ней.
+	State.OnLoaded(0.08f);
+	TestTrue(TEXT("высота изменилась: область пересчитана"),
+		FMath::IsNearlyEqual(State.GetGameArea().Size.Y, 1.0 - 0.08, 1.e-6));
+
+	// Закрылся ЧУЖОЙ экран — баннер экрана смерти остаётся.
+	TestFalse(TEXT("уборка баннера другой точки ничего не меняет"), State.OnHidden(AdPlacements::BannerShop));
+	TestFalse(TEXT("баннер экрана смерти на месте"), State.GetGameArea().IsFullScreen());
+
+	// Убран — сразу весь экран.
+	TestTrue(TEXT("баннер убран"), State.OnHidden(AdPlacements::BannerDeath));
+	TestTrue(TEXT("после уборки: игра на весь экран"), State.GetGameArea().IsFullScreen());
+
+	// Опоздавшее событие загрузки уже убранного баннера места не отнимает.
+	TestFalse(TEXT("опоздавшая загрузка не принята"), State.OnLoaded(Banner));
+	TestTrue(TEXT("опоздавшая загрузка: игра на весь экран"), State.GetGameArea().IsFullScreen());
+
+	// Без согласия точка баннер не заказывает вовсе (SetScreenBanner) — память службы пуста.
+	AdsTestLocal::FCountingAdService Ads;
+	AdPoints::SetScreenBanner(&Ads, AdPlacements::BannerDeath, /*bScreenOpen=*/true, /*bConsentGranted=*/false);
+	TestEqual(TEXT("нет согласия: баннер не заказан, сжимать нечего"), Ads.BannerShows.Num(), 0);
+
+	// Настроенный потолок высоты баннера лежит в разумных пределах (Ринат: «на 10-15 процентов»).
+	const float Ceiling = UContraryAdSettings::Get().BannerMaxHeightFraction;
+	TestTrue(TEXT("предельная высота баннера из настроек — больше нуля и не выше общего предела"),
+		Ceiling > 0.0f && Ceiling <= MaxBannerFraction);
+	return true;
+}
+
+// Когда баннер показывается (решение Рината 04.10.2026): торговля — первые три открытия без
+// баннера, с четвёртого по шансу 60%; смерть — первая без баннера, со второй по шансу 60%.
+// Счётчики открытий лежат в памяти на УСТАНОВКУ игры (UAnalyticsProfileSave, свой слот), а
+// не в игровом слоте, который «Новая игра» стирает целиком. НЕ покрывается headless: запись
+// счётчика на диск и сам вызов из контроллера (тест не трогает боевой слот памяти).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdBannerShowRulesTest,
+	"ContrarySurvivor.Ads.Points.BannerSkipsFirstOpensThenChance", AdsTestFlags)
+bool FAdBannerShowRulesTest::RunTest(const FString& Parameters)
+{
+	using namespace AdPoints;
+	const UContraryAdSettings& Settings = UContraryAdSettings::Get();
+
+	// Настройки Ринат крутит в редакторе (Project Settings → Game → Реклама), поэтому тест не
+	// пришпиливает их к числам, а проверяет только здравость; сами правила ниже гоняются на
+	// принятых числах (3 и 1 открытия, шанс 0.6).
+	TestTrue(TEXT("пропуски первых открытий не отрицательные"),
+		Settings.BannerShopSkipFirstOpens >= 0 && Settings.BannerDeathSkipFirstOpens >= 0);
+	TestTrue(TEXT("шансы показа лежат в пределах 0..1"),
+		Settings.BannerShopShowChance >= 0.0f && Settings.BannerShopShowChance <= 1.0f
+		&& Settings.BannerDeathShowChance >= 0.0f && Settings.BannerDeathShowChance <= 1.0f);
+
+	// Торговля: 1–3-е открытие — нет, даже при самом удачном случайном числе.
+	for (int32 Open = 1; Open <= 3; ++Open)
+	{
+		TestTrue(FString::Printf(TEXT("торговля, открытие №%d: баннера нет"), Open),
+			DecideScreenBanner(Open, 3, 0.6f, /*Roll=*/0.0f) == EBannerDecision::FirstOpens);
+	}
+	// 4-е открытие: случайное число ниже 0.6 — да, выше (и ровно 0.6) — нет.
+	TestTrue(TEXT("торговля, 4-е открытие, число 0.59: показываем"),
+		DecideScreenBanner(4, 3, 0.6f, 0.59f) == EBannerDecision::Show);
+	TestTrue(TEXT("торговля, 4-е открытие, число 0.61: не выпал шанс"),
+		DecideScreenBanner(4, 3, 0.6f, 0.61f) == EBannerDecision::Chance);
+	TestTrue(TEXT("торговля, 4-е открытие, число ровно 0.6: не выпал шанс"),
+		DecideScreenBanner(4, 3, 0.6f, 0.6f) == EBannerDecision::Chance);
+	TestTrue(TEXT("торговля, 50-е открытие: по-прежнему по шансу"),
+		DecideScreenBanner(50, 3, 0.6f, 0.1f) == EBannerDecision::Show);
+
+	// Смерть: первая — нет, вторая — по шансу.
+	TestTrue(TEXT("первая смерть: баннера нет"),
+		DecideScreenBanner(1, 1, 0.6f, 0.0f) == EBannerDecision::FirstOpens);
+	TestTrue(TEXT("вторая смерть, число 0.3: показываем"),
+		DecideScreenBanner(2, 1, 0.6f, 0.3f) == EBannerDecision::Show);
+	TestTrue(TEXT("вторая смерть, число 0.9: не выпал шанс"),
+		DecideScreenBanner(2, 1, 0.6f, 0.9f) == EBannerDecision::Chance);
+
+	// Края: шанс 0 — никогда, шанс 1 — всегда; памяти нет (открытие №0) — баннера нет.
+	TestTrue(TEXT("шанс 0: никогда"), DecideScreenBanner(10, 3, 0.0f, 0.0f) == EBannerDecision::Chance);
+	TestTrue(TEXT("шанс 1: всегда"), DecideScreenBanner(10, 3, 1.0f, 0.999f) == EBannerDecision::Show);
+	TestTrue(TEXT("счётчика нет: баннера нет"), DecideScreenBanner(0, 3, 1.0f, 0.0f) == EBannerDecision::FirstOpens);
+
+	// Причины непоказа для аналитики.
+	TestEqual(TEXT("причина: первые открытия"), BannerSkipReason(EBannerDecision::FirstOpens), FString(TEXT("first_opens")));
+	TestEqual(TEXT("причина: шанс"), BannerSkipReason(EBannerDecision::Chance), FString(TEXT("chance")));
+	TestTrue(TEXT("при показе причины нет"), BannerSkipReason(EBannerDecision::Show).IsEmpty());
+
+	// Счётчик растёт при каждом открытии, у торговли и смерти — свой.
+	UAnalyticsProfileSave* Profile = NewObject<UAnalyticsProfileSave>();
+	TestEqual(TEXT("первое открытие торговли — №1"), Profile->CountAdBannerScreenOpen(/*bShopScreen=*/true), 1);
+	TestEqual(TEXT("второе открытие торговли — №2"), Profile->CountAdBannerScreenOpen(true), 2);
+	TestEqual(TEXT("первая смерть — №1, счёт свой"), Profile->CountAdBannerScreenOpen(false), 1);
+	TestEqual(TEXT("счётчик торговли не сбит смертью"), Profile->BannerShopOpens, 2);
+
+	// Счётчик переживает «Новую игру»: новая игра стирает ИГРОВОЙ слот целиком
+	// (APlayerCharacter::ResetToNewGame), а счётчик лежит в другом слоте — памяти на установку.
+	TestTrue(TEXT("счётчик хранится не в игровом слоте, который стирает новая игра"),
+		FString(UAnalyticsProfileSave::GetSlotName()) != FString(TEXT("ContrarySave")));
+	// И в игровом объекте сохранения такого поля нет вовсе — сбрасывать новой игре нечего.
+	TestNull(TEXT("в игровом сохранении счётчика открытий торговли нет"),
+		FindFProperty<FProperty>(UContrarySaveGame::StaticClass(), TEXT("BannerShopOpens")));
+	TestNotNull(TEXT("счётчик открытий торговли — поле памяти на установку"),
+		FindFProperty<FProperty>(UAnalyticsProfileSave::StaticClass(), TEXT("BannerShopOpens")));
+	return true;
+}
+
 // Старые точки ролика работают как раньше: ключи четырёх точек не изменились, каждая
 // по-прежнему берёт свой идентификатор места (или общий, если свой пуст), а идентификаторы
 // новых форматов в ролики не подмешаны.
@@ -347,7 +507,8 @@ bool FAdRewardedPointsUnchangedTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("ключ точки ежедневной награды"), AdPlacements::DailyDouble, FName(TEXT("daily_double")));
 	TestEqual(TEXT("ключ точки «Поддержать автора»"), AdPlacements::SupportAuthor, FName(TEXT("support_author")));
 
-	const UYandexAdService& Service = UYandexAdService::GetSettings();
+	const UYandexAdService& Service = *GetDefault<UYandexAdService>();
+	const UContraryAdSettings& AdSettings = UContraryAdSettings::Get();
 	auto Expected = [&Service](const FString& OwnId)
 	{
 		return OwnId.IsEmpty() ? Service.RewardedAdUnitId : OwnId;
@@ -365,8 +526,8 @@ bool FAdRewardedPointsUnchangedTest::RunTest(const FString& Parameters)
 	// иначе служба приняла бы ролик за полноэкранный показ без награды.
 	const FName RewardedPoints[] = { AdPlacements::DeathBackpack, AdPlacements::ShopSellBonus,
 		AdPlacements::DailyDouble, AdPlacements::SupportAuthor };
-	const FString NewIds[] = { Service.AdUnitIdQuestInterstitial, Service.AdUnitIdBannerDeath,
-		Service.AdUnitIdBannerShop };
+	const FString NewIds[] = { AdSettings.AdUnitIdQuestInterstitial, AdSettings.AdUnitIdBannerDeath,
+		AdSettings.AdUnitIdBannerShop };
 	for (const FName& Point : RewardedPoints)
 	{
 		for (const FString& NewId : NewIds)

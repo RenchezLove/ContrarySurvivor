@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h"
+#include "ContrarySurvivor/UI/GameScreenLayer.h" // окна — в область игры (сжимается под баннер)
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
 #include "ContrarySurvivor/Analytics/DataConsentSettings.h"
 #include "ContrarySurvivor/Ads/YandexAdService.h"
@@ -198,7 +199,7 @@ bool UDataConsentSubsystem::TryShowConsentScreen(float /*DeltaTime*/)
 	ConsentWidget->OnAccepted.AddUObject(this, &UDataConsentSubsystem::HandleAccepted);
 	ConsentWidget->OnDeclined.AddUObject(this, &UDataConsentSubsystem::HandleDeclined);
 	ConsentWidget->OnPolicyRequested.AddUObject(this, &UDataConsentSubsystem::HandlePolicyRequested);
-	ConsentWidget->AddToViewport(DataConsentLocal::ConsentZOrder);
+	ContraryUI::AddToGameScreen(ConsentWidget, DataConsentLocal::ConsentZOrder);
 
 	// Пока игрок не ответил, за спиной у экрана ничего происходить не должно. Если пауза уже
 	// стояла (стартовый экран «Продолжить»/«Новая игра»), после ответа её не снимаем.

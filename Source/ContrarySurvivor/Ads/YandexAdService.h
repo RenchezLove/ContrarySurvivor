@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "ContrarySurvivor/Ads/AdGameArea.h"
 #include "ContrarySurvivor/Ads/AdService.h"
 #include "YandexAdService.generated.h"
 
@@ -58,45 +59,11 @@ public:
 	// Открыт для автотеста «старые точки ролика настроены как раньше».
 	FString GetAdUnitIdForPlacement(FName Placement) const;
 
-	// --- Настройки двух новых форматов (решение Рината 04.10.2026). Лежат в той же секции
-	// конфига; читаются через объект класса по умолчанию, поэтому ими пользуется и заглушка
-	// редактора (UMockAdService), и игровой код точек показа. ---
-	static const UYandexAdService& GetSettings() { return *GetDefault<UYandexAdService>(); }
-
-	// Идентификатор места полноэкранного показа без награды после сдачи задания про бандитов.
-	// Пусто — точка выключена. Демонстрационный идентификатор Яндекса сюда НЕ вписан: взять
-	// его дословно из документации было неоткуда (доступа к ней не было) — вписывается в конфиг.
-	UPROPERTY(Config)
-	FString AdUnitIdQuestInterstitial;
-
-	// Идентификаторы мест баннера на экране смерти и в окне торговли. Пусто — баннера нет.
-	UPROPERTY(Config)
-	FString AdUnitIdBannerDeath;
-
-	UPROPERTY(Config)
-	FString AdUnitIdBannerShop;
-
-	// Полноэкранный показ пропускается, если с конца последнего ролика с наградой прошло
-	// меньше этого числа секунд (решение Рината: 3 минуты).
-	UPROPERTY(Config)
-	float QuestInterstitialRewardedCooldownSeconds = 180.0f;
-
-	// Где стоит баннер: true — у верхнего края экрана, false — у нижнего. Сверху по умолчанию
-	// в обеих точках: на экране смерти верх пуст, а кнопки внизу; в окне торговли внизу
-	// кнопка «Закрыть» (раскладка окон сверена по снимку слотов от 30.08.2026).
-	UPROPERTY(Config)
-	bool bBannerDeathAtTop = true;
-
-	UPROPERTY(Config)
-	bool bBannerShopAtTop = true;
-
-	// Предельная высота баннера долей высоты экрана (но не ниже 50 dp — меньше баннеров нет).
-	UPROPERTY(Config)
-	float BannerMaxHeightFraction = 0.10f;
-
-	// Идентификатор места и положение баннера для точки (пустой идентификатор — точки нет).
+	// Идентификатор места баннера для точки (пустой идентификатор — точки нет).
 	FString GetBannerAdUnitId(FName Placement) const;
-	bool IsBannerAtTop(FName Placement) const;
+
+	// Сколько места сейчас занято баннером (доля высоты экрана; 0 — игра на весь экран).
+	float GetBannerHeightFraction() const { return BannerState.GetHeightFraction(); }
 
 	// Имя точки для аналитики: death_backpack -> backpack и так далее.
 	static FString PlacementToAnalyticsPoint(FName Placement);
@@ -176,8 +143,12 @@ private:
 	FDateTime LastRewardedShowUtc;
 
 	// Баннер какой точки сейчас заказан или стоит (NAME_None — никакого).
-	FName ActiveBannerPlacement;
+	// Место под баннер отдаётся только после его загрузки — правила в AdGameArea::FBannerState.
+	AdGameArea::FBannerState BannerState;
 	FString ActiveBannerAdUnitId;
+
+	// Событие «баннер встал на экран» для аналитики уже ушло (высота может прийти повторно).
+	bool bBannerShownReported = false;
 
 	// Сколько раз подряд не удалось загрузить — задаёт задержку следующей попытки.
 	TMap<FString, int32> LoadFailureCounts;

@@ -133,19 +133,18 @@ void FYandexAdsBridge::ShowInterstitial(const FString& AdUnitId)
 	AndroidJavaEnv::CheckJavaException();
 }
 
-void FYandexAdsBridge::ShowBanner(const FString& AdUnitId, bool bAtTop, float MaxHeightFraction)
+void FYandexAdsBridge::ShowBanner(const FString& AdUnitId, float MaxHeightFraction)
 {
 	JNIEnv* Env = nullptr;
 	jclass Class = nullptr;
 	jmethodID Method = nullptr;
-	if (!YandexAdsBridgeInternal::GetStaticMethod("showBanner", "(Ljava/lang/String;ZF)V", Env, Class, Method))
+	if (!YandexAdsBridgeInternal::GetStaticMethod("showBanner", "(Ljava/lang/String;F)V", Env, Class, Method))
 	{
 		return;
 	}
 
 	auto JavaAdUnitId = FJavaHelper::ToJavaString(Env, AdUnitId);
-	Env->CallStaticVoidMethod(Class, Method, *JavaAdUnitId,
-		static_cast<jboolean>(bAtTop), static_cast<jfloat>(MaxHeightFraction));
+	Env->CallStaticVoidMethod(Class, Method, *JavaAdUnitId, static_cast<jfloat>(MaxHeightFraction));
 	AndroidJavaEnv::CheckJavaException();
 }
 
@@ -224,7 +223,7 @@ void FYandexAdsBridge::ShowInterstitial(const FString& /*AdUnitId*/)
 {
 }
 
-void FYandexAdsBridge::ShowBanner(const FString& /*AdUnitId*/, bool /*bAtTop*/, float /*MaxHeightFraction*/)
+void FYandexAdsBridge::ShowBanner(const FString& /*AdUnitId*/, float /*MaxHeightFraction*/)
 {
 }
 

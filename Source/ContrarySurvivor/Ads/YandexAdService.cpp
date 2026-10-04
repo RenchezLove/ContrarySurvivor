@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Ads/YandexAdService.h"
+#include "ContrarySurvivor/Ads/ContraryAdSettings.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Containers/Ticker.h"
@@ -98,11 +99,12 @@ void UYandexAdService::Deinitialize()
 	}
 
 	// Баннер — родное окно Android и вместе с игровым объектом сам не исчезнет.
-	if (!ActiveBannerPlacement.IsNone())
+	if (BannerState.IsRequested())
 	{
 		FYandexAdsBridge::HideBanner();
-		ActiveBannerPlacement = NAME_None;
+		BannerState.Reset();
 		ActiveBannerAdUnitId.Reset();
+		AdGameArea::Apply(GetGameInstance(), 0.0f);
 	}
 
 	Super::Deinitialize();
@@ -188,7 +190,7 @@ bool UYandexAdService::IsInterstitialReady(FName Placement) const
 	{
 		return false;
 	}
-	return !AdUnitIdQuestInterstitial.IsEmpty() && LoadedAdUnitIds.Contains(AdUnitIdQuestInterstitial);
+	return !UContraryAdSettings::Get().AdUnitIdQuestInterstitial.IsEmpty() && LoadedAdUnitIds.Contains(UContraryAdSettings::Get().AdUnitIdQuestInterstitial);
 }
 
 void UYandexAdService::ShowInterstitial(FName Placement, FSimpleDelegate OnClosed)
@@ -200,7 +202,7 @@ void UYandexAdService::ShowInterstitial(FName Placement, FSimpleDelegate OnClose
 		UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD interstitial '%s' skipped - not ready"), *Placement.ToString());
 		if (bSdkInitialized)
 		{
-			RequestLoad(AdUnitIdQuestInterstitial);
+			RequestLoad(UContraryAdSettings::Get().AdUnitIdQuestInterstitial);
 		}
 		OnClosed.ExecuteIfBound();
 		return;
@@ -210,7 +212,7 @@ void UYandexAdService::ShowInterstitial(FName Placement, FSimpleDelegate OnClose
 	bShowingInterstitial = true;
 	bRewardGranted = false;
 	ShowingPlacement = Placement;
-	ShowingAdUnitId = AdUnitIdQuestInterstitial;
+	ShowingAdUnitId = UContraryAdSettings::Get().AdUnitIdQuestInterstitial;
 	PendingInterstitialClosed = OnClosed;
 
 	// Показ одноразовый: с этого момента он больше не «готовый».
@@ -235,24 +237,29 @@ void UYandexAdService::ShowBanner(FName Placement)
 		return;
 	}
 
-	ActiveBannerPlacement = Placement;
+	// Заказан, но ещё не загружен: места не занимает, игра остаётся на весь экран
+	// (прежний баннер другой точки Java-сторона уберёт сама — возвращаем и его место).
+	BannerState.OnRequested(Placement);
 	ActiveBannerAdUnitId = AdUnitId;
-	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' requested (unit '%s', %s)"),
-		*Placement.ToString(), *AdUnitId, IsBannerAtTop(Placement) ? TEXT("top") : TEXT("bottom"));
+	bBannerShownReported = false;
+	AdGameArea::Apply(GetGameInstance(), 0.0f);
+	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' requested (unit '%s')"),
+		*Placement.ToString(), *AdUnitId);
 
-	FYandexAdsBridge::ShowBanner(AdUnitId, IsBannerAtTop(Placement),
-		FMath::Clamp(BannerMaxHeightFraction, 0.05f, 0.25f));
+	FYandexAdsBridge::ShowBanner(AdUnitId,
+		FMath::Clamp(UContraryAdSettings::Get().BannerMaxHeightFraction, 0.05f, AdGameArea::MaxBannerFraction));
 }
 
 void UYandexAdService::HideBanner(FName Placement)
 {
-	if (ActiveBannerPlacement.IsNone() || ActiveBannerPlacement != Placement)
+	if (!BannerState.OnHidden(Placement))
 	{
 		return;
 	}
-	ActiveBannerPlacement = NAME_None;
 	ActiveBannerAdUnitId.Reset();
 	FYandexAdsBridge::HideBanner();
+	// Игра сразу возвращается на весь экран.
+	AdGameArea::Apply(GetGameInstance(), 0.0f);
 	UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' removed"), *Placement.ToString());
 }
 
@@ -260,23 +267,18 @@ FString UYandexAdService::GetBannerAdUnitId(FName Placement) const
 {
 	if (Placement == AdPlacements::BannerDeath)
 	{
-		return AdUnitIdBannerDeath;
+		return UContraryAdSettings::Get().AdUnitIdBannerDeath;
 	}
 	if (Placement == AdPlacements::BannerShop)
 	{
-		return AdUnitIdBannerShop;
+		return UContraryAdSettings::Get().AdUnitIdBannerShop;
 	}
 	return FString();
 }
 
-bool UYandexAdService::IsBannerAtTop(FName Placement) const
-{
-	return (Placement == AdPlacements::BannerShop) ? bBannerShopAtTop : bBannerDeathAtTop;
-}
-
 bool UYandexAdService::IsInterstitialUnit(const FString& AdUnitId) const
 {
-	return !AdUnitId.IsEmpty() && AdUnitId == AdUnitIdQuestInterstitial;
+	return !AdUnitId.IsEmpty() && AdUnitId == UContraryAdSettings::Get().AdUnitIdQuestInterstitial;
 }
 
 void UYandexAdService::HandleAdEvent(const FString& AdUnitId, EYandexAdEvent Event, const FString& Detail)
@@ -295,7 +297,7 @@ void UYandexAdService::HandleAdEvent(const FString& AdUnitId, EYandexAdEvent Eve
 			RequestLoad(Unit);
 		}
 		// Полноэкранный показ без награды — тоже заранее (пустой идентификатор — точки нет).
-		RequestLoad(AdUnitIdQuestInterstitial);
+		RequestLoad(UContraryAdSettings::Get().AdUnitIdQuestInterstitial);
 		break;
 	}
 
@@ -303,17 +305,34 @@ void UYandexAdService::HandleAdEvent(const FString& AdUnitId, EYandexAdEvent Eve
 	case EYandexAdEvent::BannerLoadFailed:
 	{
 		// Событие баннера, который уже убрали или заменили, не интересно.
-		if (ActiveBannerPlacement.IsNone() || AdUnitId != ActiveBannerAdUnitId)
+		if (!BannerState.IsRequested() || AdUnitId != ActiveBannerAdUnitId)
 		{
 			break;
 		}
-		const bool bLoaded = (Event == EYandexAdEvent::BannerLoaded);
-		UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' %s %s"), *ActiveBannerPlacement.ToString(),
-			bLoaded ? TEXT("shown") : TEXT("failed -"), *Detail);
-		if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+		const FName BannerPlacement = BannerState.GetPlacement();
+		bool bLoaded = (Event == EYandexAdEvent::BannerLoaded);
+		if (bLoaded)
 		{
-			Analytics->RecordAdStage(PlacementToAnalyticsPoint(ActiveBannerPlacement),
-				bLoaded ? TEXT("shown") : TEXT("failed"));
+			// Detail — фактическая высота баннера долей высоты окна. Игра освобождает под
+			// него ровно столько; событие приходит повторно, если высота изменилась.
+			bLoaded = BannerState.OnLoaded(FCString::Atof(*Detail));
+		}
+		if (!bLoaded)
+		{
+			BannerState.OnLoadFailed();
+		}
+		AdGameArea::Apply(GetGameInstance(), BannerState.GetHeightFraction());
+
+		UE_LOG(LogQA, Display, TEXT("QA: YANDEX-AD banner '%s' %s %s"), *BannerPlacement.ToString(),
+			bLoaded ? TEXT("shown, height") : TEXT("failed -"), *Detail);
+		if (!bLoaded || !bBannerShownReported)
+		{
+			bBannerShownReported = bLoaded;
+			if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+			{
+				Analytics->RecordAdStage(PlacementToAnalyticsPoint(BannerPlacement),
+					bLoaded ? TEXT("shown") : TEXT("failed"));
+			}
 		}
 		break;
 	}

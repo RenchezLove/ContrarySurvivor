@@ -46,6 +46,28 @@ namespace AdPoints
 	// решений, о которых в аналитику не пишем (Show, NotThisDialog, AlreadyUsed).
 	CONTRARYSURVIVOR_API FString InterstitialSkipReason(EInterstitialDecision Decision);
 
+	// --- Когда баннер показывается (решение Рината 04.10.2026, дословно): «При первом, втором
+	// и я думаю третьем открытии окна торговли... не стоит показывать этот банер»; «Шанс
+	// показа рекламы при открытии окна торговли сделай 60%, в случае смерти также. Банер в
+	// случае смерти показываем уже со второго раза». ---
+
+	enum class EBannerDecision : uint8
+	{
+		Show,        // показываем
+		FirstOpens,  // одно из первых открытий экрана — баннера ещё нет
+		Chance       // не выпал шанс
+	};
+
+	// Чистое решение, принимается ОДИН раз при открытии экрана. OpenNumber — какое по счёту
+	// это открытие за всю установку игры (1 = первое), SkipFirstOpens — сколько первых
+	// открытий идут без баннера, ShowChance — шанс показа 0..1, Roll — случайное число
+	// из [0, 1): показ при Roll < ShowChance.
+	CONTRARYSURVIVOR_API EBannerDecision DecideScreenBanner(int32 OpenNumber, int32 SkipFirstOpens,
+		float ShowChance, float Roll);
+
+	// Причина непоказа для аналитики (ad:<точка>:not_shown:<причина>); пусто при Show.
+	CONTRARYSURVIVOR_API FString BannerSkipReason(EBannerDecision Decision);
+
 	// Баннер экрана: экран открылся (и согласие есть) — заказать баннер точки; экран
 	// закрылся — убрать. Убирается баннер всегда, даже если согласие успели отозвать.
 	// Возвращает true, если баннер был заказан.
