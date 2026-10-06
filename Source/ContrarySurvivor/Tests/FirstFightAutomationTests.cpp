@@ -400,6 +400,14 @@ bool FFirstFightElderGiftNoticeableTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("Реплика с подарком в интро ровно одна"), GiftLines, 1);
 
+	// Надпись о подарке говорит, где его искать (поле защищённое — читаем через рефлексию).
+	const FTextProperty* HintProp = FindFProperty<FTextProperty>(AElderNPC::StaticClass(), TEXT("FirstGiftHintFormat"));
+	if (TestNotNull(TEXT("Настройка FirstGiftHintFormat есть у старосты"), HintProp))
+	{
+		const FString Hint = HintProp->GetPropertyValue_InContainer(Elder).ToString();
+		TestTrue(FString::Printf(TEXT("Надпись о подарке называет сумку: «%s»"), *Hint), Hint.Contains(TEXT("сумк")));
+	}
+
 	// --- (б) Надпись о подарке ждёт закрытия диалога ---
 	AContrarySurvivorPlayerController* PC = NewObject<AContrarySurvivorPlayerController>(GetTransientPackage());
 	if (!TestNotNull(TEXT("Контроллер создан"), PC))
