@@ -177,6 +177,22 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bHintLeaveVillageShown = false;
 
+	// 07.10.2026 (список Рината «разгрузить надписи начала игры»): три новые одноразовые
+	// подсказки. Старые сохранения читают поля как false — такие профили увидят каждую один раз.
+	// Про удар («Нажми на врага, чтобы ударить») — когда рядом впервые оказался враг.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintAttackShown = false;
+
+	// Про смену оружия — когда у игрока впервые появилось второе оружие.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintWeaponSwitchShown = false;
+
+	// Про слоты брони и строку «Защита» — при первом открытии сумки, когда броня уже есть
+	// (раньше этот текст показывался при первом открытии сумки вообще; тот шаг и его
+	// признак bHintInventoryShown остались, но без текста).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	bool bHintArmorShown = false;
+
 	// Староста уже отдал подарок первой встречи (бинт к реплике «Держи, затяни раны»).
 	// Признак живёт в сейве, а не в памяти актора: иначе подарок выдавался бы заново
 	// после смерти игрока и после перезапуска игры, и его можно было бы фармить.

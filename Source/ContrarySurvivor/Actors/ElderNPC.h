@@ -191,10 +191,12 @@ protected:
 
 	// Всплывающая подсказка о полученном предмете: {Item} — название предмета,
 	// {Count} — сколько штук. Пусто — подсказка не показывается.
-	// 06.10.2026 (решение лида по задаче Рината «аптечка малозаметна»): надпись говорит, где
-	// искать подарок — «Получено: Аптечка — лежит в сумке».
+	// 07.10.2026 (текст Рината дословно): надпись говорит, где искать подарок, и заодно
+	// объясняет хромоту — развёрнутая подсказка о ранении на старте больше не показывается.
+	// Текст назван под аптечку: при смене FirstGiftConsumableType поправить и его.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Gift", meta = (DisplayPriority = "3"))
-	FText FirstGiftHintFormat = NSLOCTEXT("Dialog", "ElderFirstGiftHint", "Получено: {Item} — лежит в сумке");
+	FText FirstGiftHintFormat = NSLOCTEXT("Dialog", "ElderFirstGiftHint",
+		"Получена аптечка — она в сумке. Подлечись, и хромота пройдёт");
 
 	// Подпись и подъём HUD-маркера находимости (были зашиты в override интерфейса).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "6"))

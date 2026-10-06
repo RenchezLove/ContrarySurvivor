@@ -63,6 +63,16 @@ public:
 	// Человеческое имя намерения для журнала.
 	static FString IntentToString(EContraryWorldEntryIntent Intent);
 
+	// Окно ежедневной награды в ЭТОМ запуске игры перенесено на следующий (решение Рината
+	// 07.10.2026: в первый заход, когда впереди первая встреча со старостой, окно не
+	// показывается вовсе). Признак живёт, пока живо приложение, и переживает смену уровня:
+	// без него перезагрузка мира в том же запуске (смерть, выход в меню) показала бы окно
+	// раньше «следующего запуска». В сохранение не пишется — следующий запуск начинает с нуля.
+	void MarkDailyRewardPostponedThisRun() { bDailyRewardPostponedThisRun = true; }
+	bool IsDailyRewardPostponedThisRun() const { return bDailyRewardPostponedThisRun; }
+
 private:
 	EContraryWorldEntryIntent WorldEntryIntent = EContraryWorldEntryIntent::None;
+
+	bool bDailyRewardPostponedThisRun = false;
 };

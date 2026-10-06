@@ -256,6 +256,7 @@ bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
 
 	Save->bElderFirstGiftGiven = true;
 	Player->WriteSaveObject(Save);
+	Player->NotifyElderGiftGiven(); // с этого момента развёрнутая подсказка хромоты разрешена
 
 	// Сообщаем игроку тем же тостом, что и подсказки онбординга: без этого предмет
 	// появляется в рюкзаке молча и игрок его не замечает. Решение Рината 05–06.10.2026:

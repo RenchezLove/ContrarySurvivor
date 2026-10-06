@@ -59,6 +59,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (ClampMin = "0.1", DisplayPriority = "6"))
 	float DeferredRetryDelay = 1.0f;
 
+	// Решение Рината 07.10.2026: «В первый заход окно после диалога не показывать, перенести
+	// его на следующий запуск игры». Включено — в запуске, где впереди первая встреча со
+	// старостой, награда не проверяется вовсе (ни окна, ни начисления); в следующий запуск
+	// награда первого дня выдаётся с окном обычным путём. Выключить — вернуть прежнее
+	// поведение (окно через PostIntroShowDelay после диалога старосты).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "6",
+		DisplayName = "В первый заход перенести окно на следующий запуск игры"))
+	bool bPostponeFirstWindowToNextLaunch = true;
+
 	// Стиль окна (цвета/тексты/шрифты) — применяется при создании виджета
 	// (директива Рината 07-18: настройка в BP_PlayerCharacter без пересборки).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DailyReward", meta = (DisplayPriority = "7"))

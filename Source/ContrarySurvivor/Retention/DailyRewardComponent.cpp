@@ -12,6 +12,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // слот DailyRewardWidgetClass (ТЗ 08-07)
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
+#include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h" // признак «окно перенесено на следующий запуск»
 #include "ContrarySurvivor/UI/DailyRewardWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "TimerManager.h"
@@ -39,21 +40,38 @@ void UDailyRewardComponent::EvaluateOrDefer()
 	// окно награды портило бы атмосферу интро. Откладываем ВСЮ проверку (не только окно):
 	// начислить молча и показать окно позже без начисления нельзя — начисление и окно идут
 	// одним шагом EvaluateDailyReward.
+	//
+	// 07.10.2026 (решение Рината): в первый заход окно не показывается и после диалога —
+	// оно переносится на следующий запуск игры. «Перенести» значит не трогать награду вовсе:
+	// день в сохранении не помечается, поэтому в следующий запуск награда первого дня
+	// начислится вместе с окном обычным путём (EvaluateDailyReward). Признак переноса живёт
+	// в подсистеме экземпляра игры — перезагрузка уровня в этом же запуске окно не вернёт.
 	APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner());
-	if (Player)
+	const UContrarySaveGame* Save = Player ? Player->LoadOrCreateSaveObject() : nullptr;
+	const bool bIntroStillAhead = Save && !Save->bElderHookShown;
+	UGameFlowSubsystem* Flow = UGameFlowSubsystem::Get(this);
+
+	switch (DailyReward::DecideOnLevelStart(bIntroStillAhead,
+		Flow && Flow->IsDailyRewardPostponedThisRun(), bPostponeFirstWindowToNextLaunch))
 	{
-		if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
-		{
-			if (!Save->bElderHookShown)
+		case DailyReward::EStartDecision::PostponeToNextLaunch:
+			if (Flow)
 			{
-				bAwaitingElderDialog = true;
-				UE_LOG(LogTemp, Log,
-					TEXT("DailyReward: intro pending, window deferred until elder dialog closes"));
-				return;
+				Flow->MarkDailyRewardPostponedThisRun();
 			}
-		}
+			UE_LOG(LogQA, Display,
+				TEXT("QA: daily reward postponed to next launch (first visit, nothing granted)"));
+			return;
+		case DailyReward::EStartDecision::DeferUntilElderDialog:
+			bAwaitingElderDialog = true;
+			UE_LOG(LogTemp, Log,
+				TEXT("DailyReward: intro pending, window deferred until elder dialog closes"));
+			return;
+		case DailyReward::EStartDecision::Evaluate:
+		default:
+			EvaluateDailyReward();
+			return;
 	}
-	EvaluateDailyReward();
 }
 
 void UDailyRewardComponent::NotifyElderDialogClosed()

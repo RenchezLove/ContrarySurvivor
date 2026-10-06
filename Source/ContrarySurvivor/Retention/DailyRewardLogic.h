@@ -30,4 +30,29 @@ namespace DailyReward
 	// (Ticks == 0 вместе с LastStreak <= 0 означает «входов ещё не было»).
 	CONTRARYSURVIVOR_API FComputeResult Compute(const FDateTime& Now, const FDateTime& LastRewardDate,
 		int32 LastStreak, float BaseReward, float StepPerDay, float MaxReward);
+
+	// Что делать с проверкой награды при старте уровня.
+	enum class EStartDecision : uint8
+	{
+		Evaluate,              // обычный путь: проверить дату, начислить и показать окно
+		DeferUntilElderDialog, // прежнее поведение (до 07.10.2026): показать после диалога старосты
+		PostponeToNextLaunch   // в этом запуске игры окно не показывать и ничего не начислять
+	};
+
+	// Решение Рината 07.10.2026: «В первый заход окно после диалога не показывать, перенести
+	// его на следующий запуск игры». bIntroStillAhead — первая встреча со старостой ещё не
+	// доиграна; bPostponedThisRun — в этом запуске уже решили перенести (переживает
+	// перезагрузку уровня); bPostponeEnabled — настройка компонента (выключена — прежнее
+	// поведение). Начисление и окно идут одним шагом, поэтому «перенести» значит не делать
+	// ничего: день в сохранении не помечается, награда первого дня выдаётся с окном в
+	// следующий запуск.
+	inline EStartDecision DecideOnLevelStart(bool bIntroStillAhead, bool bPostponedThisRun, bool bPostponeEnabled)
+	{
+		if (!bPostponeEnabled)
+		{
+			return bIntroStillAhead ? EStartDecision::DeferUntilElderDialog : EStartDecision::Evaluate;
+		}
+		return (bIntroStillAhead || bPostponedThisRun)
+			? EStartDecision::PostponeToNextLaunch : EStartDecision::Evaluate;
+	}
 }

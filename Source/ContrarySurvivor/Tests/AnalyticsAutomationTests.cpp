@@ -99,8 +99,23 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAnalyticsTutorialStepNamesTest,
 bool FAnalyticsTutorialStepNamesTest::RunTest(const FString& Parameters)
 {
 	const int32 StepCount = static_cast<int32>(EOnboardingHint::Count);
-	// ADR-074 (16.08): шестая подсказка — выход из деревни (leave_village).
-	TestEqual(TEXT("Шагов обучения в игре ровно шесть (подсказки UOnboardingComponent)"), StepCount, 6);
+	// ADR-074 (16.08): шестая подсказка — выход из деревни (leave_village). 07.10.2026: ещё три
+	// в конец перечисления — удар (attack), смена оружия (weapon_switch), броня (armor).
+	TestEqual(TEXT("Шагов обучения в игре ровно девять (подсказки UOnboardingComponent)"), StepCount, 9);
+
+	// Номера прежних шагов едут числом в событие — добавление новых в конец их не сдвигает.
+	TestEqual(TEXT("Номер шага movement прежний"), static_cast<int32>(EOnboardingHint::Movement), 0);
+	TestEqual(TEXT("Номер шага pickup прежний"), static_cast<int32>(EOnboardingHint::Pickup), 1);
+	TestEqual(TEXT("Номер шага elder прежний"), static_cast<int32>(EOnboardingHint::Elder), 2);
+	TestEqual(TEXT("Номер шага inventory прежний"), static_cast<int32>(EOnboardingHint::Inventory), 3);
+	TestEqual(TEXT("Номер шага death прежний"), static_cast<int32>(EOnboardingHint::Death), 4);
+	TestEqual(TEXT("Номер шага leave_village прежний"), static_cast<int32>(EOnboardingHint::LeaveVillage), 5);
+	TestEqual(TEXT("Имя шага pickup прежнее"),
+		FString(UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint::Pickup)), FString(TEXT("pickup")));
+	TestEqual(TEXT("Имя шага elder прежнее"),
+		FString(UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint::Elder)), FString(TEXT("elder")));
+	TestEqual(TEXT("Имя шага inventory прежнее"),
+		FString(UOnboardingComponent::GetHintAnalyticsId(EOnboardingHint::Inventory)), FString(TEXT("inventory")));
 
 	TSet<FString> SeenNames;
 	for (int32 i = 0; i < StepCount; ++i)
@@ -147,7 +162,16 @@ bool FAnalyticsTutorialCompletionRuleTest::RunTest(const FString& Parameters)
 	for (int32 i = 0; i < static_cast<int32>(EOnboardingHint::Count); ++i)
 	{
 		const EOnboardingHint Hint = static_cast<EOnboardingHint>(i);
-		if (Hint != EOnboardingHint::Death && Hint != EOnboardingHint::LeaveVillage)
+		// 07.10.2026: засчитываются ровно четыре прежних шага; подсказки про удар, смену
+		// оружия и броню, добавленные в конец, в условие не входят.
+		const bool bOriginalStep = Hint == EOnboardingHint::Movement || Hint == EOnboardingHint::Pickup
+			|| Hint == EOnboardingHint::Elder || Hint == EOnboardingHint::Inventory;
+		if (!bOriginalStep)
+		{
+			TestFalse(FString::Printf(TEXT("Шаг %d в условие завершения НЕ входит"), i + 1),
+				UOnboardingComponent::CountsTowardTutorialCompletion(Hint));
+		}
+		else
 		{
 			TestTrue(FString::Printf(TEXT("Шаг %d входит в условие завершения"), i + 1),
 				UOnboardingComponent::CountsTowardTutorialCompletion(Hint));

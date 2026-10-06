@@ -246,6 +246,7 @@ void APlayerCharacter::BeginPlay()
     if (const UContrarySaveGame* PlaySave = LoadOrCreateSaveObject())
     {
         SavedPlayTimeBase = FMath::Max(0.0f, PlaySave->TotalPlayTimeSeconds);
+        bElderGiftGiven = PlaySave->bElderFirstGiftGiven; // правило развёрнутой подсказки хромоты
     }
     if (UWorld* PlayWorld = GetWorld())
     {
@@ -620,8 +621,11 @@ void APlayerCharacter::UpdateLimpIndicator()
     // интро уже передало управление игроку (иначе всплыла бы на чёрном экране/на авто-подходе)
     // и не открыт модальный экран (не спорим с диалогом старосты). «Раз за сессию» обеспечивает
     // FLimpFirstHintState; повторные вызовы каждый тик бесплатны.
+    // 07.10.2026 (Ринат): пока староста не выдал подарок, развёрнутой подсказки нет — на
+    // старте остаётся только короткая строка, а объяснение приходит в надписи о подарке.
     const bool bControlFree = !PC->IsIntroMoveInputLocked() && !PC->IsAnyModalUIOpen();
-    if (LimpFirstHint.ShouldTrigger(bLimping, bControlFree))
+    if (LimpFirstHint.ShouldTrigger(bLimping,
+        FLimpFirstHintState::IsExpandedHintAllowed(bControlFree, bElderGiftGiven)))
     {
         // Задержка — геттер виджета; запасное значение 2.5 (прежний дефолт поля на игроке) на
         // случай, если виджета вдруг нет — поведение не меняется.
@@ -2153,6 +2157,9 @@ void APlayerCharacter::ResetToNewGame()
         UpdateLimpState(Stats->GetHealth(), Stats->GetMaxHealth());
     }
 
+    // Подарок старосты в новой игре ещё не выдан — развёрнутая подсказка хромоты снова ждёт его.
+    bElderGiftGiven = false;
+
     // Накопитель игрового времени — заново (гейт рекламы 15 минут не наследует чужой прогресс).
     SavedPlayTimeBase = 0.0f;
     UnflushedPlayTime = 0.0f;
@@ -2654,6 +2661,31 @@ void APlayerCharacter::HandleDeath()
     {
         Analytics->RecordPlayerDeath(LastDamagerAnalyticsType);
     }
+}
+
+bool APlayerCharacter::HasAnyArmor() const
+{
+    for (const EArmorSlot Slot : { EArmorSlot::Head, EArmorSlot::Torso, EArmorSlot::Legs })
+    {
+        const AArmor* Worn = GetEquippedArmor(Slot);
+        if (Worn && Worn->GetArmorProtection() > 0.0f)
+        {
+            return true;
+        }
+    }
+    if (const UInventoryComponent* Inv = GetInventory())
+    {
+        for (const AMasterInventoryItem* Item : Inv->GetInventoryItems())
+        {
+            // Одежда без защиты (заготовка с нулевой бронёй) бронёй не считается.
+            const AArmor* Armor = Cast<AArmor>(Item);
+            if (Armor && Armor->GetArmorProtection() > 0.0f)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 FString APlayerCharacter::GetKillerAnalyticsType(const AActor* DamageCauser)

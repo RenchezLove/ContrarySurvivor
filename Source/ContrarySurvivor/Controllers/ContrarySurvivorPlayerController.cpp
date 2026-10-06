@@ -2905,12 +2905,20 @@ void AContrarySurvivorPlayerController::OnToggleInventory()
 
 	UE_LOG(LogTemp, Log, TEXT("Inventory %s"), bInventoryOpen ? TEXT("OPEN") : TEXT("CLOSED"));
 
-	// Этап F (онбординг): первое открытие инвентаря — подсказка про слоты брони/защиту.
+	// Этап F (онбординг): первое открытие инвентаря — шаг обучения inventory (признак и
+	// событие статистики, как раньше). 07.10.2026 (Ринат): сам текст про слоты брони и
+	// «Защиту» показывается не здесь, а при первом открытии сумки, когда броня уже есть.
 	if (bInventoryOpen)
 	{
 		if (UOnboardingComponent* OnboardingComp = GetOnboarding())
 		{
 			OnboardingComp->TryShowHint(EOnboardingHint::Inventory);
+
+			const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+			if (PlayerChar && !OnboardingComp->IsHintShown(EOnboardingHint::Armor) && PlayerChar->HasAnyArmor())
+			{
+				OnboardingComp->TryShowHint(EOnboardingHint::Armor);
+			}
 		}
 	}
 }
@@ -2947,6 +2955,9 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 
 	// ADR-074: подсказка о сохранении у костра при первом выходе из деревни (один раз за профиль).
 	UpdateLeaveVillageHint();
+
+	// 07.10.2026: подсказки про удар (рядом первый враг) и про смену оружия (появилось второе).
+	UpdateCombatHints();
 
 	// Фаза 5: синхронизируем ITEM-прогресс квестов (Collect/Deliver) с содержимым рюкзака —
 	// число «Шкур волка»/«Ноутбук» в инвентаре. SyncInventoryQuests меняет состояние/шлёт
@@ -3559,6 +3570,46 @@ void AContrarySurvivorPlayerController::UpdateLeaveVillageHint()
 	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
 	{
 		OnboardingComp->TryShowHint(EOnboardingHint::LeaveVillage);
+	}
+}
+
+void AContrarySurvivorPlayerController::UpdateCombatHints()
+{
+	// Решение Рината 07.10.2026: «Про удар говорить, когда рядом окажется первый враг. Про
+	// смену оружия — когда появится второе оружие». Обе подсказки одноразовые (признак в
+	// сохранении), поэтому после показа проверка сводится к двум чтениям признака в памяти.
+	UOnboardingComponent* OnboardingComp = GetOnboarding();
+	if (!OnboardingComp)
+	{
+		return;
+	}
+	const bool bAttackPending = !OnboardingComp->IsHintShown(EOnboardingHint::Attack);
+	const bool bSwitchPending = !OnboardingComp->IsHintShown(EOnboardingHint::WeaponSwitch);
+	if (!bAttackPending && !bSwitchPending)
+	{
+		return;
+	}
+
+	// Не во время вступления и не поверх окон: подсказка нужна, когда игрок может действовать.
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!PlayerChar || IntroPhase != EIntroPhase::None || IsAnyModalUIOpen())
+	{
+		return;
+	}
+
+	// Враг — захваченная ближайшая живая цель (UpdateAutoTarget зовётся в этом же кадре раньше).
+	if (bAttackPending && IsValid(CurrentTarget)
+		&& UOnboardingComponent::ShouldShowAttackHint(
+			FVector::Dist2D(PlayerChar->GetActorLocation(), CurrentTarget->GetActorLocation()),
+			OnboardingComp->AttackHintDistance))
+	{
+		OnboardingComp->TryShowHint(EOnboardingHint::Attack);
+	}
+
+	if (bSwitchPending && UOnboardingComponent::ShouldShowWeaponSwitchHint(
+		PlayerChar->GetMeleeWeaponInstance() != nullptr, PlayerChar->GetRangedWeaponInstance() != nullptr))
+	{
+		OnboardingComp->TryShowHint(EOnboardingHint::WeaponSwitch);
 	}
 }
 

@@ -17,6 +17,9 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->bHintInventoryShown = From->bHintInventoryShown;
 	To->bHintDeathShown     = From->bHintDeathShown;
 	To->bHintLeaveVillageShown = From->bHintLeaveVillageShown; // ADR-074
+	To->bHintAttackShown       = From->bHintAttackShown;       // 07.10.2026
+	To->bHintWeaponSwitchShown = From->bHintWeaponSwitchShown; // 07.10.2026
+	To->bHintArmorShown        = From->bHintArmorShown;        // 07.10.2026
 	To->bElderFirstGiftGiven = From->bElderFirstGiftGiven;
 	To->bElderHookShown     = From->bElderHookShown;
 	To->bElderNotebookHintShown = From->bElderNotebookHintShown;
