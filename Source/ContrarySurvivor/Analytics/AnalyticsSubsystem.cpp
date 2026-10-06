@@ -143,9 +143,16 @@ UAnalyticsSubsystem* UAnalyticsSubsystem::Get(const UObject* WorldContextObject)
 	return GI ? GI->GetSubsystem<UAnalyticsSubsystem>() : nullptr;
 }
 
-void UAnalyticsSubsystem::RecordPlayerDeath()
+FString UAnalyticsSubsystem::MakePlayerDeathEventId(const FString& KillerType)
 {
-	SendDesignEvent(TEXT("player:death"));
+	// Кто убил едет третьей частью имени и чистится тем же правилом, что остальные части
+	// (GameAnalytics принимает только латиницу, цифры и немного знаков; пусто -> unknown).
+	return FString::Printf(TEXT("player:death:%s"), *SanitizeEventPart(KillerType));
+}
+
+void UAnalyticsSubsystem::RecordPlayerDeath(const FString& KillerType)
+{
+	SendDesignEvent(MakePlayerDeathEventId(KillerType));
 }
 
 FString UAnalyticsSubsystem::MakeQuestOfferedEventId(FName QuestId)

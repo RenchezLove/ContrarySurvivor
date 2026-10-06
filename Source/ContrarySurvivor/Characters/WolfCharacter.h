@@ -4,10 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Engine/TimerHandle.h" // таймер перепроверки замедления первого боя
 #include "ContrarySurvivor/Debug/QADebug.h" // CONTRARY_WITH_QA_CHEATS (дружба с cheat-manager'ом съёмки)
 #include "WolfCharacter.generated.h"
 
 class UStatsComponent;
+class UQuestComponent;
 class UCorpseLootComponent;
 class UAnimSequence;
 class AMasterInventoryItem;
@@ -118,6 +120,27 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "4"))
 	float SpeedMultiplierVsBandit = 1.75f;
 
+	// --- Замедление волка в первом бою (решение Рината 05–06.10.2026: «слегка замедлить
+	// волка в первом бою») ---
+	// Пока игрок не сдал задание FirstFightQuestId (первое задание старосты на шкуры), скорость
+	// погони умножается на этот множитель: новичок с одним ножом успевает отойти и ударить.
+	// Сдал — волки бегут в полную силу (договор «от волка в чистом поле не убежать» остаётся
+	// для всей игры после первого задания). 1.0 — замедления нет.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.1", ClampMax = "1.0", DisplayPriority = "4",
+		DisplayName = "Множитель скорости, пока первое задание не сдано"))
+	float FirstFightSpeedMultiplier = 0.85f;
+
+	// Идентификатор задания, до сдачи которого действует замедление. Совпадает с первым
+	// заданием старосты (AElderNPC: KillWolves). Пусто — замедление выключено.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (DisplayPriority = "4",
+		DisplayName = "Задание, до сдачи которого волк замедлен (латиницей)"))
+	FName FirstFightQuestId = FName(TEXT("KillWolves"));
+
+	// Как часто волк перепроверяет, сдано ли задание (сек): сдача посреди боя снимает
+	// замедление с уже живых волков без перезапуска уровня.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.1", DisplayPriority = "4"))
+	float FirstFightRecheckInterval = 1.0f;
+
 	// Через сколько секунд после смерти убрать тело. Build 1.2.1 (ТЗ А1): труп теперь
 	// ОБЫСКИВАЕТСЯ (шкура/деньги внутри), поэтому лежит дольше — дефолт 60 с (было 5).
 	// Не обысканный остаток исчезает вместе с трупом.
@@ -193,6 +216,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Movement")
 	float GetChaseSpeed() const { return BanditBaseWalkSpeed * SpeedMultiplierVsBandit; }
 
+	// Скорость погони с учётом замедления первого боя: bFirstQuestTurnedIn=false — полная
+	// скорость, умноженная на FirstFightSpeedMultiplier; true (или замедление выключено
+	// пустым FirstFightQuestId) — полная. Чистая формула, её держит автотест.
+	UFUNCTION(BlueprintPure, Category = "Movement")
+	float GetChaseSpeedForFirstFight(bool bFirstQuestTurnedIn) const;
+
+	// Применить к волку скорость по состоянию журнала заданий игрока (null = задание не
+	// сдано). Зовётся при появлении волка и дальше по таймеру; скорость уходит через
+	// контроллер ИИ, чтобы замедление у границы деревни считалось от неё же.
+	void ApplyFirstFightSpeed(const UQuestComponent* PlayerQuests);
+
 	// Тег цели квеста этого волка — для автотеста контракта тегов (ContentToolsWave, ADR-075).
 	FName GetQuestKillTagForQA() const { return QuestKillTag; }
 
@@ -211,4 +245,9 @@ private:
 
 	// Проиграть случайный рык атаки (Демо) в позиции волка.
 	void PlayAttackSound();
+
+	// Найти журнал заданий игрока и применить скорость первого боя (см. ApplyFirstFightSpeed).
+	void RefreshFirstFightSpeed();
+
+	FTimerHandle FirstFightRecheckTimer;
 };

@@ -129,7 +129,10 @@ AElderNPC::AElderNPC()
 		NSLOCTEXT("Dialog", "ElderIntroBtn1", "Дальше"),
 		EElderIntroAction::None));
 	IntroLines.Add(MakeLine(
-		NSLOCTEXT("Dialog", "ElderIntro2", "Ладно. Держи, затяни раны — до утра иначе не дотянешь."),
+		// 06.10.2026 (решение Рината): в реплике прямо сказано, что староста даёт аптечку —
+		// раньше было «Держи, затяни раны», и игрок не понимал, что именно получил. Черновик
+		// формулировки, утверждает Ринат.
+		NSLOCTEXT("Dialog", "ElderIntro2", "Ладно. Держи аптечку, затяни раны — до утра иначе не дотянешь."),
 		NSLOCTEXT("Dialog", "ElderIntroBtn2", "Взять аптечку"),
 		EElderIntroAction::GiveGift)); // выдаёт аптечку тем же путём, что магазин (GiveConsumableToBackpack)
 	IntroLines.Add(MakeLine(
@@ -255,15 +258,23 @@ bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
 	Player->WriteSaveObject(Save);
 
 	// Сообщаем игроку тем же тостом, что и подсказки онбординга: без этого предмет
-	// появляется в рюкзаке молча и игрок его не замечает.
+	// появляется в рюкзаке молча и игрок его не замечает. Решение Рината 05–06.10.2026:
+	// надпись уходит через контроллер — он придержит её до закрытия диалога (посреди реплик
+	// она гасла незамеченной) и вместе с ней заставит мигать кнопку СУМКА.
 	if (!FirstGiftHintFormat.IsEmpty())
 	{
-		if (UOnboardingComponent* Hints = Player->GetOnboarding())
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("Item"), AConsumableItem::GetDefaultDisplayText(FirstGiftConsumableType));
+		Args.Add(TEXT("Count"), FText::AsNumber(Given));
+		const FText Notice = FText::Format(FirstGiftHintFormat, Args);
+
+		if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController()))
 		{
-			FFormatNamedArguments Args;
-			Args.Add(TEXT("Item"), AConsumableItem::GetDefaultDisplayText(FirstGiftConsumableType));
-			Args.Add(TEXT("Count"), FText::AsNumber(Given));
-			Hints->ShowTransientHint(FText::Format(FirstGiftHintFormat, Args));
+			PC->NotifyGiftReceived(Notice);
+		}
+		else if (UOnboardingComponent* Hints = Player->GetOnboarding())
+		{
+			Hints->ShowTransientHint(Notice);
 		}
 	}
 

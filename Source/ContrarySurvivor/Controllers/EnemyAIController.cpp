@@ -427,6 +427,21 @@ void AEnemyAIController::SetVillageSlowdown(bool bSlow)
 	Move->MaxWalkSpeed = bSlow ? CachedBaseWalkSpeed * VillageSlowdownSpeedFactor : CachedBaseWalkSpeed;
 }
 
+void AEnemyAIController::SetBaseWalkSpeed(float NewBaseSpeed)
+{
+	if (NewBaseSpeed <= 0.0f || FMath::IsNearlyEqual(NewBaseSpeed, CachedBaseWalkSpeed))
+	{
+		return;
+	}
+	CachedBaseWalkSpeed = NewBaseSpeed;
+
+	ACharacter* SelfChar = Cast<ACharacter>(GetPawn());
+	if (UCharacterMovementComponent* Move = SelfChar ? SelfChar->GetCharacterMovement() : nullptr)
+	{
+		Move->MaxWalkSpeed = bVillageSlowdownActive ? NewBaseSpeed * VillageSlowdownSpeedFactor : NewBaseSpeed;
+	}
+}
+
 void AEnemyAIController::StartReturnHome(const TCHAR* Reason)
 {
 	StopMovement();

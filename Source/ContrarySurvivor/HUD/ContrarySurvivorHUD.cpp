@@ -9,6 +9,7 @@
 #include "GameFramework/Pawn.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/Retention/OnboardingComponent.h" // всплывающая надпись отказа в выкупе
 #include "ContrarySurvivor/Debug/QADebug.h"     // QA-оверлей (буфер сообщений + видимость)
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // журнал квестов (диалог/трекер)
@@ -1043,6 +1044,18 @@ void AContrarySurvivorHUD::ArmSellSlider(APlayerCharacter* Player, AMasterInvent
 {
 	if (!Player || !ShopTrader || !IsValid(Item))
 	{
+		return;
+	}
+
+	// Торговец этот предмет сейчас не берёт (шкуры до сдачи задания, 06.10.2026) — то же
+	// правило и та же всплывающая надпись, что в основном окне торговли (UShopScreenWidget).
+	FText RefuseReason;
+	if (!ShopTrader->CanBuyFromPlayer(Item, Player, RefuseReason))
+	{
+		if (UOnboardingComponent* Hints = Player->GetOnboarding())
+		{
+			Hints->ShowTransientHint(RefuseReason);
+		}
 		return;
 	}
 

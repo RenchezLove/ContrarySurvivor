@@ -851,6 +851,58 @@ void UTouchControlsWidget::UpdateReloadVisual(float DeltaTime)
 	}
 }
 
+float UTouchControlsWidget::ComputeBlinkBrightness(float Time, float Period, float Depth)
+{
+	const float Pulse = 0.5f + 0.5f * FMath::Sin(2.0f * UE_PI * Time / FMath::Max(0.05f, Period)); // 0..1
+	return 1.0f - FMath::Clamp(Depth, 0.0f, 1.0f) * (1.0f - Pulse);
+}
+
+void UTouchControlsWidget::StartInventoryAttentionBlink()
+{
+	InventoryBlinkRemaining = FMath::Max(0.0f, InventoryBlinkDuration);
+	InventoryBlinkTime = 0.0f;
+}
+
+void UTouchControlsWidget::UpdateInventoryAttentionVisual(float DeltaTime, bool bModal)
+{
+	if (bModal)
+	{
+		InventoryBlinkRemaining = 0.0f; // игрок открыл окно — внимание уже привлечено
+	}
+
+	if (InventoryBlinkRemaining > 0.0f && InventoryButton)
+	{
+		if (!bInventoryVisualActive)
+		{
+			// Цвет покоя снимаем с кнопки перед первым кадром мигания: у дерева из
+			// дизайнера это цвет владельца, к нему и вернёмся.
+			InventoryIdleColor = InventoryButton->GetBackgroundColor();
+			bInventoryVisualActive = true;
+		}
+		InventoryBlinkRemaining -= DeltaTime;
+		InventoryBlinkTime += DeltaTime;
+		FLinearColor C = InventoryBlinkColor
+			* ComputeBlinkBrightness(InventoryBlinkTime, InventoryBlinkPeriod, InventoryBlinkDepth);
+		C.A = InventoryBlinkColor.A;
+		InventoryButton->SetBackgroundColor(C);
+		if (InventoryBlinkRemaining > 0.0f)
+		{
+			return;
+		}
+	}
+
+	if (bInventoryVisualActive)
+	{
+		// Срок вышел или открыто окно — один раз возвращаем кнопку к покою.
+		if (InventoryButton)
+		{
+			InventoryButton->SetBackgroundColor(InventoryIdleColor);
+		}
+		bInventoryVisualActive = false;
+	}
+	InventoryBlinkRemaining = FMath::Max(0.0f, InventoryBlinkRemaining);
+}
+
 FLinearColor UTouchControlsWidget::GetReloadIdleColor() const
 {
 	// Задан свой цвет покоя полем — берём поле; иначе тот, что снят с кнопки при создании
@@ -978,6 +1030,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	// Иконка оружия живёт по тем же правилам, что боевая группа: модалка — прячется,
 	// закрылась — на следующем кадре состояние пересчитается и иконка вернётся.
 	UpdateWeaponIcon(bModal);
+	// Мигание кнопки СУМКА после подарка (06.10.2026): до гейта модалки — кнопка видна и на
+	// модальных экранах, а открытое окно как раз и гасит мигание.
+	UpdateInventoryAttentionVisual(InDeltaTime, bModal);
 	if (bModal)
 	{
 		return;

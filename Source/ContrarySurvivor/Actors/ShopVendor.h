@@ -8,6 +8,7 @@
 #include "ShopVendor.generated.h"
 
 class AMasterInventoryItem;
+class APlayerCharacter;
 
 /**
  * Интерфейс «торговца магазина» (A2: развязка магазина от конкретного класса торговца).
@@ -44,4 +45,14 @@ public:
 
 	// Цена выкупа ОДНОГО патрона (для слайдера продажи стака патронов).
 	virtual float GetAmmoSellPerRound() const = 0;
+
+	// Берёт ли торговец этот предмет у этого игрока ПРЯМО СЕЙЧАС (решение Рината 05–06.10.2026:
+	// шкуры не выкупаются, пока задание на шкуры не сдано). false — OutReason несёт короткую
+	// надпись для игрока, почему нельзя. Окна торговли обязаны спросить это до начала сделки.
+	// По умолчанию торговец берёт всё.
+	virtual bool CanBuyFromPlayer(const AMasterInventoryItem* Item, const APlayerCharacter* Seller,
+		FText& OutReason) const
+	{
+		return true;
+	}
 };

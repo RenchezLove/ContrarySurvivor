@@ -63,6 +63,12 @@ int32 UQuestComponent::GetTurnedInQuestCount() const
 	return Count;
 }
 
+bool UQuestComponent::IsQuestTurnedIn(FName QuestId) const
+{
+	const FQuest* Quest = QuestId.IsNone() ? nullptr : FindQuest(QuestId);
+	return Quest && Quest->State == EQuestState::TurnedIn;
+}
+
 bool UQuestComponent::AreObjectivesMet(const FQuest& Quest)
 {
 	const bool bKillMet = (Quest.TargetCount <= 0) || (Quest.Progress >= Quest.TargetCount);

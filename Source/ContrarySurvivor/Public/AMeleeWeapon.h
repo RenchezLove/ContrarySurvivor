@@ -77,6 +77,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon|Melee")
 	FORCEINLINE float GetMeleeRange() const { return MeleeRange; }
 
+	// К кому носитель довернётся при ударе: ближайший живой враг в досягаемости удара
+	// (MeleeRange + AutoFaceExtraRange) и в угле поиска AutoFaceHalfAngleDeg, до которого
+	// свободна линия удара. null — такого нет или доворот выключен. Мирные неуязвимые NPC
+	// и трупы целью не становятся. Публичный, чтобы правило выбора гонял автотест.
+	AActor* FindAutoFaceTarget() const;
+
 protected:
 	// --- Прямая видимость удара (фикс 08-07: «сквозь стены бить нельзя — никому») ---
 	// Кандидат попал в сектор по дистанции и углу, но между носителем и ним стена/дерево
@@ -131,6 +137,32 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayName = "Мгновенный доворот при ударе", DisplayPriority = "6"))
 	bool bMeleeSnapToTarget = false;
 
+	// --- Доворот к БЛИЖАЙШЕМУ врагу при ударе (решение Рината 05–06.10.2026: «доворот героя
+	// к волку при ударе ножом, чтобы удар приходился по цели; оставить насовсем») ---
+	// Прежний доворот знал только захваченную цель и только плавно: корпус не успевал
+	// довернуться к кадру удара, и нож шёл мимо волка, стоящего сбоку или за спиной. Теперь
+	// при замахе носитель поворачивается к ближайшему живому врагу в досягаемости удара, а в
+	// кадр удара остаток поворота добирается сразу — удар приходится по цели. Подсветка
+	// сектора висит на носителе и поворачивается вместе с ним, поэтому «что видишь, то и
+	// бьёшь» сохраняется. Врага в досягаемости нет — работает прежний доворот к захваченной цели.
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (DisplayPriority = "6",
+		DisplayName = "Доворачивать к ближайшему врагу при ударе"))
+	bool bAutoFaceNearestEnemy = true;
+
+	// Запас к дальности удара (см, поверхность-к-поверхности): доворот срабатывает на врага
+	// не дальше MeleeRange + этот запас. Запас нужен, потому что враг за время замаха
+	// успевает подойти. 0 — доворот только к тем, кого нож достаёт уже сейчас.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0", DisplayPriority = "6",
+		DisplayName = "Доворот к врагу: запас к дальности удара, см"))
+	float AutoFaceExtraRange = 30.0f;
+
+	// В каких пределах от направления взгляда искать врага для доворота (градусы в каждую
+	// сторону). 180 — в любую сторону, включая спину; 90 — только передняя полусфера.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0", ClampMax = "180.0", DisplayPriority = "6",
+		DisplayName = "Доворот к врагу: угол поиска в каждую сторону, град"))
+	float AutoFaceHalfAngleDeg = 180.0f;
+
 	// --- Микро-заморозка при попадании (hitstop, D5) ---
 
 	// Включатель hitstop (только для попаданий ИГРОКА, не ИИ).
@@ -171,6 +203,13 @@ private:
 
 	// Взмах начат и ждёт свою метку урона (см. ConsumePendingSwing).
 	bool bSwingAwaitingNotify = false;
+
+	// К кому носитель начал доворачиваться в этом замахе (см. bAutoFaceNearestEnemy). В кадр
+	// удара ApplyMeleeDamage добирает остаток поворота к нему и забывает его.
+	TWeakObjectPtr<AActor> SwingFaceTarget;
+
+	// Мгновенно повернуть носителя лицом к цели (только рысканье, в плоскости земли).
+	static void SnapWielderYawTo(APawn* Wielder, const AActor* Target);
 
 	// Микро-заморозка (D5): SetGlobalTimeDilation(HitStopTimeDilation) + таймер восстановления.
 	// Таймер идёт в ИГРОВОМ времени, поэтому его период = HitStopDuration * dilation

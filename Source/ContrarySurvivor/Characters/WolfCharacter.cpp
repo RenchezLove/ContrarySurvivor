@@ -20,6 +20,7 @@
 #include "Animation/AnimSequence.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Sound/SoundBase.h"
+#include "TimerManager.h" // перепроверка замедления первого боя
 #include "UObject/ConstructorHelpers.h"
 
 // Опорная скорость бандита переехала в заголовок (AWolfCharacter::BanditBaseWalkSpeed):
@@ -123,6 +124,46 @@ void AWolfCharacter::BeginPlay()
 
 	// Стартовый клип — Idle (Single Node), чтобы волк не стоял в T-позе.
 	UpdateLocomotionAnimation();
+
+	// Замедление первого боя: сразу и дальше по таймеру (сдача задания посреди боя снимает его).
+	RefreshFirstFightSpeed();
+	if (!FirstFightQuestId.IsNone())
+	{
+		GetWorldTimerManager().SetTimer(FirstFightRecheckTimer, this,
+			&AWolfCharacter::RefreshFirstFightSpeed, FMath::Max(0.1f, FirstFightRecheckInterval), /*bLoop=*/true);
+	}
+}
+
+float AWolfCharacter::GetChaseSpeedForFirstFight(bool bFirstQuestTurnedIn) const
+{
+	const bool bSlowed = !FirstFightQuestId.IsNone() && !bFirstQuestTurnedIn;
+	return GetChaseSpeed() * (bSlowed ? FMath::Clamp(FirstFightSpeedMultiplier, 0.1f, 1.0f) : 1.0f);
+}
+
+void AWolfCharacter::ApplyFirstFightSpeed(const UQuestComponent* PlayerQuests)
+{
+	if (Stats && Stats->IsDead())
+	{
+		return; // труп никуда не бежит
+	}
+
+	const float Speed = GetChaseSpeedForFirstFight(PlayerQuests && PlayerQuests->IsQuestTurnedIn(FirstFightQuestId));
+	if (AEnemyAIController* AI = Cast<AEnemyAIController>(GetController()))
+	{
+		// Контроллер держит «полную» скорость пешки у себя и от неё считает замедление у
+		// границы деревни — менять скорость мимо него нельзя, он вернул бы прежнюю.
+		AI->SetBaseWalkSpeed(Speed);
+	}
+	else if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->MaxWalkSpeed = Speed;
+	}
+}
+
+void AWolfCharacter::RefreshFirstFightSpeed()
+{
+	const APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+	ApplyFirstFightSpeed(PlayerPawn ? PlayerPawn->FindComponentByClass<UQuestComponent>() : nullptr);
 }
 
 void AWolfCharacter::Tick(float DeltaTime)
@@ -246,6 +287,8 @@ float AWolfCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 void AWolfCharacter::HandleDeath()
 {
 	UE_LOG(LogTemp, Log, TEXT("%s (wolf) died."), *GetName());
+
+	GetWorldTimerManager().ClearTimer(FirstFightRecheckTimer);
 
 	if (AController* AICtrl = GetController())
 	{

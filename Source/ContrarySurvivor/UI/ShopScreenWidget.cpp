@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"            // ADR-082: PC->GetHUD() в GetPartnerInventoryWidget
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "ContrarySurvivor/Retention/OnboardingComponent.h" // всплывающая надпись «почему не продаётся»
 #include "ContrarySurvivor/Actors/ShopTypes.h"
 #include "ContrarySurvivor/Ads/AdService.h"       // Build 1.2: «Продать дороже» (ТЗ №2)
 #include "ContrarySurvivor/Ads/AdGatingLogic.h"
@@ -499,7 +500,10 @@ int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 				Tile->SetTileData(SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous(),
 					Item->GetItemDisplayText(), Item->GetStackCount());
 				Tile->SetTileSize(TileSize, TileIconSize);
-				Tile->SetPriceText(FText::Format(SellPriceFormat, PriceArgs));
+				// Предмет под замком (шкуры до сдачи задания) — вместо цены причина отказа.
+				FText RefuseReason;
+				Tile->SetPriceText(Trader->CanBuyFromPlayer(Item, Player, RefuseReason)
+					? FText::Format(SellPriceFormat, PriceArgs) : RefuseReason);
 				Tile->OnTileClicked.AddUObject(this, &UShopScreenWidget::HandleTileAction);
 				AddTileToGrid(Tile);
 			}
@@ -613,6 +617,22 @@ void UShopScreenWidget::ArmSellTransaction(AMasterInventoryItem* Item)
 	// и нестакающийся предмет открывает панель подтверждения, а не продаётся мгновенно
 	// кликом плитки: в панели живут обычная кнопка продажи и золотая «Продать дороже».
 	// Отказ (обычная продажа) ничем не блокируется.
+
+	// Торговец этот предмет сейчас не берёт (шкуры до сдачи задания старосте, решение Рината
+	// 05–06.10.2026) — сделку не открываем, а причину показываем всплывающей надписью: она
+	// выводится поверх окна торговли тем же средством, что подсказки обучения.
+	FText RefuseReason;
+	if (!Trader->CanBuyFromPlayer(Item, Player, RefuseReason))
+	{
+		if (UOnboardingComponent* Hints = Player ? Player->GetOnboarding() : nullptr)
+		{
+			Hints->ShowTransientHint(RefuseReason);
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: shop SELL refused (UMG) - %s: %s"),
+			*Item->ItemName, *RefuseReason.ToString());
+		return;
+	}
+
 	AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
 
 	bTransactionActive = true;

@@ -88,6 +88,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
+	// --- Подарок от NPC (решение Рината 05–06.10.2026: аптечка от старосты малозаметна) ---
+	// Игрок получил предмет в подарок: всплывающая надпись (тем же средством, что подсказки
+	// обучения) и мигание кнопки СУМКА на экранном слое. Пока идёт диалог, надпись ОТКЛАДЫВАЕТСЯ
+	// до его закрытия — иначе она успевает погаснуть за оставшиеся реплики и игрок её не видит.
+	void NotifyGiftReceived(const FText& NoticeText);
+
+	// Есть ли надпись о подарке, ждущая закрытия диалога.
+	bool HasPendingGiftNotice() const { return !PendingGiftNotice.IsEmpty(); }
+
+	// Показать отложенную надпись о подарке (зовёт CloseDialog). true — было что показывать.
+	bool FlushPendingGiftNotice();
+
+	// QA-доступ (паттерн *ForQA): автотест отложенной надписи выставляет признак «диалог
+	// открыт» без окна и старосты. В игровом коде не вызывается.
+	void SetDialogOpenForQA(bool bOpen) { bDialogOpen = bOpen; }
+
 	// --- Обыск трупа (Build 1.2.1, ТЗ А1) — вызывается OnInteract (E у трупа) и HUD ---
 
 	// Открыть окно обыска (контейнер лута — на трупе врага или на мешке-пикапе, Build 1.2.2).
@@ -1075,6 +1091,12 @@ private:
 	// null — слой выключен.
 	UPROPERTY()
 	TObjectPtr<UTouchControlsWidget> TouchControlsLayer;
+
+	// Надпись о подарке, отложенная до закрытия диалога (см. NotifyGiftReceived). Пусто — нет.
+	FText PendingGiftNotice;
+
+	// Показать надпись о подарке и запустить мигание кнопки СУМКА.
+	void ShowGiftNotice(const FText& NoticeText);
 
 	// --- Заглушение мира на время главного меню (см. ApplyWorldAudioGate) ---
 

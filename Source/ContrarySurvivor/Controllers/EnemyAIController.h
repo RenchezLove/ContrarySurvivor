@@ -103,6 +103,11 @@ public:
 	bool PerformAttackForQA(APawn* Target) { return PerformAttack(Target); }
 	bool PerformRangedAttackForQA(APawn* Target) { return PerformRangedAttack(Target); }
 
+	// Сменить «полную» скорость пешки на ходу (замедление волка в первом бою, 06.10.2026).
+	// Контроллер держит её в кэше и от неё считает замедление у границы деревни, поэтому
+	// пешка меняет скорость через него: кэш обновляется, действующее замедление сохраняется.
+	void SetBaseWalkSpeed(float NewBaseSpeed);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;

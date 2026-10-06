@@ -269,6 +269,43 @@ public:
 		DisplayName = "Мигать только когда есть чем перезарядиться"))
 	bool bBlinkOnlyWhenHasAmmoToReload = false;
 
+	// --- Мигание кнопки СУМКА после подарка (решение Рината 05–06.10.2026: аптечка от
+	// старосты малозаметна — после диалога кнопка мигает несколько секунд). Отдельной кнопки
+	// аптечки на экране нет: аптечка лежит в рюкзаке, поэтому мигает кнопка, которая его
+	// открывает. Тот же приём, что мигание перезарядки выше. Гаснет раньше срока, если игрок
+	// открыл любое окно. ---
+
+	// Сколько секунд мигает кнопка СУМКА. 0 — мигание выключено.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.0", DisplayPriority = "1",
+		DisplayName = "Мигание кнопки сумки после подарка, сек"))
+	float InventoryBlinkDuration = 6.0f;
+
+	// Цвет мигания (зелёный — «получено», в отличие от тревожного красного перезарядки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (DisplayPriority = "2",
+		DisplayName = "Цвет мигания"))
+	FLinearColor InventoryBlinkColor = FLinearColor(0.25f, 1.0f, 0.35f, 1.0f);
+
+	// Период мигания: сколько секунд занимает один полный цикл «пригасла — разгорелась».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.05", DisplayPriority = "3",
+		DisplayName = "Период мигания, сек"))
+	float InventoryBlinkPeriod = 0.8f;
+
+	// Глубина мигания: 0 — ровный цвет, 1 — в нижней точке гаснет полностью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "4",
+		DisplayName = "Глубина мигания (0 — ровный цвет, 1 — гаснет полностью)"))
+	float InventoryBlinkDepth = 0.7f;
+
+	// Запустить мигание кнопки СУМКА на InventoryBlinkDuration секунд (зовёт контроллер,
+	// когда игрок получил подарок). Повторный вызов начинает отсчёт заново.
+	void StartInventoryAttentionBlink();
+
+	// Мигает ли кнопка СУМКА прямо сейчас.
+	bool IsInventoryAttentionBlinking() const { return InventoryBlinkRemaining > 0.0f; }
+
+	// Яркость мигающей кнопки в момент Time: ходит по синусу между (1 - Depth) и 1. Общая
+	// формула миганий слоя, вынесена чистой функцией для автотеста.
+	static float ComputeBlinkBrightness(float Time, float Period, float Depth);
+
 	// --- Компас на стике (ADR-076 п.5). П.0 отчёта Рината 23.08 (ADR-077): кубики компаса
 	// живут В АССЕТЕ WBP_TouchControls (добавляет -augment генератора) — видны и двигаются
 	// в дизайнере, стиль (кегли/цвета/тексты/размер стрелки) правится там же. Код НЕ трогает
@@ -528,6 +565,10 @@ private:
 	// Обычный цвет кнопки ПЕРЕЗАРЯДКА: заданный полем или снятый с кнопки в дизайнере.
 	FLinearColor GetReloadIdleColor() const;
 
+	// Мигание кнопки СУМКА после подарка (см. StartInventoryAttentionBlink). Зовётся каждый
+	// кадр; bModal — открыто окно: мигание гаснет досрочно, кнопка возвращается к покою.
+	void UpdateInventoryAttentionVisual(float DeltaTime, bool bModal);
+
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
 	void UpdateWeaponIcon(bool bForceHide);
@@ -603,4 +644,10 @@ private:
 	// --- Мигание кнопки ПЕРЕЗАРЯДКА при малом магазине (директива владельца 08-29) ---
 	float ReloadBlinkTime = 0.0f;      // накопитель фазы синуса мигания
 	bool bReloadVisualActive = false;  // сейчас показано мигание (для сброса к покою один раз)
+
+	// --- Мигание кнопки СУМКА после подарка (06.10.2026) ---
+	float InventoryBlinkRemaining = 0.0f; // сколько секунд мигания осталось (0 — не мигает)
+	float InventoryBlinkTime = 0.0f;      // накопитель фазы синуса мигания
+	bool bInventoryVisualActive = false;  // цвет кнопки сейчас подменён миганием
+	FLinearColor InventoryIdleColor = FLinearColor::White; // цвет кнопки, снятый перед миганием
 };

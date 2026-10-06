@@ -2345,6 +2345,10 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	bShowMouseCursor = true;
 	UE_LOG(LogTemp, Log, TEXT("Dialog CLOSED"));
 
+	// Подарок, полученный в этом диалоге (аптечка старосты): надпись и мигание кнопки СУМКА
+	// показываем сейчас, когда окно диалога уже не отвлекает (решение Рината 05–06.10.2026).
+	FlushPendingGiftNotice();
+
 	// Build 1 (решение Рината 07-24): окно ежедневной награды могло быть отложено до конца
 	// интро-диалога (банер портил атмосферу интро) — сообщаем компоненту, что диалог старосты
 	// закрылся. Без отложенного окна вызов — тихий no-op.
@@ -2359,6 +2363,50 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	// Точка полноэкранного показа без награды (решение Рината 04.10.2026): диалог, в котором
 	// игрок сдал задание про бандитов, закрылся. Стоит последней — показ ставит игру на паузу.
 	TryShowQuestBanditsInterstitial();
+}
+
+void AContrarySurvivorPlayerController::NotifyGiftReceived(const FText& NoticeText)
+{
+	if (NoticeText.IsEmpty())
+	{
+		return;
+	}
+	if (bDialogOpen)
+	{
+		PendingGiftNotice = NoticeText; // покажем при закрытии диалога (CloseDialog)
+		return;
+	}
+	ShowGiftNotice(NoticeText);
+}
+
+bool AContrarySurvivorPlayerController::FlushPendingGiftNotice()
+{
+	if (PendingGiftNotice.IsEmpty())
+	{
+		return false;
+	}
+	const FText Notice = PendingGiftNotice;
+	PendingGiftNotice = FText::GetEmpty();
+	ShowGiftNotice(Notice);
+	return true;
+}
+
+void AContrarySurvivorPlayerController::ShowGiftNotice(const FText& NoticeText)
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		if (UOnboardingComponent* Hints = PlayerChar->GetOnboarding())
+		{
+			Hints->ShowTransientHint(NoticeText);
+		}
+	}
+	// Подарок лежит в рюкзаке — мигает кнопка, которая его открывает. На ПК экранного слоя
+	// нет, остаётся одна надпись.
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->StartInventoryAttentionBlink();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: gift notice shown - %s"), *NoticeText.ToString());
 }
 
 bool AContrarySurvivorPlayerController::IsQuestTurnedIn(FName QuestId) const

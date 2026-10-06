@@ -632,6 +632,15 @@ public:
     UFUNCTION(BlueprintPure, Category = "Death")
     FText GetLastDamagerName() const { return LastDamagerName; }
 
+    // Кто убил — для статистики (решение Рината 05–06.10.2026): тип врага латиницей,
+    // wolf / bandit / other. Едет в событие player:death. Отдельно от LastDamagerName:
+    // то — переводимая надпись экрана смерти, а в имя события годится только латиница.
+    const FString& GetLastDamagerAnalyticsType() const { return LastDamagerAnalyticsType; }
+
+    // Тип источника урона для статистики: волк -> wolf, бандит -> bandit, всё прочее
+    // (и отсутствие источника) -> other. Чистая функция, её держит автотест.
+    static FString GetKillerAnalyticsType(const AActor* DamageCauser);
+
     // Сколько врагов убито за сессию (инкремент при смерти врага от игрока).
     UFUNCTION(BlueprintPure, Category = "Death")
     int32 GetEnemyKillCount() const { return EnemyKillCount; }
@@ -1003,6 +1012,10 @@ private:
     // погибает (ADR-050). Служебное имя объекта сюда НЕ попадает: неизвестный источник
     // урона даёт «Неизвестно», а сам объект уходит в лог (протечка вида BP_..._C_2).
     FText LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+
+    // Тот же последний нанёсший урон, но типом для статистики (см. GetKillerAnalyticsType).
+    // Обновляется и сбрасывается вместе с LastDamagerName.
+    FString LastDamagerAnalyticsType = TEXT("other");
 
     // Счётчик убитых игроком врагов за сессию (инкремент RegisterEnemyKill).
     int32 EnemyKillCount = 0;

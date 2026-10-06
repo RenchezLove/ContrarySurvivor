@@ -16,6 +16,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // Build 1.1: плавный доворот StartAimTurnTo
+#include "ContrarySurvivor/Components/StatsComponent.h" // «враг жив» для доворота к ближайшему врагу
 
 AMeleeWeapon::AMeleeWeapon()
 {
@@ -102,6 +103,99 @@ float AMeleeWeapon::GetSurfaceDistanceTo(const AActor* Target) const
 	return CenterDist - CapsuleRadiusOf(Wielder) - CapsuleRadiusOf(Target);
 }
 
+void AMeleeWeapon::SnapWielderYawTo(APawn* Wielder, const AActor* Target)
+{
+	if (!Wielder || !Target)
+	{
+		return;
+	}
+	FVector ToTarget = Target->GetActorLocation() - Wielder->GetActorLocation();
+	ToTarget.Z = 0.0f;
+	if (!ToTarget.IsNearlyZero()) // вплотную направление вырождено — поворот не трогаем
+	{
+		Wielder->SetActorRotation(FRotator(0.0f, ToTarget.Rotation().Yaw, 0.0f));
+	}
+}
+
+AActor* AMeleeWeapon::FindAutoFaceTarget() const
+{
+	UWorld* World = GetWorld();
+	APawn* Wielder = GetInstigator();
+	if (!bAutoFaceNearestEnemy || !World || !Wielder)
+	{
+		return nullptr;
+	}
+
+	const FVector Origin = Wielder->GetActorLocation();
+	const float Reach = MeleeRange + AutoFaceExtraRange;
+
+	// Грубая выборка пешек вокруг носителя — тот же запрос, что в ApplyMeleeDamage (запас 60
+	// покрывает радиус капсулы цели), дальше точный отбор по дистанции между поверхностями.
+	FCollisionObjectQueryParams ObjParams;
+	ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(Wielder);
+	QueryParams.AddIgnoredActor(this);
+
+	TArray<FOverlapResult> Overlaps;
+	World->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, ObjParams,
+		FCollisionShape::MakeSphere(CapsuleRadiusOf(Wielder) + Reach + 60.0f), QueryParams);
+
+	const FVector Forward2D = Wielder->GetActorForwardVector().GetSafeNormal2D();
+	const float CosSearchLimit = FMath::Cos(FMath::DegreesToRadians(AutoFaceHalfAngleDeg));
+
+	AActor* Best = nullptr;
+	float BestDist = TNumericLimits<float>::Max();
+	for (const FOverlapResult& Ov : Overlaps)
+	{
+		AActor* Candidate = Ov.GetActor();
+		if (!Candidate || Candidate == Wielder || Candidate == Best)
+		{
+			continue;
+		}
+
+		// Враг — тот же признак, что у захвата цели игроком (AContrarySurvivorPlayerController::
+		// IsValidTarget): несёт полоски состояния и жив. Мирные NPC и трупы отсекаются.
+		const UStatsComponent* CandidateStats = Candidate->FindComponentByClass<UStatsComponent>();
+		if (!CandidateStats || CandidateStats->IsDead())
+		{
+			continue;
+		}
+		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(Candidate))
+		{
+			if (Humanoid->IsImmuneToDamage())
+			{
+				continue;
+			}
+		}
+
+		const float SurfaceDist = GetSurfaceDistanceTo(Candidate);
+		if (SurfaceDist > Reach || SurfaceDist >= BestDist)
+		{
+			continue;
+		}
+
+		// Угол поиска от направления взгляда. Цель вплотную (направление вырождено) подходит.
+		const FVector ToCandidate2D = (Candidate->GetActorLocation() - Origin).GetSafeNormal2D();
+		if (AutoFaceHalfAngleDeg < 180.0f && !ToCandidate2D.IsNearlyZero()
+			&& FVector::DotProduct(Forward2D, ToCandidate2D) < CosSearchLimit)
+		{
+			continue;
+		}
+
+		// К врагу за стеной не доворачиваемся: нож его всё равно не достанет.
+		if (!HasLineOfSightToTarget(Wielder, Candidate))
+		{
+			continue;
+		}
+
+		Best = Candidate;
+		BestDist = SurfaceDist;
+	}
+	return Best;
+}
+
 bool AMeleeWeapon::ConsumePendingSwing()
 {
 	const bool bWasPending = bSwingAwaitingNotify;
@@ -141,8 +235,6 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 			SwingSoundVolume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
 	}
 
-	const FVector Origin = Wielder->GetActorLocation();
-
 	// Доворот к залоченной цели, если лок в радиусе удара.
 	// Build 1.1 (решение game-lead по формулировке Рината «в ЭТОМ ЖЕ секторе наносится урон»):
 	// по умолчанию доворот ПЛАВНЫЙ — тот же StartAimTurnTo, что у стрельбы. Он лишь запускает
@@ -150,30 +242,39 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 	// взмах считается по текущему направлению взгляда — ровно по тому сектору, который игрок
 	// видит подсвеченным на земле. Мгновенный рывок (прежнее поведение) остался под флагом
 	// bMeleeSnapToTarget: он не промахивается, но бьёт мимо нарисованного сектора.
-	if (bTurnToLockedTarget)
+	//
+	// 05–06.10.2026 (решение Рината: «доворот героя к волку при ударе ножом, чтобы удар
+	// приходился по цели»): первым делом ищем БЛИЖАЙШЕГО врага в досягаемости удара — к нему и
+	// доворачиваемся. Поворот по-прежнему начинается плавно, но остаток добирается в кадр удара
+	// (ApplyMeleeDamage), поэтому нож больше не уходит мимо волка сбоку или за спиной.
+	AActor* FaceTarget = FindAutoFaceTarget();
+	const bool bAutoFace = (FaceTarget != nullptr);
+	if (!FaceTarget && bTurnToLockedTarget)
 	{
 		if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetInstigatorController()))
 		{
 			AActor* Locked = PC->GetCurrentTarget();
 			if (IsValid(Locked) && Locked != Wielder && GetSurfaceDistanceTo(Locked) <= MeleeRange)
 			{
-				if (bMeleeSnapToTarget)
-				{
-					FVector ToLocked = Locked->GetActorLocation() - Origin;
-					ToLocked.Z = 0.0f;
-					if (!ToLocked.IsNearlyZero())
-					{
-						Wielder->SetActorRotation(FRotator(0.0f, ToLocked.Rotation().Yaw, 0.0f));
-					}
-				}
-				else if (AMasterHumanoidCharacter* WielderHumanoid = Cast<AMasterHumanoidCharacter>(Wielder))
-				{
-					// Единый механизм прицеливания корпусом с ARangedWeapon::Fire: скорость и
-					// длительность ведения цели настраиваются на персонаже (AimTurnInterpSpeed,
-					// AimTurnHoldTime), выключается там же (bAimTurnToTarget).
-					WielderHumanoid->StartAimTurnTo(Locked);
-				}
+				FaceTarget = Locked;
 			}
+		}
+	}
+
+	// Новый замах забывает цель доворота прошлого (тот мог не дойти до своего кадра удара).
+	SwingFaceTarget = bAutoFace ? FaceTarget : nullptr;
+	if (FaceTarget)
+	{
+		if (bMeleeSnapToTarget)
+		{
+			SnapWielderYawTo(Wielder, FaceTarget);
+		}
+		else if (AMasterHumanoidCharacter* WielderHumanoid = Cast<AMasterHumanoidCharacter>(Wielder))
+		{
+			// Единый механизм прицеливания корпусом с ARangedWeapon::Fire: скорость и
+			// длительность ведения цели настраиваются на персонаже (AimTurnInterpSpeed,
+			// AimTurnHoldTime), выключается там же (bAimTurnToTarget).
+			WielderHumanoid->StartAimTurnTo(FaceTarget);
 		}
 	}
 
@@ -207,6 +308,20 @@ void AMeleeWeapon::ApplyMeleeDamage()
 		UE_LOG(LogTemp, Warning, TEXT("AMeleeWeapon::ApplyMeleeDamage — no instigator"));
 		return;
 	}
+
+	// Кадр удара: добираем остаток доворота к врагу, выбранному при замахе (см. Fire), — если
+	// он ещё жив и по-прежнему в досягаемости. Плавный поворот за время замаха проходит не
+	// весь угол, а сектор урона считается по направлению взгляда прямо сейчас.
+	if (AActor* FaceTarget = SwingFaceTarget.Get())
+	{
+		const UStatsComponent* FaceStats = FaceTarget->FindComponentByClass<UStatsComponent>();
+		if (FaceStats && !FaceStats->IsDead()
+			&& GetSurfaceDistanceTo(FaceTarget) <= MeleeRange + AutoFaceExtraRange)
+		{
+			SnapWielderYawTo(Wielder, FaceTarget);
+		}
+	}
+	SwingFaceTarget = nullptr;
 
 	const FVector Origin = Wielder->GetActorLocation();
 	const float WielderRadius = CapsuleRadiusOf(Wielder);

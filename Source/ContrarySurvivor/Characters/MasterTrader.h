@@ -11,6 +11,7 @@
 
 class USphereComponent;
 class AMasterInventoryItem;
+class UQuestComponent;
 
 /**
  * NPC-торговец на базе модульного гуманоида (Фаза «чистка деревни»).
@@ -58,6 +59,16 @@ public:
 
 	// Цена выкупа ОДНОГО патрона (для слайдера продажи стака патронов).
 	virtual float GetAmmoSellPerRound() const override { return SellValueAmmoPerRound; }
+
+	// Шкуры (и всё, что перечислено в SellLockedUntilQuest) торговец не берёт, пока игрок не
+	// сдал названное там задание; после сдачи — берёт. Причина отказа — SellLockedReasonText.
+	virtual bool CanBuyFromPlayer(const AMasterInventoryItem* Item, const APlayerCharacter* Seller,
+		FText& OutReason) const override;
+
+	// То же правило без игрока и предмета — по служебному ключу и журналу заданий. Отдельной
+	// функцией, чтобы его гонял автотест без мира и окна. Журнала нет — задание считается
+	// несданным (предмет под замком).
+	bool IsSellLockedByQuest(const FString& ItemKey, const UQuestComponent* SellerQuests) const;
 
 	// --- IInteractableNPCInterface (HUD-маркер находимости) ---
 	virtual FText GetNPCMarkerLabel() const override { return NPCMarkerLabel; }
@@ -162,6 +173,20 @@ protected:
 	// Заполняется в конструкторе, тюнингуется в редакторе на размещённом торговце.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell", meta = (DisplayPriority = "2"))
 	TMap<FString, float> SpecialSellValues;
+
+	// Что торговец НЕ выкупает, пока не сдано задание (решение Рината 05–06.10.2026: «торговец
+	// не покупает шкуры, пока задание на шкуры не сдано; после сдачи — покупает»). Иначе
+	// новичок продаёт шкуры за монеты, остаётся без шкур для старосты и застревает в начале.
+	// Ключ — служебный ключ предмета (ItemName, не переводится), значение — идентификатор
+	// задания латиницей (первое задание старосты — KillWolves). Убрать строку — снять замок.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shop|Sell", meta = (DisplayPriority = "3",
+		DisplayName = "Не выкупать, пока не сдано задание (предмет — задание)"))
+	TMap<FString, FName> SellLockedUntilQuest;
+
+	// Короткая надпись игроку, почему предмет под замком не продаётся. Черновик, утверждает Ринат.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop|Sell", meta = (DisplayPriority = "4",
+		DisplayName = "Надпись: почему предмет пока не выкупается"))
+	FText SellLockedReasonText = NSLOCTEXT("Shop", "SellLockedByQuest", "Сначала отнеси шкуры старосте");
 
 	// Цены выкупа ПО КАТЕГОРИИ — запасной путь для вещей, которых в прайс-листе нет
 	// (лут бандитов, квестовые предметы). Для товаров прайс-листа они больше не работают:

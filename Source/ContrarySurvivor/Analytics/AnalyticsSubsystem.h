@@ -42,8 +42,10 @@ public:
 
 	// --- События (F3): все тихо no-op при выключенной аналитике ---
 
-	// Смерть игрока.
-	void RecordPlayerDeath();
+	// Смерть игрока. KillerType — кто убил, латиницей: wolf / bandit / other (решение Рината
+	// 05–06.10.2026; значение даёт APlayerCharacter::GetKillerAnalyticsType). Уходит третьей
+	// частью имени события: player:death:wolf.
+	void RecordPlayerDeath(const FString& KillerType);
 
 	// ПРЕДЛОЖЕНИЕ квеста игроку (сводное ТЗ издателя 13.08, задача 3): начало воронки
 	// «предложен -> принят -> сдан». Уходит РОВНО ОДИН РАЗ на квест — сторож стоит в
@@ -188,6 +190,7 @@ public:
 	static FString MakeSupportLinkOpenedEventId();
 
 	static FString MakeQuestOfferedEventId(FName QuestId);
+	static FString MakePlayerDeathEventId(const FString& KillerType);
 	static FString MakeSupportAdOfferedEventId();
 	static FString MakeSupportAdNotShownEventId(const FString& Reason);
 	static FString MakeSupportAdDismissedEventId();

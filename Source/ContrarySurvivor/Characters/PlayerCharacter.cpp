@@ -239,6 +239,7 @@ void APlayerCharacter::BeginPlay()
     // #26: засекаем старт текущей жизни (для статистики «сколько прожил» на экране смерти).
     LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
     LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+    LastDamagerAnalyticsType = TEXT("other");
 
     // Build 1.2: база суммарного игрового времени — из сейва; остаток сессии копится в Tick
     // и сбрасывается в слот по таймеру (гейт «15 минут без рекламы», ТЗ раздел 0 п.2).
@@ -859,6 +860,7 @@ float APlayerCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
     // игрока, DamageCauser == this) и безымянный источник не перетирают последнего врага.
     if (DamageCauser && DamageCauser != this)
     {
+        LastDamagerAnalyticsType = GetKillerAnalyticsType(DamageCauser);
         if (Cast<AWolfCharacter>(DamageCauser))
         {
             LastDamagerName = NSLOCTEXT("Death", "KillerWolf", "Волк");
@@ -2650,8 +2652,21 @@ void APlayerCharacter::HandleDeath()
     // F3 (ADR-038): событие аналитики «смерть игрока». Без ключей — no-op.
     if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
     {
-        Analytics->RecordPlayerDeath();
+        Analytics->RecordPlayerDeath(LastDamagerAnalyticsType);
     }
+}
+
+FString APlayerCharacter::GetKillerAnalyticsType(const AActor* DamageCauser)
+{
+    if (Cast<AWolfCharacter>(DamageCauser))
+    {
+        return TEXT("wolf");
+    }
+    if (Cast<AEnemyCharacter>(DamageCauser))
+    {
+        return TEXT("bandit");
+    }
+    return TEXT("other");
 }
 
 void APlayerCharacter::RegisterEnemyKill(const FString& EnemyType)
@@ -2737,6 +2752,7 @@ void APlayerCharacter::Respawn(bool bBackpackRescued)
     // 4) Сбрасываем трекинг жизни и врага-убийцу для следующей жизни.
     LifeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
     LastDamagerName = NSLOCTEXT("Death", "KillerUnknown", "Неизвестно");
+    LastDamagerAnalyticsType = TEXT("other");
 
     // 5) Возвращаем управление и убираем экран смерти.
     if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))

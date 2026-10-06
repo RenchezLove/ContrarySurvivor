@@ -12,6 +12,7 @@
 #include "AMeleeWeapon.h"
 #include "AAmmoItem.h" // распознавание позиции патронов по классу (путь таблицы, ADR-075)
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h" // строки таблицы предметов DT_Items (ADR-075)
+#include "ContrarySurvivor/Components/QuestComponent.h" // замок выкупа до сдачи задания
 
 AMasterTrader::AMasterTrader()
 {
@@ -54,6 +55,11 @@ AMasterTrader::AMasterTrader()
 	// цену пистолета, и у охоты появляется понятная цель. Категорию предмета не трогаем:
 	// шкура остаётся квестовой (её нельзя съесть и она не теряется при смерти).
 	SpecialSellValues.Add(TEXT("Шкура волка"), 15.0f);
+
+	// Замок выкупа (решение Рината 05–06.10.2026): шкуры торговец берёт только после сдачи
+	// первого задания старосты. Ключ шкуры — тот же, что строкой выше; идентификатор задания
+	// — AElderNPC::OfferedQuest.QuestId.
+	SellLockedUntilQuest.Add(TEXT("Шкура волка"), FName(TEXT("KillWolves")));
 
 	// ADR-075: дефолтный состав прайс-листа ССЫЛКАМИ на строки таблицы предметов DT_Items —
 	// те же 15 позиций, что в зашитом прайсе (BuildLegacyCatalog). Имена строк = прежние
@@ -287,6 +293,27 @@ float AMasterTrader::GetSellValue(const AMasterInventoryItem* Item) const
 		case EItemCategory::Resource:   return SellValueResource;
 		default:                        return SellValueResource;
 	}
+}
+
+bool AMasterTrader::IsSellLockedByQuest(const FString& ItemKey, const UQuestComponent* SellerQuests) const
+{
+	const FName* QuestId = SellLockedUntilQuest.Find(ItemKey);
+	if (!QuestId || QuestId->IsNone())
+	{
+		return false; // предмет не под замком
+	}
+	return !(SellerQuests && SellerQuests->IsQuestTurnedIn(*QuestId));
+}
+
+bool AMasterTrader::CanBuyFromPlayer(const AMasterInventoryItem* Item, const APlayerCharacter* Seller,
+	FText& OutReason) const
+{
+	if (Item && IsSellLockedByQuest(Item->ItemName, Seller ? Seller->GetQuests() : nullptr))
+	{
+		OutReason = SellLockedReasonText;
+		return false;
+	}
+	return true;
 }
 
 void AMasterTrader::RebuildCatalog()

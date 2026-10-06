@@ -213,6 +213,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	int32 GetTurnedInQuestCount() const;
 
+	// Сдано ли задание с таким идентификатором (State == TurnedIn). Задания нет в журнале или
+	// идентификатор пуст — false. Одной функцией, потому что по этому признаку живут правила
+	// «первого боя»: замедление волка и выкуп шкур торговцем (решения Рината 05–06.10.2026).
+	UFUNCTION(BlueprintPure, Category = "Quest")
+	bool IsQuestTurnedIn(FName QuestId) const;
+
 	// Выполнены ли ОБЕ цели квеста (kill + item). Цель с нулевым требованием считается выполненной.
 	static bool AreObjectivesMet(const FQuest& Quest);
 
