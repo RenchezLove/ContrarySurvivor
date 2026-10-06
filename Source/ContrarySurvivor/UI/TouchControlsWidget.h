@@ -278,7 +278,7 @@ public:
 	// Сколько секунд мигает кнопка СУМКА. 0 — мигание выключено.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.0", DisplayPriority = "1",
 		DisplayName = "Мигание кнопки сумки после подарка, сек"))
-	float InventoryBlinkDuration = 6.0f;
+	float InventoryBlinkDuration = 10.0f;
 
 	// Цвет мигания (зелёный — «получено», в отличие от тревожного красного перезарядки).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (DisplayPriority = "2",
@@ -288,12 +288,17 @@ public:
 	// Период мигания: сколько секунд занимает один полный цикл «пригасла — разгорелась».
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.05", DisplayPriority = "3",
 		DisplayName = "Период мигания, сек"))
-	float InventoryBlinkPeriod = 0.8f;
+	float InventoryBlinkPeriod = 0.5f;
 
 	// Глубина мигания: 0 — ровный цвет, 1 — в нижней точке гаснет полностью.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "4",
 		DisplayName = "Глубина мигания (0 — ровный цвет, 1 — гаснет полностью)"))
-	float InventoryBlinkDepth = 0.7f;
+	float InventoryBlinkDepth = 0.85f;
+
+	// Во сколько раз кнопка увеличивается на пике мигания. 1 — размер не меняется.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Inventory", meta = (ClampMin = "1.0", ClampMax = "2.0", DisplayPriority = "5",
+		DisplayName = "Увеличение кнопки на пике мигания (1 — без увеличения)"))
+	float InventoryBlinkScale = 1.35f;
 
 	// Запустить мигание кнопки СУМКА на InventoryBlinkDuration секунд (зовёт контроллер,
 	// когда игрок получил подарок). Повторный вызов начинает отсчёт заново.

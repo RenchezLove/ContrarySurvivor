@@ -885,6 +885,11 @@ void UTouchControlsWidget::UpdateInventoryAttentionVisual(float DeltaTime, bool 
 			* ComputeBlinkBrightness(InventoryBlinkTime, InventoryBlinkPeriod, InventoryBlinkDepth);
 		C.A = InventoryBlinkColor.A;
 		InventoryButton->SetBackgroundColor(C);
+		// Кнопка ещё и «дышит» размером в такт цвету — движение глаз ловит раньше цвета.
+		const float Pulse01 = ComputeBlinkBrightness(InventoryBlinkTime, InventoryBlinkPeriod, 1.0f);
+		const float Scale = FMath::Lerp(1.0f, FMath::Max(1.0f, InventoryBlinkScale), Pulse01);
+		InventoryButton->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		InventoryButton->SetRenderScale(FVector2D(Scale, Scale));
 		if (InventoryBlinkRemaining > 0.0f)
 		{
 			return;
@@ -897,6 +902,7 @@ void UTouchControlsWidget::UpdateInventoryAttentionVisual(float DeltaTime, bool 
 		if (InventoryButton)
 		{
 			InventoryButton->SetBackgroundColor(InventoryIdleColor);
+			InventoryButton->SetRenderScale(FVector2D(1.0f, 1.0f));
 		}
 		bInventoryVisualActive = false;
 	}
