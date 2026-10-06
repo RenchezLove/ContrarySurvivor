@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
+#include "ContrarySurvivor/UI/TouchControlsWidget.h" // ComputeBlinkBrightness — общая формула миганий
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -278,6 +279,55 @@ void UItemTileWidget::SetTileSize(const FVector2D& InTileSize, float InIconSize)
 		TileIconBox->SetWidthOverride(InIconSize);
 		TileIconBox->SetHeightOverride(InIconSize);
 	}
+}
+
+void UItemTileWidget::SetAttentionBlink(bool bOn)
+{
+	if (bOn == bAttentionBlink)
+	{
+		return;
+	}
+	bAttentionBlink = bOn;
+	AttentionTime = 0.0f;
+	if (bOn)
+	{
+		if (TileButton)
+		{
+			AttentionIdleColor = TileButton->GetBackgroundColor();
+		}
+	}
+	else
+	{
+		if (TileButton)
+		{
+			TileButton->SetBackgroundColor(AttentionIdleColor);
+		}
+		SetRenderScale(FVector2D(1.0f, 1.0f));
+	}
+}
+
+void UItemTileWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (!bAttentionBlink)
+	{
+		return;
+	}
+	// Та же формула, что у мигания кнопки сумки на экранном слое: цвет ходит по синусу,
+	// плитка в такт «дышит» размером.
+	AttentionTime += InDeltaTime;
+	if (TileButton)
+	{
+		FLinearColor C = AttentionColor
+			* UTouchControlsWidget::ComputeBlinkBrightness(AttentionTime, AttentionPeriod, AttentionDepth);
+		C.A = AttentionColor.A;
+		TileButton->SetBackgroundColor(C);
+	}
+	const float Pulse01 = UTouchControlsWidget::ComputeBlinkBrightness(AttentionTime, AttentionPeriod, 1.0f);
+	const float Scale = FMath::Lerp(1.0f, FMath::Max(1.0f, AttentionScale), Pulse01);
+	SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	SetRenderScale(FVector2D(Scale, Scale));
 }
 
 void UItemTileWidget::HandleTileClicked()

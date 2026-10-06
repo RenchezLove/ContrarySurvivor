@@ -460,6 +460,20 @@ bool FFirstFightElderGiftNoticeableTest::RunTest(const FString& Parameters)
 		UTouchControlsWidget::ComputeBlinkBrightness(Period * 0.25f, Period, Depth), 1.0f, 0.001f);
 	TestEqual(TEXT("В нижней точке цикла яркость снижена на глубину"),
 		UTouchControlsWidget::ComputeBlinkBrightness(Period * 0.75f, Period, Depth), 1.0f - Depth, 0.001f);
+
+	// --- (г) Подсветка подарка в сумке: контроллер помнит, какой расходник мигает ---
+	AContrarySurvivorPlayerController* PC2 = NewObject<AContrarySurvivorPlayerController>(GetTransientPackage());
+	if (TestNotNull(TEXT("Второй контроллер создан"), PC2))
+	{
+		const uint8 GiftType = 2;
+		const uint8 OtherType = 1;
+		TestFalse(TEXT("Без подарка в сумке ничего не подсвечено"), PC2->HasGiftHighlight());
+		PC2->SetGiftHighlight(GiftType);
+		TestTrue(TEXT("После подарка его расходник подсвечен"), PC2->IsGiftHighlighted(GiftType));
+		TestFalse(TEXT("Другой расходник не подсвечен"), PC2->IsGiftHighlighted(OtherType));
+		PC2->ClearGiftHighlight();
+		TestFalse(TEXT("После снятия подсветки не мигает ничего"), PC2->IsGiftHighlighted(GiftType));
+	}
 	return true;
 }
 

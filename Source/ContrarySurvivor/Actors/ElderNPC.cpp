@@ -271,6 +271,7 @@ bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
 		if (AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController()))
 		{
 			PC->NotifyGiftReceived(Notice);
+			PC->SetGiftHighlight(static_cast<uint8>(FirstGiftConsumableType)); // плитка подарка мигает в сумке
 		}
 		else if (UOnboardingComponent* Hints = Player->GetOnboarding())
 		{

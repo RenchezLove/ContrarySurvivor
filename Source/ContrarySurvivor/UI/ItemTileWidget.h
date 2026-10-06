@@ -81,8 +81,39 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ItemTile|Texts", meta = (DisplayPriority = "1"))
 	FText CountFormat = NSLOCTEXT("ItemTile", "CountFormat", "x{Count}");
 
+	// --- Мигание плитки «посмотри сюда» (06.10.2026, решение Рината: после подарка старосты
+	// в сумке мигает аптечка так же, как до этого мигала кнопка сумки). Включает экран-владелец.
+
+	// Цвет мигания плитки (зелёный — «получено», как у кнопки сумки).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ItemTile|Attention", meta = (DisplayPriority = "1",
+		DisplayName = "Цвет мигания"))
+	FLinearColor AttentionColor = FLinearColor(0.25f, 1.0f, 0.35f, 1.0f);
+
+	// Период мигания: сколько секунд занимает один полный цикл.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ItemTile|Attention", meta = (ClampMin = "0.05", DisplayPriority = "2",
+		DisplayName = "Период мигания, сек"))
+	float AttentionPeriod = 0.5f;
+
+	// Глубина мигания: 0 — ровный цвет, 1 — в нижней точке гаснет полностью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ItemTile|Attention", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "3",
+		DisplayName = "Глубина мигания (0 — ровный цвет, 1 — гаснет полностью)"))
+	float AttentionDepth = 0.85f;
+
+	// Во сколько раз плитка увеличивается на пике мигания. Меньше, чем у кнопки сумки:
+	// плитки стоят в сетке вплотную, большая наезжала бы на соседей.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ItemTile|Attention", meta = (ClampMin = "1.0", ClampMax = "2.0", DisplayPriority = "4",
+		DisplayName = "Увеличение плитки на пике мигания (1 — без увеличения)"))
+	float AttentionScale = 1.15f;
+
+	// Включить или выключить мигание плитки. Мигает, пока не выключат или плитку не пересоберут.
+	void SetAttentionBlink(bool bOn);
+
+	// Мигает ли плитка прямо сейчас.
+	bool IsAttentionBlinking() const { return bAttentionBlink; }
+
 protected:
 	virtual void NativeOnInitialized() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	UFUNCTION() void HandleTileClicked();
 	UFUNCTION() void HandleDropClicked();
@@ -128,4 +159,9 @@ protected:
 private:
 	// Кодовое дерево-фолбэк, если плитка создана без WBP (кубики пустые).
 	void BuildFallbackTree();
+
+	// --- Мигание плитки (см. SetAttentionBlink) ---
+	bool bAttentionBlink = false;
+	float AttentionTime = 0.0f;                             // накопитель фазы мигания
+	FLinearColor AttentionIdleColor = FLinearColor::White;  // цвет кнопки плитки до мигания
 };

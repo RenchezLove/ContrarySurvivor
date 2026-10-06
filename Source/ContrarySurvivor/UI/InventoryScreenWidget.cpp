@@ -5,7 +5,9 @@
 #include "ContrarySurvivor/UI/CorpseLootWidget.h" // окно-напарник режима Search (ADR-082)
 #include "ContrarySurvivor/UI/ShopScreenWidget.h" // окно-напарник режима Trade (ADR-082)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // подсветка подарка в сумке
 #include "ContrarySurvivor/Components/StatsComponent.h"
+#include "AConsumableItem.h"      // тип расходника — какая плитка мигает после подарка
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "AArmor.h"               // EArmorSlot, надетая броня paper-doll
 #include "AMasterInventoryItem.h" // EItemCategory, ItemIcon
@@ -157,6 +159,19 @@ void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	}
 }
 
+void UInventoryScreenWidget::NativeDestruct()
+{
+	if (bGiftHighlightShown)
+	{
+		if (AContrarySurvivorPlayerController* GiftPC = Cast<AContrarySurvivorPlayerController>(GetOwningPlayer()))
+		{
+			GiftPC->ClearGiftHighlight();
+		}
+		bGiftHighlightShown = false;
+	}
+	Super::NativeDestruct();
+}
+
 FString UInventoryScreenWidget::MakeWeaponSignature() const
 {
 	// Состав ОБОИХ слотов плюс пометка, какой сейчас в руках: смена оружия по кнопке
@@ -250,6 +265,18 @@ void UInventoryScreenWidget::RefreshAll()
 					Item->GetItemDisplayText(), Item->GetStackCount());
 				Tile->SetTileSize(TileSize, TileIconSize);
 				Tile->SetDropVisible(true); // выброс — мини-кнопка в углу плитки
+
+				// Подарок старосты (06.10.2026): плитка подаренного расходника мигает, чтобы
+				// игрок нашёл его в сумке. Что подсвечивать, помнит контроллер.
+				if (const AContrarySurvivorPlayerController* GiftPC = Cast<AContrarySurvivorPlayerController>(PC))
+				{
+					const AConsumableItem* Consumable = Cast<AConsumableItem>(Item);
+					if (Consumable && GiftPC->IsGiftHighlighted(static_cast<uint8>(Consumable->ConsumableType)))
+					{
+						Tile->SetAttentionBlink(true);
+						bGiftHighlightShown = true;
+					}
+				}
 				Tile->OnTileClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileUse);
 				Tile->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileDrop);
 
@@ -389,6 +416,15 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 		const EItemCategory Category = Item->GetItemCategory();
 		if (Category == EItemCategory::Consumable || Category == EItemCategory::Armor)
 		{
+			if (Tile->IsAttentionBlinking())
+			{
+				// Игрок нашёл и применил подарок — подсвечивать больше нечего.
+				if (AContrarySurvivorPlayerController* GiftPC = Cast<AContrarySurvivorPlayerController>(GetOwningPlayer()))
+				{
+					GiftPC->ClearGiftHighlight();
+				}
+				bGiftHighlightShown = false;
+			}
 			Player->Inv_UseBackpackItem(Item); // тот же вызов, что раньше кнопка строки
 			RefreshAll();
 		}

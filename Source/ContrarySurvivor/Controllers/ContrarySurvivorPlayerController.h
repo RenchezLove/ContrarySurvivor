@@ -94,6 +94,14 @@ public:
 	// до его закрытия — иначе она успевает погаснуть за оставшиеся реплики и игрок её не видит.
 	void NotifyGiftReceived(const FText& NoticeText);
 
+	// Подсветка подарка В СУМКЕ (06.10.2026, решение Рината): после подарка плитка этого
+	// расходника мигает в окне сумки, пока игрок его не применит или не закроет сумку.
+	// Тип хранится числом (EConsumableType), чтобы не тянуть сюда заголовок предмета.
+	void SetGiftHighlight(uint8 ConsumableType) { bGiftHighlight = true; GiftHighlightType = ConsumableType; }
+	void ClearGiftHighlight() { bGiftHighlight = false; }
+	bool IsGiftHighlighted(uint8 ConsumableType) const { return bGiftHighlight && GiftHighlightType == ConsumableType; }
+	bool HasGiftHighlight() const { return bGiftHighlight; }
+
 	// Есть ли надпись о подарке, ждущая закрытия диалога.
 	bool HasPendingGiftNotice() const { return !PendingGiftNotice.IsEmpty(); }
 
@@ -1094,6 +1102,10 @@ private:
 
 	// Надпись о подарке, отложенная до закрытия диалога (см. NotifyGiftReceived). Пусто — нет.
 	FText PendingGiftNotice;
+
+	// Какой расходник подсвечивать в сумке после подарка (см. SetGiftHighlight).
+	bool bGiftHighlight = false;
+	uint8 GiftHighlightType = 0;
 
 	// Показать надпись о подарке и запустить мигание кнопки СУМКА.
 	void ShowGiftNotice(const FText& NoticeText);

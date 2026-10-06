@@ -143,6 +143,9 @@ protected:
 	// (дешёвая сигнатура состава: число предметов + защита + имя оружия).
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
+	// Сумку закрыли — подсветка подарка своё отработала (если игрок её видел).
+	virtual void NativeDestruct() override;
+
 	UFUNCTION() void HandleHeadSlotClicked();
 	UFUNCTION() void HandleTorsoSlotClicked();
 	UFUNCTION() void HandleLegsSlotClicked();
@@ -263,6 +266,9 @@ private:
 	int32 LastBackpackCount = -1;
 	int32 LastProtectionPct = -1;
 	FString LastWeaponName;
+
+	// В этом показе окна плитка подарка мигала (значит, при закрытии подсветку снимаем).
+	bool bGiftHighlightShown = false;
 
 	// --- Режим панели (ADR-082) ---
 
