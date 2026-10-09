@@ -40,6 +40,7 @@
 #include "ContrarySurvivor/Actors/Pickup.h"    // выброс = мировой пикап (BUG3)
 #include "ContrarySurvivor/Actors/Campfire.h"  // смертельное возрождение — всегда у костра (вариант 1+3)
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // «Новая игра» сбрасывает память баз (баг Рината 23.08)
+#include "ContrarySurvivor/Actors/StashChest.h"      // личный сундук: общее хранилище в сохранении
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
@@ -944,7 +945,7 @@ void APlayerCharacter::EquipDefaultWeapon()
         {
             if (const int32 Drained = SpawnedRanged->DrainReserveAmmo())
             {
-                AddAmmoToInventory(Drained);
+                AddAmmoToInventory(Drained, SpawnedRanged->GetAmmoType());
             }
         }
     }
@@ -1014,11 +1015,57 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
     // бухгалтерия; «пистолет приходит с патронами» остаётся, но патроны теперь видно).
     if (const int32 Drained = Ranged->DrainReserveAmmo())
     {
-        AddAmmoToInventory(Drained);
+        AddAmmoToInventory(Drained, Ranged->GetAmmoType());
     }
 
     UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия (в кобуре)"),
         *Ranged->GetItemDisplayText().ToString());
+    return true;
+}
+
+bool APlayerCharacter::SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item)
+{
+    ARangedWeapon* NewRanged = Cast<ARangedWeapon>(Item);
+    AMasterWeapon* OldRanged = RangedWeaponInstance;
+    if (!NewRanged || !OldRanged || NewRanged == OldRanged || !Inventory
+        || !Inventory->GetInventoryItems().Contains(NewRanged))
+    {
+        return false; // менять не на что либо слот пуст (пустой слот — путь TryAdoptRangedWeapon)
+    }
+
+    // Прежний ствол — из рук и из слота «в кобуру», как при обычной смене оружия.
+    const bool bWasInHands = (GetCurrentWeapon() == OldRanged);
+    if (bWasInHands)
+    {
+        UnequipWeapon();
+    }
+    OldRanged->SetActorHiddenInGame(true);
+    OldRanged->SetActorEnableCollision(false);
+    RangedWeaponInstance = nullptr;
+
+    if (!TryAdoptRangedWeapon(NewRanged))
+    {
+        // Новый ствол в слот не встал — возвращаем всё как было, вещь не теряется.
+        RangedWeaponInstance = OldRanged;
+        if (bWasInHands)
+        {
+            EquipWeapon(OldRanged);
+            OldRanged->SetActorHiddenInGame(false);
+        }
+        return false;
+    }
+
+    // Прежний ствол теперь обычная вещь рюкзака (патроны в его магазине остаются при нём).
+    Inventory->AddItem(OldRanged);
+
+    if (bWasInHands)
+    {
+        EquipWeapon(RangedWeaponInstance);
+        RangedWeaponInstance->SetActorHiddenInGame(false);
+    }
+
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел в слоте заменён: '%s' -> '%s' (прежний в рюкзаке)"),
+        *OldRanged->GetItemDisplayText().ToString(), *NewRanged->GetItemDisplayText().ToString());
     return true;
 }
 
@@ -1361,10 +1408,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
     if (Entry.Kind == EShopEntryKind::Ammo)
     {
         // Патроны -> в рюкзак СТАКОМ (Фаза 5). Qty единиц * AmmoAmount патронов в каждой.
+        // Вид патрона — строка таблицы позиции (ammo_9mm, ammo_12g); позиция без строки
+        // (старый зашитый прайс) — прежний пистолетный патрон.
         const int32 RoundsBought = FMath::Max(0, Entry.AmmoAmount) * Qty;
-        AddAmmoToInventory(RoundsBought);
+        AddAmmoToInventory(RoundsBought, Entry.ItemRow);
         UE_LOG(LogQA, Display, TEXT("QA: BUY %d ammo (x%d) -> backpack now %d rounds"),
-            RoundsBought, Qty, GetReserveAmmoInInventory());
+            RoundsBought, Qty, GetReserveAmmoInInventory(Entry.ItemRow));
     }
     else
     {
@@ -1423,7 +1472,7 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
             {
                 if (const int32 Drained = BoughtRanged->DrainReserveAmmo())
                 {
-                    AddAmmoToInventory(Drained);
+                    AddAmmoToInventory(Drained, BoughtRanged->GetAmmoType());
                     UE_LOG(LogQA, Display, TEXT("QA: BUY firearm came with %d rounds -> backpack pack"), Drained);
                 }
             }
@@ -1456,16 +1505,28 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
 // Патроны как стак-предмет рюкзака (Фаза 5, STALKER 2-стиль)
 // ---------------------------------------------------------------------------
 
-int32 APlayerCharacter::GetReserveAmmoInInventory() const
+namespace
+{
+    // Пачка патронов нужного вида (двустволка, 09.10.2026): дробь и пистолетные патроны
+    // лежат в рюкзаке одним классом предмета и различаются только видом.
+    AAmmoItem* AsAmmoOfType(AMasterInventoryItem* Item, FName AmmoType)
+    {
+        AAmmoItem* Ammo = Cast<AAmmoItem>(Item);
+        return (Ammo && Ammo->GetAmmoType() == AmmoType) ? Ammo : nullptr;
+    }
+}
+
+int32 APlayerCharacter::GetReserveAmmoInInventory(FName AmmoType) const
 {
     if (!Inventory)
     {
         return 0;
     }
+    const FName Type = ContraryAmmo::Normalize(AmmoType);
     int32 Total = 0;
     for (AMasterInventoryItem* It : Inventory->GetInventoryItems())
     {
-        if (AAmmoItem* Ammo = Cast<AAmmoItem>(It))
+        if (AAmmoItem* Ammo = AsAmmoOfType(It, Type))
         {
             Total += FMath::Max(0, Ammo->StackCount);
         }
@@ -1473,21 +1534,22 @@ int32 APlayerCharacter::GetReserveAmmoInInventory() const
     return Total;
 }
 
-void APlayerCharacter::AddAmmoToInventory(int32 Amount)
+void APlayerCharacter::AddAmmoToInventory(int32 Amount, FName AmmoType)
 {
     if (Amount <= 0 || !Inventory)
     {
         return;
     }
+    const FName Type = ContraryAmmo::Normalize(AmmoType);
 
-    // 1) Дозаполняем существующие пачки (стак), пока есть место.
+    // 1) Дозаполняем существующие пачки (стак) этого вида, пока есть место.
     for (AMasterInventoryItem* It : Inventory->GetInventoryItems())
     {
         if (Amount <= 0)
         {
             break;
         }
-        if (AAmmoItem* Ammo = Cast<AAmmoItem>(It))
+        if (AAmmoItem* Ammo = AsAmmoOfType(It, Type))
         {
             const int32 Space = Ammo->GetStackSpace();
             if (Space > 0)
@@ -1507,8 +1569,37 @@ void APlayerCharacter::AddAmmoToInventory(int32 Amount)
         Sp.Owner = this;
         Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-        AAmmoItem* NewPack = World->SpawnActor<AAmmoItem>(
-            AAmmoItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+        AAmmoItem* NewPack = nullptr;
+        if (Type == ContraryAmmo::DefaultType())
+        {
+            // Пистолетный патрон — прежний путь без изменений.
+            NewPack = World->SpawnActor<AAmmoItem>(
+                AAmmoItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+        }
+        else
+        {
+            // Другой вид патрона: класс пачки — из строки таблицы этого вида (та же пачка,
+            // что лежит в луте и у торговца, поэтому они сливаются в одну стопку). Строки
+            // или её класса нет — запасной класс кода; вид и ключ пачка получает ДО
+            // появления (ADR-088), чтобы строку таблицы она наложила на себя сама.
+            UClass* PackClass = (Type == ContraryAmmo::Shotgun12gType())
+                ? AShotgunAmmoItem::StaticClass() : AAmmoItem::StaticClass();
+            if (const FContraryItemRow* Row = ContraryItems::FindRow(Type))
+            {
+                UClass* RowClass = Row->ItemClass.LoadSynchronous();
+                if (RowClass && RowClass->IsChildOf(AAmmoItem::StaticClass()))
+                {
+                    PackClass = RowClass;
+                }
+            }
+            NewPack = Cast<AAmmoItem>(ContraryItems::SpawnItem(World, PackClass,
+                FTransform(GetActorRotation(), GetActorLocation()), this,
+                [Type](AMasterInventoryItem& Item)
+                {
+                    Item.SourceItemRow = Type;
+                    Item.ItemName = Type.ToString();
+                }));
+        }
         if (!NewPack)
         {
             break;
@@ -1522,12 +1613,13 @@ void APlayerCharacter::AddAmmoToInventory(int32 Amount)
     }
 }
 
-int32 APlayerCharacter::TakeAmmoFromInventory(int32 Amount)
+int32 APlayerCharacter::TakeAmmoFromInventory(int32 Amount, FName AmmoType)
 {
     if (Amount <= 0 || !Inventory)
     {
         return 0;
     }
+    const FName Type = ContraryAmmo::Normalize(AmmoType);
 
     int32 Taken = 0;
     // Копия списка: при опустошении пачки удаляем её из инвентаря (модификация коллекции).
@@ -1538,7 +1630,7 @@ int32 APlayerCharacter::TakeAmmoFromInventory(int32 Amount)
         {
             break;
         }
-        AAmmoItem* Ammo = Cast<AAmmoItem>(It);
+        AAmmoItem* Ammo = AsAmmoOfType(It, Type);
         if (!Ammo || Ammo->StackCount <= 0)
         {
             continue;
@@ -1569,12 +1661,13 @@ void APlayerCharacter::ReloadCurrentWeapon()
         const int32 MissingInReserve = FMath::Max(0, NeedInClip - Ranged->GetCurrentAmmoReserve());
         if (MissingInReserve > 0)
         {
-            const int32 Pulled = TakeAmmoFromInventory(MissingInReserve);
+            // Только патроны вида этого оружия: дробь в пистолет не заряжается, и наоборот.
+            const int32 Pulled = TakeAmmoFromInventory(MissingInReserve, Ranged->GetAmmoType());
             if (Pulled > 0)
             {
                 Ranged->AddReserveAmmo(Pulled);
                 UE_LOG(LogQA, Display, TEXT("QA: RELOAD pulled %d ammo from backpack (need-in-clip %d, backpack left %d)"),
-                    Pulled, NeedInClip, GetReserveAmmoInInventory());
+                    Pulled, NeedInClip, GetReserveAmmoInInventory(Ranged->GetAmmoType()));
             }
         }
     }
@@ -1588,9 +1681,9 @@ void APlayerCharacter::ReloadCurrentWeapon()
         const int32 Leftover = Ranged->DrainReserveAmmo();
         if (Leftover > 0)
         {
-            AddAmmoToInventory(Leftover);
+            AddAmmoToInventory(Leftover, Ranged->GetAmmoType());
             UE_LOG(LogQA, Display, TEXT("QA: RELOAD leftover reserve %d -> backpack (now %d)"),
-                Leftover, GetReserveAmmoInInventory());
+                Leftover, GetReserveAmmoInInventory(Ranged->GetAmmoType()));
         }
     }
 }
@@ -1836,6 +1929,9 @@ bool APlayerCharacter::SaveGame()
         SlotEntry.bEquipped = true;
         Save->InventoryEntries.Add(SlotEntry);
     }
+
+    // Личный сундук (Ринат 09.10.2026): общее хранилище пишется тем же снимком, что рюкзак.
+    APersonalStashStorage::WriteToSave(GetWorld(), Save);
 
     // Б3: журнал квестов — полный снимок (см. комментарий у поля Quests в ContrarySaveGame.h).
     Save->Quests.Reset();
@@ -2094,6 +2190,10 @@ bool APlayerCharacter::LoadGameForContinue()
 
     RestoreInventoryAndArmor(Save);
 
+    // Личный сундук: содержимое общего хранилища — из того же сохранения, что рюкзак
+    // (сохранение, записанное до сундука, даёт пустой сундук).
+    APersonalStashStorage::RestoreFromSave(GetWorld(), Save);
+
     if (Quests)
     {
         Quests->RestoreQuests(Save->Quests);
@@ -2145,6 +2245,9 @@ void APlayerCharacter::ResetToNewGame()
         {
             It->ResetForNewGame();
         }
+
+        // Личный сундук новой игры пуст: вещи прошлой игры в нём остаться не должны.
+        APersonalStashStorage::ClearInWorld(World);
     }
 
     if (Stats)
@@ -2310,7 +2413,7 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         {
             if (const int32 Drained = RestoredRanged->DrainReserveAmmo())
             {
-                AddAmmoToInventory(Drained);
+                AddAmmoToInventory(Drained, RestoredRanged->GetAmmoType());
                 UE_LOG(LogQA, Display,
                     TEXT("QA: CONTINUE - restored firearm reserve %d migrated to backpack pack"), Drained);
             }

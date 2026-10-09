@@ -815,7 +815,7 @@ void UTouchControlsWidget::UpdateReloadVisual(float DeltaTime)
 					// владельца): мигает всегда при пустом/малом магазине, даже нечем
 					// перезарядиться. true — добавляет условие «запас + рюкзак > 0».
 					bShouldBlink = !bBlinkOnlyWhenHasAmmoToReload
-						|| (Ranged->GetCurrentAmmoReserve() + PlayerChar->GetReserveAmmoInInventory() > 0);
+						|| (Ranged->GetCurrentAmmoReserve() + PlayerChar->GetReserveAmmoInInventory(Ranged->GetAmmoType()) > 0);
 				}
 			}
 		}

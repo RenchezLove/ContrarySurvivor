@@ -53,7 +53,8 @@ enum class EInteractKind : uint8
 	Pickup,
 	Trader,
 	Elder,
-	Corpse
+	Corpse,
+	Stash   // личный сундук (Ринат 09.10.2026): окно «сумка и сундук»
 };
 
 UCLASS()
@@ -736,6 +737,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
 		meta = (DisplayName = "Действие: труп или мешок с вещами", DisplayPriority = "7"))
 	FText InteractPromptCorpseAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptCorpseAction", "Обыскать");
+
+	// Личный сундук (Ринат 09.10.2026): подсказка рядом с сундуком.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interact",
+		meta = (DisplayName = "Действие: личный сундук", DisplayPriority = "8"))
+	FText InteractPromptStashAction = NSLOCTEXT("ContrarySurvivorPlayerController", "InteractPromptStashAction", "Открыть сундук");
 
 	// Задание издателя 11.08.2026 п.3.1 (дословно: «Надпись показывает количество:
 	// Обыскать (4)»). {Action} — «Обыскать», {Count} — сколько тел заберёт одно нажатие.

@@ -674,6 +674,20 @@ bool FBuild122StartWithoutFirearmTest::RunTest(const FString& Parameters)
 						Player->TryAdoptRangedWeapon(Second));
 					TestTrue(TEXT("Второй пистолет остался в рюкзаке"),
 						Inv->GetInventoryItems().Contains(Second));
+
+					// 4) Новое правило 09.10.2026 (решение лида по двустволке): НАЖАТИЕ игрока
+					// на второй ствол при занятом слоте меняет стволы местами — прежний уходит
+					// в рюкзак, новый встаёт в слот и в руки (прежний был в руках).
+					TestTrue(TEXT("Нажатие на второй ствол меняет стволы местами"),
+						Player->SwapRangedWeaponFromBackpack(Second));
+					TestEqual(TEXT("В слоте теперь второй пистолет"),
+						Player->GetRangedWeaponInstance(), static_cast<AMasterWeapon*>(Second));
+					TestEqual(TEXT("Второй пистолет в руках"),
+						Player->GetCurrentWeapon(), static_cast<AMasterWeapon*>(Second));
+					TestTrue(TEXT("Прежний пистолет ушёл в рюкзак"),
+						Inv->GetInventoryItems().Contains(Bought));
+					TestFalse(TEXT("Второго пистолета в рюкзаке больше нет"),
+						Inv->GetInventoryItems().Contains(Second));
 				}
 				else
 				{

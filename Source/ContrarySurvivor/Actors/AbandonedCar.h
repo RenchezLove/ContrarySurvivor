@@ -10,6 +10,7 @@
 class UCorpseLootComponent;
 class USceneComponent;
 class UStaticMeshComponent;
+class UStaticMesh;
 class UMaterialInstanceDynamic;
 
 // Дороговизна лута машины (Report1 п.9: «3 варианта: дешевый, средний, дорогой») —
@@ -183,6 +184,30 @@ protected:
 		ToolTip = "Подпорка под кузов (например, когда снято колесо). Ставится/двигается оператором в BP; здесь только показать/скрыть."))
 	bool bBlock = false;
 
+	// === ПОМЯТЫЕ СЕТКИ БИТЫХ ДЕТАЛЕЙ (Ринат, 09.10.2026: галочка «битая» должна менять вид
+	// детали). Галочка «битая» ставит на деталь помятую сетку из этого поля, снятая галочка
+	// возвращает целую (ту, что задана у детали в BP_AbandonedCar). Поле пустое — форма не
+	// меняется, остаётся только затемнение цвета. Помятая сетка обязана иметь ту же точку
+	// опоры и ту же развёртку, что и целая: посадка и петля считаются теми же числами. ===
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "1", DisplayName = "Помятая дверь передняя левая"))
+	TObjectPtr<UStaticMesh> DoorFLBrokenMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "2", DisplayName = "Помятая дверь передняя правая"))
+	TObjectPtr<UStaticMesh> DoorFRBrokenMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "3", DisplayName = "Помятая дверь задняя левая"))
+	TObjectPtr<UStaticMesh> DoorRLBrokenMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "4", DisplayName = "Помятая дверь задняя правая"))
+	TObjectPtr<UStaticMesh> DoorRRBrokenMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "5", DisplayName = "Помятый капот"))
+	TObjectPtr<UStaticMesh> HoodBrokenMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Битые детали", meta = (DisplayPriority = "6", DisplayName = "Помятый багажник"))
+	TObjectPtr<UStaticMesh> TrunkBrokenMesh;
+
 	// === ЛУТ МАШИНЫ (Report1 п.9: обыск автомобиля) ===
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Лут", meta = (DisplayPriority = "1",
@@ -284,6 +309,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Створки", meta = (DisplayPriority = "6", DisplayName = "Багажник: угол (°)",
 		ClampMin = "-179.0", ClampMax = "179.0", EditCondition = "bTrunk"))
 	float TrunkOpenAngleDeg = 0.0f;
+
+	// Ринат, 09.10.2026 («буханка» как мастер-машина): у фургона вместо багажника — распашная
+	// задняя створка на вертикальной петле. Включено — деталь «багажник» открывается как дверь
+	// (вокруг вертикали), выключено — как крышка (вокруг поперечной оси), прежнее поведение.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Створки", meta = (DisplayPriority = "7", DisplayName = "Багажник открывается как дверь (вертикальная петля)",
+		EditCondition = "bTrunk"))
+	bool bTrunkHingeVertical = false;
 
 	// === МОНТАЖНЫЕ ТОЧКИ СТВОРОК (см, относительно кузова; origin кузова = центр на земле,
 	// нос = -Y). Дефолты — схема сборки паспорта моделлера (метры x100). Меши створок
@@ -401,6 +433,11 @@ private:
 	// ось петли по паспорту; нос машины = -Y). ПЕРЕЗАПИСЫВАЕТ RelativeLocation/Rotation.
 	static void ApplyHinge(UStaticMeshComponent* Part, const FVector& MountLocal,
 		const FVector& HingeLocal, float AngleDeg, bool bYaw);
+
+	// Форма детали: битая и помятая сетка задана — ставит её; иначе возвращает целую сетку,
+	// взятую у той же детали в настройках класса (DefaultPart — деталь объекта по умолчанию).
+	static void ApplyPartMesh(UStaticMeshComponent* Part, const UStaticMeshComponent* DefaultPart,
+		UStaticMesh* BrokenMesh, bool bBroken);
 
 	// Итоговый цвет детали: перекраска (BodyColor) и/или затемнение битости поверх родного
 	// цвета материала. Ни того ни другого — возвращает родное значение, если MID уже висел.

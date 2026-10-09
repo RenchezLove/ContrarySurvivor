@@ -32,4 +32,19 @@ public:
 
 	UFUNCTION()
 	void HandleMoneyChanged(float NewMoney) { LastMoney = NewMoney; ++MoneyChangedCount; }
+
+	// Урон по мишени (AActor::OnTakeAnyDamage): сколько раз мишень получила урон и сколько
+	// всего — тесты дроби проверяют «один вызов урона на залп» и сумму по дробинам.
+	int32 AnyDamageCount = 0;
+	float TotalAnyDamage = 0.0f;
+	float LastAnyDamage = 0.0f;
+
+	UFUNCTION()
+	void HandleAnyDamage(AActor* DamagedActor, float Damage, const class UDamageType* DamageType,
+		class AController* InstigatedBy, AActor* DamageCauser)
+	{
+		++AnyDamageCount;
+		TotalAnyDamage += Damage;
+		LastAnyDamage = Damage;
+	}
 };

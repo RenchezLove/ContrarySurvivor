@@ -2438,7 +2438,7 @@ void AContrarySurvivorHUD::DrawPlayerStats(APlayerCharacter* Player)
 		// Обойма / резерв оружия + (в рюкзаке) — патроны как стак-предмет (Фаза 5).
 		const FString AmmoStr = FString::Printf(TEXT("Ammo %d / %d  (bag %d)"),
 			Ranged->GetCurrentAmmoInClip(), Ranged->GetCurrentAmmoReserve(),
-			Player->GetReserveAmmoInInventory());
+			Player->GetReserveAmmoInInventory(Ranged->GetAmmoType())); // только патроны вида этого оружия
 		// Плашка под патронами для читаемости.
 		float AmmoW = 0.0f, AmmoH = 0.0f;
 		if (Font)

@@ -565,6 +565,15 @@ public:
     // Возвращает true, если предмет забран из рюкзака в слот.
     bool TryAdoptRangedWeapon(AMasterInventoryItem* Item);
 
+    // Поменять огнестрел в ЗАНЯТОМ слоте на другой из рюкзака (двустволка, 09.10.2026: с
+    // появлением второго ствола игроку нужен способ взять его вместо пистолета). Прежний
+    // ствол уходит в рюкзак со всем, что у него в магазине, новый встаёт в слот тем же путём,
+    // что TryAdoptRangedWeapon (его запас патронов — видимой пачкой в рюкзак). Если прежний
+    // был в руках — в руках оказывается новый. Зовётся только нажатием на плитку огнестрела
+    // в окне инвентаря; покупка и восстановление из сохранения по-прежнему ничего сами не
+    // отбирают. Слот пуст, предмет не огнестрел или это тот же ствол — false, ничего не меняется.
+    bool SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item);
+
     // Страховка от «огнестрела мимо слота» (корень спама 07-08: легаси-граф BP_PlayerCharacter
     // на ReceiveBeginPlay спавнит BP_Pistol и зовёт EquipWeapon НАПРЯМУЮ — CurrentWeapon
     // становится пистолетом, а RangedWeaponInstance остаётся null; отсюда рассинхрон
@@ -925,18 +934,24 @@ public:
 
     // --- Патроны как стак-предмет рюкзака (Фаза 5, STALKER 2-стиль) ---
 
-    // Суммарно патронов во всех пачках (AAmmoItem) рюкзака.
+    // ВИД ПАТРОНА (двустволка, 09.10.2026): все три функции ниже работают с пачками ОДНОГО
+    // вида — имя строки таблицы предметов (ammo_9mm, ammo_12g; см. ContraryAmmo в AAmmoItem.h).
+    // Пустое имя = прежний пистолетный патрон, поэтому старые вызовы без вида не изменились.
+    // Вид берут у оружия (ARangedWeapon::GetAmmoType): дробь не заряжается в пистолет.
+
+    // Суммарно патронов этого вида во всех пачках (AAmmoItem) рюкзака.
     UFUNCTION(BlueprintPure, Category = "Inventory|Ammo")
-    int32 GetReserveAmmoInInventory() const;
+    int32 GetReserveAmmoInInventory(FName AmmoType = NAME_None) const;
 
-    // Добавить патроны в рюкзак стаком: пополняет первую неполную пачку, остаток — новой пачкой.
+    // Добавить патроны этого вида в рюкзак стаком: пополняет первую неполную пачку, остаток —
+    // новой пачкой.
     UFUNCTION(BlueprintCallable, Category = "Inventory|Ammo")
-    void AddAmmoToInventory(int32 Amount);
+    void AddAmmoToInventory(int32 Amount, FName AmmoType = NAME_None);
 
-    // Изъять до Amount патронов из рюкзака (для перезарядки). Возвращает реально изъятое;
-    // опустошённые пачки удаляются.
+    // Изъять до Amount патронов этого вида из рюкзака (для перезарядки). Возвращает реально
+    // изъятое; опустошённые пачки удаляются.
     UFUNCTION(BlueprintCallable, Category = "Inventory|Ammo")
-    int32 TakeAmmoFromInventory(int32 Amount);
+    int32 TakeAmmoFromInventory(int32 Amount, FName AmmoType = NAME_None);
 
     // Перезарядка игрока: сперва пополняет резерв оружия из пачки патронов рюкзака, затем —
     // штатный перенос резерв->обойма (база). Переопределяет AMasterHumanoidCharacter.

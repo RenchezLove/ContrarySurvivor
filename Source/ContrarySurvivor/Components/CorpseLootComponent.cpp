@@ -44,10 +44,40 @@ void UCorpseLootComponent::AddLoot(float InMoney, const TArray<AMasterInventoryI
 
 	for (AMasterInventoryItem* Item : InItems)
 	{
-		if (IsValid(Item))
+		if (!IsValid(Item))
 		{
-			Items.AddUnique(Item);
+			continue;
 		}
+
+		// Личный сундук: стопка доливается в такие же, уже лежащие здесь (правило рюкзака —
+		// UInventoryComponent::AddItem); влившийся целиком предмет больше не нужен.
+		if (bMergeStacksOnAdd && Item->IsStackable() && Item->GetStackCount() > 0 && !Items.Contains(Item))
+		{
+			for (const TObjectPtr<AMasterInventoryItem>& Existing : Items)
+			{
+				if (!IsValid(Existing) || !Existing->CanStackWith(Item))
+				{
+					continue;
+				}
+				const int32 Transfer = FMath::Min(Existing->GetStackSpace(), Item->StackCount);
+				if (Transfer > 0)
+				{
+					Existing->StackCount += Transfer;
+					Item->StackCount -= Transfer;
+				}
+				if (Item->StackCount <= 0)
+				{
+					break;
+				}
+			}
+			if (Item->StackCount <= 0)
+			{
+				Item->Destroy();
+				continue;
+			}
+		}
+
+		Items.AddUnique(Item);
 	}
 
 	// Регистрация в реестре обыскиваемых + попутная чистка отмерших слабых ссылок

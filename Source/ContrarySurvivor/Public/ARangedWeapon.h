@@ -35,6 +35,35 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Spread;
 
+	// --- Дробь (двустволка, 09.10.2026) ---
+	// Оружие с числом дробин больше одной (или с ненулевым углом) стреляет ДРОБЬЮ: за один
+	// выстрел из ствола вылетает несколько дробин, каждая со своим случайным отклонением
+	// внутри конуса, и попадание считается по каждой отдельно — вблизи в цель приходит почти
+	// всё, на дистанции часть уходит мимо. Значения по умолчанию (1 дробина, угол 0) — это
+	// прежняя одиночная пуля: пистолет идёт старым путём без единого отличия.
+
+	// Сколько дробин вылетает за один выстрел. Урон оружия (Damage) — это урон ОДНОЙ дробины.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Combat", meta = (ClampMin = "1", ClampMax = "32", DisplayPriority = "1",
+		DisplayName = "Дробин за выстрел (1 = обычная пуля)",
+		ToolTip = "Сколько дробин вылетает за один выстрел. 1 = обычная пуля (как у пистолета). Урон оружия считается ЗА ОДНУ дробину: залп в упор = урон x число дробин."))
+	int32 PelletsPerShot = 1;
+
+	// Полный угол конуса разброса дроби в градусах (16 = по 8 в каждую сторону от линии
+	// прицеливания). Дальность полёта дробины — поле Range оружия.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Combat", meta = (ClampMin = "0.0", ClampMax = "90.0", DisplayPriority = "2",
+		DisplayName = "Угол разброса дроби, полный конус (градусы)",
+		ToolTip = "Полный угол конуса, внутри которого случайно разлетаются дробины. Чем больше угол, тем больше дробин уходит мимо цели на дистанции. 0 при одной дробине = обычная пуля."))
+	float PelletSpreadAngle = 0.0f;
+
+	// --- Вид патрона (двустволка, 09.10.2026) ---
+	// Каким патроном заряжается оружие: имя строки таблицы предметов (ammo_9mm, ammo_12g).
+	// Перезарядка берёт из рюкзака только пачки этого вида, счётчик на экране считает только
+	// их. По умолчанию — прежний пистолетный патрон.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Ammo", meta = (DisplayPriority = "1",
+		DisplayName = "Вид патрона (строка таблицы предметов)",
+		ToolTip = "Каким патроном заряжается оружие: имя строки таблицы предметов (ammo_9mm — пистолетный, ammo_12g — дробовой). Должно совпадать с видом патрона у пачки."))
+	FName AmmoType;
+
 	// --- Звук выстрела (Демо; вариации — Ринат 30.08) ---
 	// Проигрывается в момент реального выстрела (не на пустой обойме). Выстрел бандита
 	// переиспользует ту же логику (PlayFireVisuals с bPlaySound=true), сам выбор звука —
@@ -172,10 +201,63 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon|FX")
 	void PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound);
 
+	// --- Дробь и вид патрона (двустволка, 09.10.2026) ---
+
+	// Стреляет ли оружие дробью (иначе — прежняя одиночная пуля).
+	UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+	bool IsPelletWeapon() const { return PelletsPerShot > 1 || PelletSpreadAngle > 0.0f; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+	int32 GetPelletsPerShot() const { return FMath::Max(1, PelletsPerShot); }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+	float GetPelletSpreadAngle() const { return PelletSpreadAngle; }
+
+	// Вид патрона оружия (пустое поле = прежний пистолетный).
+	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
+	FName GetAmmoType() const;
+
+	// Случайные направления дробин внутри конуса вокруг AimDir (полный угол в градусах).
+	// Чистый расчёт без мира — его же проверяет автотест «дробины не выходят за конус».
+	static void BuildPelletDirections(const FVector& AimDir, int32 Count, float FullConeAngleDeg,
+		TArray<FVector>& OutDirections);
+
+	// Один залп дроби без траты патрона и без эффектов: трассы из Start вдоль AimDir на
+	// дальность Range. OutHitsByActor — сколько дробин пришло в каждого задетого актора,
+	// OutPelletEnds — где закончила полёт каждая дробина (для следов). Возвращает число
+	// попавших дробин. Урон не наносит — его раздаёт Fire(). Публичная — для автотестов.
+	int32 TracePellets(const FVector& Start, const FVector& AimDir,
+		TMap<AActor*, int32>& OutHitsByActor, TArray<FVector>& OutPelletEnds) const;
+
+	// Итог последнего выстрела дробью: сколько дробин вылетело и сколько из них попало
+	// хоть во что-то (для журнала и автотестов).
+	int32 GetLastShotPelletsFired() const { return LastShotPelletsFired; }
+	int32 GetLastShotPelletsHit() const { return LastShotPelletsHit; }
+
 private:
 
 	// LineTrace от мушки до цели, возвращает true если попал
 	bool PerformLineTrace(AActor* Target, FHitResult& OutHit);
+
+	// Выстрел дробью по цели: залп, урон по каждому задетому актору (одним вызовом на
+	// актора — сумма его дробин), следы всех дробин. Патрон и звук — в Fire().
+	void FirePellets(AActor* Target);
+
+	// Растягивает меш следа от From до To и показывает его. false — отрезок слишком короткий.
+	bool PlaceTracer(UStaticMeshComponent* Mesh, const FVector& From, const FVector& To) const;
+
+	// Следы дробин: первый рисует штатный след пули (вместе со вспышкой), остальные —
+	// дополнительные меши, которые создаются один раз и переиспользуются между выстрелами.
+	void PlayPelletVisuals(const TArray<FVector>& PelletEnds);
+
+	// Дополнительные меши следов для дроби (сверх штатного TracerMesh).
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> ExtraTracerMeshes;
+
+	FTimerHandle ExtraTracersTimerHandle;
+
+	int32 LastShotPelletsFired = 0;
+	int32 LastShotPelletsHit = 0;
 
 	// Ленивая инициализация динамического материала эффектов (цвет FireFXColor) на обоих мешах.
 	void EnsureFXMaterial();

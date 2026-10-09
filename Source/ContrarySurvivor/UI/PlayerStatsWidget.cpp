@@ -152,7 +152,8 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 		// единственное место забора из рюкзака во всём проекте), поэтому каждый патрон
 		// из этой суммы игрок реально может расстрелять, ничего дополнительно не делая.
 		const int32 ReserveAmmo = Ranged->GetCurrentAmmoReserve();
-		const int32 BagAmmo = Player->GetReserveAmmoInInventory();
+		// Считаем только патроны вида этого оружия: дробь в пистолет не заряжается.
+		const int32 BagAmmo = Player->GetReserveAmmoInInventory(Ranged->GetAmmoType());
 
 		FFormatNamedArguments Args;
 		Args.Add(TEXT("InClip"), FText::AsNumber(Ranged->GetCurrentAmmoInClip()));

@@ -143,6 +143,18 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 	SetPartVisible(Scratches, bScratches);
 	SetPartVisible(Block, bBlock);
 
+	// 1.5) Форма битых деталей: помятая сетка вместо целой (целая — из настроек класса,
+	// поэтому снятая галочка возвращает её и в редакторе, где детали не пересоздаются).
+	if (const AAbandonedCar* Defaults = GetClass()->GetDefaultObject<AAbandonedCar>())
+	{
+		ApplyPartMesh(DoorFL, Defaults->DoorFL, DoorFLBrokenMesh, bDoorFLBroken);
+		ApplyPartMesh(DoorFR, Defaults->DoorFR, DoorFRBrokenMesh, bDoorFRBroken);
+		ApplyPartMesh(DoorRL, Defaults->DoorRL, DoorRLBrokenMesh, bDoorRLBroken);
+		ApplyPartMesh(DoorRR, Defaults->DoorRR, DoorRRBrokenMesh, bDoorRRBroken);
+		ApplyPartMesh(Hood, Defaults->Hood, HoodBrokenMesh, bHoodBroken);
+		ApplyPartMesh(Trunk, Defaults->Trunk, TrunkBrokenMesh, bTrunkBroken);
+	}
+
 	// 2) Посадка и углы створок: монтажная точка (схема сборки паспорта) + поворот вокруг
 	// петли. Двери — вокруг вертикали; капот/багажник — вокруг оси X (ось петли по паспорту).
 	ApplyHinge(DoorFL, DoorFLMount, DoorFLHinge, DoorFLOpenAngleDeg, /*bYaw=*/true);
@@ -150,7 +162,7 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 	ApplyHinge(DoorRL, DoorRLMount, DoorRLHinge, DoorRLOpenAngleDeg, /*bYaw=*/true);
 	ApplyHinge(DoorRR, DoorRRMount, DoorRRHinge, DoorRROpenAngleDeg, /*bYaw=*/true);
 	ApplyHinge(Hood, HoodMount, HoodHinge, HoodOpenAngleDeg, /*bYaw=*/false);
-	ApplyHinge(Trunk, TrunkMount, TrunkHinge, TrunkOpenAngleDeg, /*bYaw=*/false);
+	ApplyHinge(Trunk, TrunkMount, TrunkHinge, TrunkOpenAngleDeg, /*bYaw=*/bTrunkHingeVertical);
 
 	// 3) Цвет: перекраска кузова (+ по желанию створок) и затемнение битых деталей
 	// (Report1 п.9 — галочка «битая») одним проходом: итог = база · затемнение.
@@ -201,6 +213,23 @@ void AAbandonedCar::ApplyHinge(UStaticMeshComponent* Part, const FVector& MountL
 	const FQuat Q = Rot.Quaternion();
 	const FVector NewLoc = MountLocal + HingeLocal - Q.RotateVector(HingeLocal);
 	Part->SetRelativeLocationAndRotation(NewLoc, Q);
+}
+
+void AAbandonedCar::ApplyPartMesh(UStaticMeshComponent* Part, const UStaticMeshComponent* DefaultPart,
+	UStaticMesh* BrokenMesh, bool bBroken)
+{
+	if (!Part)
+	{
+		return;
+	}
+	// Целая сетка — та, что стоит у детали в настройках класса. Нет её (или это сам объект
+	// по умолчанию) — трогать нечего.
+	UStaticMesh* IntactMesh = (DefaultPart && DefaultPart != Part) ? DefaultPart->GetStaticMesh() : nullptr;
+	UStaticMesh* Wanted = (bBroken && BrokenMesh) ? BrokenMesh : IntactMesh;
+	if (Wanted && Part->GetStaticMesh() != Wanted)
+	{
+		Part->SetStaticMesh(Wanted);
+	}
 }
 
 void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken)

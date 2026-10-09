@@ -431,9 +431,10 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 		else if (Category == EItemCategory::Weapon)
 		{
 			// STALKER-поток: тап по огнестрелу в рюкзаке переносит его в пустой слот оружия
-			// (в кобуру). Занят слот или это не дальнобойное оружие — TryAdoptRangedWeapon
-			// вернёт false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
-			if (Player->TryAdoptRangedWeapon(Item))
+			// (в кобуру). Слот занят другим стволом (двустволка, 09.10.2026) — стволы
+			// меняются местами: прежний уходит в рюкзак. Не дальнобойное оружие — оба вызова
+			// вернут false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
+			if (Player->TryAdoptRangedWeapon(Item) || Player->SwapRangedWeaponFromBackpack(Item))
 			{
 				RefreshAll();
 			}

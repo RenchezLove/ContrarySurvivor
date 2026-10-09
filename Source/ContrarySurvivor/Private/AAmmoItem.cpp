@@ -15,6 +15,24 @@ AAmmoItem::AAmmoItem()
 	// покупка/размещённый пикап — прежнее поведение AAmmoItem), лимит 999 (DRAFT).
 	StackCount = 0;
 	MaxStackCount = 999;
+
+	// Вид патрона класса — прежний пистолетный (двустволка, 09.10.2026).
+	AmmoType = ContraryAmmo::DefaultType();
+}
+
+FName AAmmoItem::GetAmmoType() const
+{
+	// Строка таблицы главнее класса: один класс пачки может обслуживать разные калибры,
+	// различает их строка (тот же принцип, что у брони и расходников, ADR-075).
+	return SourceItemRow.IsNone() ? ContraryAmmo::Normalize(AmmoType) : SourceItemRow;
+}
+
+AShotgunAmmoItem::AShotgunAmmoItem()
+{
+	// Ключ = имя строки таблицы (путь НОВЫХ предметов: колонка старого ключа пуста).
+	ItemName = ContraryAmmo::Shotgun12gType().ToString();
+	ItemDisplayText = NSLOCTEXT("Items", "Ammo12g", "Патроны 12 калибра");
+	AmmoType = ContraryAmmo::Shotgun12gType();
 }
 
 void AAmmoItem::Use()

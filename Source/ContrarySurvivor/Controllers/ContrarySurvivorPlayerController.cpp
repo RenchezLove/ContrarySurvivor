@@ -34,6 +34,7 @@
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"      // ADR-082: окно-напарник режима Search
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"      // ADR-082: окно-напарник режима Trade
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Actors/StashChest.h"          // личный сундук (Ринат 09.10.2026)
 #include "ContrarySurvivor/Actors/VillageZone.h"          // ADR-074: граница деревни для подсказки о сохранении
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // QA: трасса до пола (телепорт V)
@@ -2680,6 +2681,16 @@ void AContrarySurvivorPlayerController::OnInteract()
 			OpenCorpseLootGroup(Group);
 			break;
 		}
+		case EInteractKind::Stash:
+		{
+			// Личный сундук (Ринат 09.10.2026): то же окно обыска в паре с сумкой, но контейнер —
+			// общее хранилище на всю игру (любой сундук на карте открывает его же).
+			if (const AStashChest* Chest = Cast<AStashChest>(CurrentInteractActor))
+			{
+				OpenCorpseLoot(Chest->GetStashContainer());
+			}
+			break;
+		}
 		default:
 			UE_LOG(LogTemp, Log, TEXT("Interact: nothing nearby"));
 			break;
@@ -3509,6 +3520,25 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
+	// Личные сундуки (Ринат 09.10.2026): ближайший сундук, в зоне которого стоит игрок.
+	// Подсказка есть и у ПУСТОГО сундука — в него кладут. Конкуренция с остальным честная:
+	// выигрывает ближайший объект.
+	for (const TWeakObjectPtr<AStashChest>& Ptr : AStashChest::GetActiveChests())
+	{
+		AStashChest* Chest = Ptr.Get();
+		if (!IsValid(Chest) || Chest->GetWorld() != World || !Chest->IsWithinInteractRange(Loc))
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(Loc, Chest->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			CurrentInteractActor = Chest;
+			CurrentInteractKind = EInteractKind::Stash;
+		}
+	}
+
 	// Группа под одно нажатие (издатель 11.08.2026 п.3.1 + ADR-076 п.2): считается ОТ
 	// ПОДСВЕЧЕННОГО объекта, а не от игрока. Якорем может быть и ТЕЛО, и МЕШОК с окном
 	// обыска (кейс Рината «в лагере два мешка») — мешки добираются реестром пикапов внутри
@@ -3629,6 +3659,7 @@ FText AContrarySurvivorPlayerController::GetInteractActionText(EInteractKind Kin
 		case EInteractKind::Trader: return InteractPromptTraderAction;
 		case EInteractKind::Elder:  return InteractPromptElderAction;
 		case EInteractKind::Corpse: return InteractPromptCorpseAction;
+		case EInteractKind::Stash:  return InteractPromptStashAction;
 		default:                    return FText::GetEmpty();
 	}
 }
@@ -4037,9 +4068,4 @@ void AContrarySurvivorPlayerController::Interact(const FInputActionValue& Value)
 	// TODO: реализовать взаимодействие с предметами и NPC
 }
 
-void AContrarySurvivorPlayerController::Inventory(const FInputActionValue& Value)
-{
-	// TODO: открыть/закрыть инвентарь
-}
-
-#undef LOCTEXT_NAMESPACE
+void AContrarySurvivorPlayerController::Inventory(const FInpu

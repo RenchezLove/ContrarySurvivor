@@ -14,6 +14,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // D5: лёгкая тряска камеры при выстреле игрока
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // вариант A прицеливания: доворот корпуса носителя
+#include "AAmmoItem.h" // ContraryAmmo: вид патрона по умолчанию
 
 ARangedWeapon::ARangedWeapon()
 {
@@ -22,6 +23,7 @@ ARangedWeapon::ARangedWeapon()
 	LockedTarget    = nullptr;
 	MuzzleSocketName = FName("MuzzleSocket");
 	Spread          = 0.05f;
+	AmmoType        = ContraryAmmo::DefaultType(); // прежний пистолетный патрон
 
 	// Звук выстрела (Демо). Дефолт из импортированного ассета; переопределяется в BP.
 	// 1.0: прежние 0.5 звучали слишком тихо (фидбек Рината 07-17 «очень тихий, как с
@@ -199,28 +201,198 @@ void ARangedWeapon::PlayFireVisuals(const FVector& TraceEnd, bool bPlaySound)
 	}
 
 	// След пули: цилиндр (100 см по Z у базового меша) растягивается от дула до TraceEnd.
-	if (TracerMesh)
+	if (PlaceTracer(TracerMesh, Muzzle, TraceEnd))
 	{
-		const FVector Segment = TraceEnd - Muzzle;
-		const float Length = Segment.Size();
-		if (Length > 1.0f)
-		{
-			const FVector Dir = Segment / Length;
-			TracerMesh->SetWorldLocation(Muzzle + Segment * 0.5f);
-			TracerMesh->SetWorldRotation(FRotationMatrix::MakeFromZ(Dir).Rotator());
-			TracerMesh->SetWorldScale3D(FVector(TracerThickness / 100.0f, TracerThickness / 100.0f, Length / 100.0f));
-			TracerMesh->SetVisibility(true);
-			World->GetTimerManager().SetTimer(TracerTimerHandle,
-				FTimerDelegate::CreateWeakLambda(this, [this]()
+		World->GetTimerManager().SetTimer(TracerTimerHandle,
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				if (TracerMesh)
 				{
-					if (TracerMesh)
-					{
-						TracerMesh->SetVisibility(false);
-					}
-				}),
-				TracerDuration, /*bLoop=*/false);
+					TracerMesh->SetVisibility(false);
+				}
+			}),
+			TracerDuration, /*bLoop=*/false);
+	}
+}
+
+bool ARangedWeapon::PlaceTracer(UStaticMeshComponent* Mesh, const FVector& From, const FVector& To) const
+{
+	if (!Mesh)
+	{
+		return false;
+	}
+	const FVector Segment = To - From;
+	const float Length = Segment.Size();
+	if (Length <= 1.0f)
+	{
+		return false;
+	}
+	const FVector Dir = Segment / Length;
+	Mesh->SetWorldLocation(From + Segment * 0.5f);
+	Mesh->SetWorldRotation(FRotationMatrix::MakeFromZ(Dir).Rotator());
+	Mesh->SetWorldScale3D(FVector(TracerThickness / 100.0f, TracerThickness / 100.0f, Length / 100.0f));
+	Mesh->SetVisibility(true);
+	return true;
+}
+
+void ARangedWeapon::PlayPelletVisuals(const TArray<FVector>& PelletEnds)
+{
+	UWorld* World = GetWorld();
+	if (!World || PelletEnds.Num() == 0)
+	{
+		return;
+	}
+
+	// Вспышка у дула и след ПЕРВОЙ дробины — штатным путём пистолета (звук играет Fire()).
+	PlayFireVisuals(PelletEnds[0], /*bPlaySound=*/false);
+	if (!bEnableFireVisuals || !TracerMesh)
+	{
+		return;
+	}
+
+	// Остальные дробины — дополнительные следы. Меши создаются при первом залпе и дальше
+	// переиспользуются (без аллокаций на каждый выстрел, как и штатный след).
+	const int32 ExtraNeeded = PelletEnds.Num() - 1;
+	while (ExtraTracerMeshes.Num() < ExtraNeeded)
+	{
+		UStaticMeshComponent* Extra = NewObject<UStaticMeshComponent>(this);
+		Extra->SetupAttachment(RootComponent);
+		Extra->SetAbsolute(/*bNewAbsoluteLocation=*/true, /*bNewAbsoluteRotation=*/true, /*bNewAbsoluteScale=*/true);
+		Extra->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Extra->SetGenerateOverlapEvents(false);
+		Extra->SetCanEverAffectNavigation(false);
+		Extra->SetCastShadow(false);
+		Extra->SetVisibility(false);
+		Extra->SetStaticMesh(TracerMesh->GetStaticMesh());
+		Extra->SetMaterial(0, TracerMesh->GetMaterial(0)); // тот же материал эффектов, что у штатного следа
+		Extra->RegisterComponent();
+		ExtraTracerMeshes.Add(Extra);
+	}
+
+	const FVector Muzzle = GetMuzzleLocation();
+	for (int32 i = 0; i < ExtraNeeded; ++i)
+	{
+		PlaceTracer(ExtraTracerMeshes[i], Muzzle, PelletEnds[i + 1]);
+	}
+
+	// Один общий таймер гасит все дополнительные следы разом.
+	World->GetTimerManager().SetTimer(ExtraTracersTimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			for (UStaticMeshComponent* Extra : ExtraTracerMeshes)
+			{
+				if (Extra)
+				{
+					Extra->SetVisibility(false);
+				}
+			}
+		}),
+		TracerDuration, /*bLoop=*/false);
+}
+
+FName ARangedWeapon::GetAmmoType() const
+{
+	return ContraryAmmo::Normalize(AmmoType);
+}
+
+void ARangedWeapon::BuildPelletDirections(const FVector& AimDir, int32 Count, float FullConeAngleDeg,
+	TArray<FVector>& OutDirections)
+{
+	OutDirections.Reset();
+	const FVector Dir = AimDir.GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		return;
+	}
+	const int32 Num = FMath::Max(1, Count);
+	const float HalfAngleRad = FMath::DegreesToRadians(FMath::Max(0.0f, FullConeAngleDeg) * 0.5f);
+	OutDirections.Reserve(Num);
+	for (int32 i = 0; i < Num; ++i)
+	{
+		// Равномерно по конусу: дробина одинаково охотно летит в любую его часть.
+		OutDirections.Add(HalfAngleRad > 0.0f ? FMath::VRandCone(Dir, HalfAngleRad) : Dir);
+	}
+}
+
+int32 ARangedWeapon::TracePellets(const FVector& Start, const FVector& AimDir,
+	TMap<AActor*, int32>& OutHitsByActor, TArray<FVector>& OutPelletEnds) const
+{
+	OutHitsByActor.Reset();
+	OutPelletEnds.Reset();
+
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0;
+	}
+
+	TArray<FVector> Directions;
+	BuildPelletDirections(AimDir, PelletsPerShot, PelletSpreadAngle, Directions);
+
+	// Тот же канал и те же исключения, что у одиночной пули (PerformLineTrace).
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	QueryParams.AddIgnoredActor(GetInstigator());
+
+	int32 PelletsHit = 0;
+	for (const FVector& Dir : Directions)
+	{
+		// Дробина летит по прямой на дальность оружия: дальше она цель уже не достаёт.
+		const FVector End = Start + Dir * Range;
+		FHitResult Hit;
+		if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, QueryParams))
+		{
+			OutPelletEnds.Add(Hit.ImpactPoint);
+			++PelletsHit;
+			if (AActor* HitActor = Hit.GetActor())
+			{
+				++OutHitsByActor.FindOrAdd(HitActor);
+			}
+		}
+		else
+		{
+			OutPelletEnds.Add(End);
 		}
 	}
+	return PelletsHit;
+}
+
+void ARangedWeapon::FirePellets(AActor* Target)
+{
+	// Точка выхода трасс — как у одиночной пули (позиция оружия): дульный срез длинного
+	// ствола в упор оказался бы уже ЗА врагом, и весь залп ушёл бы мимо. Следы при этом
+	// рисуются от дула (PlayPelletVisuals).
+	const FVector Start = GetActorLocation();
+	FVector AimDir = (Target->GetActorLocation() - Start).GetSafeNormal();
+	if (AimDir.IsNearlyZero())
+	{
+		AimDir = GetActorForwardVector();
+	}
+
+	TMap<AActor*, int32> HitsByActor;
+	TArray<FVector> PelletEnds;
+	LastShotPelletsHit = TracePellets(Start, AimDir, HitsByActor, PelletEnds);
+	LastShotPelletsFired = PelletEnds.Num();
+
+	// Урон: попадание считается по каждой дробине отдельно, но наносится ОДНИМ вызовом на
+	// актора (сумма его дробин) — иначе звук боли, тряска и запись в журнал сработали бы
+	// по разу на дробину.
+	for (const TPair<AActor*, int32>& Pair : HitsByActor)
+	{
+		AActor* HitActor = Pair.Key;
+		if (!IsValid(HitActor))
+		{
+			continue;
+		}
+		const float TotalDamage = Damage * static_cast<float>(Pair.Value);
+		FDamageEvent DamageEvent;
+		HitActor->TakeDamage(TotalDamage, DamageEvent, GetInstigatorController(), this);
+
+		UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s with %d pellets for %.1f damage"),
+			*HitActor->GetName(), Pair.Value, TotalDamage);
+	}
+
+	PlayPelletVisuals(PelletEnds);
 }
 
 void ARangedWeapon::BeginPlay()
@@ -280,25 +452,33 @@ void ARangedWeapon::Fire(AActor* Target)
 		Wielder->PlayFireMontage();
 	}
 
-	FHitResult HitResult;
-	FVector TracerEnd = FiringTarget->GetActorLocation(); // дефолт следа — к цели
-	if (PerformLineTrace(FiringTarget, HitResult))
+	if (IsPelletWeapon())
 	{
-		TracerEnd = HitResult.ImpactPoint; // след до реальной точки попадания
-		AActor* HitActor = HitResult.GetActor();
-		if (HitActor)
-		{
-			// Наносим урон через стандартную систему урона UE
-			FDamageEvent DamageEvent;
-			HitActor->TakeDamage(Damage, DamageEvent, GetInstigatorController(), this);
-
-			UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s for %.1f damage"),
-				*HitActor->GetName(), Damage);
-		}
+		// Дробь (двустволка): залп из нескольких дробин, урон и следы — внутри.
+		FirePellets(FiringTarget);
 	}
+	else
+	{
+		FHitResult HitResult;
+		FVector TracerEnd = FiringTarget->GetActorLocation(); // дефолт следа — к цели
+		if (PerformLineTrace(FiringTarget, HitResult))
+		{
+			TracerEnd = HitResult.ImpactPoint; // след до реальной точки попадания
+			AActor* HitActor = HitResult.GetActor();
+			if (HitActor)
+			{
+				// Наносим урон через стандартную систему урона UE
+				FDamageEvent DamageEvent;
+				HitActor->TakeDamage(Damage, DamageEvent, GetInstigatorController(), this);
 
-	// Вспышка у дула + след пули (D2). Звук здесь свой (ниже) — не дублируем.
-	PlayFireVisuals(TracerEnd, /*bPlaySound=*/false);
+				UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Hit %s for %.1f damage"),
+					*HitActor->GetName(), Damage);
+			}
+		}
+
+		// Вспышка у дула + след пули (D2). Звук здесь свой (ниже) — не дублируем.
+		PlayFireVisuals(TracerEnd, /*bPlaySound=*/false);
+	}
 
 	// Лёгкая тряска камеры при выстреле ИГРОКА (D5). У бандита instigator — не игрок.
 	if (FireShakeTrauma > 0.0f)

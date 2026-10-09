@@ -176,6 +176,16 @@ bool FShopBackpackWeaponTest::RunTest(const FString& Parameters)
 				TestFalse(TEXT("Второй ствол в занятый слот не берётся"), bAdoptSecond);
 				TestTrue(TEXT("Второй пистолет остался в рюкзаке"),
 					Inv->GetInventoryItems().Contains(Second));
+
+				// 5) Новое правило 09.10.2026 (решение лида по двустволке): покупка по-прежнему
+				// ничего не отбирает, но НАЖАТИЕ игрока на второй ствол при занятом слоте
+				// меняет стволы местами — прежний уходит в рюкзак.
+				TestTrue(TEXT("Нажатие на второй ствол меняет стволы местами"),
+					Player->SwapRangedWeaponFromBackpack(Second));
+				TestEqual(TEXT("В слоте теперь второй пистолет"),
+					Player->GetRangedWeaponInstance(), static_cast<AMasterWeapon*>(Second));
+				TestTrue(TEXT("Прежний пистолет ушёл в рюкзак"),
+					Pistol && Inv->GetInventoryItems().Contains(Pistol));
 			}
 		}
 		else

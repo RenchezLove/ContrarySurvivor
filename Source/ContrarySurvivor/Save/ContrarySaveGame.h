@@ -133,6 +133,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	TArray<FSavedInventoryEntry> InventoryEntries;
 
+	// --- Личный сундук (Ринат 09.10.2026) ---
+	// Содержимое ОДНОГО общего хранилища на всю игру (все сундуки на карте показывают его же).
+	// Тот же формат записи, что у рюкзака, и те же моменты записи и чтения: пишет SaveGame()
+	// игрока из живого хранилища, читает «Продолжить». Сохранения, записанные до сундука,
+	// читают поле пустым — сундук в них пуст. Через CopyRetentionData НЕ переносится: это не
+	// удержание, а снимок состояния, как рюкзак.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	TArray<FSavedInventoryEntry> StashEntries;
+
 	// --- Журнал квестов (Б3) ---
 	// Полный снимок FQuest (не только id/состояние): OfferQuest добавляет квест в журнал, только
 	// если его там ещё нет, поэтому частичное восстановление («только состояние») оставило бы
