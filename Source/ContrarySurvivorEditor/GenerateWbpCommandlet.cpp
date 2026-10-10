@@ -3476,8 +3476,10 @@ namespace
 			  TEXT("DetailTitleText"), TEXT("DetailGiverText"), TEXT("DetailDescriptionText"),
 			  TEXT("DetailObjectivesText"), TEXT("DetailRewardText"),
 			  TEXT("TrackButton"), TEXT("TrackText"),
+			  TEXT("PanelPlate"),
 			  TEXT("MapPanel"), TEXT("MapArea"), TEXT("MapBackground"), TEXT("MapImage"),
-			  TEXT("MapFogImage"), TEXT("MapMarkers"), TEXT("MapHintText") } },
+			  TEXT("MapFogImage"), TEXT("MapMarkers"), TEXT("MapHintText"),
+			  TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)

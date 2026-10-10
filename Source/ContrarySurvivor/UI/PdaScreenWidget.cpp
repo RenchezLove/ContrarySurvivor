@@ -121,12 +121,12 @@ namespace
 	}
 
 	UButton* NewCaptionButton(UWidgetTree* Tree, const FName& ButtonName, const FName& TextName,
-		const FText& Caption, const FLinearColor& Normal)
+		const FText& Caption, const FLinearColor& Normal, int32 FontSize = 16)
 	{
 		UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), ButtonName);
 		Button->SetStyle(FlatButtonStyle(Normal, Normal * 1.25f, Normal * 0.8f));
 		Button->bIsVariable = true;
-		UTextBlock* Label = NewText(Tree, TextName, Caption, PdaTextColor, 16, TEXT("Bold"));
+		UTextBlock* Label = NewText(Tree, TextName, Caption, PdaTextColor, FontSize, TEXT("Bold"));
 		Label->SetJustification(ETextJustify::Center);
 		Button->SetContent(Label);
 		return Button;
@@ -189,6 +189,7 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 		return;
 	}
 	const UPdaScreenWidget* Defaults = GetDefault<UPdaScreenWidget>();
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
 
 	UCanvasPanel* Root = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
 	Tree->RootWidget = Root;
@@ -200,47 +201,61 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	Dim->bIsVariable = true;
 	PlaceStretch(Root, Dim, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
 
-	// Панель 1200x720 по центру — тёмная с золотой рамкой, как сумка и магазин; внутри свой
-	// холст, содержимое в области за вычетом отступа 16 (1168x688).
+	// Подложка-смартфон по центру экрана. Размер здесь — для экрана 1920 на 1080 (он же виден
+	// в редакторе окон); в игре размер, отступы экрана и картинку ставит ApplyPhoneLayout по
+	// настройкам и настоящему размеру экрана. Пока картинки смартфона нет — тёмная плашка с
+	// рамкой, как у сумки и магазина. Внутри свой холст: всё содержимое лежит в экране смартфона.
+	const FVector2D DesignPhone = PdaMap::ComputePhoneSize(FVector2D(1920.0, 1080.0),
+		Settings->PhoneHeightFraction, Settings->PhoneAspectRatio, Settings->PhoneSideMargin);
 	UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
-	Plate->SetBrush(RoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.95f), 6.0f,
+	Plate->SetBrush(RoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.97f), 28.0f,
 		FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
-	Plate->SetPadding(FMargin(16.0f));
+	Plate->SetPadding(PdaMap::ComputePhoneScreenPadding(DesignPhone, Settings->PhoneScreenInsets));
 	Plate->bIsVariable = true;
 	if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
 	{
 		PlateSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
 		PlateSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 		PlateSlot->SetPosition(FVector2D::ZeroVector);
-		PlateSlot->SetSize(FVector2D(1200.0f, 720.0f));
+		PlateSlot->SetSize(DesignPhone);
 	}
 	UCanvasPanel* Panel = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PanelCanvas"));
 	Plate->SetContent(Panel);
 
-	// --- Верхняя строка: заголовок, две вкладки, «Закрыть» ---
-	PlaceAuto(Panel, NewText(Tree, TEXT("TitleText"), Defaults->TitleLabel, PdaTextColor, 22, TEXT("Bold")),
-		FVector2D(0.0f, 4.0f));
+	// --- Левый столбец: заголовок, две вкладки, подсказка карты, «Закрыть». Столбец узкий,
+	// чтобы карта справа получила всю высоту экрана смартфона и почти всю его ширину. ---
+	const float SideW = 220.0f;      // ширина столбца
+	const float ContentX = 236.0f;   // откуда начинается вкладка (столбец + просвет 16)
+	const float SideButtonH = 64.0f; // высота кнопок столбца — под палец
+
+	PlaceAuto(Panel, NewText(Tree, TEXT("TitleText"), Defaults->TitleLabel, PdaTextColor, 24, TEXT("Bold")),
+		FVector2D(4.0f, 4.0f));
 
 	const FLinearColor TabColor(0.18f, 0.20f, 0.24f, 1.0f);
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("QuestsTabButton"), TEXT("QuestsTabText"),
-		Defaults->QuestsTabLabel, TabColor), FVector2D(120.0f, 0.0f), FVector2D(180.0f, 40.0f));
+		Defaults->QuestsTabLabel, TabColor, 20), FVector2D(0.0f, 56.0f), FVector2D(SideW, SideButtonH));
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("MapTabButton"), TEXT("MapTabText"),
-		Defaults->MapTabLabel, TabColor), FVector2D(310.0f, 0.0f), FVector2D(180.0f, 40.0f));
+		Defaults->MapTabLabel, TabColor, 20), FVector2D(0.0f, 132.0f), FVector2D(SideW, SideButtonH));
+
+	// Подсказка вкладки карты — в столбце под вкладками (на самой карте она отнимала бы место).
+	UTextBlock* Hint = NewText(Tree, TEXT("MapHintText"), Defaults->MapHintLabel, PdaDimTextColor, 14, TEXT("Regular"));
+	Hint->SetAutoWrapText(true);
+	PlaceAt(Panel, Hint, FVector2D(4.0f, 216.0f), FVector2D(SideW - 8.0f, 220.0f));
 
 	UButton* Close = NewCaptionButton(Tree, TEXT("CloseButton"), TEXT("CloseText"),
-		Defaults->CloseLabel, FLinearColor(0.3f, 0.3f, 0.34f, 1.0f));
+		Defaults->CloseLabel, FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), 20);
 	if (UCanvasPanelSlot* CloseSlot = Panel->AddChildToCanvas(Close))
 	{
-		CloseSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
-		CloseSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+		CloseSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
+		CloseSlot->SetAlignment(FVector2D(0.0f, 1.0f));
 		CloseSlot->SetPosition(FVector2D::ZeroVector);
-		CloseSlot->SetSize(FVector2D(150.0f, 40.0f));
+		CloseSlot->SetSize(FVector2D(SideW, SideButtonH));
 	}
 
 	// --- Вкладка «Задания»: слева список, справа сведения о выбранном ---
 	UCanvasPanel* Quests = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("QuestsPanel"));
 	Quests->bIsVariable = true;
-	PlaceStretch(Panel, Quests, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f, 56.0f, 0.0f, 0.0f));
+	PlaceStretch(Panel, Quests, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(ContentX, 0.0f, 0.0f, 0.0f));
 
 	UScrollBox* List = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("QuestList"));
 	List->bIsVariable = true;
@@ -250,50 +265,64 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	PlaceAuto(Quests, NewText(Tree, TEXT("EmptyText"), Defaults->EmptyLabel, PdaDimTextColor, 16, TEXT("Regular")),
 		FVector2D(8.0f, 8.0f));
 
+	// Сведения о задании тянутся от списка до правого края экрана смартфона (якоря по ширине
+	// растянуты: левый отступ — от списка, правый — ноль), поэтому занимают всё место при
+	// любом размере окна.
 	const float DetailX = 464.0f;
-	const float DetailW = 704.0f;
-	PlaceAuto(Quests, NewText(Tree, TEXT("DetailTitleText"), FText::GetEmpty(), PdaTextColor, 20, TEXT("Bold")),
+	auto PlaceDetail = [Quests, DetailX](UWidget* Widget, float Y, float Height)
+	{
+		if (UCanvasPanelSlot* DetailSlot = Quests->AddChildToCanvas(Widget))
+		{
+			DetailSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 0.0f));
+			DetailSlot->SetOffsets(FMargin(DetailX, Y, 0.0f, Height));
+		}
+	};
+	PlaceAuto(Quests, NewText(Tree, TEXT("DetailTitleText"), FText::GetEmpty(), PdaTextColor, 22, TEXT("Bold")),
 		FVector2D(DetailX, 0.0f));
-	PlaceAuto(Quests, NewText(Tree, TEXT("DetailGiverText"), FText::GetEmpty(), PdaDimTextColor, 15, TEXT("Regular")),
-		FVector2D(DetailX, 36.0f));
+	PlaceAuto(Quests, NewText(Tree, TEXT("DetailGiverText"), FText::GetEmpty(), PdaDimTextColor, 16, TEXT("Regular")),
+		FVector2D(DetailX, 40.0f));
 
-	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 16, TEXT("Regular"));
+	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Regular"));
 	Description->SetAutoWrapText(true);
-	PlaceAt(Quests, Description, FVector2D(DetailX, 92.0f), FVector2D(DetailW, 160.0f));
+	PlaceDetail(Description, 100.0f, 220.0f);
 
-	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 16, TEXT("Regular"));
+	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Regular"));
 	Objectives->SetAutoWrapText(true);
-	PlaceAt(Quests, Objectives, FVector2D(DetailX, 262.0f), FVector2D(DetailW, 120.0f));
+	PlaceDetail(Objectives, 332.0f, 170.0f);
 
-	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 16, TEXT("Regular"));
+	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 18, TEXT("Regular"));
 	Reward->SetAutoWrapText(true);
-	PlaceAt(Quests, Reward, FVector2D(DetailX, 392.0f), FVector2D(DetailW, 90.0f));
+	PlaceDetail(Reward, 514.0f, 120.0f);
 
 	UButton* Track = NewCaptionButton(Tree, TEXT("TrackButton"), TEXT("TrackText"),
-		Defaults->TrackLabel, FLinearColor(0.16f, 0.36f, 0.16f, 1.0f));
+		Defaults->TrackLabel, FLinearColor(0.16f, 0.36f, 0.16f, 1.0f), 20);
 	if (UCanvasPanelSlot* TrackSlot = Quests->AddChildToCanvas(Track))
 	{
 		TrackSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
 		TrackSlot->SetAlignment(FVector2D(0.0f, 1.0f));
 		TrackSlot->SetPosition(FVector2D(DetailX, 0.0f));
-		TrackSlot->SetSize(FVector2D(280.0f, 46.0f));
+		TrackSlot->SetSize(FVector2D(320.0f, SideButtonH));
 	}
 
-	// --- Вкладка «Карта» (занимает то же место, что «Задания»; видимость вкладок ведёт код) ---
+	// --- Вкладка «Карта» (занимает то же место, что «Задания»; видимость вкладок ведёт код).
+	// MapPanel — поле карты на всю высоту экрана смартфона; всё, что выходит за поле при
+	// приближении, обрезается. ---
 	UCanvasPanel* Map = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MapPanel"));
+	Map->SetClipping(EWidgetClipping::ClipToBounds);
 	Map->bIsVariable = true;
-	PlaceStretch(Panel, Map, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f, 56.0f, 0.0f, 0.0f));
+	PlaceStretch(Panel, Map, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(ContentX, 0.0f, 0.0f, 0.0f));
 
-	// Поле карты. В игре код вписывает его в панель с пропорциями прямоугольника мира.
-	UCanvasPanel* Area = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MapArea"));
-	Area->bIsVariable = true;
-	PlaceStretch(Map, Area, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
-
+	// Тёмный фон поля: виден по бокам карты, пока она показана целиком.
 	UBorder* Background = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MapBackground"));
 	Background->SetBrushColor(FLinearColor(0.025f, 0.035f, 0.04f, 1.0f));
 	Background->SetVisibility(ESlateVisibility::HitTestInvisible);
 	Background->bIsVariable = true;
-	PlaceStretch(Area, Background, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
+	PlaceStretch(Map, Background, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
+
+	// Сама карта. В игре код ставит её в поле по приближению и сдвигу (ApplyMapView).
+	UCanvasPanel* Area = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MapArea"));
+	Area->bIsVariable = true;
+	PlaceStretch(Map, Area, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
 
 	// Картинка карты: скрыта, пока картинка не задана в настройках (пустая рисовалась бы белым).
 	UImage* Picture = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MapImage"));
@@ -312,14 +341,28 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	Markers->bIsVariable = true;
 	PlaceStretch(Area, Markers, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
 
-	UTextBlock* Hint = NewText(Tree, TEXT("MapHintText"), Defaults->MapHintLabel, PdaDimTextColor, 13, TEXT("Regular"));
-	if (UCanvasPanelSlot* HintSlot = Map->AddChildToCanvas(Hint))
+	// Кнопки поля карты — столбиком в правом-нижнем углу, поверх карты: «+», «−», «найти героя».
+	// 90 на 90 — нижняя граница удобного под палец размера из руководства по раскладке.
+	const float MapButtonSize = 90.0f;
+	const float MapButtonGap = 10.0f;
+	const float MapButtonMargin = 14.0f;
+	const FLinearColor MapButtonColor(0.10f, 0.12f, 0.15f, 0.88f);
+	auto PlaceMapButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption, int32 FontSize, int32 FromBottom)
 	{
-		HintSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
-		HintSlot->SetAlignment(FVector2D(0.0f, 1.0f));
-		HintSlot->SetPosition(FVector2D(4.0f, 0.0f));
-		HintSlot->SetAutoSize(true);
-	}
+		UButton* Button = NewCaptionButton(Tree, FName(ButtonName), FName(TextName), Caption, MapButtonColor, FontSize);
+		if (UCanvasPanelSlot* ButtonSlot = Map->AddChildToCanvas(Button))
+		{
+			ButtonSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
+			ButtonSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+			ButtonSlot->SetPosition(FVector2D(-MapButtonMargin,
+				-MapButtonMargin - FromBottom * (MapButtonSize + MapButtonGap)));
+			ButtonSlot->SetSize(FVector2D(MapButtonSize, MapButtonSize));
+			ButtonSlot->SetZOrder(5); // поверх карты и отметок
+		}
+	};
+	PlaceMapButton(TEXT("MapFindHeroButton"), TEXT("MapFindHeroText"), Defaults->FindHeroLabel, 16, 0);
+	PlaceMapButton(TEXT("MapZoomOutButton"), TEXT("MapZoomOutText"), Defaults->ZoomOutLabel, 34, 1);
+	PlaceMapButton(TEXT("MapZoomInButton"), TEXT("MapZoomInText"), Defaults->ZoomInLabel, 34, 2);
 }
 
 // ===========================================================================
@@ -367,6 +410,23 @@ void UPdaScreenWidget::EnsureSetup()
 	{
 		TrackButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleTrackClicked);
 	}
+	if (MapZoomInButton)
+	{
+		MapZoomInButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleZoomInClicked);
+	}
+	if (MapZoomOutButton)
+	{
+		MapZoomOutButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleZoomOutClicked);
+	}
+	if (MapFindHeroButton)
+	{
+		MapFindHeroButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleFindHeroClicked);
+	}
+	// Приближенная карта больше своего поля — лишнее обрезается по его краям.
+	if (MapPanel)
+	{
+		MapPanel->SetClipping(EWidgetClipping::ClipToBounds);
+	}
 }
 
 void UPdaScreenWidget::BindCodeTree()
@@ -390,7 +450,11 @@ void UPdaScreenWidget::BindCodeTree()
 	PDA_BIND(TrackButton, UButton);
 	PDA_BIND(TrackText, UTextBlock);
 	PDA_BIND(MapPanel, UCanvasPanel);
+	PDA_BIND(PanelPlate, UBorder);
 	PDA_BIND(MapArea, UCanvasPanel);
+	PDA_BIND(MapZoomInButton, UButton);
+	PDA_BIND(MapZoomOutButton, UButton);
+	PDA_BIND(MapFindHeroButton, UButton);
 	PDA_BIND(MapBackground, UBorder);
 	PDA_BIND(MapImage, UImage);
 	PDA_BIND(MapFogImage, UImage);
@@ -403,7 +467,19 @@ void UPdaScreenWidget::InitPda(APlayerCharacter* InPlayer)
 {
 	EnsureSetup();
 	Player = InPlayer;
-	LastFittedPanelSize = FVector2D::ZeroVector; // поле карты подгоняется заново (размер окна мог смениться)
+	LastScreenSize = FVector2D::ZeroVector; // смартфон подгоняется под экран заново
+
+	// Приближение остаётся, каким игрок его оставил в этом запуске, а карта при каждом открытии
+	// встаёт героем в середину поля (при карте целиком это ничего не меняет). Размер поля ещё
+	// неизвестен (окно открывается впервые) — поставим, когда раскладка посчитается.
+	bCenterOnHeroPending = true;
+	if (MapViewportSize.X >= 1.0 && MapViewportSize.Y >= 1.0)
+	{
+		bCenterOnHeroPending = false;
+		CenterMapOnHero();
+	}
+	bMouseDragging = false;
+	MapTouches.Reset();
 
 	RefreshNow();
 	RefreshTabLook();
@@ -433,6 +509,11 @@ void UPdaScreenWidget::RefreshTabLook()
 	if (MapPanel)
 	{
 		MapPanel->SetVisibility(bMapTab ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	// Подсказка карты стоит в левом столбце — видна только с картой.
+	if (MapHintText)
+	{
+		MapHintText->SetVisibility(bMapTab ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	// Открытая вкладка подписана золотым, вторая — приглушённым.
 	if (QuestsTabText)
@@ -1154,33 +1235,341 @@ void UPdaScreenWidget::RebuildMap()
 	}
 }
 
-void UPdaScreenWidget::FitMapArea()
+// ===========================================================================
+// Вид карты: приближение и сдвиг
+// ===========================================================================
+
+FVector2D UPdaScreenWidget::GetMapBaseSize() const
 {
-	UCanvasPanelSlot* AreaSlot = MapArea ? Cast<UCanvasPanelSlot>(MapArea->Slot) : nullptr;
-	if (!AreaSlot || !MapPanel)
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	return PdaMap::FitMapSize(MapViewportSize, Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
+}
+
+FVector2D UPdaScreenWidget::WorldToMapViewport(const FVector& WorldLocation) const
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	const FVector2D UV = PdaMap::WorldToMapUV(FVector2D(WorldLocation.X, WorldLocation.Y),
+		Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
+	return MapView.MapToViewport(UV, MapViewportSize, GetMapBaseSize());
+}
+
+void UPdaScreenWidget::SetMapViewportSize(const FVector2D& Size)
+{
+	if (Size.X < 1.0 || Size.Y < 1.0)
+	{
+		return; // раскладка ещё не посчитана
+	}
+	const bool bChanged = !Size.Equals(MapViewportSize, 0.5);
+	MapViewportSize = Size;
+	if (bCenterOnHeroPending)
+	{
+		bCenterOnHeroPending = false;
+		CenterMapOnHero(); // сам ставит карту в поле
+	}
+	else if (bChanged)
+	{
+		ApplyMapView();
+	}
+}
+
+void UPdaScreenWidget::ApplyMapView()
+{
+	if (MapViewportSize.X < 1.0 || MapViewportSize.Y < 1.0)
 	{
 		return;
 	}
-	const FVector2D PanelSize = MapPanel->GetCachedGeometry().GetLocalSize();
-	if (PanelSize.X < 1.0 || PanelSize.Y < 1.0 || PanelSize.Equals(LastFittedPanelSize, 0.5))
-	{
-		return; // раскладка ещё не посчитана либо размер не менялся
-	}
-	LastFittedPanelSize = PanelSize;
-
-	// Снизу оставляем место строке-подсказке.
 	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
-	const FVector2D Available(PanelSize.X, FMath::Max(1.0, PanelSize.Y - 26.0));
-	const FVector2D Fitted = PdaMap::FitMapSize(Available, Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
-	AreaSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-	AreaSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-	AreaSlot->SetPosition(FVector2D::ZeroVector);
-	AreaSlot->SetSize(Fitted);
+	const FVector2D BaseSize = GetMapBaseSize();
+	MapView.Zoom = PdaMap::FMapView::ClampZoom(MapView.Zoom, Settings->MapMaxZoom);
+	MapView.Normalize(MapViewportSize, BaseSize);
+
+	if (UCanvasPanelSlot* AreaSlot = MapArea ? Cast<UCanvasPanelSlot>(MapArea->Slot) : nullptr)
+	{
+		AreaSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
+		AreaSlot->SetAlignment(FVector2D::ZeroVector);
+		AreaSlot->SetPosition(MapView.GetContentOffset(MapViewportSize, BaseSize));
+		AreaSlot->SetSize(MapView.GetContentSize(BaseSize));
+	}
+	// Кнопки у пределов гаснут: дальше приближать или отдалять некуда.
+	if (MapZoomInButton)
+	{
+		MapZoomInButton->SetIsEnabled(MapView.Zoom < FMath::Max(1.0f, Settings->MapMaxZoom) - KINDA_SMALL_NUMBER);
+	}
+	if (MapZoomOutButton)
+	{
+		MapZoomOutButton->SetIsEnabled(MapView.Zoom > 1.0 + KINDA_SMALL_NUMBER);
+	}
+}
+
+void UPdaScreenWidget::ZoomMapAt(const FVector2D& ViewportPoint, double NewZoom)
+{
+	MapView.ZoomAt(ViewportPoint, NewZoom, UContraryPdaSettings::Get()->MapMaxZoom, MapViewportSize, GetMapBaseSize());
+	ApplyMapView();
+}
+
+void UPdaScreenWidget::ZoomMapBySteps(int32 Steps)
+{
+	const double Step = FMath::Max(1.05, static_cast<double>(UContraryPdaSettings::Get()->MapZoomStep));
+	ZoomMapAt(MapViewportSize * 0.5, MapView.Zoom * FMath::Pow(Step, static_cast<double>(Steps)));
+}
+
+void UPdaScreenWidget::PanMapBy(const FVector2D& Delta)
+{
+	MapView.PanBy(Delta, MapViewportSize, GetMapBaseSize());
+	ApplyMapView();
+}
+
+void UPdaScreenWidget::PinchMap(const FVector2D& OldA, const FVector2D& OldB, const FVector2D& NewA, const FVector2D& NewB)
+{
+	MapView.Pinch(OldA, OldB, NewA, NewB, UContraryPdaSettings::Get()->MapMaxZoom, MapViewportSize, GetMapBaseSize());
+	ApplyMapView();
+}
+
+void UPdaScreenWidget::CenterMapOnHero()
+{
+	if (Player.IsValid())
+	{
+		const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+		const FVector Location = Player->GetActorLocation();
+		MapView.CenterOn(PdaMap::WorldToMapUV(FVector2D(Location.X, Location.Y),
+			Settings->MapWorldTopLeft, Settings->MapWorldBottomRight), MapViewportSize, GetMapBaseSize());
+	}
+	ApplyMapView();
+}
+
+void UPdaScreenWidget::HandleZoomInClicked()
+{
+	ZoomMapBySteps(1);
+}
+
+void UPdaScreenWidget::HandleZoomOutClicked()
+{
+	ZoomMapBySteps(-1);
+}
+
+void UPdaScreenWidget::HandleFindHeroClicked()
+{
+	CenterMapOnHero();
+}
+
+// ===========================================================================
+// Окно-смартфон: размер, отступы экрана, картинка
+// ===========================================================================
+
+void UPdaScreenWidget::ApplyPhoneLayout(const FVector2D& ScreenSize)
+{
+	if (ScreenSize.X < 1.0 || ScreenSize.Y < 1.0)
+	{
+		return;
+	}
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	UTexture2D* PhoneTexture = Settings->PhoneTexture.IsNull() ? nullptr : Settings->PhoneTexture.LoadSynchronous();
+
+	// Соотношение сторон — с картинки, а без неё — из настроек.
+	double Aspect = Settings->PhoneAspectRatio;
+	if (PhoneTexture && PhoneTexture->GetSizeX() > 0 && PhoneTexture->GetSizeY() > 0)
+	{
+		Aspect = static_cast<double>(PhoneTexture->GetSizeX()) / PhoneTexture->GetSizeY();
+	}
+	PhoneSize = PdaMap::ComputePhoneSize(ScreenSize, Settings->PhoneHeightFraction, Aspect, Settings->PhoneSideMargin);
+	PhonePadding = PdaMap::ComputePhoneScreenPadding(PhoneSize, Settings->PhoneScreenInsets);
+
+	if (PanelPlate)
+	{
+		if (UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(PanelPlate->Slot))
+		{
+			PlateSlot->SetSize(PhoneSize);
+		}
+		PanelPlate->SetPadding(PhonePadding);
+		// Картинка есть — подложка рисуется ею; нет — остаётся вид из файла окна (тёмная плашка).
+		if (PhoneTexture && PhoneTexture != LoadedPhoneTexture)
+		{
+			PanelPlate->SetBrushFromTexture(PhoneTexture);
+			PanelPlate->SetBrushColor(FLinearColor::White);
+		}
+	}
+	LoadedPhoneTexture = PhoneTexture;
+}
+
+// ===========================================================================
+// Мышь и пальцы
+// ===========================================================================
+
+bool UPdaScreenWidget::ScreenToMapViewport(const FVector2D& ScreenPosition, FVector2D& OutPoint) const
+{
+	if (!bMapTab || !MapPanel)
+	{
+		return false;
+	}
+	const FGeometry& PanelGeometry = MapPanel->GetCachedGeometry();
+	const FVector2D Size = PanelGeometry.GetLocalSize();
+	OutPoint = PanelGeometry.AbsoluteToLocal(ScreenPosition);
+	return Size.X >= 1.0 && Size.Y >= 1.0
+		&& OutPoint.X >= 0.0 && OutPoint.Y >= 0.0 && OutPoint.X <= Size.X && OutPoint.Y <= Size.Y;
+}
+
+bool UPdaScreenWidget::IsOverMapButton(const FVector2D& ScreenPosition) const
+{
+	auto IsUnder = [&ScreenPosition](const UWidget* Widget)
+	{
+		return Widget && Widget->IsVisible() && Widget->GetCachedGeometry().IsUnderLocation(ScreenPosition);
+	};
+	if (IsUnder(MapZoomInButton) || IsUnder(MapZoomOutButton) || IsUnder(MapFindHeroButton))
+	{
+		return true;
+	}
+	if (MapMarkers)
+	{
+		for (int32 Index = 0; Index < MapMarkers->GetChildrenCount(); ++Index)
+		{
+			const UWidget* Child = MapMarkers->GetChildAt(Index);
+			if (Child && Child->IsA<UButton>() && IsUnder(Child))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool UPdaScreenWidget::IsOutsidePhone(const FVector2D& ScreenPosition) const
+{
+	if (!PanelPlate)
+	{
+		return false;
+	}
+	const FGeometry& PlateGeometry = PanelPlate->GetCachedGeometry();
+	return PlateGeometry.GetLocalSize().X >= 1.0 && !PlateGeometry.IsUnderLocation(ScreenPosition);
+}
+
+FReply UPdaScreenWidget::NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	FVector2D Point;
+	if (ScreenToMapViewport(InMouseEvent.GetScreenSpacePosition(), Point))
+	{
+		const double Step = FMath::Max(1.05, static_cast<double>(UContraryPdaSettings::Get()->MapZoomStep));
+		ZoomMapAt(Point, MapView.Zoom * FMath::Pow(Step, static_cast<double>(InMouseEvent.GetWheelDelta())));
+		return FReply::Handled();
+	}
+	return Super::NativeOnMouseWheel(InGeometry, InMouseEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		// Нажатие мимо смартфона закрывает окно.
+		if (IsOutsidePhone(InMouseEvent.GetScreenSpacePosition()))
+		{
+			OnCloseRequested.Broadcast();
+			return FReply::Handled();
+		}
+		FVector2D Point;
+		if (ScreenToMapViewport(InMouseEvent.GetScreenSpacePosition(), Point))
+		{
+			bMouseDragging = true;
+			LastMouseDragPoint = Point;
+			return FReply::Handled().CaptureMouse(TakeWidget());
+		}
+	}
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (bMouseDragging && MapPanel)
+	{
+		const FVector2D Point = MapPanel->GetCachedGeometry().AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
+		PanMapBy(Point - LastMouseDragPoint);
+		LastMouseDragPoint = Point;
+		return FReply::Handled();
+	}
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (bMouseDragging && InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		bMouseDragging = false;
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnTouchStarted(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent)
+{
+	// Палец на кнопке поля (приближение, отметка задания) — событие не берём: тогда движок сам
+	// превратит касание в нажатие этой кнопки. Мимо поля — тоже не берём (нажатие мимо
+	// смартфона дойдёт до обработчика мыши и закроет окно).
+	FVector2D Point;
+	if (MapTouches.Num() < 2 && ScreenToMapViewport(InGestureEvent.GetScreenSpacePosition(), Point)
+		&& !IsOverMapButton(InGestureEvent.GetScreenSpacePosition()))
+	{
+		MapTouches.Add(InGestureEvent.GetPointerIndex(), Point);
+		return FReply::Handled().CaptureMouse(TakeWidget());
+	}
+	return Super::NativeOnTouchStarted(InGeometry, InGestureEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnTouchMoved(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent)
+{
+	FVector2D* Stored = MapTouches.Find(InGestureEvent.GetPointerIndex());
+	if (Stored && MapPanel)
+	{
+		const FVector2D OldPoint = *Stored;
+		const FVector2D NewPoint = MapPanel->GetCachedGeometry().AbsoluteToLocal(InGestureEvent.GetScreenSpacePosition());
+		*Stored = NewPoint;
+		if (MapTouches.Num() >= 2)
+		{
+			// Второй палец стоит на месте в этом событии: его точка — и старая, и новая.
+			FVector2D Other = NewPoint;
+			for (const TPair<uint32, FVector2D>& Touch : MapTouches)
+			{
+				if (Touch.Key != InGestureEvent.GetPointerIndex())
+				{
+					Other = Touch.Value;
+					break;
+				}
+			}
+			PinchMap(OldPoint, Other, NewPoint, Other);
+		}
+		else
+		{
+			PanMapBy(NewPoint - OldPoint);
+		}
+		return FReply::Handled();
+	}
+	return Super::NativeOnTouchMoved(InGeometry, InGestureEvent);
+}
+
+FReply UPdaScreenWidget::NativeOnTouchEnded(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent)
+{
+	if (MapTouches.Remove(InGestureEvent.GetPointerIndex()) > 0)
+	{
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	return Super::NativeOnTouchEnded(InGeometry, InGestureEvent);
+}
+
+void UPdaScreenWidget::NativeOnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent)
+{
+	Super::NativeOnMouseCaptureLost(CaptureLostEvent);
+	bMouseDragging = false;
+	MapTouches.Reset();
 }
 
 void UPdaScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// Размер экрана сменился (или окно показано впервые) — подгоняем смартфон.
+	const FVector2D ScreenSize = MyGeometry.GetLocalSize();
+	if (!ScreenSize.Equals(LastScreenSize, 0.5))
+	{
+		LastScreenSize = ScreenSize;
+		ApplyPhoneLayout(ScreenSize);
+	}
 
 	// Журнал изменился, пока окно открыто (или игрок что-то нажал в окне) — перерисовываем.
 	if (bRefreshPending || ComputeJournalStamp() != LastJournalStamp)
@@ -1189,7 +1578,10 @@ void UPdaScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	}
 	if (bMapTab)
 	{
-		FitMapArea();
+		if (MapPanel)
+		{
+			SetMapViewportSize(MapPanel->GetCachedGeometry().GetLocalSize());
+		}
 		// Герой открыл новое, пока карта на экране, — перерисовываем черноту и подписи мест.
 		const UMapExplorationComponent* Exploration = GetExploration();
 		if (Exploration && Exploration->GetRevision() != LastFogRevision)
@@ -1207,7 +1599,7 @@ int32 UPdaScreenWidget::NativePaint(const FPaintArgs& Args, const FGeometry& All
 		LayerId, InWidgetStyle, bParentEnabled);
 
 	// Стрелка героя — поверх всего на карте: остриё смотрит туда же, куда герой.
-	if (!bMapTab || !MapArea || !Player.IsValid())
+	if (!bMapTab || !MapArea || !MapPanel || !Player.IsValid())
 	{
 		return MaxLayer;
 	}
@@ -1225,8 +1617,19 @@ int32 UPdaScreenWidget::NativePaint(const FPaintArgs& Args, const FGeometry& All
 	const FVector Location = Player->GetActorLocation();
 	const FVector2D UV = PdaMap::WorldToMapUV(FVector2D(Location.X, Location.Y),
 		Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
-	// Герой у края карты или за ним: стрелка прижимается к краю поля целиком, а не теряется.
+	// Герой у края карты или за ним: стрелка прижимается к краю карты целиком, а не теряется.
 	const FVector2D Center = ClampArrowCenter(AreaMin + UV * AreaSize, AreaMin, AreaMax, 14.0);
+
+	// Карта приближена, и герой остался за краем поля — стрелку не рисуем (она вылезла бы на
+	// рамку окна); вернуть её в поле — кнопка «найти героя».
+	const FGeometry& PanelGeometry = MapPanel->GetCachedGeometry();
+	const FVector2D PanelMin = AllottedGeometry.AbsoluteToLocal(PanelGeometry.LocalToAbsolute(FVector2D::ZeroVector));
+	const FVector2D PanelMax = AllottedGeometry.AbsoluteToLocal(PanelGeometry.LocalToAbsolute(PanelGeometry.GetLocalSize()));
+	if (Center.X < PanelMin.X + 10.0 || Center.Y < PanelMin.Y + 10.0
+		|| Center.X > PanelMax.X - 10.0 || Center.Y > PanelMax.Y - 10.0)
+	{
+		return MaxLayer;
+	}
 
 	const FVector Forward = Player->GetActorForwardVector();
 	FVector2D Dir = PdaMap::WorldDirToMapDir(FVector2D(Forward.X, Forward.Y),
@@ -1300,6 +1703,37 @@ void UPdaTouchButtonWidget::Setup(const FVector2D& InMargin, float InRadius, con
 	if (PdaText)
 	{
 		PdaText->SetText(Label);
+	}
+
+	// Значок вместо слова (слова Рината 10.10.2026: «текст на кнопке КПК поменяй на значок
+	// смартфона, лежащего на боку»): картинка задана в настройках — на кнопке она, нет — текст.
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	LoadedIcon = Settings->PdaButtonIcon.IsNull() ? nullptr : Settings->PdaButtonIcon.LoadSynchronous();
+	if (PdaButton && WidgetTree)
+	{
+		if (LoadedIcon)
+		{
+			if (!PdaIcon)
+			{
+				PdaIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("PdaIcon"));
+				PdaIcon->SetVisibility(ESlateVisibility::HitTestInvisible); // нажатие ловит кнопка
+			}
+			// Ширина значка — доля поперечника кнопки, высота — по пропорциям картинки.
+			const float IconWidth = Radius * 2.0f * FMath::Clamp(Settings->PdaButtonIconScale, 0.2f, 1.0f);
+			const float IconAspect = LoadedIcon->GetSizeX() > 0
+				? static_cast<float>(LoadedIcon->GetSizeY()) / LoadedIcon->GetSizeX() : 1.0f;
+			PdaIcon->SetBrushFromTexture(LoadedIcon);
+			PdaIcon->SetDesiredSizeOverride(FVector2D(IconWidth, IconWidth * IconAspect));
+			PdaIcon->SetColorAndOpacity(Settings->PdaButtonIconColor);
+			if (PdaButton->GetContent() != PdaIcon)
+			{
+				PdaButton->SetContent(PdaIcon);
+			}
+		}
+		else if (PdaText && PdaButton->GetContent() != PdaText)
+		{
+			PdaButton->SetContent(PdaText);
+		}
 	}
 	if (UCanvasPanelSlot* ButtonSlot = PdaButton ? Cast<UCanvasPanelSlot>(PdaButton->Slot) : nullptr)
 	{

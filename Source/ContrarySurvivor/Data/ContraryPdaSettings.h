@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
 #include "UObject/SoftObjectPtr.h"
+#include "Layout/Margin.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // EQuestKind
 #include "ContraryPdaSettings.generated.h"
 
@@ -86,6 +87,64 @@ public:
 		DisplayName = "Правый-нижний угол карты в мире (X, Y)",
 		ToolTip = "Точка мира, которая попадает в правый-нижний угол картинки. При игровой камере это наименьшие X и Y прямоугольника."))
 	FVector2D MapWorldBottomRight = FVector2D(-17937.5, -27807.5);
+
+	// --- Окно-смартфон (слова Рината 10.10.2026: «сам виджет КПК и саму карту сделай побольше…
+	// сама подложка виджета должна быть похожа на смартфон… примерно как в сталкере. Только там
+	// КПК, а здесь смартфон») ---
+
+	// Картинка смартфона, лежащего на боку, с прозрачным фоном вокруг. Пусто — окно рисуется
+	// тёмной плашкой с рамкой, в том же размере и с теми же отступами экрана.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
+		DisplayName = "Картинка смартфона (подложка окна)"))
+	TSoftObjectPtr<UTexture2D> PhoneTexture;
+
+	// Где на картинке экран смартфона: отступы от краёв картинки в ДОЛЯХ её ширины (слева,
+	// справа) и высоты (сверху, снизу). Всё содержимое окна рисуется строго внутри экрана.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
+		DisplayName = "Отступы экрана внутри картинки (доли: слева, сверху, справа, снизу)"))
+	FMargin PhoneScreenInsets = FMargin(0.04f, 0.06f, 0.04f, 0.06f);
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.3", ClampMax = "1.0",
+		DisplayName = "Высота смартфона (доля высоты экрана)"))
+	float PhoneHeightFraction = 0.92f;
+
+	// Действует, пока картинки нет; с картинкой соотношение берётся с неё.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.5", ClampMax = "3.0",
+		DisplayName = "Соотношение сторон смартфона без картинки (ширина к высоте)"))
+	float PhoneAspectRatio = 1.5f;
+
+	// Смартфон, который не помещается по ширине, уменьшается целиком.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.0",
+		DisplayName = "Поля слева и справа от смартфона, единиц раскладки"))
+	float PhoneSideMargin = 24.0f;
+
+	// Значок на экранной кнопке вместо слова «КПК» (слова Рината: «значок смартфона, лежащего
+	// на боку, и в нём на месте экрана схематично нарисован земной шар»). Белый значок на
+	// прозрачном фоне; пусто — на кнопке остаётся текст.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
+		DisplayName = "Значок экранной кнопки"))
+	TSoftObjectPtr<UTexture2D> PdaButtonIcon;
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
+		DisplayName = "Цвет значка экранной кнопки"))
+	FLinearColor PdaButtonIconColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.95f);
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.2", ClampMax = "1.0",
+		DisplayName = "Размер значка (доля поперечника кнопки)"))
+	float PdaButtonIconScale = 0.7f;
+
+	// --- Приближение карты (слова Рината: «дай игроку возможность приближать и отдалять её как
+	// кнопками (+ и −), так и пальцами (раздвигая)») ---
+
+	// 1 — карта целиком; это число — самое сильное приближение.
+	UPROPERTY(config, EditAnywhere, Category = "Карта", meta = (ClampMin = "1.0", ClampMax = "16.0",
+		DisplayName = "Наибольшее приближение карты, раз"))
+	float MapMaxZoom = 4.0f;
+
+	// Во сколько раз меняется приближение за одно нажатие «+» или «−» и за щелчок колеса мыши.
+	UPROPERTY(config, EditAnywhere, Category = "Карта", meta = (ClampMin = "1.05", ClampMax = "4.0",
+		DisplayName = "Шаг приближения, раз"))
+	float MapZoomStep = 1.5f;
 
 	// --- Карта открывается по мере исследования (слова Рината 10.10.2026: «изначально на карте
 	// ничего не должно быть видно, кроме деревни. Остальное — чернота… карта появляется в

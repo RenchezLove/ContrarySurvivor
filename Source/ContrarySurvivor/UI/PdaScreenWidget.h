@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Components/Button.h"
 #include "Widgets/Layout/Anchors.h"
+#include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "PdaScreenWidget.generated.h"
 
@@ -66,6 +67,14 @@ struct FPdaJournalView
  *    герой, цели заданий, известные места. Нажатие по отметке задания делает его отслеживаемым.
  *    Карта открывается по мере исследования: неизведанное закрыто чернотой, места и их подписи
  *    появляются, когда герой там побывал (память героя — UMapExplorationComponent).
+ *    Карту можно приближать (кнопки «+» и «−», колесо мыши, щипок двумя пальцами) и двигать
+ *    (палец или мышь с зажатой кнопкой); правила вида — PdaMap::FMapView.
+ *
+ * Окно выглядит смартфоном (слова Рината 10.10.2026: «подложка виджета должна быть похожа на
+ * смартфон… только там КПК, а здесь смартфон»): подложка PanelPlate занимает почти весь экран,
+ * её размер, картинку и отступы экрана внутри картинки задают настройки UContraryPdaSettings —
+ * код ставит их при открытии и при смене размера экрана. Содержимое лежит внутри экрана
+ * смартфона: слева столбец (заголовок, вкладки, подсказка, «Закрыть»), справа вкладка.
  *
  * Два пути, как у остальных окон проекта:
  *  - готовый файл окна WBP_Pda (создаёт генератор окон) — раскладку, шрифты и постоянные
@@ -86,7 +95,7 @@ public:
 	// --- Постоянные подписи (кладутся в окно при его создании; дальше правятся в самом окне) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Заголовок окна"))
-	FText TitleLabel = NSLOCTEXT("Pda", "Title", "КПК");
+	FText TitleLabel = NSLOCTEXT("Pda", "Title", "Смартфон");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Вкладка заданий"))
 	FText QuestsTabLabel = NSLOCTEXT("Pda", "QuestsTab", "Задания");
@@ -97,7 +106,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка закрытия"))
 	FText CloseLabel = NSLOCTEXT("Pda", "Close", "Закрыть");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Строка под картой"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «приблизить карту»"))
+	FText ZoomInLabel = NSLOCTEXT("Pda", "ZoomIn", "+");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «отдалить карту»"))
+	FText ZoomOutLabel = NSLOCTEXT("Pda", "ZoomOut", "−");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «найти героя на карте»"))
+	FText FindHeroLabel = NSLOCTEXT("Pda", "FindHero", "Где я");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Подсказка вкладки карты"))
 	FText MapHintLabel = NSLOCTEXT("Pda", "MapHint",
 		"Нажмите на отметку задания, чтобы отслеживать его. Оранжевые точки — костры, где можно сохраниться.");
 
@@ -228,6 +246,43 @@ public:
 	// Игрок нажал «Закрыть» — владелец (контроллер) убирает окно и возвращает управление.
 	FSimpleMulticastDelegate OnCloseRequested;
 
+	// --- Приближение и сдвиг карты. Точки и сдвиги — в единицах поля карты (MapPanel), его
+	// левый-верхний угол — ноль. Этими же дверями ходят колесо мыши, пальцы и кнопки. ---
+
+	// Приблизить или отдалить к точке поля: то место карты, что под ней, под ней и останется.
+	void ZoomMapAt(const FVector2D& ViewportPoint, double NewZoom);
+	// Кнопки «+» и «−»: на столько шагов (минус — отдалить), к середине поля.
+	void ZoomMapBySteps(int32 Steps);
+	void PanMapBy(const FVector2D& Delta);
+	// Два пальца: были в OldA и OldB, стали в NewA и NewB.
+	void PinchMap(const FVector2D& OldA, const FVector2D& OldB, const FVector2D& NewA, const FVector2D& NewB);
+	// Кнопка «найти героя»: поставить героя в середину поля.
+	void CenterMapOnHero();
+
+	// Размер поля карты. В игре его каждый кадр сверяет само окно; автопроверкам живой
+	// раскладки не дождаться — они задают размер сами.
+	void SetMapViewportSize(const FVector2D& Size);
+
+	double GetMapZoom() const { return MapView.Zoom; }
+	const PdaMap::FMapView& GetMapView() const { return MapView; }
+	FVector2D GetMapViewportSize() const { return MapViewportSize; }
+	// Размер карты при приближении 1 (вписана в поле с пропорциями мира).
+	FVector2D GetMapBaseSize() const;
+	// Где сейчас стоит карта в поле и какого она размера (то, что уходит в раскладку).
+	FVector2D GetMapAreaOffset() const { return MapView.GetContentOffset(MapViewportSize, GetMapBaseSize()); }
+	FVector2D GetMapAreaSize() const { return MapView.GetContentSize(GetMapBaseSize()); }
+	// Точка мира -> точка поля карты при нынешнем виде (там рисуются значок и стрелка героя).
+	FVector2D WorldToMapViewport(const FVector& WorldLocation) const;
+
+	// --- Окно-смартфон ---
+
+	// Поставить размер подложки, отступы экрана и картинку по настройкам для экрана такого
+	// размера. В игре зовёт само окно; автопроверки зовут напрямую.
+	void ApplyPhoneLayout(const FVector2D& ScreenSize);
+	FVector2D GetPhoneSize() const { return PhoneSize; }
+	FMargin GetPhoneScreenPadding() const { return PhonePadding; }
+	bool IsPhoneTextureShown() const { return LoadedPhoneTexture != nullptr; }
+
 	// Разложить журнал по разделам окна. Чистое правило — его гоняют автопроверки.
 	static void BuildJournalView(const TArray<FQuest>& Journal, FName TrackedQuestId, FPdaJournalView& OutView);
 
@@ -256,6 +311,26 @@ protected:
 		const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId,
 		const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
 
+	// Мышь: колесо приближает к курсору, зажатая левая кнопка двигает карту, нажатие мимо
+	// смартфона закрывает окно. Пальцы: один двигает карту, два — приближают и двигают.
+	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnTouchStarted(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
+	virtual FReply NativeOnTouchMoved(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
+	virtual FReply NativeOnTouchEnded(const FGeometry& InGeometry, const FPointerEvent& InGestureEvent) override;
+	virtual void NativeOnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent) override;
+
+	UFUNCTION()
+	void HandleZoomInClicked();
+
+	UFUNCTION()
+	void HandleZoomOutClicked();
+
+	UFUNCTION()
+	void HandleFindHeroClicked();
+
 	UFUNCTION()
 	void HandleQuestsTabClicked();
 
@@ -282,8 +357,16 @@ private:
 	void RebuildMap();
 	void RefreshTabLook();
 
-	// Подогнать поле карты под пропорции прямоугольника мира (карта не растягивается).
-	void FitMapArea();
+	// Поставить карту в поле по нынешнему виду (приближение и сдвиг): карта не растягивается,
+	// пропорции прямоугольника мира сохраняются.
+	void ApplyMapView();
+
+	// Точка экрана -> точка поля карты; false — точка вне поля либо вкладка карты не показана.
+	bool ScreenToMapViewport(const FVector2D& ScreenPosition, FVector2D& OutPoint) const;
+	// Под точкой экрана кнопка поля карты (приближение, «найти героя», отметка задания)?
+	bool IsOverMapButton(const FVector2D& ScreenPosition) const;
+	// Точка экрана мимо смартфона?
+	bool IsOutsidePhone(const FVector2D& ScreenPosition) const;
 
 	// Изменился ли журнал с прошлой отрисовки (число заданий, состояния, счёт, отслеживаемое).
 	uint32 ComputeJournalStamp() const;
@@ -358,9 +441,23 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UCanvasPanel> MapPanel;
 
-	// Поле карты: код вписывает его в MapPanel с пропорциями прямоугольника мира.
+	// Сама карта: код ставит её в поле MapPanel по нынешнему приближению и сдвигу. Всё, что
+	// лежит на ней, привязано долями и едет вместе с ней.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UCanvasPanel> MapArea;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MapZoomInButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MapZoomOutButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MapFindHeroButton;
+
+	// Подложка окна и её холст: размер, отступы и картинку ставит ApplyPhoneLayout.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> PanelPlate;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> MapBackground;
@@ -402,7 +499,25 @@ private:
 	bool bDoneExpanded = false;
 	bool bRefreshPending = false;
 	uint32 LastJournalStamp = 0;
-	FVector2D LastFittedPanelSize = FVector2D::ZeroVector;
+
+	// Картинка смартфона, пока окно живо.
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> LoadedPhoneTexture;
+
+	// Вид карты переживает закрытие окна (окно у контроллера одно на запуск): приближение
+	// остаётся, каким игрок его оставил, а при открытии карта встаёт героем в середину.
+	PdaMap::FMapView MapView;
+	FVector2D MapViewportSize = FVector2D::ZeroVector;
+	bool bCenterOnHeroPending = false;
+
+	FVector2D PhoneSize = FVector2D::ZeroVector;
+	FMargin PhonePadding;
+	FVector2D LastScreenSize = FVector2D::ZeroVector;
+
+	// Мышь с зажатой кнопкой и пальцы на поле карты (номер пальца -> точка поля).
+	bool bMouseDragging = false;
+	FVector2D LastMouseDragPoint = FVector2D::ZeroVector;
+	TMap<uint32, FVector2D> MapTouches;
 
 	int32 QuestRowCount = 0;
 	int32 QuestMapMarkerCount = 0;
@@ -432,6 +547,9 @@ public:
 	static FVector2D ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,
 		float NeighborScale, float InRadius, float Gap, bool bToTheLeft);
 
+	// На кнопке значок из настроек (true) или текст (false).
+	bool IsIconShown() const { return LoadedIcon != nullptr; }
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -445,6 +563,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> PdaText;
+
+	// Значок кнопки: заводится, только когда картинка задана в настройках.
+	UPROPERTY()
+	TObjectPtr<UImage> PdaIcon;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> LoadedIcon;
 
 	FVector2D Margin = FVector2D(240.0, 100.0);
 	float Radius = 44.0f;
