@@ -302,6 +302,10 @@ public:
 	UPdaScreenWidget* GetPdaWidget() const { return PdaWidget; }
 	TSubclassOf<UPdaScreenWidget> GetPdaWidgetClass() const { return PdaWidgetClass; }
 
+	// Радиус кнопки «КПК» и её просвет до кнопки сумки (для проверок раскладки).
+	float GetPdaTouchButtonRadius() const { return PdaTouchButtonRadius; }
+	float GetPdaTouchButtonGap() const { return PdaTouchButtonGap; }
+
 	// Тач-слой активен (Android всегда; ПК — по флагу bEnableTouchControls). HUD выбирает
 	// по этому текст подсказки прокрутки магазина: «свайп» против «колесо» (G2).
 	bool HasTouchLayer() const { return TouchControlsLayer != nullptr; }
@@ -1278,9 +1282,16 @@ private:
 	UPROPERTY()
 	TObjectPtr<UPdaTouchButtonWidget> PdaTouchButton;
 
-	// Отступ ЦЕНТРА кнопки «КПК» от правого-верхнего угла экрана: слева от кнопки сумки.
-	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: отступ от правого-верхнего угла"))
-	FVector2D PdaTouchButtonMargin = FVector2D(240.0, 100.0);
+	// Кнопка «КПК» встаёт рядом с кнопкой сумки, вровень с ней по высоте: место сумки
+	// берётся из слоя экранных кнопок, поэтому «КПК» едет следом, когда сумку двигают.
+	// Просвет считается от сумки в наибольшем размере (она вырастает, когда мигает).
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "0.0", DisplayName = "Кнопка КПК: просвет до кнопки сумки"))
+	float PdaTouchButtonGap = 12.0f;
+
+	// Запасное место — отступ ЦЕНТРА кнопки «КПК» от правого-верхнего угла экрана. Работает,
+	// только если кнопку сумки в слое найти не удалось.
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: запасной отступ от правого-верхнего угла"))
+	FVector2D PdaTouchButtonMargin = FVector2D(330.0, 114.0);
 
 	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "15.0", DisplayName = "Кнопка КПК: радиус"))
 	float PdaTouchButtonRadius = 44.0f;

@@ -247,7 +247,22 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			PdaTouchButton = CreateWidget<UPdaTouchButtonWidget>(this, UPdaTouchButtonWidget::StaticClass());
 			if (PdaTouchButton)
 			{
-				PdaTouchButton->Setup(PdaTouchButtonMargin, PdaTouchButtonRadius, PdaTouchButtonLabel);
+				FAnchors BagAnchors;
+				FVector2D BagCenter, BagSize;
+				if (Layer->GetInventoryButtonPlacement(BagAnchors, BagCenter, BagSize))
+				{
+					// Сумка в правой половине экрана — «КПК» слева от неё, иначе справа.
+					const FVector2D PdaCenter = UPdaTouchButtonWidget::ComputeCenterBeside(BagCenter, BagSize,
+						Layer->GetInventoryBlinkScale(), PdaTouchButtonRadius, PdaTouchButtonGap,
+						/*bToTheLeft=*/BagAnchors.Minimum.X >= 0.5);
+					PdaTouchButton->SetupAt(BagAnchors, PdaCenter, PdaTouchButtonRadius, PdaTouchButtonLabel);
+					UE_LOG(LogQA, Display, TEXT("QA: pda button placed beside bag button: bag center=(%.1f, %.1f) size=(%.1f x %.1f), pda center=(%.1f, %.1f) radius=%.1f"),
+						BagCenter.X, BagCenter.Y, BagSize.X, BagSize.Y, PdaCenter.X, PdaCenter.Y, PdaTouchButtonRadius);
+				}
+				else
+				{
+					PdaTouchButton->Setup(PdaTouchButtonMargin, PdaTouchButtonRadius, PdaTouchButtonLabel);
+				}
 				ContraryUI::AddToGameScreen(PdaTouchButton, /*ZOrder=*/10);
 			}
 		}

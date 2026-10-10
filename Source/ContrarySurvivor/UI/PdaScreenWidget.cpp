@@ -1126,6 +1126,23 @@ void UPdaTouchButtonWidget::Setup(const FVector2D& InMargin, float InRadius, con
 	}
 }
 
+void UPdaTouchButtonWidget::SetupAt(const FAnchors& InAnchors, const FVector2D& InCenter, float InRadius, const FText& InLabel)
+{
+	Setup(Margin, InRadius, InLabel);
+	if (UCanvasPanelSlot* ButtonSlot = PdaButton ? Cast<UCanvasPanelSlot>(PdaButton->Slot) : nullptr)
+	{
+		ButtonSlot->SetAnchors(InAnchors);
+		ButtonSlot->SetPosition(InCenter);
+	}
+}
+
+FVector2D UPdaTouchButtonWidget::ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,
+	float NeighborScale, float InRadius, float Gap, bool bToTheLeft)
+{
+	const double Offset = NeighborSize.X * 0.5 * FMath::Max(1.0f, NeighborScale) + FMath::Max(0.0f, Gap) + InRadius;
+	return FVector2D(NeighborCenter.X + (bToTheLeft ? -Offset : Offset), NeighborCenter.Y);
+}
+
 void UPdaTouchButtonWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);

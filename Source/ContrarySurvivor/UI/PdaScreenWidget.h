@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/Button.h"
+#include "Widgets/Layout/Anchors.h"
 #include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "PdaScreenWidget.generated.h"
 
@@ -389,6 +390,15 @@ class CONTRARYSURVIVOR_API UPdaTouchButtonWidget : public USelfHidingWidget
 public:
 	// Отступ ЦЕНТРА кнопки от правого-верхнего угла экрана и её радиус (как у экранных кнопок).
 	void Setup(const FVector2D& InMargin, float InRadius, const FText& InLabel);
+
+	// То же, но место задано от соседней кнопки (сумки): якорь соседа и готовый центр.
+	void SetupAt(const FAnchors& InAnchors, const FVector2D& InCenter, float InRadius, const FText& InLabel);
+
+	// Центр круглой кнопки радиуса InRadius, стоящей сбоку от соседа вровень с ним по высоте.
+	// Gap — просвет между кнопками; сосед берётся в наибольшем размере (NeighborScale — во
+	// сколько раз он вырастает, когда мигает). bToTheLeft — слева от соседа, иначе справа.
+	static FVector2D ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,
+		float NeighborScale, float InRadius, float Gap, bool bToTheLeft);
 
 protected:
 	virtual void NativeOnInitialized() override;

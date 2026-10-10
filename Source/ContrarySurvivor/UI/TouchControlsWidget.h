@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Widgets/Layout/Anchors.h"
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
 #include "TouchControlsWidget.generated.h"
 
@@ -110,6 +111,14 @@ public:
 	// Прозрачность ползунка — это прозрачность слоя В ПОКОЕ; прозрачность элемента под пальцем
 	// поднимается пропорционально (прежнее соотношение 0.5 / 0.85 сохраняется при значении 50%).
 	void ApplyPlayerSettings();
+
+	// Где в слое стоит кнопка СУМКА: якорь, ЦЕНТР и размер в единицах раскладки. От этого
+	// места ставится кнопка «КПК», чтобы не наехать на сумку, куда бы её ни подвинул владелец
+	// файла экранных кнопок. false — кнопки нет либо она привязана не к одной точке экрана.
+	bool GetInventoryButtonPlacement(FAnchors& OutAnchors, FVector2D& OutCenter, FVector2D& OutSize) const;
+
+	// Во сколько раз кнопка СУМКА вырастает на пике мигания-подсказки (1 — не растёт).
+	float GetInventoryBlinkScale() const { return FMath::Max(1.0f, InventoryBlinkScale); }
 
 	// --- Иконка текущего оружия (запрос Рината 07-19: «игрок не понимает какое оружие
 	// в руках»). Мягкие ссылки — паттерн иконок брони HUD: текстуры может не быть,
