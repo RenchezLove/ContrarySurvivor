@@ -952,6 +952,23 @@ protected:
 	// отдельного стейта нет. В Shipping сам флаг вшит в 0 (ShowFlagsValues.inl:323), клавиши нет.
 	void OnQATogglePreviewShadows();
 
+	// --- Меню отладки (Ринат 09.10.2026) ---
+	// Клавиша «]» (она же русская «ъ»): справа выезжает панель с тумблерами и кнопками
+	// (Debug/ContraryDebugMenu.h); повторное нажатие прячет. Пока панель открыта, мышь
+	// работает по её кнопкам, игра не на паузе. Панель дергает те же обработчики, что клавиши
+	// (заморозка врагов, полные статы) — доступ к ним даём дружбой.
+	friend class SContraryDebugMenu;
+	void OnQAToggleDebugMenu();
+	TSharedPtr<class SContraryDebugMenu> DebugMenuWidget;
+	bool bDebugMenuOpen = false;
+
+public:
+	// Заморозка врагов для автотеста меню отладки (сам обработчик защищён).
+	void ApplyQAFreezeEnemiesForQA(bool bFreeze) { ApplyQAFreezeEnemies(bFreeze); }
+	bool IsDebugMenuOpen() const { return bDebugMenuOpen; }
+
+protected:
+
 #endif // CONTRARY_WITH_QA_CHEATS
 
 	// Возрождение по клавише (Enter / Пробел) на экране смерти (#26): дубль кнопки «Возродиться»

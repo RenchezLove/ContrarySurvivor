@@ -48,6 +48,8 @@
 #include "HAL/IConsoleManager.h" // QA Preview-тумблер (Period): cvar ShowFlag.PreviewShadowsIndicator
 #include "Misc/Paths.h"        // QA screenshot (G): запасная папка снимков
 #include "ContrarySurvivor/Debug/ContraryDebugCamera.h" // F1: наш cheat-manager с тихой свободной камерой
+#include "ContrarySurvivor/Debug/ContraryDebugMenu.h"   // «]» / «ъ»: выезжающее меню отладки (пусто в Shipping)
+#include "Engine/GameViewportClient.h"                  // меню отладки: слой поверх игрового окна
 #if CONTRARY_WITH_QA_CHEATS && PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <ShlObj.h>            // QA screenshot (G): SHGetKnownFolderPath(FOLDERID_Desktop)
@@ -246,6 +248,19 @@ void AContrarySurvivorPlayerController::BeginPlay()
 
 void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+#if CONTRARY_WITH_QA_CHEATS
+	// Меню отладки снимаем с экрана вместе с контроллером.
+	if (DebugMenuWidget.IsValid())
+	{
+		if (UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			ViewportClient->RemoveViewportWidgetContent(DebugMenuWidget.ToSharedRef());
+		}
+		DebugMenuWidget.Reset();
+		bDebugMenuOpen = false;
+	}
+#endif
+
 	// Тикер живёт в ядре движка и со смертью контроллера сам не исчезает — снимаем руками.
 	if (CombatMusicTickerHandle.IsValid())
 	{
@@ -347,6 +362,10 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 
 		// Period (2026-08-15): тумблер надписей «Preview» в тенях непостроенного света (для съёмки).
 		InputComponent->BindAction(TEXT("QATogglePreviewShadows"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnQATogglePreviewShadows);
+
+		// «]» (русская «ъ», Ринат 09.10.2026): меню отладки. Привязка прямо к клавише —
+		// без новой строки в Config/DefaultInput.ini.
+		InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleDebugMenu);
 #endif // CONTRARY_WITH_QA_CHEATS
 
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
@@ -2217,6 +2236,40 @@ void AContrarySurvivorPlayerController::OnToggleDebugCamera()
 	UE_LOG(LogQA, Display, TEXT("QA: F1 ToggleDebugCamera"));
 }
 
+void AContrarySurvivorPlayerController::OnQAToggleDebugMenu()
+{
+	// «]» / «ъ»: показать или спрятать меню отладки. Панель создаётся при первом нажатии и
+	// живёт до конца контроллера (EndPlay снимает её с экрана).
+	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+	if (!ViewportClient)
+	{
+		return;
+	}
+	if (!DebugMenuWidget.IsValid())
+	{
+		DebugMenuWidget = SNew(SContraryDebugMenu).Controller(this);
+		ViewportClient->AddViewportWidgetContent(DebugMenuWidget.ToSharedRef(), /*ZOrder=*/5000);
+	}
+
+	bDebugMenuOpen = !bDebugMenuOpen;
+	DebugMenuWidget->SetOpen(bDebugMenuOpen);
+
+	if (bDebugMenuOpen)
+	{
+		// Мышь должна доходить до кнопок панели; игра при этом не на паузе.
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+		bShowMouseCursor = true;
+	}
+	else if (!IsAnyModalUIOpen())
+	{
+		// Окон игры не открыто — возвращаем обычный игровой ввод (как после закрытия окна).
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
 void AContrarySurvivorPlayerController::OnTestGiveMoney()
 {
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
@@ -4068,4 +4121,9 @@ void AContrarySurvivorPlayerController::Interact(const FInputActionValue& Value)
 	// TODO: реализовать взаимодействие с предметами и NPC
 }
 
-void AContrarySurvivorPlayerController::Inventory(const FInpu
+void AContrarySurvivorPlayerController::Inventory(const FInputActionValue& Value)
+{
+	// TODO: открыть/закрыть инвентарь
+}
+
+#undef LOCTEXT_NAMESPACE
