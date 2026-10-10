@@ -64,6 +64,17 @@ struct FSavedInventoryEntry
 	int32 WeaponReserveAmmo = -1;
 };
 
+// Какое оружие было в руках на момент записи (10.10.2026, два слота огнестрела). Unknown —
+// сохранение записано до этого поля: при загрузке оружие в руках не трогается.
+UENUM()
+enum class ESavedWeaponInHands : uint8
+{
+	Unknown,
+	Knife,
+	Sidearm,
+	Long
+};
+
 /**
  * Память одной базы противника (ТЗ издателя 22.08.2026 «возрождение базы и её уровни»):
  * текущая ступень и момент последней ПОЛНОЙ зачистки по РЕАЛЬНЫМ часам (UTC). Живёт в
@@ -139,6 +150,11 @@ public:
 	// разойтись. Восстановление — APlayerCharacter::LoadGameForContinue.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	TArray<FSavedInventoryEntry> InventoryEntries;
+
+	// Какое оружие в руках (см. ESavedWeaponInHands). Сами стволы слотов лежат в списке выше
+	// записями с признаком bEquipped — по одной на занятый слот (с 10.10.2026 слотов два).
+	UPROPERTY(VisibleAnywhere, Category = "Save|Inventory")
+	ESavedWeaponInHands WeaponInHands = ESavedWeaponInHands::Unknown;
 
 	// --- Личный сундук (Ринат 09.10.2026) ---
 	// Содержимое ОДНОГО общего хранилища на всю игру (все сундуки на карте показывают его же).

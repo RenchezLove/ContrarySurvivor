@@ -205,17 +205,22 @@ bool AMeleeWeapon::ConsumePendingSwing()
 
 void AMeleeWeapon::Fire(AActor* /*Target*/)
 {
+	StartSwing();
+}
+
+bool AMeleeWeapon::StartSwing()
+{
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		return;
+		return false;
 	}
 
 	// Кулдаун замаха (без комбо).
 	const float Now = World->GetTimeSeconds();
 	if (Now - LastMeleeTime < AttackCooldown)
 	{
-		return;
+		return false;
 	}
 	LastMeleeTime = Now;
 
@@ -224,7 +229,7 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 	if (!Wielder)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("AMeleeWeapon::Fire — no instigator"));
-		return;
+		return false;
 	}
 
 	// Звук замаха — на каждый реальный взмах (звучит и при промахе).
@@ -288,10 +293,11 @@ void AMeleeWeapon::Fire(AActor* /*Target*/)
 		if (WielderHumanoid->PlayMeleeMontage())
 		{
 			bSwingAwaitingNotify = true;
-			return;
+			return true;
 		}
 	}
 	ApplyMeleeDamage();
+	return true;
 }
 
 void AMeleeWeapon::ApplyMeleeDamage()

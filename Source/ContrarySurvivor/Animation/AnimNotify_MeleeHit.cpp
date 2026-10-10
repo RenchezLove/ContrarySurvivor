@@ -34,8 +34,10 @@ void UAnimNotify_MeleeHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenc
 		return;
 	}
 
-	// В руках должно быть именно холодное оружие: за время замаха его могли сменить.
-	AMeleeWeapon* Melee = Cast<AMeleeWeapon>(Wielder->GetCurrentWeapon());
+	// Холодное оружие, которым носитель замахнулся. Обычно это оружие в руках (за время
+	// замаха его могли сменить — тогда удара нет); игрок бьёт ножом и с огнестрелом в руках
+	// (отдельная кнопка, 10.10.2026), поэтому нож спрашиваем у самого носителя.
+	AMeleeWeapon* Melee = Wielder->GetSwingMeleeWeapon();
 	if (!Melee)
 	{
 		return;

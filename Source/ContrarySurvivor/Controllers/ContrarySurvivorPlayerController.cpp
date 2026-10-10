@@ -102,6 +102,7 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchReloadButton.Margin    = FVector2D(150.0f, 370.0f); TouchReloadButton.Radius    = 50.0f;
 	TouchSprintButton.Margin    = FVector2D(340.0f, 320.0f); TouchSprintButton.Radius    = 50.0f;
 	TouchWeaponButton.Margin    = FVector2D(150.0f, 540.0f); TouchWeaponButton.Radius    = 45.0f;
+	TouchMeleeButton.Margin     = FVector2D(300.0f, 250.0f); TouchMeleeButton.Radius     = 40.0f;
 	TouchInventoryButton.Margin = FVector2D(120.0f, 100.0f); TouchInventoryButton.Radius = 50.0f;
 	TouchPauseButton.Margin     = FVector2D(70.0f, 70.0f);   TouchPauseButton.Radius     = 32.0f;
 
@@ -112,6 +113,7 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchReloadButton.Label    = LOCTEXT("TouchReload", "ПЕРЕЗАРЯД");
 	TouchSprintButton.Label    = LOCTEXT("TouchSprint", "БЕГ");
 	TouchWeaponButton.Label    = LOCTEXT("TouchWeapon", "ОРУЖИЕ");
+	TouchMeleeButton.Label     = LOCTEXT("TouchMelee", "НОЖ");
 	TouchInventoryButton.Label = LOCTEXT("TouchInventory", "СУМКА");
 	TouchPauseButton.Label     = LOCTEXT("TouchPause", "II");
 
@@ -225,6 +227,7 @@ void AContrarySurvivorPlayerController::BeginPlay()
 			TouchConfig.InteractButton   = TouchInteractButton;
 			TouchConfig.SprintButton     = TouchSprintButton;
 			TouchConfig.WeaponButton     = TouchWeaponButton;
+			TouchConfig.MeleeButton      = TouchMeleeButton;
 			TouchConfig.InventoryButton  = TouchInventoryButton;
 			TouchConfig.PauseButton      = TouchPauseButton;
 			TouchConfig.bSprintToggle    = bTouchSprintToggle;
@@ -342,6 +345,9 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 	if (InputComponent)
 	{
 		InputComponent->BindAction(TEXT("SwitchWeapon"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnSwitchWeapon);
+
+		// Удар ножом с отдельной кнопки (V / средняя кнопка мыши) — legacy ActionMapping "MeleeAttack".
+		InputComponent->BindAction(TEXT("MeleeAttack"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnMeleeAttack);
 
 		// Инвентарь (Tab / I) — legacy ActionMapping "ToggleInventory" (Фаза 4, без нового .uasset).
 		InputComponent->BindAction(TEXT("ToggleInventory"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnToggleInventory);
@@ -4036,6 +4042,19 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
 		PlayerChar->SwitchWeapon();
+	}
+}
+
+void AContrarySurvivorPlayerController::OnMeleeAttack()
+{
+	// Те же запреты, что у стрельбы: не поверх окон и не во время вступления.
+	if (IsAnyModalUIOpen() || bIntroInputLocked)
+	{
+		return;
+	}
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->QuickMeleeAttack();
 	}
 }
 

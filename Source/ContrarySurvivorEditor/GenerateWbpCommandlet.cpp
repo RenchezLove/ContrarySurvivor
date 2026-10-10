@@ -5389,6 +5389,207 @@ namespace
 			Name, *IconPos.ToString());
 	}
 
+	// WBP_TouchControls: кнопка НОЖ рядом с ОГОНЬ (Ринат 10.10.2026 — удар ножом отдельной
+	// кнопкой). Файл экранных кнопок — владельца: существующее не трогаем и не двигаем, новая
+	// кнопка встаёт ОДИН раз от живой геометрии соседей (левее кнопки ОГОНЬ, над кнопкой
+	// ДЕЙСТВИЕ), дальше её двигает владелец. Вид — как у кнопки ОГОНЬ (её стиль), на кнопке
+	// значок ножа из предметов. Показывает и прячет кнопку код игры (огнестрел в руках).
+	void AugmentTouchMeleeButton(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_TouchControls");
+		if (Tree->FindWidget(TEXT("MeleeButton")))
+		{
+			return; // уже добавлена
+		}
+
+		UButton* FireBtn = Cast<UButton>(Tree->FindWidget(TEXT("FireButton")));
+		UCanvasPanelSlot* FireSlot = FireBtn ? Cast<UCanvasPanelSlot>(FireBtn->Slot) : nullptr;
+		UCanvasPanel* Parent = FireBtn ? Cast<UCanvasPanel>(FireBtn->GetParent()) : nullptr;
+		if (!FireSlot || !Parent)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: FireButton не найден в канвас-слоте — кнопка ножа не добавлена."), Name);
+			return;
+		}
+
+		constexpr float ButtonSize = 96.0f;
+		constexpr float Gap = 6.0f;
+		const FVector2D FirePos = FireSlot->GetPosition();
+		const FVector2D FireSize = FireSlot->GetSize();
+		const FVector2D FireAlign = FireSlot->GetAlignment();
+		const float FireLeft = FirePos.X - FireSize.X * FireAlign.X;
+		const float FireTop = FirePos.Y - FireSize.Y * FireAlign.Y;
+
+		// Центр новой кнопки: вплотную левее ОГОНЬ; по высоте — над ДЕЙСТВИЕ, если та стоит в
+		// том же углу, иначе вровень с верхом ОГОНЬ.
+		FVector2D Center(FireLeft - Gap - ButtonSize * 0.5f, FireTop + ButtonSize * 0.5f);
+		if (const UWidget* InteractBtn = Tree->FindWidget(TEXT("InteractButton")))
+		{
+			const UCanvasPanelSlot* InteractSlot = Cast<UCanvasPanelSlot>(InteractBtn->Slot);
+			if (InteractSlot && InteractSlot->GetAnchors() == FireSlot->GetAnchors())
+			{
+				const float InteractTop = InteractSlot->GetPosition().Y
+					- InteractSlot->GetSize().Y * InteractSlot->GetAlignment().Y;
+				Center.Y = InteractTop - Gap - ButtonSize * 0.5f;
+			}
+		}
+
+		UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("MeleeButton"));
+		Button->SetStyle(FireBtn->GetStyle());                 // вид владельца, а не наш
+		Button->SetBackgroundColor(FireBtn->GetBackgroundColor());
+		Button->SetRenderOpacity(FireBtn->GetRenderOpacity());
+		Button->bIsVariable = true;
+
+		UImage* Icon = MakeIcon(Tree, Name, TEXT("MeleeButtonIcon"),
+			TEXT("/Game/UI/Icons/Items/T_Item_Knife.T_Item_Knife"), ButtonSize * 0.62f);
+		Icon->SetVisibility(ESlateVisibility::SelfHitTestInvisible); // нажатие ловит кнопка
+		Button->SetContent(Icon);
+
+		if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(Button))
+		{
+			ButtonSlot->SetAnchors(FireSlot->GetAnchors());
+			ButtonSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			ButtonSlot->SetPosition(Center);
+			ButtonSlot->SetSize(FVector2D(ButtonSize, ButtonSize));
+			ButtonSlot->SetZOrder(FireSlot->GetZOrder());
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлена кнопка ножа MeleeButton (центр %s, размер %.0f)."),
+			Name, *Center.ToString(), ButtonSize);
+	}
+
+	// WBP_Inventory: второй слот огнестрела — длинное оружие (Ринат 10.10.2026) и кнопка снятия
+	// пистолета поверх его значка. Существующие кубики не трогаются и не двигаются. Новый слот —
+	// цельная кнопка того же устройства и вида, что слоты брони (подпись, значок, название
+	// внутри), встаёт ОДИН раз под слотом штанов: в раскладке владельца средняя колонка занята
+	// пистолетом и ножом целиком, а под бронёй место свободно. Дальше слот двигает владелец.
+	// Каждый кубик со своей проверкой «уже сделано».
+	void AugmentInventoryWeaponSlots(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Inventory");
+
+		// --- Слот длинного оружия ---
+		if (!Tree->FindWidget(TEXT("LongSlotButton")))
+		{
+			UButton* LegsButton = Cast<UButton>(AugFind(Tree, Name, TEXT("LegsSlotButton")));
+			UCanvasPanelSlot* LegsSlot = LegsButton ? Cast<UCanvasPanelSlot>(LegsButton->Slot) : nullptr;
+			UCanvasPanel* Parent = LegsButton ? Cast<UCanvasPanel>(LegsButton->GetParent()) : nullptr;
+			if (!LegsSlot || !Parent || Tree->FindWidget(TEXT("LongSlotIcon")) || Tree->FindWidget(TEXT("LongSlotText")))
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: слот штанов не в канвас-слоте либо кубики слота длинного оружия уже есть — слот не добавлен."), Name);
+			}
+			else
+			{
+				constexpr float SlotHeight = 124.0f;
+				constexpr float IconSize = 110.0f;
+				const FVector2D LegsPos = LegsSlot->GetPosition();
+				const FVector2D LegsSize = LegsSlot->GetSize();
+				const FVector2D LegsAlign = LegsSlot->GetAlignment();
+				const FVector2D SlotPos(LegsPos.X - LegsSize.X * LegsAlign.X,
+					LegsPos.Y - LegsSize.Y * LegsAlign.Y + LegsSize.Y + 8.0f);
+
+				UButton* LongButton = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("LongSlotButton"));
+				LongButton->SetStyle(LegsButton->GetStyle()); // вид владельца, а не наш
+				LongButton->SetBackgroundColor(LegsButton->GetBackgroundColor());
+				LongButton->bIsVariable = true;
+
+				UCanvasPanel* SlotBox = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LongSlotButtonBox"));
+				auto PlaceInSlot = [&](UWidget* Widget, const FVector2D& Pos, bool bAutoSize, const FVector2D& Size)
+				{
+					if (UCanvasPanelSlot* CanvasSlot = SlotBox->AddChildToCanvas(Widget))
+					{
+						CanvasSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
+						CanvasSlot->SetAlignment(FVector2D(0.0f, 0.5f));
+						CanvasSlot->SetPosition(Pos);
+						if (bAutoSize)
+						{
+							CanvasSlot->SetAutoSize(true);
+						}
+						else
+						{
+							CanvasSlot->SetSize(Size);
+						}
+					}
+				};
+
+				// Подпись и название — в стиле таких же кубиков слота штанов.
+				UTextBlock* Caption = AugMakeTextLike(Tree,
+					Cast<UTextBlock>(Tree->FindWidget(TEXT("LegsSlotButtonCaption"))),
+					TEXT("LongSlotButtonCaption"), NSLOCTEXT("Inventory", "LongSlotCaption", "Длинное оружие"));
+				Caption->bIsVariable = false; // статичная подпись, код её не пишет
+				PlaceInSlot(Caption, FVector2D(24.0f, -40.0f), /*bAutoSize=*/true, FVector2D::ZeroVector);
+
+				UImage* LongIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("LongSlotIcon"));
+				FSlateBrush IconBrush;
+				IconBrush.SetImageSize(FVector2D(IconSize, IconSize));
+				LongIcon->SetBrush(IconBrush);
+				LongIcon->SetVisibility(ESlateVisibility::Collapsed); // текстуру и показ ставит код окна
+				LongIcon->bIsVariable = true;
+				PlaceInSlot(LongIcon, FVector2D(FMath::Max(0.0f, LegsSize.X - IconSize - 16.0f), 0.0f),
+					/*bAutoSize=*/false, FVector2D(IconSize, IconSize));
+
+				UTextBlock* LongText = AugMakeTextLike(Tree,
+					Cast<UTextBlock>(Tree->FindWidget(TEXT("LegsSlotText"))),
+					TEXT("LongSlotText"), NSLOCTEXT("Inventory", "EmptyLongSlot", "Длинное оружие — пусто"));
+				PlaceInSlot(LongText, FVector2D(16.0f, 30.0f), /*bAutoSize=*/true, FVector2D::ZeroVector);
+
+				LongButton->SetContent(SlotBox);
+				if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(LongButton))
+				{
+					ButtonSlot->SetAnchors(LegsSlot->GetAnchors());
+					ButtonSlot->SetAlignment(FVector2D::ZeroVector);
+					ButtonSlot->SetPosition(SlotPos);
+					ButtonSlot->SetSize(FVector2D(LegsSize.X, SlotHeight));
+					ButtonSlot->SetZOrder(LegsSlot->GetZOrder());
+				}
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: добавлен слот длинного оружия LongSlotButton (место %s, размер %.0fx%.0f)."),
+					Name, *SlotPos.ToString(), LegsSize.X, SlotHeight);
+			}
+		}
+
+		// --- Кнопка снятия пистолета: невидимая, ровно по месту его значка ---
+		if (!Tree->FindWidget(TEXT("RangedSlotButton")))
+		{
+			UWidget* RangedIcon = AugFind(Tree, Name, TEXT("RangedSlotIcon"));
+			UCanvasPanelSlot* IconSlot = RangedIcon ? Cast<UCanvasPanelSlot>(RangedIcon->Slot) : nullptr;
+			UCanvasPanel* Parent = RangedIcon ? Cast<UCanvasPanel>(RangedIcon->GetParent()) : nullptr;
+			if (!IconSlot || !Parent)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: значок пистолета не в канвас-слоте — кнопка снятия не добавлена."), Name);
+			}
+			else
+			{
+				UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("RangedSlotButton"));
+				FSlateBrush NoBrush;
+				NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
+				FButtonStyle Style;
+				Style.Normal = NoBrush;
+				Style.Disabled = NoBrush;
+				Style.Hovered = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.08f), 4.0f);
+				Style.Pressed = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.16f), 4.0f);
+				Style.NormalPadding = FMargin(0.0f);
+				Style.PressedPadding = FMargin(0.0f);
+				Button->SetStyle(Style);
+				Button->bIsVariable = true;
+				if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(Button))
+				{
+					ButtonSlot->SetLayout(IconSlot->GetLayout());
+					ButtonSlot->SetAutoSize(false);
+					ButtonSlot->SetZOrder(IconSlot->GetZOrder() + 1);
+				}
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: добавлена кнопка снятия пистолета RangedSlotButton (по месту значка)."), Name);
+			}
+		}
+	}
+
 	// Экраны с сетками плиток (Build 1.2.2): класс плитки WBP_ItemTile_C на CDO окна.
 	// Без него окно работает на кодовом дереве C++-плитки (дефолт в NativeOnInitialized),
 	// но стилизация Рината из ассета плитки не подхватится — назначаем сами (guide требовал
@@ -6548,6 +6749,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Dialog"),        TEXT("WBP_Dialog"),        &AugmentDialogCloseCrossAndWrap },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchCompass },
 		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentCorpseSearchList },
+		// Ринат 10.10.2026: второй слот огнестрела и отдельная кнопка ножа — только дополнением.
+		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchMeleeButton },
+		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventoryWeaponSlots },
 	};
 
 	int32 FailCount = 0;

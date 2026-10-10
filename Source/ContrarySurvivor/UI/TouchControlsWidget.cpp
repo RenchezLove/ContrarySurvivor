@@ -172,6 +172,7 @@ void UTouchControlsWidget::ApplyPlayerSettings()
 	ApplyIdle(ReloadButton);
 	ApplyIdle(InteractButton);
 	ApplyIdle(WeaponButton);
+	ApplyIdle(MeleeButton);
 	ApplyIdle(InventoryButton);
 	ApplyIdle(PauseButton);
 	ApplyIdle(WeaponIconImage);
@@ -260,6 +261,8 @@ void UTouchControlsWidget::BuildButtons()
 		TEXT("SprintButton"), SprintText);
 	WeaponButton = MakeTouchButton(Config.WeaponButton, ETouchCorner::BottomRight,
 		TEXT("WeaponButton"), WeaponText);
+	MeleeButton = MakeTouchButton(Config.MeleeButton, ETouchCorner::BottomRight,
+		TEXT("MeleeButton"), MeleeText);
 	InventoryButton = MakeTouchButton(Config.InventoryButton, ETouchCorner::TopRight,
 		TEXT("InventoryButton"), InventoryText);
 	PauseButton = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
@@ -299,6 +302,7 @@ void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
 	// Текущее состояние: пешки нет/оружия нет/модалка -> иконки нет; дальнобой -> пистолет,
 	// иначе нож (других типов оружия в игре нет; появятся — расширить состоянием на класс).
 	EWeaponIconState NewState = EWeaponIconState::NoWeapon;
+	const AMasterWeapon* WeaponInHands = nullptr;
 	if (!bForceHide && OwnerPC)
 	{
 		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(OwnerPC->GetPawn()))
@@ -331,17 +335,26 @@ void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
 					}
 				}
 				NewState = Ranged ? EWeaponIconState::Pistol : EWeaponIconState::Knife;
+				WeaponInHands = Ranged; // у ножа значок общий, различаем только стволы
 			}
 		}
 	}
-	if (NewState == WeaponIconState)
+	if (NewState == WeaponIconState && IconWeapon.Get() == WeaponInHands)
 	{
 		return;
 	}
 	WeaponIconState = NewState;
+	IconWeapon = WeaponInHands;
 
 	UTexture2D* Icon = nullptr;
-	if (NewState == EWeaponIconState::Pistol)
+	if (NewState == EWeaponIconState::Pistol && WeaponInHands)
+	{
+		// Значок самого ствола (10.10.2026: стволов два, у двустволки значок свой) — тот же,
+		// что у предмета в сумке. Нет значка у предмета — ниже прежний значок пистолета.
+		const TSoftObjectPtr<UTexture2D> SoftIcon = WeaponInHands->GetItemIcon();
+		Icon = SoftIcon.IsNull() ? nullptr : SoftIcon.LoadSynchronous();
+	}
+	if (NewState == EWeaponIconState::Pistol && !Icon)
 	{
 		if (!ResolvedPistolIcon && !PistolIconTexture.IsNull())
 		{
@@ -370,8 +383,45 @@ void UTouchControlsWidget::UpdateWeaponIcon(bool bForceHide)
 	}
 }
 
+void UTouchControlsWidget::UpdateMeleeButton(bool bForceHide)
+{
+	if (!MeleeButton)
+	{
+		return;
+	}
+	if (MeleeButtonState < 0)
+	{
+		MeleeButtonShownVisibility = MeleeButton->GetVisibility();
+	}
+	// Спрятана в дизайнере — решение владельца файла, код её не показывает.
+	const bool bDesignerHidden = (MeleeButtonShownVisibility == ESlateVisibility::Collapsed
+		|| MeleeButtonShownVisibility == ESlateVisibility::Hidden);
+
+	// С ножом в руках удар и так на кнопке ОГОНЬ — вторая кнопка того же действия только путала бы.
+	bool bShow = false;
+	if (!bForceHide && !bDesignerHidden && OwnerPC)
+	{
+		if (const AMasterHumanoidCharacter* Humanoid = Cast<AMasterHumanoidCharacter>(OwnerPC->GetPawn()))
+		{
+			bShow = Cast<ARangedWeapon>(Humanoid->GetCurrentWeapon()) != nullptr;
+		}
+	}
+
+	const int8 NewState = bShow ? 1 : 0;
+	if (NewState == MeleeButtonState)
+	{
+		return;
+	}
+	MeleeButtonState = NewState;
+	MeleeButton->SetVisibility(bShow ? MeleeButtonShownVisibility : ESlateVisibility::Collapsed);
+}
+
 void UTouchControlsWidget::BindButtonHandlers()
 {
+	if (MeleeButton)
+	{
+		MeleeButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleMeleePressed);
+	}
 	if (FireButton)
 	{
 		FireButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleFirePressed);
@@ -1036,6 +1086,8 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	// Иконка оружия живёт по тем же правилам, что боевая группа: модалка — прячется,
 	// закрылась — на следующем кадре состояние пересчитается и иконка вернётся.
 	UpdateWeaponIcon(bModal);
+	// Кнопка НОЖ — по тем же правилам, плюс только с огнестрелом в руках.
+	UpdateMeleeButton(bModal);
 	// Мигание кнопки СУМКА после подарка (06.10.2026): до гейта модалки — кнопка видна и на
 	// модальных экранах, а открытое окно как раз и гасит мигание.
 	UpdateInventoryAttentionVisual(InDeltaTime, bModal);
@@ -1147,6 +1199,14 @@ void UTouchControlsWidget::HandleInteractPressed()
 	if (OwnerPC)
 	{
 		OwnerPC->TouchInteract();
+	}
+}
+
+void UTouchControlsWidget::HandleMeleePressed()
+{
+	if (OwnerPC)
+	{
+		OwnerPC->TouchMeleeAttack();
 	}
 }
 
