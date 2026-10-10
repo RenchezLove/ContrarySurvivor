@@ -206,6 +206,20 @@ struct FQuest
 	EQuestState State = EQuestState::NotStarted;
 };
 
+/**
+ * Идентификаторы заданий, на которые ссылается не только выдающий (10.10.2026: шлагбаум базы
+ * учёных и реплика охранника смотрят на задание старосты, раскладчик рации — на задание
+ * охранника). Одно место правды: строку руками не повторять.
+ */
+namespace ContraryQuestIds
+{
+	// Третье задание старосты «Отнести ноутбук учёным».
+	inline const FName DeliverLaptopToScientists(TEXT("DeliverLaptopToScientists"));
+
+	// Задание охранника базы учёных «Рация охранника».
+	inline const FName FetchGuardRadio(TEXT("FetchGuardRadio"));
+}
+
 // Делегат изменения квеста (для HUD/звука/журнала). Передаёт изменённый квест.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnQuestChanged, const FQuest&, Quest);
 
@@ -231,6 +245,11 @@ public:
 	// Делегат изменения состояния любого квеста (offer/accept/progress/complete/turn-in).
 	UPROPERTY(BlueprintAssignable, Category = "Quest")
 	FOnQuestChanged OnQuestChanged;
+
+	// Журнал заменён целиком (RestoreQuests: «Продолжить», кнопки сюжета меню отладки). Нужен
+	// тем, кто выводит своё состояние из всего журнала (шлагбаум базы учёных): OnQuestChanged
+	// приходит по одному заданию и молчит, когда журнал стал ПУСТЫМ.
+	FSimpleMulticastDelegate OnJournalRestored;
 
 	// Предложить квест: добавляет его в журнал в состоянии NotStarted, если такого ещё нет.
 	// Идемпотентно (повторный offer того же QuestId ничего не меняет). Логирует OFFERED один раз.

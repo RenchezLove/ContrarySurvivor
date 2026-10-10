@@ -36,7 +36,7 @@ AScientistGuardNPC::AScientistGuardNPC()
 	// деревни)»; предмет — рация, решение лида). Тип «собрать»: готовность считается по рации
 	// в сумке, при сдаче рация изымается. Награда — двустволка и четыре патрона, монет нет.
 	bOffersQuest = true;
-	OfferedQuest.QuestId = FName(TEXT("FetchGuardRadio"));
+	OfferedQuest.QuestId = ContraryQuestIds::FetchGuardRadio;
 	OfferedQuest.Title = NSLOCTEXT("Quest", "GuardRadioTitle", "Рация охранника");
 	OfferedQuest.Description = NSLOCTEXT("Quest", "GuardRadioDescription",
 		"Стой. Дальше — база учёных, я здесь на посту.\n"
@@ -73,6 +73,46 @@ AScientistGuardNPC::AScientistGuardNPC()
 		"Нашёл? Давай сюда. Уговор есть уговор — ружьё твоё.");
 	QuestTurnedInText = NSLOCTEXT("Scientists", "GuardTurnedIn",
 		"Рация снова при мне. Проходи, на базе тебя не тронут.");
+
+	// Герой несёт ноутбук учёным (третье задание старосты): пропускает, шлагбаум открыт.
+	LaptopPassText = NSLOCTEXT("Scientists", "GuardLaptopPass",
+		"С ноутбуком от старосты? Проходи, учёные ждут. Шлагбаум открыт.");
+	LaptopPassOfferText = NSLOCTEXT("Scientists", "GuardLaptopPassOffer",
+		"Слушай, раз уж пришёл — выручи. Волки с южного логова погнали меня так, что я рацию обронил. "
+		"Она где-то там, возле логова, к югу от деревни. Принеси — отдам двустволку и патроны к ней.");
+}
+
+bool AScientistGuardNPC::IsCarryingLaptop(const TArray<FQuest>& Journal, FName LaptopQuestId)
+{
+	return !LaptopQuestId.IsNone() && Journal.ContainsByPredicate([LaptopQuestId](const FQuest& Q)
+		{ return Q.QuestId == LaptopQuestId && UQuestComponent::IsInActivePhase(Q); });
+}
+
+void AScientistGuardNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const
+{
+	// Кнопки и ветки своего задания — как у любого собеседника с заданием; меняется только реплика.
+	Super::BuildTalkView(Player, OutView);
+
+	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	if (!Quests || LaptopPassText.IsEmpty() || !IsCarryingLaptop(Quests->GetQuests(), LaptopQuestId))
+	{
+		return;
+	}
+
+	FText Rest;
+	if (OffersQuest())
+	{
+		const FQuest* Own = Quests->FindQuest(OfferedQuest.QuestId);
+		const EQuestState OwnState = Own ? Own->State : EQuestState::NotStarted;
+		if (OwnState == EQuestState::TurnedIn)
+		{
+			return; // «Рация снова при мне. Проходи…» — и так пропускает
+		}
+		Rest = (OwnState == EQuestState::NotStarted && !LaptopPassOfferText.IsEmpty())
+			? LaptopPassOfferText : OutView.Replica;
+	}
+	OutView.Replica = Rest.IsEmpty() ? LaptopPassText
+		: FText::Format(INVTEXT("{0}\n{1}"), LaptopPassText, Rest);
 }
 
 // ---------------------------------------------------------------------------

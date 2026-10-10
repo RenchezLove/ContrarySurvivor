@@ -115,7 +115,7 @@ AElderNPC::AElderNPC()
 	// та же строка таблицы предметов laptop, что у ноутбука с базы бандитов); сдаётся задание
 	// НЕ старосте, а квестовому учёному: ноутбук изымается, награда деньгами. Цели убийств нет;
 	// цель-предмет выполняется сразу, как ноутбук лёг в сумку, — дальше метка ведёт к учёному.
-	ThirdQuest.QuestId = FName(TEXT("DeliverLaptopToScientists"));
+	ThirdQuest.QuestId = ContraryQuestIds::DeliverLaptopToScientists;
 	ThirdQuest.Title = NSLOCTEXT("Quest", "Q3Title", "Отнести ноутбук учёным");
 	ThirdQuest.Description = NSLOCTEXT("Quest", "Q3Description",
 		"С ноутбуком я не сладил: данные в нём запрятаны так, что мне не по зубам. Отнеси его учёным на их базу — у них для такого и приборы, и головы. Забирай ноутбук.");

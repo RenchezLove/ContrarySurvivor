@@ -27,6 +27,9 @@ namespace ScientistBaseTags
 /**
  * Охранник базы учёных. Задание «принести рацию, которую он обронил, удирая от волков»;
  * награда — двустволка и патроны. Доступно сразу, от заданий старосты не зависит.
+ *
+ * Героя с ноутбуком от старосты пропускает на базу (шлагбаум AQuestBarrier открывается по тому
+ * же заданию) и говорит об этом первой фразой; своё задание про рацию при этом остаётся.
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AScientistGuardNPC : public AQuestGiverNPC
@@ -35,6 +38,27 @@ class CONTRARYSURVIVOR_API AScientistGuardNPC : public AQuestGiverNPC
 
 public:
 	AScientistGuardNPC();
+
+	virtual void BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const override;
+
+	// Несёт ли герой ноутбук учёным: задание взято и ещё не сдано. Чистое правило для автотеста.
+	static bool IsCarryingLaptop(const TArray<FQuest>& Journal, FName LaptopQuestId);
+
+protected:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "1",
+		DisplayName = "Задание «отнести ноутбук» (идентификатор)"))
+	FName LaptopQuestId = ContraryQuestIds::DeliverLaptopToScientists;
+
+	// Первая фраза, пока герой несёт ноутбук. Пусто — охранник о ноутбуке молчит. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "2", MultiLine = "true",
+		DisplayName = "Реплика: пропускаю с ноутбуком"))
+	FText LaptopPassText;
+
+	// Чем продолжить, если своё задание ещё не взято: просьба про рацию без слов «Стой, дальше
+	// база» из обычного описания. Пусто — обычное описание задания. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "3", MultiLine = "true",
+		DisplayName = "Реплика: просьба про рацию после пропуска"))
+	FText LaptopPassOfferText;
 };
 
 /**

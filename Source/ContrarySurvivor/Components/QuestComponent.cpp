@@ -576,6 +576,7 @@ void UQuestComponent::RestoreQuests(const TArray<FQuest>& SavedQuests, FName Sav
 	{
 		OnQuestChanged.Broadcast(Q);
 	}
+	OnJournalRestored.Broadcast();
 
 	UE_LOG(LogQA, Display, TEXT("QA: quest journal restored from save (%d quest(s))"), Quests.Num());
 }
