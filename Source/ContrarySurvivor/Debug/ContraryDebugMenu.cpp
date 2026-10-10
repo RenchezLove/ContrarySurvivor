@@ -9,6 +9,7 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -404,6 +405,28 @@ bool SkipElderNotebookWait(APlayerCharacter* Player)
 	return Player && Player->SkipElderNotebookWait();
 }
 
+bool RevealWholeMap(APlayerCharacter* Player)
+{
+	UMapExplorationComponent* Exploration = Player ? Player->GetMapExploration() : nullptr;
+	if (!Exploration)
+	{
+		return false;
+	}
+	Exploration->RevealAll();
+	return true;
+}
+
+bool HideMapAgain(APlayerCharacter* Player)
+{
+	UMapExplorationComponent* Exploration = Player ? Player->GetMapExploration() : nullptr;
+	if (!Exploration)
+	{
+		return false;
+	}
+	Exploration->ResetToVillage();
+	return true;
+}
+
 } // namespace ContraryDebugTools
 
 // ---------------------------------------------------------------------------
@@ -638,6 +661,19 @@ void SContraryDebugMenu::RebuildContent()
 	{
 		const bool bOk = ContraryDebugTools::SkipElderNotebookWait(PlayerOf(WeakPC));
 		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY skip elder wait %s"), bOk ? TEXT("OK") : TEXT("ожидание не идёт")), /*bScreen=*/true);
+	});
+
+	// --- Карта КПК ---
+	AddHeader(TEXT("Карта"));
+	AddButton(TEXT("Карта: открыть всю"), [WeakPC, PlayerOf]()
+	{
+		const bool bOk = ContraryDebugTools::RevealWholeMap(PlayerOf(WeakPC));
+		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: MAP reveal all %s"), bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
+	});
+	AddButton(TEXT("Карта: закрыть заново (останется деревня)"), [WeakPC, PlayerOf]()
+	{
+		const bool bOk = ContraryDebugTools::HideMapAgain(PlayerOf(WeakPC));
+		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: MAP hide again %s"), bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
 	});
 
 	// --- Телепорт ---

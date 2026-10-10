@@ -31,6 +31,7 @@
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/TalkerNPC.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
+#include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -42,7 +43,11 @@
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
 #include "ContrarySurvivor/UI/QuestTargets.h"
+#include "ContrarySurvivor/UI/TouchControlsWidget.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Widget.h"
 #include "Engine/DataTable.h"
 #include "Engine/Engine.h"
@@ -554,6 +559,12 @@ namespace PdaTest
 			return;
 		}
 		Player->UseTestSaveSlot(TEXT("ContraryPdaWindowQA"));
+		// Здесь проверяется сбор списка и отметок по журналу, поэтому карта открыта целиком;
+		// появление отметок по мере исследования проверяет MapFogAutomationTests.cpp.
+		if (UMapExplorationComponent* Exploration = Player->GetMapExploration())
+		{
+			Exploration->RevealAll();
+		}
 		TargetA->Tags.Add(FName(TEXT("PdaTargetA")));
 		TargetB->Tags.Add(FName(TEXT("PdaTargetB")));
 
@@ -674,6 +685,92 @@ bool FPdaWindowAssetTest::RunTest(const FString& Parameters)
 	}
 
 	PdaTest::RunWindowChecks(*this, World, AssetClass, TEXT("Окно из готового файла"));
+	PdaTest::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// Кнопка «КПК» стоит рядом с кнопкой сумки из готового файла экранных кнопок: не наезжает
+// на неё даже на пике её мигания и не задевает остальные кнопки слоя на экранах от 16:9
+// до 20:9 (высота экрана в единицах раскладки всегда 1080).
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPdaTouchButtonBesideBagTest,
+	"ContrarySurvivor.Pda.TouchButtonStandsBesideBagButton", PdaTestFlags)
+
+bool FPdaTouchButtonBesideBagTest::RunTest(const FString& Parameters)
+{
+	// Сама формула: сосед 100 на 100 с центром в нуле вырастает в полтора раза (до 75 от
+	// центра), просвет 10, радиус 20 — центр на 105 левее либо правее, высота та же.
+	const FVector2D Left = UPdaTouchButtonWidget::ComputeCenterBeside(FVector2D(0.0, 30.0), FVector2D(100.0, 100.0), 1.5f, 20.0f, 10.0f, true);
+	const FVector2D Right = UPdaTouchButtonWidget::ComputeCenterBeside(FVector2D(0.0, 30.0), FVector2D(100.0, 100.0), 1.5f, 20.0f, 10.0f, false);
+	TestEqual(TEXT("Слева от соседа: центр по горизонтали"), Left.X, -105.0);
+	TestEqual(TEXT("Справа от соседа: центр по горизонтали"), Right.X, 105.0);
+	TestEqual(TEXT("Высота — как у соседа"), Left.Y, 30.0);
+
+	UClass* LayerClass = StaticLoadClass(UTouchControlsWidget::StaticClass(), nullptr,
+		TEXT("/Game/UI/WBP_TouchControls.WBP_TouchControls_C"));
+	if (!TestNotNull(TEXT("Готовый файл экранных кнопок загружен"), LayerClass))
+	{
+		return false;
+	}
+	UWorld* World = PdaTest::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	UTouchControlsWidget* Layer = CreateWidget<UTouchControlsWidget>(World, LayerClass);
+	FAnchors BagAnchors;
+	FVector2D BagCenter, BagSize;
+	if (!TestNotNull(TEXT("Слой экранных кнопок создан"), Layer)
+		|| !TestTrue(TEXT("Кнопка сумки найдена в слое"), Layer->GetInventoryButtonPlacement(BagAnchors, BagCenter, BagSize)))
+	{
+		PdaTest::Destroy(World);
+		return false;
+	}
+
+	const AContrarySurvivorPlayerController* Defaults = GetDefault<AContrarySurvivorPlayerController>();
+	const float Radius = Defaults->GetPdaTouchButtonRadius();
+	const float Gap = Defaults->GetPdaTouchButtonGap();
+	const bool bLeft = BagAnchors.Minimum.X >= 0.5;
+	const FVector2D PdaCenter = UPdaTouchButtonWidget::ComputeCenterBeside(BagCenter, BagSize,
+		Layer->GetInventoryBlinkScale(), Radius, Gap, bLeft);
+
+	// Просвет между кнопкой «КПК» и сумкой в покое — не меньше 12 (требование постановки).
+	const double RestGap = FMath::Abs(PdaCenter.X - BagCenter.X) - BagSize.X * 0.5 - Radius;
+	TestTrue(*FString::Printf(TEXT("Просвет до сумки в покое не меньше 12 (вышло %.1f)"), RestGap), RestGap >= 12.0);
+	AddInfo(FString::Printf(TEXT("Сумка: центр (%.1f, %.1f), размер %.1f на %.1f. КПК: центр (%.1f, %.1f), радиус %.1f, просвет в покое %.1f."),
+		BagCenter.X, BagCenter.Y, BagSize.X, BagSize.Y, PdaCenter.X, PdaCenter.Y, Radius, RestGap));
+
+	// Остальные кнопки слоя: прямоугольники на экранах 1920 и 2400 в ширину при высоте 1080.
+	const UCanvasPanel* Root = Layer->WidgetTree ? Cast<UCanvasPanel>(Layer->WidgetTree->RootWidget) : nullptr;
+	if (TestNotNull(TEXT("Корень слоя — канва"), Root))
+	{
+		for (const double ScreenWidth : { 1920.0, 2400.0 })
+		{
+			const FVector2D Screen(ScreenWidth, 1080.0);
+			const FVector2D PdaOnScreen = FVector2D(BagAnchors.Minimum) * Screen + PdaCenter;
+			const FBox2D PdaBox(PdaOnScreen - FVector2D(Radius), PdaOnScreen + FVector2D(Radius));
+			TestTrue(*FString::Printf(TEXT("Кнопка «КПК» целиком на экране шириной %.0f"), ScreenWidth),
+				PdaBox.Min.X >= 0.0 && PdaBox.Min.Y >= 0.0 && PdaBox.Max.X <= Screen.X && PdaBox.Max.Y <= Screen.Y);
+
+			for (int32 Index = 0; Index < Root->GetChildrenCount(); ++Index)
+			{
+				const UWidget* Child = Root->GetChildAt(Index);
+				const UCanvasPanelSlot* ChildSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+				if (!ChildSlot || ChildSlot->GetAutoSize() || ChildSlot->GetAnchors().Minimum != ChildSlot->GetAnchors().Maximum)
+				{
+					continue;
+				}
+				const FVector2D Size = ChildSlot->GetSize();
+				const FVector2D Min = FVector2D(ChildSlot->GetAnchors().Minimum) * Screen
+					+ ChildSlot->GetPosition() - Size * ChildSlot->GetAlignment();
+				TestFalse(*FString::Printf(TEXT("Кнопка «КПК» не задевает %s на экране шириной %.0f"), *Child->GetName(), ScreenWidth),
+					PdaBox.Intersect(FBox2D(Min, Min + Size)));
+			}
+		}
+	}
+
 	PdaTest::Destroy(World);
 	return true;
 }

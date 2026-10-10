@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/Button.h"
+#include "Widgets/Layout/Anchors.h"
 #include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "PdaScreenWidget.generated.h"
 
@@ -16,6 +17,7 @@ class UPanelWidget;
 class UScrollBox;
 class UTextBlock;
 class UTexture2D;
+class UMapExplorationComponent;
 class UWidgetTree;
 struct FQuest;
 
@@ -62,6 +64,8 @@ struct FPdaJournalView
  *    выбранном и кнопка «Отслеживать»;
  *  - «Карта»: картинка местности (или тёмное поле с сеткой, пока картинки нет) с отметками —
  *    герой, цели заданий, известные места. Нажатие по отметке задания делает его отслеживаемым.
+ *    Карта открывается по мере исследования: неизведанное закрыто чернотой, места и их подписи
+ *    появляются, когда герой там побывал (память героя — UMapExplorationComponent).
  *
  * Два пути, как у остальных окон проекта:
  *  - готовый файл окна WBP_Pda (создаёт генератор окон) — раскладку, шрифты и постоянные
@@ -168,11 +172,12 @@ public:
 
 	// --- Карта ---
 
+	// Подпись зоны деревни, если места «рядом с ней» нет в списке мест настроек карты.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Карта", meta = (DisplayName = "Подпись деревни"))
 	FText VillageLabel = NSLOCTEXT("Pda", "Village", "Деревня");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Карта", meta = (DisplayName = "Подпись базы учёных"))
-	FText ScientistBaseLabel = NSLOCTEXT("Pda", "ScientistBase", "База учёных");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Карта", meta = (DisplayName = "Цвет ничьих мест"))
+	FLinearColor NeutralPlaceColor = FLinearColor(0.85f, 0.82f, 0.7f, 1.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Карта", meta = (DisplayName = "Цвет мирных мест"))
 	FLinearColor FriendlyPlaceColor = FLinearColor(0.55f, 0.9f, 0.55f, 1.0f);
@@ -234,6 +239,14 @@ public:
 	int32 GetQuestRowCount() const { return QuestRowCount; }
 	int32 GetQuestMapMarkerCount() const { return QuestMapMarkerCount; }
 	int32 GetPlaceMapMarkerCount() const { return PlaceMapMarkerCount; }
+	// Подписи мест, которые сейчас видны на карте (место открыто).
+	const TArray<FString>& GetShownPlaceLabels() const { return ShownPlaceLabels; }
+	// Маска черноты, как она ушла в картинку: по байту на клетку, 255 — закрыто. Пусто — черноты нет.
+	const TArray<uint8>& GetFogAlpha() const { return FogAlpha; }
+	// Сколько раз маска пересчитывалась (она не должна считаться каждый кадр).
+	int32 GetFogRebuildCount() const { return FogRebuildCount; }
+	// Где на поле карты рисуется стрелка героя: середина стрелки, прижатая внутрь поля.
+	static FVector2D ClampArrowCenter(const FVector2D& Center, const FVector2D& AreaMin, const FVector2D& AreaMax, double Inset);
 	bool IsDoneSectionExpanded() const { return bDoneExpanded; }
 
 protected:
@@ -278,6 +291,13 @@ private:
 	void AddSectionHeader(const FText& Text);
 	void AddQuestRow(const FQuest& Quest, bool bTracked);
 	void AddMapDot(const FVector& WorldLocation, float Size, const FLinearColor& Color, const FText& Label);
+
+	// Открытая часть карты героя (нет героя или компонента — nullptr: чернота не рисуется).
+	const UMapExplorationComponent* GetExploration() const;
+	// Видно ли место на карте: открыта ли клетка под ним (без памяти героя видно всё).
+	bool IsPlaceRevealed(const FVector& WorldLocation) const;
+	// Пересчитать картинку черноты, если открытое изменилось с прошлого раза.
+	void UpdateFogMask();
 	void AddGridLines();
 
 	FText BuildRewardText(const FQuest& Quest) const;
@@ -348,6 +368,10 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> MapImage;
 
+	// Чернота неизведанного поверх картинки карты и под отметками.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> MapFogImage;
+
 	// Сюда код кладёт сетку и отметки (положение — долями карты через якоря).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UCanvasPanel> MapMarkers;
@@ -362,6 +386,15 @@ private:
 	// Картинка карты, пока окно живо (мягкая ссылка настроек сама её не удержит).
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> LoadedMapTexture;
+
+	// Картинка-маска черноты: по точке на клетку сетки, растягивается на поле со сглаживанием.
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> FogTexture;
+
+	TArray<uint8> FogAlpha;
+	TArray<FString> ShownPlaceLabels;
+	int32 LastFogRevision = INDEX_NONE;
+	int32 FogRebuildCount = 0;
 
 	FName SelectedQuestId = NAME_None;
 	bool bSetupDone = false;
@@ -389,6 +422,15 @@ class CONTRARYSURVIVOR_API UPdaTouchButtonWidget : public USelfHidingWidget
 public:
 	// Отступ ЦЕНТРА кнопки от правого-верхнего угла экрана и её радиус (как у экранных кнопок).
 	void Setup(const FVector2D& InMargin, float InRadius, const FText& InLabel);
+
+	// То же, но место задано от соседней кнопки (сумки): якорь соседа и готовый центр.
+	void SetupAt(const FAnchors& InAnchors, const FVector2D& InCenter, float InRadius, const FText& InLabel);
+
+	// Центр круглой кнопки радиуса InRadius, стоящей сбоку от соседа вровень с ним по высоте.
+	// Gap — просвет между кнопками; сосед берётся в наибольшем размере (NeighborScale — во
+	// сколько раз он вырастает, когда мигает). bToTheLeft — слева от соседа, иначе справа.
+	static FVector2D ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,
+		float NeighborScale, float InRadius, float Gap, bool bToTheLeft);
 
 protected:
 	virtual void NativeOnInitialized() override;

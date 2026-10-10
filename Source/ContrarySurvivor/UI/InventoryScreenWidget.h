@@ -138,8 +138,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "8"))
 	FText EmptySidearmSlotText = NSLOCTEXT("Inventory", "EmptySidearmSlot", "Пистолет — пусто");
 
+	// Короткое слово: слот стоит в узкой колонке оружия, длинная надпись залезла бы на рюкзак.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
-	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Длинное оружие — пусто");
+	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Ружьё — пусто");
 
 	// Подписи «Использовать»/«Надеть» и формат «{ItemName} x{Count}» строкового рюкзака
 	// УДАЛЕНЫ (Build 1.2.2, тайлы): действие теперь — клик по самой плитке, а количество —

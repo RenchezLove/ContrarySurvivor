@@ -28,6 +28,7 @@ class UAudioComponent;
 class UNavigationInvokerComponent;
 class UDailyRewardComponent;
 class UOnboardingComponent;
+class UMapExplorationComponent;
 class UMeleeSectorIndicatorComponent;
 class APickup;
 struct FShopEntry;
@@ -262,6 +263,11 @@ protected:
     // без BP. Староста предлагает квест, убийства целей инкрементят прогресс, сдача даёт деньги.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true", DisplayPriority = "3"))
     UQuestComponent* Quests;
+
+    // Какую часть карты КПК герой уже видел (Ринат 10.10.2026: «изначально на карте ничего не
+    // должно быть видно, кроме деревни»). Пишется в сохранение вместе с журналом заданий.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pda", meta = (AllowPrivateAccess = "true"))
+    UMapExplorationComponent* MapExploration;
 
     // Ежедневная награда за вход (Этап F2, ADR-044 п.4). Проверка даты/начисление/окно — в
     // компоненте; числа (база/шаг/потолок) настраиваются на нём в редакторе.
@@ -628,6 +634,8 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Quest")
     UQuestComponent* GetQuests() const { return Quests; }
+
+    UMapExplorationComponent* GetMapExploration() const { return MapExploration; }
 
     // ADR-063: сдан ли хотя бы один квест. «Первый квест выполнен» читаем существующим
     // сигналом журнала (GetTurnedInQuestCount — квест сдан старосте, награда получена).

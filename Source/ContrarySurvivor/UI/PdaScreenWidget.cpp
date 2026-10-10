@@ -3,10 +3,10 @@
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
 #include "ContrarySurvivor/Actors/Campfire.h"
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
-#include "ContrarySurvivor/Actors/ScientistNPCs.h" // метка охранника — место базы учёных на карте
 #include "ContrarySurvivor/Actors/TalkerNPC.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -29,7 +29,9 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EngineUtils.h" // TActorIterator
+#include "Misc/App.h" // CanEverRender: в служебных запусках без отрисовки картинку черноты не заводим
 #include "Rendering/DrawElements.h"
+#include "TextureResource.h" // данные картинки-маски черноты
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateTypes.h"
 
@@ -299,6 +301,13 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	Picture->bIsVariable = true;
 	PlaceStretch(Area, Picture, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
 
+	// Чернота неизведанного: поверх картинки, под отметками. Картинку-маску ставит код игры;
+	// до первой отрисовки элемент спрятан (без маски он закрасил бы карту целиком).
+	UImage* Fog = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MapFogImage"));
+	Fog->SetVisibility(ESlateVisibility::Collapsed);
+	Fog->bIsVariable = true;
+	PlaceStretch(Area, Fog, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
+
 	UCanvasPanel* Markers = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MapMarkers"));
 	Markers->bIsVariable = true;
 	PlaceStretch(Area, Markers, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(0.0f));
@@ -384,6 +393,7 @@ void UPdaScreenWidget::BindCodeTree()
 	PDA_BIND(MapArea, UCanvasPanel);
 	PDA_BIND(MapBackground, UBorder);
 	PDA_BIND(MapImage, UImage);
+	PDA_BIND(MapFogImage, UImage);
 	PDA_BIND(MapMarkers, UCanvasPanel);
 	PDA_BIND(MapHintText, UTextBlock);
 #undef PDA_BIND
@@ -839,6 +849,7 @@ void UPdaScreenWidget::AddMapDot(const FVector& WorldLocation, float Size, const
 
 	if (!Label.IsEmpty())
 	{
+		// Небольшая надпись НАД местом (Ринат 10.10.2026: «над логовом надпись небольшая появляется»).
 		UTextBlock* Text = NewText(WidgetTree, NAME_None, Label, Color, 13, TEXT("Bold"));
 		Text->SetShadowOffset(FVector2D(1.0f, 1.0f));
 		Text->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
@@ -846,23 +857,138 @@ void UPdaScreenWidget::AddMapDot(const FVector& WorldLocation, float Size, const
 		if (UCanvasPanelSlot* TextSlot = MapMarkers->AddChildToCanvas(Text))
 		{
 			TextSlot->SetAnchors(Anchors);
-			TextSlot->SetAlignment(FVector2D(0.5f, 0.0f));
-			TextSlot->SetPosition(FVector2D(0.0f, Size * 0.5f + 2.0f));
+			TextSlot->SetAlignment(FVector2D(0.5f, 1.0f));
+			TextSlot->SetPosition(FVector2D(0.0f, -Size * 0.5f - 2.0f));
 			TextSlot->SetAutoSize(true);
 		}
+		ShownPlaceLabels.Add(Label.ToString());
 	}
 	++PlaceMapMarkerCount;
+}
+
+const UMapExplorationComponent* UPdaScreenWidget::GetExploration() const
+{
+	return Player.IsValid() ? Player->GetMapExploration() : nullptr;
+}
+
+bool UPdaScreenWidget::IsPlaceRevealed(const FVector& WorldLocation) const
+{
+	const UMapExplorationComponent* Exploration = GetExploration();
+	return !Exploration || Exploration->IsWorldLocationRevealed(FVector2D(WorldLocation.X, WorldLocation.Y));
+}
+
+void UPdaScreenWidget::UpdateFogMask()
+{
+	const UMapExplorationComponent* Exploration = GetExploration();
+	if (!Exploration || !Exploration->GetFog().IsValid())
+	{
+		// Памяти о карте нет — карта открыта целиком, как раньше.
+		FogAlpha.Reset();
+		LastFogRevision = INDEX_NONE;
+		if (MapFogImage)
+		{
+			MapFogImage->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+	if (Exploration->GetRevision() == LastFogRevision && FogAlpha.Num() > 0)
+	{
+		return; // открытое не менялось — маска та же (каждый кадр её не считаем)
+	}
+	LastFogRevision = Exploration->GetRevision();
+	++FogRebuildCount;
+
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	const FPdaMapFog& Fog = Exploration->GetFog();
+	Fog.BuildAlpha(FogAlpha, Settings->MapFogSoftness);
+	if (!MapFogImage)
+	{
+		return;
+	}
+	if (!FApp::CanEverRender())
+	{
+		MapFogImage->SetVisibility(ESlateVisibility::Collapsed); // рисовать нечем (служебный запуск)
+		return;
+	}
+
+	// Картинка-маска: белая точка на клетку, в прозрачности — чернота. Цвет даёт сам элемент.
+	const int32 Width = Fog.GetWidth();
+	const int32 Height = Fog.GetHeight();
+	const int32 PixelCount = Width * Height;
+	const bool bNewTexture = !FogTexture || FogTexture->GetSizeX() != Width || FogTexture->GetSizeY() != Height;
+	if (bNewTexture)
+	{
+		FogTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
+		if (!FogTexture || !FogTexture->GetPlatformData() || FogTexture->GetPlatformData()->Mips.Num() == 0)
+		{
+			FogTexture = nullptr;
+			MapFogImage->SetVisibility(ESlateVisibility::Collapsed);
+			return;
+		}
+		FogTexture->SRGB = false;
+		FogTexture->Filter = TF_Bilinear;      // сглаживание при растяжении — мягкий край
+		FogTexture->AddressX = TA_Clamp;
+		FogTexture->AddressY = TA_Clamp;
+		FogTexture->NeverStream = true;
+
+		FTexture2DMipMap& Mip = FogTexture->GetPlatformData()->Mips[0];
+		uint8* Pixels = static_cast<uint8*>(Mip.BulkData.Lock(LOCK_READ_WRITE));
+		for (int32 Index = 0; Index < PixelCount; ++Index)
+		{
+			Pixels[Index * 4 + 0] = 255;
+			Pixels[Index * 4 + 1] = 255;
+			Pixels[Index * 4 + 2] = 255;
+			Pixels[Index * 4 + 3] = FogAlpha[Index];
+		}
+		Mip.BulkData.Unlock();
+		FogTexture->UpdateResource();
+		MapFogImage->SetBrushFromTexture(FogTexture);
+	}
+	else
+	{
+		// Картинка уже есть — досылаем новые точки, не пересоздавая её.
+		uint8* Pixels = static_cast<uint8*>(FMemory::Malloc(PixelCount * 4));
+		for (int32 Index = 0; Index < PixelCount; ++Index)
+		{
+			Pixels[Index * 4 + 0] = 255;
+			Pixels[Index * 4 + 1] = 255;
+			Pixels[Index * 4 + 2] = 255;
+			Pixels[Index * 4 + 3] = FogAlpha[Index];
+		}
+		FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, Width, Height);
+		FogTexture->UpdateTextureRegions(0, 1, Region, Width * 4, 4, Pixels,
+			[](uint8* SrcData, const FUpdateTextureRegion2D* Regions)
+			{
+				FMemory::Free(SrcData);
+				delete Regions;
+			});
+	}
+	MapFogImage->SetColorAndOpacity(Settings->MapFogColor);
+	MapFogImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
+FVector2D UPdaScreenWidget::ClampArrowCenter(const FVector2D& Center, const FVector2D& AreaMin, const FVector2D& AreaMax, double Inset)
+{
+	auto ClampAxis = [Inset](double Value, double Min, double Max)
+	{
+		return (Max - Min <= Inset * 2.0) ? (Min + Max) * 0.5 : FMath::Clamp(Value, Min + Inset, Max - Inset);
+	};
+	return FVector2D(ClampAxis(Center.X, AreaMin.X, AreaMax.X), ClampAxis(Center.Y, AreaMin.Y, AreaMax.Y));
 }
 
 void UPdaScreenWidget::RebuildMap()
 {
 	QuestMapMarkerCount = 0;
 	PlaceMapMarkerCount = 0;
+	ShownPlaceLabels.Reset();
 	if (!MapMarkers)
 	{
 		return;
 	}
 	MapMarkers->ClearChildren();
+
+	// Чернота неизведанного (пересчитывается, только если открытое изменилось).
+	UpdateFogMask();
 
 	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
 
@@ -887,29 +1013,74 @@ void UPdaScreenWidget::RebuildMap()
 		return;
 	}
 
-	// --- Известные места ---
+	// --- Известные места: видны только там, где герой уже побывал ---
 	for (TActorIterator<ACampfire> It(World); It; ++It)
 	{
-		AddMapDot(It->GetActorLocation(), 9.0f, CampfireColor, FText::GetEmpty());
+		if (IsPlaceRevealed(It->GetActorLocation()))
+		{
+			AddMapDot(It->GetActorLocation(), 9.0f, CampfireColor, FText::GetEmpty());
+		}
 	}
+
+	// Места с подписями. Сначала — объекты уровня (их положение точное), потом список из
+	// настроек: точка списка рядом с объектом — то же место (подпись и вид берутся из списка,
+	// положение остаётся с объекта), точка без объекта рядом — место само по себе.
+	struct FPlace
+	{
+		FVector Location;
+		FText Name;
+		FLinearColor Color;
+		bool bFromSettings = false;
+	};
+	TArray<FPlace> Places;
 	for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
 	{
 		if (!It->GetBaseDisplayName().IsEmpty())
 		{
-			AddMapDot(It->GetActorLocation(), 12.0f, EnemyPlaceColor, It->GetBaseDisplayName());
+			Places.Add({ It->GetActorLocation(), It->GetBaseDisplayName(), EnemyPlaceColor });
 		}
 	}
 	for (TActorIterator<AVillageZone> It(World); It; ++It)
 	{
-		AddMapDot(It->GetActorLocation(), 12.0f, FriendlyPlaceColor, VillageLabel);
+		Places.Add({ It->GetActorLocation(), VillageLabel, FriendlyPlaceColor });
 	}
-	// Своего актора у базы учёных нет — место отмечаем по охраннику у её входа.
-	for (TActorIterator<ATalkerNPC> It(World); It; ++It)
+	const int32 ActorPlaceCount = Places.Num();
+	const double MergeRadiusSq = FMath::Square(static_cast<double>(Settings->MapPlaceMergeRadius));
+	for (const FPdaMapPlace& Listed : Settings->MapPlaces)
 	{
-		if (It->GetNpcTag() == ScientistBaseTags::Guard)
+		const FLinearColor Color = Listed.Kind == EPdaMapPlaceKind::Enemy ? EnemyPlaceColor
+			: Listed.Kind == EPdaMapPlaceKind::Friendly ? FriendlyPlaceColor : NeutralPlaceColor;
+		int32 Nearest = INDEX_NONE;
+		double NearestSq = MergeRadiusSq;
+		for (int32 Index = 0; Index < ActorPlaceCount; ++Index)
 		{
-			AddMapDot(It->GetActorLocation(), 12.0f, FriendlyPlaceColor, ScientistBaseLabel);
-			break;
+			const double DistSq = FVector2D::DistSquared(Listed.WorldLocation,
+				FVector2D(Places[Index].Location.X, Places[Index].Location.Y));
+			if (!Places[Index].bFromSettings && DistSq <= NearestSq)
+			{
+				Nearest = Index;
+				NearestSq = DistSq;
+			}
+		}
+		if (Nearest != INDEX_NONE)
+		{
+			Places[Nearest].bFromSettings = true; // объект занят этой строкой списка
+			Places[Nearest].Color = Color;
+			if (!Listed.Name.IsEmpty())
+			{
+				Places[Nearest].Name = Listed.Name;
+			}
+		}
+		else
+		{
+			Places.Add({ FVector(Listed.WorldLocation.X, Listed.WorldLocation.Y, 0.0), Listed.Name, Color, true });
+		}
+	}
+	for (const FPlace& Place : Places)
+	{
+		if (IsPlaceRevealed(Place.Location))
+		{
+			AddMapDot(Place.Location, 12.0f, Place.Color, Place.Name);
 		}
 	}
 
@@ -933,6 +1104,12 @@ void UPdaScreenWidget::RebuildMap()
 			continue;
 		}
 		const bool bTracked = (&Quest == Tracked);
+		// На неизведанном видна только цель отслеживаемого задания (и то по галочке настроек).
+		if (!IsPlaceRevealed(Target->GetActorLocation())
+			&& !(bTracked && Settings->bShowTrackedQuestOnUnexplored))
+		{
+			continue;
+		}
 		FLinearColor Color = Settings->GetQuestKindColor(Quest.Kind);
 		if (!bTracked)
 		{
@@ -1013,6 +1190,12 @@ void UPdaScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	if (bMapTab)
 	{
 		FitMapArea();
+		// Герой открыл новое, пока карта на экране, — перерисовываем черноту и подписи мест.
+		const UMapExplorationComponent* Exploration = GetExploration();
+		if (Exploration && Exploration->GetRevision() != LastFogRevision)
+		{
+			RebuildMap();
+		}
 	}
 }
 
@@ -1042,7 +1225,8 @@ int32 UPdaScreenWidget::NativePaint(const FPaintArgs& Args, const FGeometry& All
 	const FVector Location = Player->GetActorLocation();
 	const FVector2D UV = PdaMap::WorldToMapUV(FVector2D(Location.X, Location.Y),
 		Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
-	const FVector2D Center = AreaMin + UV * AreaSize;
+	// Герой у края карты или за ним: стрелка прижимается к краю поля целиком, а не теряется.
+	const FVector2D Center = ClampArrowCenter(AreaMin + UV * AreaSize, AreaMin, AreaMax, 14.0);
 
 	const FVector Forward = Player->GetActorForwardVector();
 	FVector2D Dir = PdaMap::WorldDirToMapDir(FVector2D(Forward.X, Forward.Y),
@@ -1124,6 +1308,23 @@ void UPdaTouchButtonWidget::Setup(const FVector2D& InMargin, float InRadius, con
 		ButtonSlot->SetPosition(FVector2D(-Margin.X, Margin.Y));
 		ButtonSlot->SetSize(FVector2D(Radius * 2.0f, Radius * 2.0f));
 	}
+}
+
+void UPdaTouchButtonWidget::SetupAt(const FAnchors& InAnchors, const FVector2D& InCenter, float InRadius, const FText& InLabel)
+{
+	Setup(Margin, InRadius, InLabel);
+	if (UCanvasPanelSlot* ButtonSlot = PdaButton ? Cast<UCanvasPanelSlot>(PdaButton->Slot) : nullptr)
+	{
+		ButtonSlot->SetAnchors(InAnchors);
+		ButtonSlot->SetPosition(InCenter);
+	}
+}
+
+FVector2D UPdaTouchButtonWidget::ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,
+	float NeighborScale, float InRadius, float Gap, bool bToTheLeft)
+{
+	const double Offset = NeighborSize.X * 0.5 * FMath::Max(1.0f, NeighborScale) + FMath::Max(0.0f, Gap) + InRadius;
+	return FVector2D(NeighborCenter.X + (bToTheLeft ? -Offset : Offset), NeighborCenter.Y);
 }
 
 void UPdaTouchButtonWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)

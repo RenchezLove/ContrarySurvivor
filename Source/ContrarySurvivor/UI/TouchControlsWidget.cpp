@@ -148,6 +148,24 @@ void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
 	}
 }
 
+bool UTouchControlsWidget::GetInventoryButtonPlacement(FAnchors& OutAnchors, FVector2D& OutCenter, FVector2D& OutSize) const
+{
+	const UCanvasPanelSlot* ButtonSlot = InventoryButton ? Cast<UCanvasPanelSlot>(InventoryButton->Slot) : nullptr;
+	if (!ButtonSlot || ButtonSlot->GetAutoSize())
+	{
+		return false;
+	}
+	const FAnchors Anchors = ButtonSlot->GetAnchors();
+	if (Anchors.Minimum != Anchors.Maximum)
+	{
+		return false; // растянутая кнопка: её место зависит от размера экрана
+	}
+	OutAnchors = Anchors;
+	OutSize = ButtonSlot->GetSize();
+	OutCenter = ButtonSlot->GetPosition() + OutSize * (FVector2D(0.5, 0.5) - ButtonSlot->GetAlignment());
+	return true;
+}
+
 void UTouchControlsWidget::ApplyPlayerSettings()
 {
 	// Прозрачность экранных кнопок (спека, раздел «Управление»). Ползунок задаёт прозрачность
