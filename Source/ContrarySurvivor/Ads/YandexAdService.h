@@ -48,6 +48,7 @@ public:
 
 	// --- IAdService ---
 	virtual bool IsRewardedReady() const override;
+	virtual bool IsRewardedReadyFor(FName Placement) const override;
 	virtual void ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail) override;
 	virtual FDateTime GetLastRewardedShowTimeUtc() const override { return LastRewardedShowUtc; }
 	virtual bool IsInterstitialReady(FName Placement) const override;
@@ -88,6 +89,10 @@ public:
 	// и менять его нельзя. Пока пусто: боевой идентификатор впишется в конфиг, когда придёт.
 	UPROPERTY(Config)
 	FString AdUnitIdSupportAuthor;
+
+	// Пятая точка — учёный со шлемом на базе учёных (10.10.2026). Пусто — общий идентификатор.
+	UPROPERTY(Config)
+	FString AdUnitIdScientistHelmet;
 
 	// --- Б6: согласие на обработку данных (задание издателя ADR-059, условие по РИ-30
 	// «согласие игрока НЕ ставить за игрока»). Прежнего поля-настройки bUserConsent со

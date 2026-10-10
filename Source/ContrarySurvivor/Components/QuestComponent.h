@@ -42,6 +42,24 @@ enum class EQuestState : uint8
 };
 
 /**
+ * Предметы, которые задание выдаёт герою (10.10.2026: ноутбук при взятии третьего задания
+ * старосты, двустволка с патронами в награду у охранника базы учёных). Предмет задаётся
+ * строкой таблицы предметов — как в остальной игре (ADR-075).
+ */
+USTRUCT(BlueprintType)
+struct FQuestItemGrant
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayName = "Предмет (строка таблицы предметов)"))
+	FName ItemRow = NAME_None;
+
+	// Для патронов — число патронов, для остального — число штук.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (ClampMin = "1", DisplayName = "Сколько штук"))
+	int32 Count = 1;
+};
+
+/**
  * Описание квеста (расширяемая структура, GDD §7.7). MVP: один Kill-квест от старосты
  * («убить 5 волков», награда 150 денег). Поля рассчитаны на разные типы (TargetCount/
  * Progress универсальны; KillTargetTag используется типом Kill).
@@ -135,6 +153,28 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	FText CloseReplyText;
 
+	// --- Расширение 10.10.2026 (база учёных). Старые сохранения читаются как есть: у заданий,
+	// записанных раньше, эти поля пусты и поведение прежнее. ---
+
+	// Кому сдаётся задание: метка собеседника (ATalkerNPC::NpcTag). Пусто — тому, кто выдал,
+	// как раньше (староста). Непустое — сдать можно ТОЛЬКО собеседнику с этой меткой, а метка
+	// цели на экране при готовом задании ведёт к нему (третье задание старосты сдаётся учёному).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FName TurnInNpcTag = NAME_None;
+
+	// Что герой получает В МОМЕНТ ВЗЯТИЯ задания (ноутбук, который надо отнести).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	TArray<FQuestItemGrant> GiveOnAccept;
+
+	// Награда предметами при сдаче — в дополнение к монетам (двустволка и патроны охранника).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	TArray<FQuestItemGrant> RewardItems;
+
+	// Куда идти с готовым заданием — хвост строки на экране («отнеси ноутбук учёным»). Пусто —
+	// прежняя общая строка «вернись к старосте». Переводимый текст.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FText TurnInHintText;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	EQuestState State = EQuestState::NotStarted;
 };
@@ -189,8 +229,18 @@ public:
 	// наличие RequiredItemCount предметов «RequiredItemName» в рюкзаке владельца и ИЗЫМАЕТ их
 	// (RemoveItem + Destroy), затем начисляет RewardMoney в UStatsComponent владельца.
 	// true при успехе (квест найден, был Completed и предметы изъяты).
+	// ReceiverNpcTag — метка собеседника, который принимает задание (10.10.2026). Обязана
+	// совпасть с FQuest::TurnInNpcTag: у старых заданий старосты обе пусты, а задание
+	// «отнести учёным» староста принять не может, какой бы путь окна его ни вызвал.
 	UFUNCTION(BlueprintCallable, Category = "Quest")
-	bool TurnInQuest(FName QuestId);
+	bool TurnInQuest(FName QuestId, FName ReceiverNpcTag = NAME_None);
+
+	// Первое готовое к сдаче задание (Completed), которое принимает собеседник с этой меткой.
+	// null — такого нет. Пустая метка не ищется (это задания «сдать тому, кто выдал»).
+	const FQuest* FindCompletedQuestForReceiver(FName ReceiverNpcTag) const;
+
+	// Есть ли уже СДАННОЕ задание, которое принимал собеседник с этой меткой.
+	bool HasTurnedInQuestForReceiver(FName ReceiverNpcTag) const;
 
 	// Б3 («Продолжить»): заменяет журнал целиком сохранённым снимком (полные FQuest, не только
 	// id/состояние — см. комментарий FSavedInventoryEntry/Quests в ContrarySaveGame.h) и

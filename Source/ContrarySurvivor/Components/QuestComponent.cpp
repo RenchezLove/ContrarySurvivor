@@ -7,6 +7,49 @@
 #include "UInventoryComponent.h"   // изъятие предметов при сдаче / подсчёт прогресса (Фаза 5)
 #include "AMasterInventoryItem.h"  // ItemName
 #include "GameFramework/Actor.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h"  // выдача предметов задания герою (GiveItemFromRow)
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"    // проверка строк предметов до выдачи
+
+namespace
+{
+	// Все ли предметы списка можно выдать: получатель — герой и строка есть в таблице предметов.
+	// Проверяется ДО смены состояния задания, чтобы не оставить героя без обещанного.
+	bool CanGrantAll(const AActor* OwnerActor, const TArray<FQuestItemGrant>& Grants, FName& OutMissingRow)
+	{
+		if (Grants.Num() == 0)
+		{
+			return true;
+		}
+		if (!Cast<APlayerCharacter>(OwnerActor))
+		{
+			return false;
+		}
+		for (const FQuestItemGrant& Grant : Grants)
+		{
+			if (!ContraryItems::FindRow(Grant.ItemRow))
+			{
+				OutMissingRow = Grant.ItemRow;
+				return false;
+			}
+		}
+		return true;
+	}
+
+	void GrantAll(AActor* OwnerActor, const TArray<FQuestItemGrant>& Grants, const TCHAR* Why, FName QuestId)
+	{
+		APlayerCharacter* Player = Cast<APlayerCharacter>(OwnerActor);
+		if (!Player)
+		{
+			return;
+		}
+		for (const FQuestItemGrant& Grant : Grants)
+		{
+			const int32 Given = Player->GiveItemFromRow(Grant.ItemRow, Grant.Count);
+			UE_LOG(LogQA, Display, TEXT("QA: quest %s %s: '%s' x%d (выдано %d)"),
+				*QuestId.ToString(), Why, *Grant.ItemRow.ToString(), Grant.Count, Given);
+		}
+	}
+}
 
 UQuestComponent::UQuestComponent()
 {
@@ -157,7 +200,27 @@ bool UQuestComponent::AcceptQuest(FName QuestId)
 		return false;
 	}
 
+	// Предметы, которые задание выдаёт при взятии (ноутбук для учёных): нельзя выдать — задание
+	// не берётся вовсе, иначе герой получил бы невыполнимое поручение.
+	FName MissingRow = NAME_None;
+	if (!CanGrantAll(GetOwner(), Q->GiveOnAccept, MissingRow))
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: quest ACCEPT REFUSED (%s) - предмет задания '%s' выдать нельзя (нет строки в таблице предметов или владелец не герой)"),
+			*Q->QuestId.ToString(), *MissingRow.ToString());
+		return false;
+	}
+
 	Q->State = EQuestState::Active;
+
+	// Копия списка: выдача меняет рюкзак, а указатель на задание после неё перечитываем.
+	const TArray<FQuestItemGrant> GiveCopy = Q->GiveOnAccept;
+	GrantAll(GetOwner(), GiveCopy, TEXT("выдано при взятии"), QuestId);
+	Q = FindQuestMutable(QuestId);
+	if (!Q)
+	{
+		return false;
+	}
 
 	UE_LOG(LogQA, Display, TEXT("QA: quest ACCEPTED (%s, kill %d %s, item %d '%s')"),
 		*Q->QuestId.ToString(), Q->TargetCount, *Q->KillTargetTag.ToString(),
@@ -254,11 +317,30 @@ void UQuestComponent::SyncInventoryQuests(UInventoryComponent* Inventory)
 	}
 }
 
-bool UQuestComponent::TurnInQuest(FName QuestId)
+bool UQuestComponent::TurnInQuest(FName QuestId, FName ReceiverNpcTag)
 {
 	FQuest* Q = FindQuestMutable(QuestId);
 	if (!Q || Q->State != EQuestState::Completed)
 	{
+		return false;
+	}
+
+	// Задание сдаётся только тому, кому положено (10.10.2026): у прежних заданий старосты обе
+	// метки пусты; задание «отнести учёным» староста принять не может.
+	if (Q->TurnInNpcTag != ReceiverNpcTag)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: turn-in REFUSED (%s) - сдаётся '%s', а принимает '%s'"),
+			*Q->QuestId.ToString(), *Q->TurnInNpcTag.ToString(), *ReceiverNpcTag.ToString());
+		return false;
+	}
+
+	// Награду предметами проверяем ДО изъятия вещей: выдать нельзя — задание не сдаётся.
+	FName MissingRewardRow = NAME_None;
+	if (!CanGrantAll(GetOwner(), Q->RewardItems, MissingRewardRow))
+	{
+		UE_LOG(LogQA, Warning,
+			TEXT("QA: turn-in FAILED (%s) - награду '%s' выдать нельзя (нет строки в таблице предметов или владелец не герой)"),
+			*Q->QuestId.ToString(), *MissingRewardRow.ToString());
 		return false;
 	}
 
@@ -345,6 +427,16 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 	UE_LOG(LogQA, Display, TEXT("QA: quest TURNED IN (%s), +%.0f money, balance %.0f"),
 		*Q->QuestId.ToString(), Q->RewardMoney, Balance);
 
+	// Награда предметами (двустволка и патроны охранника) — после монет. Копия списка: выдача
+	// меняет рюкзак, указатель на задание после неё перечитываем.
+	const TArray<FQuestItemGrant> RewardCopy = Q->RewardItems;
+	GrantAll(OwnerActor, RewardCopy, TEXT("награда"), QuestId);
+	Q = FindQuestMutable(QuestId);
+	if (!Q)
+	{
+		return true;
+	}
+
 	OnQuestChanged.Broadcast(*Q);
 
 	// F3 (ADR-038): событие «сдача квеста» (с id квеста). Без ключей — no-op.
@@ -353,6 +445,38 @@ bool UQuestComponent::TurnInQuest(FName QuestId)
 		Analytics->RecordQuestTurnedIn(QuestId);
 	}
 	return true;
+}
+
+const FQuest* UQuestComponent::FindCompletedQuestForReceiver(FName ReceiverNpcTag) const
+{
+	if (ReceiverNpcTag.IsNone())
+	{
+		return nullptr;
+	}
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.State == EQuestState::Completed && Q.TurnInNpcTag == ReceiverNpcTag)
+		{
+			return &Q;
+		}
+	}
+	return nullptr;
+}
+
+bool UQuestComponent::HasTurnedInQuestForReceiver(FName ReceiverNpcTag) const
+{
+	if (ReceiverNpcTag.IsNone())
+	{
+		return false;
+	}
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.State == EQuestState::TurnedIn && Q.TurnInNpcTag == ReceiverNpcTag)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 void UQuestComponent::RestoreQuests(const TArray<FQuest>& SavedQuests)

@@ -32,6 +32,7 @@
 #include "AAmmoItem.h"            // стак патронов (слайдер продажи)
 #include "ContrarySurvivor/Actors/ShopTypes.h" // FShopEntry / EShopEntryKind (каталог/цены магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // староста (предлагаемый квест)
+#include "ContrarySurvivor/Actors/TalkerNPC.h" // собеседники базы учёных: окно разговора и метка «кому сдать»
 #include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // маркеры интерактивных NPC
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
@@ -1595,6 +1596,52 @@ void AContrarySurvivorHUD::SetDialogOpen(bool bOpen, AElderNPC* Elder)
 	}
 }
 
+bool AContrarySurvivorHUD::SetTalkOpen(bool bOpen, ATalkerNPC* Talker)
+{
+	if (!bOpen || !Talker)
+	{
+		SetDialogOpen(false, nullptr);
+		return false;
+	}
+
+	// Собеседники базы учёных говорят в ТОМ ЖЕ окне, что староста (10.10.2026). Старого
+	// рисованного пути у них нет: слот класса окна пуст — разговор не открывается.
+	APlayerController* PC = GetOwningPlayerController();
+	APlayerCharacter* PlayerChar = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (!DialogWidgetClass || !PC || !PlayerChar)
+	{
+		return false;
+	}
+
+	if (!DialogWidgetInstance)
+	{
+		DialogWidgetInstance = CreateWidget<UDialogScreenWidget>(PC, DialogWidgetClass);
+		if (DialogWidgetInstance)
+		{
+			if (AContrarySurvivorPlayerController* CSPC = Cast<AContrarySurvivorPlayerController>(PC))
+			{
+				DialogWidgetInstance->OnCloseRequested.AddUObject(
+					CSPC, &AContrarySurvivorPlayerController::CloseDialog);
+			}
+		}
+	}
+	if (!DialogWidgetInstance)
+	{
+		return false;
+	}
+
+	bDialogOpen = true;
+	DialogElder = nullptr;
+	DialogHitRegions.Reset();
+
+	DialogWidgetInstance->InitTalk(Talker, PlayerChar);
+	if (!DialogWidgetInstance->IsInViewport())
+	{
+		ContraryUI::AddToGameScreen(DialogWidgetInstance, /*ZOrder=*/30);
+	}
+	return true;
+}
+
 bool AContrarySurvivorHUD::IsUmgDialogActive() const
 {
 	return DialogWidgetInstance && DialogWidgetInstance->IsInViewport();
@@ -1700,7 +1747,8 @@ void AContrarySurvivorHUD::DrawDialog(APlayerCharacter* Player)
 		PlayerQuests->OfferQuest(Offered);
 	}
 	const FQuest* InLog = Player->GetQuests() ? Player->GetQuests()->FindQuest(Offered.QuestId) : nullptr;
-	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
+	// Готовое задание, которое сдаётся не старосте, для него «взято, не закончено» (10.10.2026).
+	const EQuestState State = InLog ? AElderNPC::GetElderDialogState(*InLog) : EQuestState::NotStarted;
 	// Источник данных квеста: журнал (если уже в нём) либо предложение старосты (ещё не принят).
 	const FQuest& QData = InLog ? *InLog : Offered;
 
@@ -1907,7 +1955,19 @@ void AContrarySurvivorHUD::MaybeScheduleEndOfStoryFromSave(APlayerCharacter* Pla
 
 	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
 	{
-		ScheduleEndOfStoryMessage(Save->bElderNotebookHintShown, Save->bEndOfStoryShown);
+		// 10.10.2026: сюжет кончается не сценкой про ноутбук у старосты, а сдачей ноутбука
+		// квестовому учёному — смотрим журнал заданий из сохранения. Кто сообщение уже видел,
+		// второй раз его не увидит (признак bEndOfStoryShown прежний).
+		bool bStoryFinished = false;
+		for (const FQuest& Saved : Save->Quests)
+		{
+			if (Saved.State == EQuestState::TurnedIn && AQuestGiverNPC::IsStoryEndingQuest(Saved))
+			{
+				bStoryFinished = true;
+				break;
+			}
+		}
+		ScheduleEndOfStoryMessage(bStoryFinished, Save->bEndOfStoryShown);
 	}
 }
 
@@ -2642,7 +2702,20 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		}
 
 		Target = nullptr;
-		if (bToGiver)
+		if (bToGiver && !Tracked->TurnInNpcTag.IsNone())
+		{
+			// Задание сдаётся конкретному собеседнику (10.10.2026: ноутбук — учёному, рация —
+			// охраннику): метка ведёт к нему, а не к старосте.
+			for (TActorIterator<ATalkerNPC> It(World); It; ++It)
+			{
+				if (It->GetNpcTag() == Tracked->TurnInNpcTag)
+				{
+					Target = *It;
+					break;
+				}
+			}
+		}
+		else if (bToGiver)
 		{
 			// Квестодатель MVP — староста (единственный AElderNPC на карте).
 			for (TActorIterator<AElderNPC> It(World); It; ++It)

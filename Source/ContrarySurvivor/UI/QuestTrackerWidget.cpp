@@ -39,6 +39,9 @@ void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 		QuestObjectiveText::BuildObjectives(*Tracked, ObjectiveFormat, ObjectiveSeparator));
 
 	const bool bDone = (Tracked->State == EQuestState::Completed);
-	TrackerText->SetText(FText::Format(bDone ? DoneFormat : TrackerFormat, Args));
+	// У задания своя подсказка, куда нести готовое, — общая строка «вернись к старосте» соврала бы.
+	const bool bOwnHint = bDone && !Tracked->TurnInHintText.IsEmpty();
+	Args.Add(TEXT("Hint"), Tracked->TurnInHintText);
+	TrackerText->SetText(FText::Format(bOwnHint ? DoneWithHintFormat : (bDone ? DoneFormat : TrackerFormat), Args));
 	TrackerText->SetColorAndOpacity(FSlateColor(bDone ? DoneColor : ActiveColor));
 }

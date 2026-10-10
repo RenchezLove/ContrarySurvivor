@@ -136,6 +136,17 @@ bool UYandexAdService::IsRewardedReady() const
 	return true;
 }
 
+bool UYandexAdService::IsRewardedReadyFor(FName Placement) const
+{
+	if (!bSdkInitialized || bShowInProgress)
+	{
+		return false;
+	}
+	// Готовность одной точки: у неё есть рекламный блок и ролик этого блока уже загружен.
+	const FString Unit = GetAdUnitIdForPlacement(Placement);
+	return !Unit.IsEmpty() && LoadedAdUnitIds.Contains(Unit);
+}
+
 void UYandexAdService::ShowRewarded(FName Placement, FSimpleDelegate OnSuccess, FSimpleDelegate OnFail)
 {
 	// Один ролик за раз: повторный вызов до закрытия — отказ показа, награды нет.
@@ -550,6 +561,12 @@ FString UYandexAdService::GetAdUnitIdForPlacement(FName Placement) const
 	{
 		return AdUnitIdSupportAuthor;
 	}
+	if (Placement == AdPlacements::ScientistHelmet)
+	{
+		// Общий идентификатор сюда НЕ подставляется: в боевом конфиге он демонстрационный
+		// (издатель запретил один блок на несколько точек). Нет своего блока — точка не готова.
+		return AdUnitIdScientistHelmet;
+	}
 	return RewardedAdUnitId;
 }
 
@@ -565,6 +582,11 @@ TArray<FString> UYandexAdService::GetConfiguredAdUnitIds() const
 		{
 			Units.AddUnique(Unit);
 		}
+	}
+	// Учёный со шлемом: блок грузится заранее только если он задан в конфиге (см. выше).
+	if (!AdUnitIdScientistHelmet.IsEmpty())
+	{
+		Units.AddUnique(AdUnitIdScientistHelmet);
 	}
 	return Units;
 }
@@ -652,6 +674,10 @@ FString UYandexAdService::PlacementToAnalyticsPoint(FName Placement)
 	if (Placement == AdPlacements::BannerShop)
 	{
 		return TEXT("banner_shop");
+	}
+	if (Placement == AdPlacements::ScientistHelmet)
+	{
+		return TEXT("scientist_helmet");
 	}
 	return TEXT("unknown");
 }

@@ -28,6 +28,7 @@
 #include "ContrarySurvivor/Actors/ShopTypes.h"          // FShopEntry (каталог в OnQABuyCheapest, A2)
 #include "ContrarySurvivor/Actors/ShopVendor.h"         // IShopVendor / UShopVendor (вендор магазина, A2)
 #include "ContrarySurvivor/Actors/ElderNPC.h"           // Фаза 5: староста (диалог/квест)
+#include "ContrarySurvivor/Actors/TalkerNPC.h"          // собеседники базы учёных (то же окно разговора)
 #include "ContrarySurvivor/Components/QuestComponent.h"  // Фаза 5: журнал квестов игрока
 #include "ContrarySurvivor/Components/CorpseLootComponent.h" // Build 1.2.1 (А1): обыск трупов
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-082: SetPanelMode при связке окон
@@ -2344,6 +2345,11 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 	// сдачи кв.1). Идемпотентно; OFFERED логируется один раз.
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
+		// Третье задание («Отнести ноутбук учёным», 10.10.2026) открывается ЗДЕСЬ, при открытии
+		// разговора: значит в том разговоре, где только что сыграла сценка про ноутбук, его
+		// ещё нет, а в следующем — есть. Так же его получает и старое сохранение.
+		Elder->TryUnlockThirdQuest(PlayerChar);
+
 		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
 		{
 			PlayerQuests->OfferQuest(Elder->GetQuestForPlayer(PlayerQuests));
@@ -2381,6 +2387,72 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 	UE_LOG(LogQA, Display, TEXT("QA: dialog opened (elder %s)"), *Elder->GetName());
 }
 
+void AContrarySurvivorPlayerController::SetNearbyTalker(ATalkerNPC* Talker)
+{
+	NearbyTalker = Talker;
+}
+
+void AContrarySurvivorPlayerController::ClearNearbyTalker(ATalkerNPC* Talker)
+{
+	// Сбрасываем, только если уходим именно от текущего собеседника.
+	if (NearbyTalker == Talker)
+	{
+		NearbyTalker = nullptr;
+	}
+	// Ушли от того, с кем говорили, — закрываем разговор (как со старостой).
+	if (ActiveTalker == Talker && bDialogOpen)
+	{
+		CloseDialog();
+	}
+}
+
+void AContrarySurvivorPlayerController::OpenTalk(ATalkerNPC* Talker)
+{
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!Talker || !PlayerChar || bDialogOpen)
+	{
+		return;
+	}
+
+	// Собеседник готовит разговор: своё задание кладёт в журнал героя, начинает с первой реплики.
+	Talker->OnTalkOpened(PlayerChar);
+
+	// Тот же окно и тот же признак, что у разговора со старостой: все правила «открыто окно»
+	// (стрельба, подсказки, метки) уже на нём стоят.
+	ActiveTalker = Talker;
+	bDialogOpen = true;
+	bUIClickConsumed = false;
+
+	// Полноэкранный показ после задания про бандитов к этому разговору не относится: запоминаем
+	// состояние «как есть», чтобы закрытие окна не приняло его за разговор сдачи.
+	bBanditQuestTurnedInAtDialogOpen = IsQuestTurnedIn(DialogBanditQuestId);
+
+	bool bWindowShown = false;
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		bWindowShown = CSHUD->SetTalkOpen(true, Talker);
+		if (!bWindowShown)
+		{
+			// Окно разговора не назначено (слот класса окна на экране игры пуст): старого
+			// рисованного пути у собеседников нет, поэтому разговор не открываем вовсе —
+			// иначе герой застрял бы в невидимом окне.
+			UE_LOG(LogQA, Warning,
+				TEXT("QA: talk NOT opened (npc %s) - на экране игры не назначен класс окна разговора"), *Talker->GetName());
+			CloseDialog();
+			return;
+		}
+	}
+
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	UE_LOG(LogQA, Display, TEXT("QA: talk opened (npc %s, tag %s, window %s)"), *Talker->GetName(),
+		*Talker->GetNpcTag().ToString(), bWindowShown ? TEXT("shown") : TEXT("NOT shown"));
+}
+
 void AContrarySurvivorPlayerController::CloseDialog()
 {
 	if (!bDialogOpen)
@@ -2393,6 +2465,13 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
 	{
 		CSHUD->SetDialogOpen(false, nullptr);
+	}
+
+	// Разговор с собеседником базы учёных шёл в этом же окне — сообщаем ему, что закончили.
+	if (ATalkerNPC* ClosedTalker = ActiveTalker)
+	{
+		ActiveTalker = nullptr;
+		ClosedTalker->OnTalkClosed(Cast<APlayerCharacter>(GetPawn()));
 	}
 
 	SetInputMode(FInputModeGameOnly());
@@ -2709,6 +2788,14 @@ void AContrarySurvivorPlayerController::OnInteract()
 			if (AElderNPC* Elder = Cast<AElderNPC>(CurrentInteractActor))
 			{
 				OpenDialog(Elder);
+			}
+			break;
+		}
+		case EInteractKind::Talker:
+		{
+			if (ATalkerNPC* Talker = Cast<ATalkerNPC>(CurrentInteractActor))
+			{
+				OpenTalk(Talker);
 			}
 			break;
 		}
@@ -3529,6 +3616,18 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
+	// Собеседник базы учёных (охранник, учёные): так же, по своей зоне разговора.
+	if (IsValid(NearbyTalker))
+	{
+		const float DistSq = FVector::DistSquared(Loc, NearbyTalker->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			CurrentInteractActor = NearbyTalker;
+			CurrentInteractKind = EInteractKind::Talker;
+		}
+	}
+
 	// Пикапы: ближайший непустой пикап в InteractRange. Если ближе торговца — он и выигрывает.
 	const float RangeSq = InteractRange * InteractRange;
 	for (TActorIterator<APickup> It(World); It; ++It)
@@ -3713,6 +3812,12 @@ FText AContrarySurvivorPlayerController::GetInteractActionText(EInteractKind Kin
 		case EInteractKind::Elder:  return InteractPromptElderAction;
 		case EInteractKind::Corpse: return InteractPromptCorpseAction;
 		case EInteractKind::Stash:  return InteractPromptStashAction;
+		case EInteractKind::Talker:
+		{
+			// Подсказку называет сам собеседник («Поговорить с охранником»).
+			const ATalkerNPC* Talker = Cast<ATalkerNPC>(CurrentInteractActor);
+			return Talker ? Talker->GetInteractPromptAction() : FText::GetEmpty();
+		}
 		default:                    return FText::GetEmpty();
 	}
 }

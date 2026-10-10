@@ -8,6 +8,7 @@
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"          // признак «подарок уже выдан»
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // тост «Получено: Бинт»
 #include "ContrarySurvivor/Data/ContraryQuestLibrary.h"      // ADR-075: квесты из таблицы DT_Quests
+#include "ContrarySurvivor/Actors/ScientistNPCs.h"           // метка квестового учёного (кому сдаётся кв.3)
 
 AElderNPC::AElderNPC()
 {
@@ -106,6 +107,33 @@ AElderNPC::AElderNPC()
 	SecondQuest.AcceptReplyText = NSLOCTEXT("Quest", "Q2AcceptReply", "Хорошо, берусь.");
 	SecondQuest.TurnInReplyText = NSLOCTEXT("Quest", "Q2TurnInReply", "Готово. Вот, что ты просил.");
 	SecondQuest.CloseReplyText  = NSLOCTEXT("Quest", "Q2CloseReply", "Мне пора.");
+
+	// КВЕСТ 3 (ЧЕРНОВИК; слова Рината 10.10.2026: «староста отправляет ГГ на базу учёных с самим
+	// ноутом»). Староста сам данные не разобрал и отдаёт ноутбук герою (выдача при взятии —
+	// та же строка таблицы предметов laptop, что у ноутбука с базы бандитов); сдаётся задание
+	// НЕ старосте, а квестовому учёному: ноутбук изымается, награда деньгами. Цели убийств нет;
+	// цель-предмет выполняется сразу, как ноутбук лёг в сумку, — дальше метка ведёт к учёному.
+	ThirdQuest.QuestId = FName(TEXT("DeliverLaptopToScientists"));
+	ThirdQuest.Title = NSLOCTEXT("Quest", "Q3Title", "Отнести ноутбук учёным");
+	ThirdQuest.Description = NSLOCTEXT("Quest", "Q3Description",
+		"С ноутбуком я не сладил: данные в нём запрятаны так, что мне не по зубам. Отнеси его учёным на их базу — у них для такого и приборы, и головы. Забирай ноутбук.");
+	ThirdQuest.Type = EQuestType::Deliver;
+	ThirdQuest.KillTargetTag = NAME_None;
+	ThirdQuest.TargetCount = 0;
+	ThirdQuest.RequiredItemName = TEXT("Ноутбук"); // тот же служебный ключ, что у кв.2
+	ThirdQuest.RequiredItemCount = 1;
+	ThirdQuest.ItemObjectiveLabel = NSLOCTEXT("Quest", "Q3ItemObjective", "Отнести ноутбук учёным");
+	ThirdQuest.RewardMoney = 150.0f;
+	ThirdQuest.TurnInNpcTag = ScientistBaseTags::QuestScientist;
+	ThirdQuest.MapMarkerTag = ScientistBaseTags::QuestScientist; // метка собеседника — она же метка актора
+	ThirdQuest.TurnInHintText = NSLOCTEXT("Quest", "Q3TurnInHint", "отнеси ноутбук учёным");
+	ThirdQuest.AcceptReplyText = NSLOCTEXT("Quest", "Q3AcceptReply", "Отнесу.");
+	ThirdQuest.TurnInReplyText = NSLOCTEXT("Quest", "Q3TurnInReply", "Вот ноутбук.");
+	ThirdQuest.CloseReplyText  = NSLOCTEXT("Quest", "Q3CloseReply", "Мне пора.");
+	FQuestItemGrant LaptopGrant;
+	LaptopGrant.ItemRow = FName(TEXT("laptop"));
+	LaptopGrant.Count = 1;
+	ThirdQuest.GiveOnAccept.Add(LaptopGrant);
 
 	// СКРИПТОВОЕ ИНТРО ПЕРВОЙ ВСТРЕЧИ (Build 1, ТЗ издателя раздел 3 — текст ДОСЛОВНО).
 	// Реплики идут ПО ОЧЕРЕДИ, под каждой ровно ОДНА кнопка-ответ игрока (ветвления нет — решение
@@ -215,6 +243,54 @@ void AElderNPC::PostInitializeComponents()
 	{
 		SecondQuest = QuestFromTable;
 	}
+	if (ContraryQuests::BuildQuestFromRow(ThirdQuestRow, QuestFromTable))
+	{
+		ThirdQuest = QuestFromTable;
+	}
+}
+
+bool AElderNPC::ShouldUnlockThirdQuest(bool bSecondQuestTurnedIn, bool bNotebookHintShown,
+	bool bHasNotebookHintLines, bool bThirdQuestConfigured)
+{
+	// Сценки нет вовсе (реплики вычищены в редакторе) — ждать её показа бессмысленно.
+	return bThirdQuestConfigured && bSecondQuestTurnedIn && (bNotebookHintShown || !bHasNotebookHintLines);
+}
+
+bool AElderNPC::TryUnlockThirdQuest(APlayerCharacter* Player) const
+{
+	UQuestComponent* PlayerQuests = Player ? Player->GetQuests() : nullptr;
+	if (!PlayerQuests || ThirdQuest.QuestId.IsNone() || PlayerQuests->FindQuest(ThirdQuest.QuestId))
+	{
+		return false; // нет журнала, задание выключено или уже открыто
+	}
+
+	const bool bSecondDone = PlayerQuests->IsQuestTurnedIn(SecondQuest.QuestId);
+	bool bHintShown = false;
+	if (bSecondDone)
+	{
+		// Сохранение читаем один раз на открытие разговора и только когда второе задание сдано.
+		if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			bHintShown = Save->bElderNotebookHintShown;
+		}
+	}
+	if (!ShouldUnlockThirdQuest(bSecondDone, bHintShown, NotebookHintLines.Num() > 0, /*bThirdQuestConfigured=*/true))
+	{
+		return false;
+	}
+
+	PlayerQuests->OfferQuest(ThirdQuest);
+	UE_LOG(LogTemp, Log, TEXT("Elder '%s': third quest '%s' unlocked"), *GetName(), *ThirdQuest.QuestId.ToString());
+	return true;
+}
+
+EQuestState AElderNPC::GetElderDialogState(const FQuest& Quest)
+{
+	if (Quest.State == EQuestState::Completed && !Quest.TurnInNpcTag.IsNone())
+	{
+		return EQuestState::Active;
+	}
+	return Quest.State;
 }
 
 bool AElderNPC::TryGiveFirstMeetingGift(APlayerCharacter* Player)
@@ -291,6 +367,11 @@ const FQuest& AElderNPC::GetQuestForPlayer(const UQuestComponent* PlayerQuests) 
 	// NotebookHintLines, её ведёт панель диалога).
 	if (PlayerQuests)
 	{
+		// Третье задание уже открыто (TryUnlockThirdQuest положил его в журнал) — речь о нём.
+		if (!ThirdQuest.QuestId.IsNone() && PlayerQuests->FindQuest(ThirdQuest.QuestId))
+		{
+			return ThirdQuest;
+		}
 		const FQuest* Q1 = PlayerQuests->FindQuest(OfferedQuest.QuestId);
 		if (Q1 && Q1->State == EQuestState::TurnedIn)
 		{

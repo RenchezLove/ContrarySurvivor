@@ -84,10 +84,37 @@ public:
 	// пора ли играть сценку-намёк после сдачи ноутбука.
 	const FQuest& GetSecondQuest() const { return SecondQuest; }
 
+	// Третье задание («Отнести ноутбук учёным», Ринат 10.10.2026). Выдаётся при СЛЕДУЮЩЕМ
+	// разговоре после сценки «дай время покопаться в ноутбуке»; сдаётся не старосте, а
+	// квестовому учёному на базе учёных (FQuest::TurnInNpcTag).
+	const FQuest& GetThirdQuest() const { return ThirdQuest; }
+
+	// Открыть третье задание, если пора: второе сдано и сценка про ноутбук в этом профиле уже
+	// показана (признак в сохранении). Зовёт контроллер при ОТКРЫТИИ разговора — поэтому в том
+	// разговоре, где сценка только что сыграла, задание не появляется: сценка заканчивается
+	// закрытием окна. Задание кладётся в журнал героя, и с этой минуты GetQuestForPlayer
+	// отдаёт его. Старое сохранение (второе задание давно сдано) получает задание так же.
+	// true — задание открыто именно сейчас.
+	bool TryUnlockThirdQuest(APlayerCharacter* Player) const;
+
+	// То же правило чистой функцией — для автотеста без мира и сохранения.
+	static bool ShouldUnlockThirdQuest(bool bSecondQuestTurnedIn, bool bNotebookHintShown,
+		bool bHasNotebookHintLines, bool bThirdQuestConfigured);
+
+	// Состояние задания, как его видит разговор СО СТАРОСТОЙ. Готовое задание, которое
+	// сдаётся другому собеседнику, для старосты остаётся «взято, не закончено»: кнопки сдачи
+	// у него нет. Одно место правды на оба пути окна разговора.
+	static EQuestState GetElderDialogState(const FQuest& Quest);
+
+	// Реплика старосты, пока герой несёт ноутбук учёным, и после того, как отнёс.
+	const FText& GetThirdQuestCarryText() const { return ThirdQuestCarryText; }
+	const FText& GetThirdQuestDoneText() const { return ThirdQuestDoneText; }
+
 	// Квест, актуальный для игрока СЕЙЧАС (выдача по порядку, Фаза 5):
 	//  - пока кв.1 не сдан (TurnedIn) — возвращает кв.1;
 	//  - после сдачи кв.1 — возвращает кв.2 («Зачистить базу бандитов»); кв.2 — последний
 	//    (Build 1: формального кв.3 больше нет, вместо него сценка-намёк NotebookHintLines).
+	//  - 10.10.2026: если третье задание уже открыто (лежит в журнале героя) — отдаётся оно.
 	// Возвращается ссылка на член (валидна, пока жив актор). PlayerQuests может быть null
 	// (тогда возвращается кв.1).
 	const FQuest& GetQuestForPlayer(const UQuestComponent* PlayerQuests) const;
@@ -238,6 +265,27 @@ protected:
 	// сдачи кв.1 (GetQuestForPlayer). ADR-075: VisibleAnywhere — источник = таблица (см. выше).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	FQuest SecondQuest;
+
+	// --- Третье задание: отнести ноутбук учёным (Ринат 10.10.2026; числа и тексты — черновик) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "4",
+		DisplayName = "Третий квест (строка таблицы квестов)"))
+	FName ThirdQuestRow = FName(TEXT("DeliverLaptopToScientists"));
+
+	// Действует, пока строки с таким именем нет в таблице квестов; появится строка — главнее она.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "5",
+		DisplayName = "Третий квест (если строки таблицы нет)"))
+	FQuest ThirdQuest;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "8", MultiLine = "true",
+		DisplayName = "Реплика: герой ещё несёт ноутбук учёным"))
+	FText ThirdQuestCarryText = NSLOCTEXT("Dialog", "ElderThirdQuestCarry",
+		"Ноутбук у тебя. Неси его учёным на базу — дорогу покажет метка.");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "9", MultiLine = "true",
+		DisplayName = "Реплика: ноутбук отнесён учёным"))
+	FText ThirdQuestDoneText = NSLOCTEXT("Dialog", "ElderThirdQuestDone",
+		"Отнёс ноутбук? Добро. Теперь дело за учёными: как разберутся — узнаем, кто за тобой охотится.");
 
 	// Сценка после сдачи кв.2 (Build 1.2, формулировка Рината 07-31): реплика 1 — сюжетный
 	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится», СОХРАНЁН); дальше

@@ -109,4 +109,26 @@ struct FContraryQuestRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "15",
 		DisplayName = "Следующий квест (задел, не используется)"))
 	FName NextQuestRow = NAME_None;
+
+	// --- Расширение 10.10.2026 (база учёных) — те же поля, что у FQuest ---
+
+	// Кому сдаётся задание: метка собеседника. Пусто — тому, кто выдал.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Сдача", meta = (DisplayPriority = "16",
+		DisplayName = "Кому сдавать (метка собеседника; пусто = тому, кто выдал)"))
+	FName TurnInNpcTag = NAME_None;
+
+	// Хвост строки на экране при готовом задании («отнеси ноутбук учёным»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Сдача", meta = (DisplayPriority = "17",
+		DisplayName = "Подсказка, куда нести готовое задание"))
+	FText TurnInHintText;
+
+	// Что герой получает при взятии задания (строки таблицы предметов).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Предметы", meta = (DisplayPriority = "18",
+		DisplayName = "Выдать при взятии"))
+	TArray<FQuestItemGrant> GiveOnAccept;
+
+	// Награда предметами при сдаче (в дополнение к монетам).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Предметы", meta = (DisplayPriority = "19",
+		DisplayName = "Награда предметами"))
+	TArray<FQuestItemGrant> RewardItems;
 };

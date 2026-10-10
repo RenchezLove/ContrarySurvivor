@@ -221,12 +221,14 @@ protected:
 	void OnInteractEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-private:
 	// (Пере)заполняет Catalog. ADR-075: сначала пробует путь таблицы (BuildCatalogFromRows по
 	// CatalogRows), при неудаче — прежний зашитый прайс (BuildLegacyCatalog). Зовётся из
 	// конструктора (дефолты CDO — видны в редакторе) И из BeginPlay (значения с размещённого
-	// экземпляра BP_Trader).
+	// экземпляра BP_Trader). Доступна наследникам: торговец со своим составом прайс-листа
+	// (учёный-торговец, 10.10.2026) меняет список в своём конструкторе и пересобирает каталог.
 	void RebuildCatalog();
+
+private:
 
 	// Путь таблицы (ADR-075): собирает Catalog из CatalogRows по строкам DT_Items.
 	// true = собралась хотя бы одна позиция (битые ссылки пропущены с предупреждением).

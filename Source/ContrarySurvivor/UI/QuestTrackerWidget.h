@@ -34,6 +34,11 @@ public:
 	FText DoneFormat = NSLOCTEXT("QuestTracker", "DoneFormat",
 		"Квест выполнен: {Title} — вернись к старосте");
 
+	// Готовое задание, которое сдаётся НЕ старосте (10.10.2026: ноутбук — учёным, рация —
+	// охраннику): {Hint} — подсказка из самого задания («отнеси ноутбук учёным»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "2"))
+	FText DoneWithHintFormat = NSLOCTEXT("QuestTracker", "DoneWithHintFormat", "Квест: {Title} — {Hint}");
+
 	// Одна цель квеста: {Objective} — что сделать, {Done} — сделано, {Total} — сколько надо.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "3"))
 	FText ObjectiveFormat = NSLOCTEXT("Quest", "ObjectiveFormat", "{Objective} {Done} из {Total}");

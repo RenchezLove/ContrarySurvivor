@@ -76,6 +76,10 @@ bool BuildQuestFromRow(FName RowName, FQuest& OutQuest)
 	Quest.AcceptReplyText = Row->AcceptReplyText;
 	Quest.TurnInReplyText = Row->TurnInReplyText;
 	Quest.CloseReplyText = Row->CloseReplyText;
+	Quest.TurnInNpcTag = Row->TurnInNpcTag;
+	Quest.TurnInHintText = Row->TurnInHintText;
+	Quest.GiveOnAccept = Row->GiveOnAccept;
+	Quest.RewardItems = Row->RewardItems;
 
 	OutQuest = Quest;
 	return true;

@@ -282,6 +282,19 @@ protected:
 		ClampMin = "0.0", ClampMax = "1.0"))
 	float BrokenTintMultiplier = 0.55f;
 
+	// Ринат 10.10.2026 («одним параметром выбирать степень того, на сколько сильно текстура с
+	// отшелушивающимся материалом проступает наружу»). Идёт скалярным параметром во все
+	// материалы кузова и крашеных деталей, НЕЗАВИСИМО от галочки «Перекрасить кузов».
+	// При значении 1 и без перекраски динамический материал ради этого не создаётся.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Цвет", meta = (DisplayPriority = "6",
+		DisplayName = "Облезлость краски (0 — целая, 1 — как нарисовано)", ClampMin = "0.0", ClampMax = "1.0"))
+	float PaintPeel = 1.0f;
+
+	// Имя скалярного параметра облезлости в материале (у материала без такого параметра поле не действует).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Car|Цвет", meta = (DisplayPriority = "7",
+		DisplayName = "Имя параметра облезлости в материале"))
+	FName PaintPeelParamName = FName(TEXT("PaintPeel"));
+
 	// === УГЛЫ ОТКРЫТИЯ СТВОРОК (решение лида 22.08: визуал «брошенности»). 0 = закрыто. ===
 	// Двери открываются вокруг вертикали (рыскание), капот и багажник — вокруг поперечной
 	// оси (тангаж). Знак угла подбирается на глаз (зависит от того, как смотрит меш).
@@ -441,7 +454,9 @@ private:
 
 	// Итоговый цвет детали: перекраска (BodyColor) и/или затемнение битости поверх родного
 	// цвета материала. Ни того ни другого — возвращает родное значение, если MID уже висел.
-	void ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken);
+	// bApplyPaintPeel — деталь крашеная (кузов, двери, капот, багажник): на неё идёт ещё и
+	// «облезлость краски» (PaintPeel), независимо от перекраски. Колёсам не нужна.
+	void ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken, bool bApplyPaintPeel = true);
 
 	// Применяет состояние стёкол (видимость + параметр битости / скрытие без параметра).
 	void ApplyGlassState();

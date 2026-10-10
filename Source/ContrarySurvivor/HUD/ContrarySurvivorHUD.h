@@ -204,6 +204,10 @@ public:
 
 	// Открыть/закрыть диалог с конкретным старостой (вызывается контроллером по клавише E).
 	void SetDialogOpen(bool bOpen, AElderNPC* Elder);
+
+	// Разговор с собеседником базы учёных (10.10.2026) — в том же окне, что со старостой.
+	// true — окно показано. Закрывается общим SetDialogOpen(false, nullptr).
+	bool SetTalkOpen(bool bOpen, class ATalkerNPC* Talker);
 	bool IsDialogOpen() const { return bDialogOpen; }
 
 	// Обработать клик/тап по экрану диалога (принять/отказаться/сдать/закрыть). Возвращает true,

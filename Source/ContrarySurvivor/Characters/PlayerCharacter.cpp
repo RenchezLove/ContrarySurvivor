@@ -1378,6 +1378,58 @@ int32 APlayerCharacter::GiveConsumableToBackpack(EConsumableType Type, int32 Cou
     return Given;
 }
 
+int32 APlayerCharacter::GiveItemFromRow(FName RowName, int32 Count)
+{
+    UWorld* World = GetWorld();
+    if (!World || !Inventory || RowName.IsNone() || Count <= 0)
+    {
+        return 0;
+    }
+    const FContraryItemRow* Row = ContraryItems::FindRow(RowName);
+    if (!Row)
+    {
+        UE_LOG(LogQA, Warning, TEXT("QA: GiveItemFromRow - строки '%s' нет в таблице предметов, предмет не выдан"),
+            *RowName.ToString());
+        return 0;
+    }
+
+    // Патроны — не предмет, а пополнение пачек своего вида (вид патрона = имя строки).
+    const UClass* RowClass = Row->ItemClass.LoadSynchronous();
+    if (RowClass && RowClass->IsChildOf(AAmmoItem::StaticClass()))
+    {
+        AddAmmoToInventory(Count, RowName);
+        return Count;
+    }
+
+    const FTransform SpawnTM(GetActorRotation(), GetActorLocation());
+    int32 Given = 0;
+    while (Given < Count)
+    {
+        // Стакаемое ляжет одним предметом со счётчиком (обрежется лимитом строки), нестакаемое — по штуке.
+        AMasterInventoryItem* Item = ContraryItems::SpawnItemFromRow(World, RowName, Count - Given, SpawnTM, this);
+        if (!Item)
+        {
+            break;
+        }
+        const int32 Portion = Item->IsStackable() ? FMath::Max(1, Item->GetStackCount()) : 1;
+
+        // Предмет рюкзака — данные, не объект сцены.
+        Item->SetActorHiddenInGame(true);
+        Item->SetActorEnableCollision(false);
+
+        // Запас патронов класса у выданного ствола выбрасываем: сколько патронов положено,
+        // решает тот, кто выдаёт (награда перечисляет их отдельной строкой).
+        if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Item))
+        {
+            Ranged->DrainReserveAmmo();
+        }
+
+        Inventory->AddItem(Item);
+        Given += Portion;
+    }
+    return Given;
+}
+
 // ---------------------------------------------------------------------------
 // Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
 // ---------------------------------------------------------------------------
@@ -1907,6 +1959,12 @@ bool APlayerCharacter::SaveGame()
             {
                 Entry.ConsumableType = Cons->ConsumableType;
             }
+            // Запас при стволе пишем как есть (обычно ноль: при взятии в слот и при покупке он
+            // уже перелит пачкой в сумку) — восстановление вернёт ровно его, а не запас класса.
+            if (const ARangedWeapon* RangedItem = Cast<const ARangedWeapon>(Item))
+            {
+                Entry.WeaponReserveAmmo = FMath::Max(0, RangedItem->GetCurrentAmmoReserve());
+            }
             Save->InventoryEntries.Add(Entry);
         }
     }
@@ -1927,6 +1985,7 @@ bool APlayerCharacter::SaveGame()
         SlotEntry.ItemDisplayText = RangedWeaponInstance->ItemDisplayText;
         SlotEntry.StackCount = 1;
         SlotEntry.bEquipped = true;
+        SlotEntry.WeaponReserveAmmo = FMath::Max(0, RangedWeaponInstance->GetCurrentAmmoReserve());
         Save->InventoryEntries.Add(SlotEntry);
     }
 
@@ -2409,13 +2468,23 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
         // хранит вовсе — восстановленный ствол получает КОНСТРУКТОРНЫЕ 48 заново, и «12/51»
         // Рината пережил бы фикс через старый сейв. Сливаем резерв видимой пачкой сразу при
         // восстановлении; пачка патронов из того же сейва сольётся с ней штатным стеком.
+        // 10.10.2026: этот перенос срабатывал при КАЖДОМ «Продолжить» и каждый раз дарил запас
+        // класса заново (у двустволки это заметно). Теперь запас при стволе пишется в запись
+        // (WeaponReserveAmmo): записанное значение возвращается стволу как есть, без подарка в
+        // сумку. Прежний перенос остался только для записей старых сохранений (значение
+        // меньше нуля) и срабатывает для них один раз — следующая запись уже несёт число.
         if (ARangedWeapon* RestoredRanged = Cast<ARangedWeapon>(Item))
         {
-            if (const int32 Drained = RestoredRanged->DrainReserveAmmo())
+            const int32 ClassReserve = RestoredRanged->DrainReserveAmmo();
+            if (Entry.WeaponReserveAmmo >= 0)
             {
-                AddAmmoToInventory(Drained, RestoredRanged->GetAmmoType());
+                RestoredRanged->AddReserveAmmo(Entry.WeaponReserveAmmo);
+            }
+            else if (ClassReserve > 0)
+            {
+                AddAmmoToInventory(ClassReserve, RestoredRanged->GetAmmoType());
                 UE_LOG(LogQA, Display,
-                    TEXT("QA: CONTINUE - restored firearm reserve %d migrated to backpack pack"), Drained);
+                    TEXT("QA: CONTINUE - restored firearm reserve %d migrated to backpack pack (старая запись)"), ClassReserve);
             }
         }
 

@@ -55,6 +55,13 @@ struct FSavedInventoryEntry
 	// выставляется НА ЭКЗЕМПЛЯРЕ и классом не определяется). У прочих предметов не используется.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
 	EConsumableType ConsumableType = EConsumableType::Food;
+
+	// Запас патронов ПРИ СТВОЛЕ на момент записи (10.10.2026). Раньше не писался вовсе:
+	// восстановленный ствол получал запас своего класса заново, и каждое «Продолжить»
+	// дарило патроны. Меньше нуля — запись старого сохранения (значение неизвестно, действует
+	// прежний разовый перенос запаса в сумку); ноль и больше — ровно столько и остаётся при стволе.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Inventory")
+	int32 WeaponReserveAmmo = -1;
 };
 
 /**

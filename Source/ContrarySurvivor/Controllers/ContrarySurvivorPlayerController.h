@@ -21,6 +21,7 @@
 
 class UStatsComponent;
 class AElderNPC;
+class ATalkerNPC;                          // собеседник базы учёных (то же окно разговора)
 class APickup;
 class APlayerCharacter;                    // цель-деревня интро ищется от позиции игрока
 class UOnboardingComponent;
@@ -54,7 +55,8 @@ enum class EInteractKind : uint8
 	Trader,
 	Elder,
 	Corpse,
-	Stash   // личный сундук (Ринат 09.10.2026): окно «сумка и сундук»
+	Stash,  // личный сундук (Ринат 09.10.2026): окно «сумка и сундук»
+	Talker  // собеседник (10.10.2026: охранник и учёные базы) — то же окно разговора, что у старосты
 };
 
 UCLASS()
@@ -84,6 +86,14 @@ public:
 	// Регистрирует/сбрасывает ближайшего старосту (вызывает AElderNPC при overlap).
 	void SetNearbyElder(AElderNPC* Elder);
 	void ClearNearbyElder(AElderNPC* Elder);
+
+	// То же для собеседников базы учёных (10.10.2026): охранник, учёные. Разговор идёт в том же
+	// окне и под тем же признаком bDialogOpen, что разговор со старостой; закрывает его CloseDialog.
+	void SetNearbyTalker(ATalkerNPC* Talker);
+	void ClearNearbyTalker(ATalkerNPC* Talker);
+
+	// Открыть разговор с собеседником. Публичная: её же зовёт автотест.
+	void OpenTalk(ATalkerNPC* Talker);
 
 	// Закрыть диалог (кнопка [Закрыть]/[Отказаться] в UI / уход от старосты).
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
@@ -1237,6 +1247,14 @@ private:
 	// Ближайший староста (выставляется его overlap-триггером). null — старосты рядом нет.
 	UPROPERTY()
 	AElderNPC* NearbyElder = nullptr;
+
+	// Ближайший собеседник базы учёных (выставляется его зоной разговора) и тот, с кем
+	// разговор открыт сейчас.
+	UPROPERTY()
+	TObjectPtr<ATalkerNPC> NearbyTalker = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<ATalkerNPC> ActiveTalker = nullptr;
 
 	// --- Рантайм-состояние интро (Build 1) ---
 

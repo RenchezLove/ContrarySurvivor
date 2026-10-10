@@ -74,6 +74,11 @@ FSavedInventoryEntry APersonalStashStorage::MakeSaveEntry(const AMasterInventory
 	{
 		Entry.ConsumableType = Cons->ConsumableType;
 	}
+	// Запас при стволе пишется как есть (то же поле, что у рюкзака).
+	if (const ARangedWeapon* Ranged = Cast<const ARangedWeapon>(&Item))
+	{
+		Entry.WeaponReserveAmmo = FMath::Max(0, Ranged->GetCurrentAmmoReserve());
+	}
 	return Entry;
 }
 
@@ -116,12 +121,16 @@ AMasterInventoryItem* APersonalStashStorage::SpawnFromSaveEntry(UWorld* World, c
 	Item->SetActorHiddenInGame(true);
 	Item->SetActorEnableCollision(false);
 
-	// Запас патронов при стволе игрок уже получил пачкой, когда брал ствол. Заново созданный
-	// ствол несёт запас своего класса — его выбрасываем, иначе сундук стал бы источником
-	// бесплатных патронов при каждой загрузке.
+	// Заново созданный ствол несёт запас своего класса — его выбрасываем, иначе сундук стал бы
+	// источником бесплатных патронов при каждой загрузке. Возвращаем ровно то, что было при
+	// стволе в момент записи (обычно ноль: запас игрок получил пачкой, когда брал ствол).
 	if (ARangedWeapon* Ranged = Cast<ARangedWeapon>(Item))
 	{
 		Ranged->DrainReserveAmmo();
+		if (Entry.WeaponReserveAmmo > 0)
+		{
+			Ranged->AddReserveAmmo(Entry.WeaponReserveAmmo);
+		}
 	}
 	return Item;
 }

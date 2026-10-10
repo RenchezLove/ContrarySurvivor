@@ -176,10 +176,10 @@ void AAbandonedCar::OnConstruction(const FTransform& Transform)
 	ApplyPartColor(Trunk, bPaintParts, bTrunkBroken);
 	// Колёса не красятся кузовным цветом; битость пробует тот же параметр цвета — у
 	// материала без него (резина) визуала честно нет, остаются данные.
-	ApplyPartColor(WheelFL, /*bPaintOverride=*/false, bWheelFLBroken);
-	ApplyPartColor(WheelFR, /*bPaintOverride=*/false, bWheelFRBroken);
-	ApplyPartColor(WheelRL, /*bPaintOverride=*/false, bWheelRLBroken);
-	ApplyPartColor(WheelRR, /*bPaintOverride=*/false, bWheelRRBroken);
+	ApplyPartColor(WheelFL, /*bPaintOverride=*/false, bWheelFLBroken, /*bApplyPaintPeel=*/false);
+	ApplyPartColor(WheelFR, /*bPaintOverride=*/false, bWheelFRBroken, /*bApplyPaintPeel=*/false);
+	ApplyPartColor(WheelRL, /*bPaintOverride=*/false, bWheelRLBroken, /*bApplyPaintPeel=*/false);
+	ApplyPartColor(WheelRR, /*bPaintOverride=*/false, bWheelRRBroken, /*bApplyPaintPeel=*/false);
 
 	// 4) Стёкла: есть/нет, целые/битые.
 	ApplyGlassState();
@@ -232,7 +232,7 @@ void AAbandonedCar::ApplyPartMesh(UStaticMeshComponent* Part, const UStaticMeshC
 	}
 }
 
-void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken)
+void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverride, bool bBroken, bool bApplyPaintPeel)
 {
 	if (!Part)
 	{
@@ -250,18 +250,20 @@ void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverri
 	UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Current);
 	UMaterialInterface* Pristine = MID ? static_cast<UMaterialInterface*>(MID->Parent) : Current;
 
+	// --- Цвет ---
+	// Параметра цвета у материала детали может не быть (например, резина колеса): тогда без
+	// перекраски красить и затемнять нечем. Данные битости при этом живут.
 	FLinearColor Base = BodyColor;
+	bool bHasColor = bPaintOverride;
 	if (!bPaintOverride)
 	{
 		FLinearColor Native = FLinearColor::White;
-		if (!Pristine || !Pristine->GetVectorParameterValue(
+		if (Pristine && Pristine->GetVectorParameterValue(
 			FHashedMaterialParameterInfo(PaintColorParamName), Native))
 		{
-			// Параметра цвета у материала детали нет (например, резина колеса): красить и
-			// затемнять нечем. Данные битости при этом живут — визуал уточняется у Рината.
-			return;
+			Base = Native;
+			bHasColor = true;
 		}
-		Base = Native;
 	}
 
 	FLinearColor Final = Base;
@@ -270,9 +272,18 @@ void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverri
 		const float Tint = FMath::Clamp(BrokenTintMultiplier, 0.0f, 1.0f);
 		Final = FLinearColor(Base.R * Tint, Base.G * Tint, Base.B * Tint, Base.A);
 	}
+	const bool bColorChanges = bHasColor && (bPaintOverride || bBroken);
+
+	// --- Облезлость краски (Ринат 10.10.2026) --- независимо от перекраски; действует только
+	// на материал, у которого автор завёл такой скалярный параметр.
+	const float Peel = FMath::Clamp(PaintPeel, 0.0f, 1.0f);
+	float NativePeel = 1.0f;
+	const bool bHasPeel = bApplyPaintPeel && !PaintPeelParamName.IsNone() && Pristine
+		&& Pristine->GetScalarParameterValue(FHashedMaterialParameterInfo(PaintPeelParamName), NativePeel);
+	const bool bPeelChanges = bHasPeel && !FMath::IsNearlyEqual(Peel, 1.0f);
 
 	// Нечего менять и нечего откатывать (MID не создавался) — не плодим инстансы зря.
-	if (!bPaintOverride && !bBroken && !MID)
+	if (!bColorChanges && !bPeelChanges && !MID)
 	{
 		return;
 	}
@@ -287,7 +298,16 @@ void AAbandonedCar::ApplyPartColor(UStaticMeshComponent* Part, bool bPaintOverri
 		Part->SetMaterial(0, MID);
 		PaintMIDs.Add(MID);
 	}
-	MID->SetVectorParameterValue(PaintColorParamName, Final);
+	// MID уже висит — пишем и «ничего не менять» тоже: так прежняя правка откатывается.
+	if (bHasColor)
+	{
+		MID->SetVectorParameterValue(PaintColorParamName, Final);
+	}
+	if (bHasPeel)
+	{
+		// Поле 1 — «как нарисовано»: возвращаем значение, заложенное автором материала.
+		MID->SetScalarParameterValue(PaintPeelParamName, bPeelChanges ? Peel : NativePeel);
+	}
 }
 
 void AAbandonedCar::ApplyGlassState()

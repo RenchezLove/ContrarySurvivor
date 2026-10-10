@@ -83,6 +83,7 @@ void UDialogScreenWidget::BindCloseCross()
 void UDialogScreenWidget::InitDialog(AElderNPC* InElder, APlayerCharacter* InPlayer)
 {
 	Elder = InElder;
+	Talker = nullptr; // окно одно на всех: прошлый разговор мог быть с собеседником базы учёных
 	Player = InPlayer;
 	bEverRefreshed = false; // форс-обновление на первом тике/сразу
 
@@ -114,8 +115,90 @@ void UDialogScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 // поехали» — кадр). Раскладка кнопок теперь ЦЕЛИКОМ дизайнерская; перенос длинных
 // реплик — свойством переноса у кубиков подписи в ассете (ставит -augment генератора).
 
+void UDialogScreenWidget::InitTalk(ATalkerNPC* InTalker, APlayerCharacter* InPlayer)
+{
+	Talker = InTalker;
+	Elder = nullptr;
+	Player = InPlayer;
+
+	// Сценки старосты к этому разговору не относятся.
+	bInIntroSequence = false;
+	bInNotebookHintSequence = false;
+	bEverRefreshed = false;
+	bTalkEverRefreshed = false;
+
+	RefreshDialog();
+}
+
+void UDialogScreenWidget::RefreshTalk()
+{
+	if (!Talker || !Player)
+	{
+		return;
+	}
+
+	FNpcTalkView View;
+	Talker->BuildTalkView(Player, View);
+	if (bTalkEverRefreshed && View.IsSameAs(LastTalkView))
+	{
+		return; // на экране уже это — тексты каждый кадр не трогаем
+	}
+	bTalkEverRefreshed = true;
+	LastTalkView = View;
+
+	if (NPCNameText)
+	{
+		NPCNameText->SetText(View.SpeakerName);
+	}
+	if (ReplicaText)
+	{
+		ReplicaText->SetText(View.Replica);
+	}
+
+	// Есть основной ответ — две кнопки (ответ и «уйти»), нет — одна («уйти»).
+	const bool bHasPrimary = !View.PrimaryLabel.IsEmpty();
+	auto SetShown = [](UButton* Button, bool bShown)
+	{
+		if (Button)
+		{
+			Button->SetVisibility(bShown ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+	};
+	SetShown(AcceptButton,  bHasPrimary);
+	SetShown(DeclineButton, bHasPrimary);
+	SetShown(TurnInButton,  false);
+	SetShown(CloseButton,   !bHasPrimary);
+
+	if (bHasPrimary && AcceptText)
+	{
+		AcceptText->SetText(View.PrimaryLabel);
+	}
+
+	// «Уйти»: реплика собеседника — данные; её нет — подпись владельца окна (пустую не ставим).
+	UTextBlock* LeaveBlock = bHasPrimary ? DeclineText : CloseText;
+	const FText& OwnerLeaveText = bHasPrimary ? OwnerDeclineText : OwnerCloseText;
+	if (LeaveBlock)
+	{
+		if (!View.CloseLabel.IsEmpty())
+		{
+			LeaveBlock->SetText(View.CloseLabel);
+		}
+		else if (!OwnerLeaveText.IsEmpty())
+		{
+			LeaveBlock->SetText(OwnerLeaveText);
+		}
+	}
+}
+
 void UDialogScreenWidget::RefreshDialog()
 {
+	// Разговор с собеседником базы учёных — своя отрисовка (InitTalk).
+	if (Talker)
+	{
+		RefreshTalk();
+		return;
+	}
+
 	if (!Elder || !Player)
 	{
 		return;
@@ -147,7 +230,9 @@ void UDialogScreenWidget::RefreshDialog()
 		Quests->OfferQuest(Offered);
 	}
 	const FQuest* InLog = Quests ? Quests->FindQuest(Offered.QuestId) : nullptr;
-	const EQuestState State = InLog ? InLog->State : EQuestState::NotStarted;
+	// Готовое задание, которое сдаётся не старосте (ноутбук — учёным, 10.10.2026), для него
+	// остаётся «взято, не закончено»: кнопки сдачи у старосты нет.
+	const EQuestState State = InLog ? AElderNPC::GetElderDialogState(*InLog) : EQuestState::NotStarted;
 	const FQuest& QData = InLog ? *InLog : Offered;
 
 	// Diff: тексты и видимость кнопок трогаем только при реальной смене.
@@ -188,6 +273,14 @@ void UDialogScreenWidget::RefreshDialog()
 		}
 		case EQuestState::Active:
 		{
+			// Задание сдаётся другому собеседнику — староста просто напоминает, куда нести
+			// (строка целей «Отнести ноутбук 1 из 1» здесь бессмысленна).
+			if (!QData.TurnInNpcTag.IsNone() && !Elder->GetThirdQuestCarryText().IsEmpty())
+			{
+				NPCText = Elder->GetThirdQuestCarryText();
+				break;
+			}
+
 			// Цели — общий сборщик (тот же, что у трекера квеста): человеческие подписи
 			// вместо служебных тегов, единый формат в одном месте.
 			FFormatNamedArguments Args;
@@ -216,6 +309,11 @@ void UDialogScreenWidget::RefreshDialog()
 			// про ноутбук и волков; поле пустое — прежняя «Спасибо…».
 			NPCText = !Elder->GetNotebookHintRepeatText().IsEmpty()
 				? Elder->GetNotebookHintRepeatText() : Elder->GetDialogueTurnedInText();
+			// Третье задание сдано учёным (10.10.2026): «копаюсь в ноутбуке» уже неправда.
+			if (QData.QuestId == Elder->GetThirdQuest().QuestId && !Elder->GetThirdQuestDoneText().IsEmpty())
+			{
+				NPCText = Elder->GetThirdQuestDoneText();
+			}
 			break;
 		default:
 			break;
@@ -296,6 +394,21 @@ void UDialogScreenWidget::RefreshDialog()
 
 void UDialogScreenWidget::HandleAcceptClicked()
 {
+	// Разговор с собеседником базы учёных: AcceptButton — его основной ответ.
+	if (Talker)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: talk choice PRIMARY (UMG)"));
+		if (!Player || Talker->HandleTalkPrimary(Player))
+		{
+			OnCloseRequested.Broadcast();
+		}
+		else
+		{
+			RefreshTalk();
+		}
+		return;
+	}
+
 	// В скриптовом интро AcceptButton — единственная кнопка-ответ: она ведёт диалог по репликам.
 	if (bInIntroSequence)
 	{
@@ -613,15 +726,9 @@ void UDialogScreenWidget::AdvanceNotebookHint()
 		// Реплики кончились — закрываем диалог.
 		UE_LOG(LogQA, Display, TEXT("QA: dialog notebook hint finished (UMG)"));
 
-		// Build 1.2 (задача Рината 07-31): сценка про шкуры доиграна до конца — HUD планирует
-		// сообщение о конце сюжета (компактная плашка через ~30 с, один раз за сохранение).
-		if (APlayerController* PC = GetOwningPlayer())
-		{
-			if (AContrarySurvivorHUD* CSHUD = PC->GetHUD<AContrarySurvivorHUD>())
-			{
-				CSHUD->NotifyStoryEpilogueFinished();
-			}
-		}
+		// 10.10.2026 (решение лида): сообщение о конце сюжета отсюда УБРАНО — сюжет теперь
+		// продолжается третьим заданием. Его планирует квестовый учёный, когда закрывается
+		// разговор, в котором он принял ноутбук (AQuestGiverNPC::OnTalkClosed).
 
 		OnCloseRequested.Broadcast();
 		return;

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "ContrarySurvivor/Components/QuestComponent.h" // EQuestState (кэш состояния для diff-обновления)
+#include "ContrarySurvivor/Actors/TalkerNPC.h"          // FNpcTalkView (что говорит собеседник базы учёных)
 #include "DialogScreenWidget.generated.h"
 
 class UTextBlock;
@@ -37,6 +38,12 @@ class CONTRARYSURVIVOR_API UDialogScreenWidget : public UUserWidget
 public:
 	// Привязка данных после CreateWidget (староста + игрок) и первое обновление.
 	void InitDialog(AElderNPC* InElder, APlayerCharacter* InPlayer);
+
+	// Разговор с собеседником базы учёных (10.10.2026: охранник, учёные) в этом же окне. Что
+	// показать — имя, реплику, кнопки — собеседник решает сам (ATalkerNPC::BuildTalkView),
+	// окно только рисует: основной ответ ставится на AcceptButton, «уйти» — на DeclineButton
+	// (когда кнопок две) или CloseButton (когда одна).
+	void InitTalk(ATalkerNPC* InTalker, APlayerCharacter* InPlayer);
 
 	// [Отказаться]/[Закрыть] нажаты — подписан контроллер (CloseDialog).
 	FSimpleMulticastDelegate OnCloseRequested;
@@ -206,6 +213,17 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<AElderNPC> Elder;
+
+	// Собеседник базы учёных. Задан — окно работает в режиме InitTalk, староста при этом пуст.
+	UPROPERTY()
+	TObjectPtr<ATalkerNPC> Talker;
+
+	// Перерисовать окно по тому, что сейчас говорит собеседник (только при изменении).
+	void RefreshTalk();
+
+	// Что уже нарисовано в режиме собеседника — чтобы не трогать тексты каждый кадр.
+	FNpcTalkView LastTalkView;
+	bool bTalkEverRefreshed = false;
 
 	UPROPERTY()
 	TObjectPtr<APlayerCharacter> Player;
