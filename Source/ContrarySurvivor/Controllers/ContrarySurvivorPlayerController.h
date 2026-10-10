@@ -32,6 +32,8 @@ class USettingsScreenWidget;               // Подход 2 волны меню
 class USupportAuthorWidget;                // Окно «Поддержать автора» (задание издателя 11.08.2026)
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 class UCorpseLootComponent;               // контейнер обыска (группа тел под одно нажатие)
+class UPdaScreenWidget;                   // окно карманного компьютера (КПК, 10.10.2026)
+class UPdaTouchButtonWidget;              // кнопка «КПК» на экране игры для телефона
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
 // Фаза скриптового интро (Build 1, ТЗ раздел 2). Идёт по порядку; None — интро не играет.
@@ -214,7 +216,7 @@ public:
 	// Открыт ли какой-либо модальный экран (инвентарь/магазин/диалог/обыск трупа/экран
 	// смерти/меню паузы/стартовый экран Б3). Нужно UDailyRewardComponent: возвращать GameOnly
 	// после окна награды можно только если игрок не успел открыть другую модалку.
-	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bSettingsScreenOpen || bSupportScreenOpen; }
+	bool IsAnyModalUIOpen() const { return bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bSettingsScreenOpen || bSupportScreenOpen || bPdaOpen; }
 
 	// Показано ли сейчас ГЛАВНОЕ МЕНЮ (само меню либо открытый поверх него экран настроек).
 	// Дефект с телефона 08-09: поверх меню оставался игровой интерфейс — полосы здоровья,
@@ -280,6 +282,24 @@ public:
 	void TouchToggleInventory() { OnToggleInventory(); }
 	void TouchSwitchWeapon()    { OnSwitchWeapon(); }
 	void TouchTogglePauseMenu() { OnTogglePauseMenu(); }
+	void TouchTogglePda()       { OnTogglePda(); }
+
+	// --- Карманный компьютер, КПК (10.10.2026): карта и журнал заданий ---
+	// Клавиша M и кнопка «КПК» на экране телефона открывают и закрывают окно; закрывают его
+	// также Esc, системная «Назад» и кнопка «Закрыть». Пока окно открыто, герой не ходит и не
+	// стреляет — так же, как при открытой сумке (мир при этом не останавливается, как и с сумкой).
+	// Чистое правило «можно ли открыть КПК» (гоняется автопроверкой): нужен живой герой в игре,
+	// управление уже у игрока и не открыто ни одно другое окно.
+	static bool ShouldOpenPda(bool bHasPlayerPawn, bool bOnBootLevelNow, bool bIntroLocked, bool bAnyModalOpen)
+	{
+		return bHasPlayerPawn && !bOnBootLevelNow && !bIntroLocked && !bAnyModalOpen;
+	}
+	void OnTogglePda();
+	void OpenPda();
+	void ClosePda();
+	bool IsPdaOpen() const { return bPdaOpen; }
+	UPdaScreenWidget* GetPdaWidget() const { return PdaWidget; }
+	TSubclassOf<UPdaScreenWidget> GetPdaWidgetClass() const { return PdaWidgetClass; }
 
 	// Тач-слой активен (Android всегда; ПК — по флагу bEnableTouchControls). HUD выбирает
 	// по этому текст подсказки прокрутки магазина: «свайп» против «колесо» (G2).
@@ -1229,6 +1249,32 @@ private:
 	// Последний срез «что нашли в мире и почему пропустили» — строка в журнал пишется только
 	// при его смене (разбор ночной сессии 08-09: заглушать было нечего, а звук шёл).
 	FString WorldAudioLastSnapshot;
+
+	// --- КПК (10.10.2026) ---
+	bool bPdaOpen = false;
+
+	// Окно КПК: создаётся при первом открытии, дальше переиспользуется.
+	UPROPERTY()
+	TObjectPtr<UPdaScreenWidget> PdaWidget;
+
+	// Класс окна. По умолчанию — готовый файл /Game/UI/WBP_Pda (ищется в конструкторе); файла
+	// нет — тот же вид строится кодом. Поле можно переназначить в Blueprint контроллера.
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Окно КПК"))
+	TSubclassOf<UPdaScreenWidget> PdaWidgetClass;
+
+	// Кнопка «КПК» на экране игры (только когда показан слой экранных кнопок).
+	UPROPERTY()
+	TObjectPtr<UPdaTouchButtonWidget> PdaTouchButton;
+
+	// Отступ ЦЕНТРА кнопки «КПК» от правого-верхнего угла экрана: слева от кнопки сумки.
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: отступ от правого-верхнего угла"))
+	FVector2D PdaTouchButtonMargin = FVector2D(240.0, 100.0);
+
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "15.0", DisplayName = "Кнопка КПК: радиус"))
+	float PdaTouchButtonRadius = 44.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: подпись"))
+	FText PdaTouchButtonLabel = NSLOCTEXT("ContrarySurvivorPlayerController", "TouchPda", "КПК");
 
 	// Виджет меню паузы: создаётся лениво при первом открытии, дальше переиспользуется.
 	UPROPERTY()

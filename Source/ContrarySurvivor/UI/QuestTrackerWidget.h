@@ -47,7 +47,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "4"))
 	FText ObjectiveSeparator = NSLOCTEXT("Quest", "ObjectiveSeparator", ", ");
 
-	// Цвета строки: активный квест — золотой, выполненный — зелёный (как Canvas).
+	// Цвета строки. С 10.10.2026 идущее задание красится цветом своего вида (основное или
+	// побочное — UContraryPdaSettings), поэтому ActiveColor больше не применяется; выполненное
+	// по-прежнему зелёное.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker", meta = (DisplayPriority = "4"))
 	FLinearColor ActiveColor = FLinearColor(1.0f, 0.85f, 0.3f, 1.0f);
 

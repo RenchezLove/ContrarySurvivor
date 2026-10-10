@@ -60,6 +60,7 @@
 #include "ContrarySurvivor/UI/PauseMenuWidget.h"    // FPauseMenuStyle: подпись о сохранении в паузе одним местом (ADR-074)
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
+#include "ContrarySurvivor/UI/PdaScreenWidget.h"    // раскладка окна КПК — одна с кодовой запаской
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
 
 DEFINE_LOG_CATEGORY_STATIC(LogGenerateWbp, Log, All);
@@ -3199,6 +3200,18 @@ namespace
 		return true;
 	}
 
+	// ----------------------------------------------------------------------
+	// WBP_Pda — окно карманного компьютера, КПК (10.10.2026): вкладки «Задания» и «Карта».
+	// Раскладка описана ОДИН раз — в UPdaScreenWidget::BuildDefaultTree: тем же деревом окно
+	// живёт и без файла (кодовая запаска), поэтому расходиться им негде. Строки списка
+	// заданий, сведения о задании и отметки карты в файл не попадают — их ставит код окна.
+	// ----------------------------------------------------------------------
+	bool BuildPda(UWidgetTree* Tree)
+	{
+		UPdaScreenWidget::BuildDefaultTree(Tree);
+		return Tree->RootWidget != nullptr;
+	}
+
 	// ======================================================================
 	// Таблица ассетов
 	// ======================================================================
@@ -3418,6 +3431,19 @@ namespace
 			  TEXT("SupportLinkButton"), TEXT("SupportLinkText"),
 			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") },
 			/*bOwnerOwned=*/true },
+		// Окно КПК (10.10.2026): журнал заданий и карта. Создание: -rebuild -asset=WBP_Pda.
+		// Контроллер находит файл сам (поиск в конструкторе), слот в Blueprint не нужен.
+		{ TEXT("/Game/UI/WBP_Pda"), TEXT("WBP_Pda"),
+			TEXT("/Script/ContrarySurvivor.PdaScreenWidget"), &BuildPda,
+			{ TEXT("TitleText"),
+			  TEXT("QuestsTabButton"), TEXT("QuestsTabText"), TEXT("MapTabButton"), TEXT("MapTabText"),
+			  TEXT("CloseButton"), TEXT("CloseText"),
+			  TEXT("QuestsPanel"), TEXT("QuestList"), TEXT("EmptyText"),
+			  TEXT("DetailTitleText"), TEXT("DetailGiverText"), TEXT("DetailDescriptionText"),
+			  TEXT("DetailObjectivesText"), TEXT("DetailRewardText"),
+			  TEXT("TrackButton"), TEXT("TrackText"),
+			  TEXT("MapPanel"), TEXT("MapArea"), TEXT("MapBackground"), TEXT("MapImage"),
+			  TEXT("MapMarkers"), TEXT("MapHintText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -3564,6 +3590,9 @@ namespace
 			{ TEXT("BottomShade0"), TEXT("BottomShade1"), TEXT("BottomShade2"),
 			  TEXT("BottomShade3"), TEXT("BottomShade4"), TEXT("BottomShade5") },
 			{ } },
+		// Окно КПК: вкладки «Задания» и «Карта» занимают одно и то же место — на экране
+		// видна одна из них (видимость ведёт код окна).
+		{ TEXT("WBP_Pda"), { }, { TEXT("QuestsPanel|MapPanel") } },
 	};
 
 	// Фоновый ли это слой по контракту окна.
@@ -6414,6 +6443,8 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		// окне нет (единственный коммит ассета — сама генерация, c4b6753), а вид и размеры
 		// живут в коде (BuildSettings).
 		{ TEXT("WBP_Settings"), false },
+		// Окно КПК (10.10.2026): создание `-rebuild -asset=WBP_Pda`; правок владельца ещё нет.
+		{ TEXT("WBP_Pda"), false },
 	};
 
 	int32 FailCount = 0;

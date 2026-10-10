@@ -109,6 +109,8 @@ AQuestGiverNPC::AQuestGiverNPC()
 {
 	OfferedQuest.TargetCount = 0; // у структуры по умолчанию цель убийств 5 — здесь её нет
 	OfferedQuest.RewardMoney = 0.0f;
+	// Задания собеседников, кроме старосты, по умолчанию побочные (10.10.2026).
+	OfferedQuest.Kind = EQuestKind::Side;
 }
 
 void AQuestGiverNPC::PostInitializeComponents()
@@ -127,6 +129,12 @@ void AQuestGiverNPC::PostInitializeComponents()
 	if (OffersQuest() && OfferedQuest.TurnInNpcTag.IsNone())
 	{
 		OfferedQuest.TurnInNpcTag = NpcTag;
+	}
+
+	// Кто выдал — для строки «Выдал» в окне КПК.
+	if (OffersQuest())
+	{
+		OfferedQuest.GiverNpcTag = NpcTag;
 	}
 }
 

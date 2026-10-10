@@ -246,6 +246,16 @@ void UAnalyticsSubsystem::RecordSupportLinkOpened()
 	SendDesignEvent(MakeSupportLinkOpenedEventId());
 }
 
+FString UAnalyticsSubsystem::MakePdaOpenedEventId()
+{
+	return TEXT("pda:opened");
+}
+
+void UAnalyticsSubsystem::RecordPdaOpened()
+{
+	SendDesignEvent(MakePdaOpenedEventId());
+}
+
 // --- Сводное ТЗ издателя 13.08 (задача 3): предложение ролика и отказ от него ---
 
 FString UAnalyticsSubsystem::MakeSupportAdOfferedEventId()

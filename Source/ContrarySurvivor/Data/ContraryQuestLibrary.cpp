@@ -80,6 +80,7 @@ bool BuildQuestFromRow(FName RowName, FQuest& OutQuest)
 	Quest.TurnInHintText = Row->TurnInHintText;
 	Quest.GiveOnAccept = Row->GiveOnAccept;
 	Quest.RewardItems = Row->RewardItems;
+	Quest.Kind = Row->Kind;
 
 	OutQuest = Quest;
 	return true;

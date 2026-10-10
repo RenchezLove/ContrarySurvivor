@@ -1994,9 +1994,11 @@ bool APlayerCharacter::SaveGame()
 
     // Б3: журнал квестов — полный снимок (см. комментарий у поля Quests в ContrarySaveGame.h).
     Save->Quests.Reset();
+    Save->TrackedQuestId = NAME_None;
     if (Quests)
     {
         Save->Quests = Quests->GetQuests();
+        Save->TrackedQuestId = Quests->GetTrackedQuestId(); // какое задание отслеживалось
     }
 
     // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
@@ -2255,7 +2257,7 @@ bool APlayerCharacter::LoadGameForContinue()
 
     if (Quests)
     {
-        Quests->RestoreQuests(Save->Quests);
+        Quests->RestoreQuests(Save->Quests, Save->TrackedQuestId);
     }
 
     // BeginPlay уже прочитал накопитель времени в SavedPlayTimeBase; переприменяем явно —

@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
+#include "ContrarySurvivor/Data/ContraryPdaSettings.h" // цвета основных и побочных заданий
 #include "Components/TextBlock.h"
 
 void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -43,5 +44,7 @@ void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	const bool bOwnHint = bDone && !Tracked->TurnInHintText.IsEmpty();
 	Args.Add(TEXT("Hint"), Tracked->TurnInHintText);
 	TrackerText->SetText(FText::Format(bOwnHint ? DoneWithHintFormat : (bDone ? DoneFormat : TrackerFormat), Args));
-	TrackerText->SetColorAndOpacity(FSlateColor(bDone ? DoneColor : ActiveColor));
+	// Идущее задание красится цветом своего вида (10.10.2026): основное оранжевым, побочное синим.
+	TrackerText->SetColorAndOpacity(FSlateColor(bDone
+		? DoneColor : UContraryPdaSettings::Get()->GetQuestKindColor(Tracked->Kind)));
 }

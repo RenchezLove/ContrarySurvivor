@@ -60,6 +60,7 @@ AElderNPC::AElderNPC()
 	OfferedQuest.Description = NSLOCTEXT("Quest", "Q1Description",
 		"Волки совсем осмелели, у самой околицы рыщут. Разори логово на западе, принеси три шкуры.");
 	OfferedQuest.Type = EQuestType::Collect;
+	OfferedQuest.Kind = EQuestKind::Main; // задания старосты — сюжет (10.10.2026)
 	OfferedQuest.KillTargetTag = NAME_None;
 	OfferedQuest.TargetCount = 0;                 // kill-цели нет: гейт — по шкурам
 	OfferedQuest.RequiredItemName = TEXT("Шкура волка"); // имя предмета совпадает с дропом волка (WolfCharacter)
@@ -93,6 +94,7 @@ AElderNPC::AElderNPC()
 	// показывалась бы второй раз.
 	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "Бандиты засели на базе к северу от деревни. Перебей их (троих) и забери ноутбук - принеси его мне.");
 	SecondQuest.Type = EQuestType::Deliver;
+	SecondQuest.Kind = EQuestKind::Main;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
 	SecondQuest.TargetCount = 3;
 	SecondQuest.KillObjectiveLabel = NSLOCTEXT("Quest", "Q2KillObjective", "Перебить бандитов"); // текст метки на карте (с прогрессом x/3)
@@ -118,6 +120,7 @@ AElderNPC::AElderNPC()
 	ThirdQuest.Description = NSLOCTEXT("Quest", "Q3Description",
 		"С ноутбуком я не сладил: данные в нём запрятаны так, что мне не по зубам. Отнеси его учёным на их базу — у них для такого и приборы, и головы. Забирай ноутбук.");
 	ThirdQuest.Type = EQuestType::Deliver;
+	ThirdQuest.Kind = EQuestKind::Main;
 	ThirdQuest.KillTargetTag = NAME_None;
 	ThirdQuest.TargetCount = 0;
 	ThirdQuest.RequiredItemName = TEXT("Ноутбук"); // тот же служебный ключ, что у кв.2

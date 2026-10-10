@@ -83,14 +83,64 @@ const FQuest* UQuestComponent::FindQuest(FName QuestId) const
 
 const FQuest* UQuestComponent::GetTrackedQuest() const
 {
+	if (!TrackedQuestId.IsNone())
+	{
+		const FQuest* Chosen = FindQuest(TrackedQuestId);
+		if (Chosen && IsInActivePhase(*Chosen))
+		{
+			return Chosen;
+		}
+	}
+
+	// Выбора нет (старое сохранение, первые шаги) — первое идущее задание журнала, как раньше.
 	for (const FQuest& Q : Quests)
 	{
-		if (Q.State == EQuestState::Active || Q.State == EQuestState::Completed)
+		if (IsInActivePhase(Q))
 		{
 			return &Q;
 		}
 	}
 	return nullptr;
+}
+
+bool UQuestComponent::SetTrackedQuest(FName QuestId)
+{
+	const FQuest* Q = QuestId.IsNone() ? nullptr : FindQuest(QuestId);
+	if (!Q || !IsInActivePhase(*Q))
+	{
+		return false;
+	}
+	if (TrackedQuestId != QuestId)
+	{
+		TrackedQuestId = QuestId;
+		UE_LOG(LogQA, Display, TEXT("QA: quest TRACKED (%s)"), *QuestId.ToString());
+		// Подписчикам (строка на экране, метки) — повод перечитать журнал.
+		OnQuestChanged.Broadcast(*Q);
+	}
+	return true;
+}
+
+void UQuestComponent::PickNextTrackedQuest()
+{
+	const FQuest* Next = nullptr;
+	for (const FQuest& Q : Quests)
+	{
+		if (!IsInActivePhase(Q))
+		{
+			continue;
+		}
+		if (Q.Kind == EQuestKind::Main)
+		{
+			Next = &Q;
+			break;
+		}
+		if (!Next)
+		{
+			Next = &Q;
+		}
+	}
+	TrackedQuestId = Next ? Next->QuestId : NAME_None;
+	UE_LOG(LogQA, Display, TEXT("QA: quest TRACKED -> %s"), *TrackedQuestId.ToString());
 }
 
 int32 UQuestComponent::GetTurnedInQuestCount() const
@@ -153,8 +203,17 @@ void UQuestComponent::OfferQuest(const FQuest& Quest)
 	}
 
 	// Идемпотентно: если квест уже в журнале (в любом состоянии) — не дублируем и не сбрасываем.
-	if (FindQuest(Quest.QuestId) != nullptr)
+	if (FQuest* Existing = FindQuestMutable(Quest.QuestId))
 	{
+		// Вид задания и выдавший — описание, а не ход выполнения: у задания из сохранения,
+		// записанного до 10.10.2026, этих полей нет, и они читаются «основное, от старосты».
+		// Выдающий знает правду — доносим её при первом же разговоре.
+		if (Existing->Kind != Quest.Kind || Existing->GiverNpcTag != Quest.GiverNpcTag)
+		{
+			Existing->Kind = Quest.Kind;
+			Existing->GiverNpcTag = Quest.GiverNpcTag;
+			OnQuestChanged.Broadcast(*Existing);
+		}
 		return;
 	}
 
@@ -211,7 +270,15 @@ bool UQuestComponent::AcceptQuest(FName QuestId)
 		return false;
 	}
 
+	// Отслеживание (10.10.2026): основное задание становится отслеживаемым само, побочное —
+	// только если сейчас не отслеживается ничего. Спрашиваем ДО смены состояния.
+	const bool bNothingTracked = (GetTrackedQuest() == nullptr);
+
 	Q->State = EQuestState::Active;
+	if (Q->Kind == EQuestKind::Main || bNothingTracked)
+	{
+		TrackedQuestId = QuestId;
+	}
 
 	// Копия списка: выдача меняет рюкзак, а указатель на задание после неё перечитываем.
 	const TArray<FQuestItemGrant> GiveCopy = Q->GiveOnAccept;
@@ -411,7 +478,14 @@ bool UQuestComponent::TurnInQuest(FName QuestId, FName ReceiverNpcTag)
 			Q->RequiredItemCount, *Q->RequiredItemName, *Q->QuestId.ToString());
 	}
 
+	// Сдаётся то самое задание, которое отслеживалось, — отслеживание переходит дальше.
+	const bool bWasTracked = (GetTrackedQuest() == Q);
+
 	Q->State = EQuestState::TurnedIn;
+	if (bWasTracked)
+	{
+		PickNextTrackedQuest();
+	}
 
 	// Награда деньгами начисляется в UStatsComponent владельца (игрока).
 	float Balance = -1.0f;
@@ -479,12 +553,24 @@ bool UQuestComponent::HasTurnedInQuestForReceiver(FName ReceiverNpcTag) const
 	return false;
 }
 
-void UQuestComponent::RestoreQuests(const TArray<FQuest>& SavedQuests)
+void UQuestComponent::RestoreQuests(const TArray<FQuest>& SavedQuests, FName SavedTrackedQuestId)
 {
 	// Б3 («Продолжить»): журнал заменяется целиком сохранённым снимком — квесты, ещё не
 	// предложенные в ЭТОЙ сессии (игрок не успел снова подойти к старосте), уже показывают
 	// верный заголовок/прогресс/состояние, а не пустую заглушку до следующего OfferQuest.
 	Quests = SavedQuests;
+
+	// Отслеживаемое задание — из сохранения. Пусто (сохранение записано до 10.10.2026) —
+	// остаётся прежнее «первое идущее». Записанное задание уже не идёт — выбираем следующее.
+	TrackedQuestId = SavedTrackedQuestId;
+	if (!TrackedQuestId.IsNone())
+	{
+		const FQuest* Saved = FindQuest(TrackedQuestId);
+		if (!Saved || !IsInActivePhase(*Saved))
+		{
+			PickNextTrackedQuest();
+		}
+	}
 
 	for (const FQuest& Q : Quests)
 	{
