@@ -86,6 +86,14 @@ namespace ContraryDebugTools
 
 	// Закончить ожидание «староста разбирается с ноутбуком». false — ожидание не шло.
 	bool SkipElderNotebookWait(APlayerCharacter* Player);
+
+	// --- Карта КПК (10.10.2026: карта открывается по мере исследования) ---
+	// Открыть всю карту разом. false — у героя нет памяти о карте.
+	bool RevealWholeMap(APlayerCharacter* Player);
+
+	// Закрыть карту заново: открытой остаётся одна деревня (место, где герой стоит, он тут же
+	// откроет сам).
+	bool HideMapAgain(APlayerCharacter* Player);
 }
 
 class SContraryDebugMenu : public SCompoundWidget

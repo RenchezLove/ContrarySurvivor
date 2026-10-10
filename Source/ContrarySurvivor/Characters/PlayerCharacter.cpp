@@ -15,6 +15,7 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
+#include "ContrarySurvivor/Components/MapExplorationComponent.h" // карта КПК открывается по мере исследования
 #include "ContrarySurvivor/Components/MeleeSectorIndicatorComponent.h" // Build 1.1: подсветка сектора ножа
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
@@ -123,6 +124,9 @@ APlayerCharacter::APlayerCharacter()
 
     // Журнал квестов (Фаза 5). C++-сабобъект — детерминированно, без BP.
     Quests = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComponent"));
+
+    // Какую часть карты герой уже видел (КПК, 10.10.2026). C++-сабобъект, как журнал заданий.
+    MapExploration = CreateDefaultSubobject<UMapExplorationComponent>(TEXT("MapExplorationComponent"));
 
     // Этап F: удержание — ежедневная награда (F2) и онбординг-подсказки (F1).
     // C++-сабобъекты (как Stats/Quests): работают и без правок BP игрока.
@@ -250,6 +254,10 @@ void APlayerCharacter::BeginPlay()
         SavedPlayTimeBase = FMath::Max(0.0f, PlaySave->TotalPlayTimeSeconds);
         bElderGiftGiven = PlaySave->bElderFirstGiftGiven; // правило развёрнутой подсказки хромоты
         ApplyStoryStateFromSave(PlaySave);                // ожидание старосты после сценки про ноутбук
+        if (MapExploration)
+        {
+            MapExploration->RestoreFromSave(PlaySave);    // открытая часть карты КПК
+        }
     }
     if (UWorld* PlayWorld = GetWorld())
     {
@@ -2245,6 +2253,12 @@ bool APlayerCharacter::SaveGame()
         Save->TrackedQuestId = Quests->GetTrackedQuestId(); // какое задание отслеживалось
     }
 
+    // Открытая часть карты КПК.
+    if (MapExploration)
+    {
+        MapExploration->WriteToSave(Save);
+    }
+
     // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
     // слоте, но заполняются компонентами удержания, а не здесь. Объект Save создан свежим —
     // переносим их из прежнего сейва, иначе каждый автосейв костра обнулял бы серию и подсказки.
@@ -2523,6 +2537,13 @@ bool APlayerCharacter::LoadGameForContinue()
     // игрок продолжает игру посреди поля рядом с врагами.
     RelocateToCampfireIfSavedPointFar(TEXT("CONTINUE"));
 
+    // Открытая часть карты КПК — после переноса героя: старое сохранение без этих данных
+    // читается как «деревня и место, где герой стоит сейчас».
+    if (MapExploration)
+    {
+        MapExploration->RestoreFromSave(Save);
+    }
+
     bRestoringSaveState = false;
 
     // Живое состояние теперь совпадает с содержимым слота: сразу после «Продолжить»
@@ -2579,6 +2600,12 @@ void APlayerCharacter::ResetToNewGame()
     // Сценки про ноутбук в новой игре ещё не было — ожидания старосты тоже нет.
     bElderNotebookHintShown = false;
     ElderNotebookWaitEndPlayTime = -1.0f;
+
+    // Карта КПК новой игры: открыта одна деревня.
+    if (MapExploration)
+    {
+        MapExploration->ResetToVillage();
+    }
 
     // Позиция — стартовый спавн (сейв в живого персонажа ещё не грузился, откатывать нечего).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())

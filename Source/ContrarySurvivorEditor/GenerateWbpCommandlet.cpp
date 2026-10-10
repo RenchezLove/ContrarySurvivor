@@ -3477,7 +3477,7 @@ namespace
 			  TEXT("DetailObjectivesText"), TEXT("DetailRewardText"),
 			  TEXT("TrackButton"), TEXT("TrackText"),
 			  TEXT("MapPanel"), TEXT("MapArea"), TEXT("MapBackground"), TEXT("MapImage"),
-			  TEXT("MapMarkers"), TEXT("MapHintText") } },
+			  TEXT("MapFogImage"), TEXT("MapMarkers"), TEXT("MapHintText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -5741,6 +5741,48 @@ namespace
 		}
 	}
 
+	// WBP_Pda: элемент черноты неизведанного на карте (Ринат 10.10.2026 — карта открывается по
+	// мере исследования). Встаёт в поле карты между картинкой и отметками и растянут на всё
+	// поле, как они; картинку-маску в него кладёт код игры, в файле элемент спрятан. Остальное
+	// в окне не трогается.
+	void AugmentPdaMapFog(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Pda");
+		if (Tree->FindWidget(TEXT("MapFogImage")))
+		{
+			return; // уже добавлен
+		}
+		UWidget* Markers = AugFind(Tree, Name, TEXT("MapMarkers"));
+		UCanvasPanel* Area = Markers ? Cast<UCanvasPanel>(Markers->GetParent()) : nullptr;
+		if (!Area)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: слой отметок карты не лежит в канве — элемент черноты не добавлен."), Name);
+			return;
+		}
+
+		UImage* Fog = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MapFogImage"));
+		Fog->SetVisibility(ESlateVisibility::Collapsed);
+		Fog->bIsVariable = true;
+		// Перед слоем отметок: чернота закрывает картинку, а отметки рисуются поверх неё.
+		UCanvasPanelSlot* FogSlot = Cast<UCanvasPanelSlot>(Area->InsertChildAt(Area->GetChildIndex(Markers), Fog));
+		if (!FogSlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: элемент черноты не встал в канву."), Name);
+			return;
+		}
+		FogSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+		FogSlot->SetOffsets(FMargin(0.0f));
+		if (const UCanvasPanelSlot* MarkersSlot = Cast<UCanvasPanelSlot>(Markers->Slot))
+		{
+			FogSlot->SetZOrder(MarkersSlot->GetZOrder());
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлен элемент черноты неизведанного MapFogImage (между картинкой карты и отметками)."), Name);
+	}
+
 	// Экраны с сетками плиток (Build 1.2.2): класс плитки WBP_ItemTile_C на CDO окна.
 	// Без него окно работает на кодовом дереве C++-плитки (дефолт в NativeOnInitialized),
 	// но стилизация Рината из ассета плитки не подхватится — назначаем сами (guide требовал
@@ -6921,6 +6963,8 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		// Ринат 10.10.2026: второй слот огнестрела и отдельная кнопка ножа — только дополнением.
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchMeleeButton },
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventoryWeaponSlots },
+		// Ринат 10.10.2026: карта КПК открывается по мере исследования — элемент черноты.
+		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaMapFog },
 	};
 
 	int32 FailCount = 0;

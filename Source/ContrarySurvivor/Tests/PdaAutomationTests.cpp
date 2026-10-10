@@ -31,6 +31,7 @@
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/TalkerNPC.h"
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"
+#include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
@@ -558,6 +559,12 @@ namespace PdaTest
 			return;
 		}
 		Player->UseTestSaveSlot(TEXT("ContraryPdaWindowQA"));
+		// Здесь проверяется сбор списка и отметок по журналу, поэтому карта открыта целиком;
+		// появление отметок по мере исследования проверяет MapFogAutomationTests.cpp.
+		if (UMapExplorationComponent* Exploration = Player->GetMapExploration())
+		{
+			Exploration->RevealAll();
+		}
 		TargetA->Tags.Add(FName(TEXT("PdaTargetA")));
 		TargetB->Tags.Add(FName(TEXT("PdaTargetB")));
 

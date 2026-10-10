@@ -177,6 +177,19 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Quests")
 	FName TrackedQuestId = NAME_None;
 
+	// --- Открытая часть карты КПК (10.10.2026: карта открывается по мере исследования) ---
+	// Размер сетки и сама сетка длинами серий «закрыто, открыто, закрыто…» (FPdaMapFog::Pack):
+	// одна деревня — десятки байт. Сохранения, записанные раньше, читают размер нулём — тогда
+	// открыты деревня и место, где герой стоит.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	int32 MapFogWidth = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	int32 MapFogHeight = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	TArray<uint8> MapFogRuns;
+
 	// --- Этап F: удержание (ежедневная награда ADR-044 п.4 + одноразовые подсказки F1) ---
 	// Эти поля заполняет НЕ SaveGame() игрока, а UDailyRewardComponent/UOnboardingComponent
 	// (запись в тот же слот). SaveGame() переносит их из прежнего сейва через CopyRetentionData —
