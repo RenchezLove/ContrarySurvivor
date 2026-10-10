@@ -7,6 +7,7 @@
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"  // ожидание старосты после сценки про ноутбук
 #include "ContrarySurvivor/Actors/TalkerNPC.h" // «взято ли задание, которым кончается сюжет»
+#include "ContrarySurvivor/Data/ContraryPdaSettings.h" // цвета основных и побочных заданий
 #include "Components/TextBlock.h"
 
 FText UQuestTrackerWidget::BuildElderWaitLine(EElderNotebookWaitPhase Phase, float RemainingSeconds,
@@ -84,5 +85,7 @@ void UQuestTrackerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	const FText QuestLine = FText::Format(bOwnHint ? DoneWithHintFormat : (bDone ? DoneFormat : TrackerFormat), Args);
 	TrackerText->SetText(WaitLine.IsEmpty() ? QuestLine
 		: FText::Join(FText::FromString(TEXT("\n")), QuestLine, WaitLine));
-	TrackerText->SetColorAndOpacity(FSlateColor(bDone ? DoneColor : ActiveColor));
+	// Идущее задание красится цветом своего вида (10.10.2026): основное оранжевым, побочное синим.
+	TrackerText->SetColorAndOpacity(FSlateColor(bDone
+		? DoneColor : UContraryPdaSettings::Get()->GetQuestKindColor(Tracked->Kind)));
 }

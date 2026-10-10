@@ -42,6 +42,21 @@ enum class EQuestState : uint8
 };
 
 /**
+ * Вид задания (слова Рината 10.10.2026: «у нас есть основные квесты и побочные… основные и
+ * побочные обозначаются оранжевыми и синими метками и текстом соответственно»). От вида зависят
+ * цвет строки и метки (UContraryPdaSettings) и правило отслеживания: взятое основное задание
+ * становится отслеживаемым само, побочное — только если ничего не отслеживается.
+ * Основное стоит первым: задание из сохранения, записанного до появления поля, читается
+ * основным — тогда в журнале были только задания старосты.
+ */
+UENUM(BlueprintType)
+enum class EQuestKind : uint8
+{
+	Main UMETA(DisplayName = "Основное (сюжет)"),
+	Side UMETA(DisplayName = "Побочное")
+};
+
+/**
  * Предметы, которые задание выдаёт герою (10.10.2026: ноутбук при взятии третьего задания
  * старосты, двустволка с патронами в награду у охранника базы учёных). Предмет задаётся
  * строкой таблицы предметов — как в остальной игре (ADR-075).
@@ -175,6 +190,18 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	FText TurnInHintText;
 
+	// --- Расширение 10.10.2026 (карманный компьютер) ---
+
+	// Основное или побочное. Проставляется там, где задание создаётся: у старосты — основное,
+	// у остальных собеседников — побочное; в таблице заданий — своё поле строки.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	EQuestKind Kind = EQuestKind::Main;
+
+	// Кто выдал задание: метка собеседника (ATalkerNPC::NpcTag). Пусто — староста (у него метки
+	// нет, и так же читаются задания из старых сохранений). Нужна окну КПК для строки «Выдал».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FName GiverNpcTag = NAME_None;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	EQuestState State = EQuestState::NotStarted;
 };
@@ -246,16 +273,38 @@ public:
 	// id/состояние — см. комментарий FSavedInventoryEntry/Quests в ContrarySaveGame.h) и
 	// оповещает подписчиков (HUD-трекер/маркеры) по каждому квесту, чтобы UI не ждал следующего
 	// offer/accept события старосты.
+	// SavedTrackedQuestId — какое задание отслеживалось в момент сохранения. Пусто (сохранение
+	// записано до 10.10.2026) — прежнее поведение «первое активное задание журнала».
 	UFUNCTION(BlueprintCallable, Category = "Quest")
-	void RestoreQuests(const TArray<FQuest>& SavedQuests);
+	void RestoreQuests(const TArray<FQuest>& SavedQuests, FName SavedTrackedQuestId = NAME_None);
 
 	// --- Геттеры для UI/диалога ---
 
 	// Указатель на квест по id (const). null, если нет.
 	const FQuest* FindQuest(FName QuestId) const;
 
-	// Первый квест в активной фазе (Active или Completed) — для трекера на HUD. null, если нет.
+	// --- Отслеживаемое задание (10.10.2026): его показывают строка на экране, метка-указатель
+	// в мире и крупная отметка на карте КПК ---
+
+	// Задание, выбранное для отслеживания, если оно ещё идёт (Active или Completed); иначе —
+	// первое идущее задание журнала (так было всегда и так читаются старые сохранения).
+	// null — идущих заданий нет.
 	const FQuest* GetTrackedQuest() const;
+
+	// Сделать задание отслеживаемым (кнопка «Отслеживать» и отметка на карте КПК). Отказ —
+	// задания нет в журнале или оно не идёт (не взято либо уже сдано).
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	bool SetTrackedQuest(FName QuestId);
+
+	// Явный выбор игрока или правил (пусто — выбора не было, действует «первое идущее»).
+	// Это значение пишется в сохранение.
+	FName GetTrackedQuestId() const { return TrackedQuestId; }
+
+	// Идёт ли задание: взято и ещё не сдано.
+	static bool IsInActivePhase(const FQuest& Quest)
+	{
+		return Quest.State == EQuestState::Active || Quest.State == EQuestState::Completed;
+	}
 
 	const TArray<FQuest>& GetQuests() const { return Quests; }
 
@@ -293,6 +342,13 @@ private:
 	// Квесты, по которым событие «предложен» уже ушло (см. MarkQuestOfferedForAnalytics).
 	// Не сохраняется: память живёт столько же, сколько журнал в этом запуске.
 	TSet<FName> AnalyticsOfferedQuests;
+
+	// Идентификатор отслеживаемого задания (см. GetTrackedQuest).
+	FName TrackedQuestId = NAME_None;
+
+	// Отслеживаемое задание сдано или пропало: следующим становится первое идущее основное,
+	// а если таких нет — первое идущее. Идущих нет вовсе — выбор сбрасывается.
+	void PickNextTrackedQuest();
 
 	// Изменяемый поиск (внутренний).
 	FQuest* FindQuestMutable(FName QuestId);

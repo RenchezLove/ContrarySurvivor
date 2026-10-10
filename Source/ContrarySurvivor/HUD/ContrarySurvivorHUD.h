@@ -1127,10 +1127,14 @@ private:
 	// В кадре — золотой ромб с подписью, за кадром — краевая стрелка.
 	void DrawQuestTargetMarker(APlayerCharacter* Player);
 
+	// Открыто ли окно КПК (карта и задания): поверх него метки мира не рисуются.
+	bool IsPdaOpen() const;
+
 	// Кэш актора-цели метки квеста (qa-фикс: НЕ перебирать все акторы мира каждый кадр).
 	// Инвалидация: смена тега/фазы (цель <-> квестодатель) или гибель актора; неудачный поиск
 	// повторяется не чаще чем раз в полсекунды (QuestMarkerNextSearchTime).
 	TWeakObjectPtr<AActor> QuestMarkerTargetCache;
+	FName QuestMarkerCachedQuestId = NAME_None; // отслеживаемое задание сменилось — цель ищем заново
 	FName QuestMarkerCachedTag = NAME_None;
 	bool bQuestMarkerCachedToGiver = false;
 	float QuestMarkerNextSearchTime = 0.0f;

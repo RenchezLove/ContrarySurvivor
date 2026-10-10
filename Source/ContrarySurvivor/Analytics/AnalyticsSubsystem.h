@@ -167,6 +167,10 @@ public:
 	void RecordSupportAdCompleted();
 	void RecordSupportLinkOpened();
 
+	// Игрок открыл карманный компьютер (КПК, 10.10.2026) -> pda:opened. Шлётся при каждом открытии.
+	void RecordPdaOpened();
+	static FString MakePdaOpenedEventId();
+
 	// Окно поддержки открыто: ролик предложен (кнопка показана) либо предлагать было нечего.
 	// ОДНА точка на оба исхода намеренно — условие обязано совпадать с видимостью кнопки
 	// (USupportAuthorWidget::ShouldShowWatchAdButton), а два отдельных вызова со временем

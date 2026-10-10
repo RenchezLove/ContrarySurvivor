@@ -43,6 +43,7 @@ AScientistGuardNPC::AScientistGuardNPC()
 		"Слушай, раз уж пришёл — выручи. Волки с южного логова погнали меня так, что я рацию обронил. "
 		"Она где-то там, возле логова, к югу от деревни. Принеси — отдам двустволку и патроны к ней.");
 	OfferedQuest.Type = EQuestType::Collect;
+	OfferedQuest.Kind = EQuestKind::Side; // к сюжету старосты не относится (10.10.2026)
 	OfferedQuest.KillTargetTag = NAME_None;
 	OfferedQuest.TargetCount = 0;
 	// Служебный ключ рации = имя её строки в таблице предметов (колонка старого ключа у новых

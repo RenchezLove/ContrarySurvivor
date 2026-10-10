@@ -131,4 +131,13 @@ struct FContraryQuestRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Предметы", meta = (DisplayPriority = "19",
 		DisplayName = "Награда предметами"))
 	TArray<FQuestItemGrant> RewardItems;
+
+	// --- Расширение 10.10.2026 (карманный компьютер) ---
+
+	// Основное или побочное: цвет строки и метки, порядок в журнале КПК, правило отслеживания.
+	// По умолчанию основное — строки, заведённые раньше, это сюжетные задания старосты.
+	// ⚠ Строке задания другого собеседника (охранник и прочие) ставить «Побочное» руками.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "20",
+		DisplayName = "Вид задания (основное или побочное)"))
+	EQuestKind Kind = EQuestKind::Main;
 };

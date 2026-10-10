@@ -37,6 +37,8 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // Этап D: метка цели квеста (QuestMarkerTag базы)
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: стрелки на стрелков за кадром
 #include "ContrarySurvivor/Save/ContrarySaveGame.h" // флаги сценки/сообщения конца сюжета (Build 1.2)
+#include "ContrarySurvivor/UI/QuestTargets.h"      // куда ведёт задание — общий источник с картой КПК
+#include "ContrarySurvivor/Data/ContraryPdaSettings.h" // цвета основных и побочных заданий
 #include "ContrarySurvivor/UI/EndOfStoryWidget.h"   // плашка конца сюжета (Build 1.2)
 #include "Blueprint/WidgetTree.h" // корень дерева панели статов в диагностике
 #include "Components/Widget.h"     // видимость/геометрия кубиков в диагностике
@@ -2112,7 +2114,7 @@ void AContrarySurvivorHUD::DrawQuestTracker(UQuestComponent* QuestComp)
 
 	// Фоновая плашка для читаемости.
 	DrawRect(QuestTrackerPlateColor, X - 8.0f, Y - 4.0f, TextW + 16.0f, TextH + 8.0f);
-	DrawText(Text, bDone ? QuestTrackerDoneColor : QuestTrackerColor, X, Y, Font);
+	DrawText(Text, bDone ? QuestTrackerDoneColor : UContraryPdaSettings::Get()->GetQuestKindColor(Tracked->Kind), X, Y, Font);
 }
 
 // ===========================================================================
@@ -2589,8 +2591,8 @@ void AContrarySurvivorHUD::DrawInteractiveNPCMarkers()
 		return;
 	}
 
-	// Поверх модальных экранов (инвентарь/магазин/диалог) маркеры не нужны.
-	if (bInventoryOpen || bShopOpen || bDialogOpen)
+	// Поверх модальных экранов (инвентарь/магазин/диалог/КПК) маркеры не нужны.
+	if (bInventoryOpen || bShopOpen || bDialogOpen || IsPdaOpen())
 	{
 		return;
 	}
@@ -2639,7 +2641,7 @@ void AContrarySurvivorHUD::DrawOffscreenShooterArrows()
 	}
 
 	// Поверх модальных экранов стрелки не нужны (как маркеры NPC).
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || IsPdaOpen())
 	{
 		return;
 	}
@@ -2664,6 +2666,13 @@ void AContrarySurvivorHUD::DrawOffscreenShooterArrows()
 	}
 }
 
+bool AContrarySurvivorHUD::IsPdaOpen() const
+{
+	const AContrarySurvivorPlayerController* CSPC =
+		Cast<AContrarySurvivorPlayerController>(GetOwningPlayerController());
+	return CSPC && CSPC->IsPdaOpen();
+}
+
 void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 {
 	UWorld* World = GetWorld();
@@ -2673,7 +2682,7 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 	}
 
 	// Поверх модальных экранов метка не нужна (как маркеры NPC).
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bDeathScreen || IsPdaOpen())
 	{
 		return;
 	}
@@ -2692,65 +2701,24 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 	// Кэш цели (qa-фикс): мир сканируется только при инвалидации кэша (смена тега/фазы, гибель
 	// актора), НЕ каждый кадр; повторный поиск ненайденной цели дросселируется по времени.
 	AActor* Target = QuestMarkerTargetCache.Get();
-	if (!Target || QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver)
+	if (!Target || QuestMarkerCachedQuestId != Tracked->QuestId
+		|| QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver)
 	{
 		const float Now = World->GetTimeSeconds();
-		const bool bSameSearch = (QuestMarkerCachedTag == Tracked->MapMarkerTag
+		const bool bSameSearch = (QuestMarkerCachedQuestId == Tracked->QuestId
+			&& QuestMarkerCachedTag == Tracked->MapMarkerTag
 			&& bQuestMarkerCachedToGiver == bToGiver);
 		if (!Target && bSameSearch && Now < QuestMarkerNextSearchTime)
 		{
 			return; // недавно искали и не нашли (цель не размещена/тег не проставлен) — ждём
 		}
 
-		Target = nullptr;
-		if (bToGiver && !Tracked->TurnInNpcTag.IsNone())
-		{
-			// Задание сдаётся конкретному собеседнику (10.10.2026: ноутбук — учёному, рация —
-			// охраннику): метка ведёт к нему, а не к старосте.
-			for (TActorIterator<ATalkerNPC> It(World); It; ++It)
-			{
-				if (It->GetNpcTag() == Tracked->TurnInNpcTag)
-				{
-					Target = *It;
-					break;
-				}
-			}
-		}
-		else if (bToGiver)
-		{
-			// Квестодатель MVP — староста (единственный AElderNPC на карте).
-			for (TActorIterator<AElderNPC> It(World); It; ++It)
-			{
-				Target = *It;
-				break;
-			}
-		}
-		else
-		{
-			// Цель: база врагов с совпадающим QuestMarkerTag (BP_WolfDen/BP_BanditBase)…
-			for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
-			{
-				if (It->GetQuestMarkerTag() == Tracked->MapMarkerTag)
-				{
-					Target = *It;
-					break;
-				}
-			}
-			// …или ЛЮБОЙ актор со стандартным Actor Tag (гибкость для будущих квестов без правок кода).
-			if (!Target)
-			{
-				for (TActorIterator<AActor> It(World); It; ++It)
-				{
-					if (IsValid(*It) && It->ActorHasTag(Tracked->MapMarkerTag))
-					{
-						Target = *It;
-						break;
-					}
-				}
-			}
-		}
+		// Куда ведёт задание — общий источник с отметками карты КПК (QuestTargets, 10.10.2026):
+		// цель по метке, а готовое задание — к тому, кто его принимает.
+		Target = QuestTargets::FindTargetActor(World, *Tracked);
 
 		QuestMarkerTargetCache = Target;
+		QuestMarkerCachedQuestId = Tracked->QuestId;
 		QuestMarkerCachedTag = Tracked->MapMarkerTag;
 		bQuestMarkerCachedToGiver = bToGiver;
 		QuestMarkerNextSearchTime = Now + 0.5f; // дроссель следующего поиска, если не нашли
@@ -2796,8 +2764,10 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		}
 	}
 
-	// Д3: своя картинка типа Quest (пуста — прежний золотой ромб).
-	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label, QuestTargetMarkerColor,
+	// Д3: своя картинка типа Quest (пуста — ромб). Цвет метки — по виду задания (10.10.2026):
+	// основное оранжевым, побочное синим (UContraryPdaSettings).
+	DrawNPCMarker(Target->GetActorLocation() + FVector(0.0f, 0.0f, ZOff), Label,
+		UContraryPdaSettings::Get()->GetQuestKindColor(Tracked->Kind),
 		/*bEdgeArrowOnly=*/false, ResolveIcon(QuestTargetMarkerTexture));
 }
 

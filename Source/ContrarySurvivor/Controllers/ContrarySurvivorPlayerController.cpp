@@ -72,6 +72,8 @@
 #include "ContrarySurvivor/Analytics/AnalyticsSubsystem.h"  // маркер «игра уже запускалась» (меню со второго запуска)
 #include "ContrarySurvivor/Analytics/DataConsentSubsystem.h" // ждём ли ответа про сбор данных (загрузочный уровень)
 #include "ContrarySurvivor/Subsystems/GameFlowSubsystem.h"   // намерение перехода в мир (ADR-067 п.5)
+#include "ContrarySurvivor/UI/PdaScreenWidget.h"            // окно КПК и его кнопка на экране (10.10.2026)
+#include "UObject/ConstructorHelpers.h"                      // мягкий поиск готового файла окна КПК
 #include "ContrarySurvivor/UI/IntroScreenWidget.h"          // Build 1: экран интро (чёрный + строки)
 #include "Blueprint/UserWidget.h"                            // CreateWidget
 #include "Kismet/KismetSystemLibrary.h"                      // QuitGame («Выход» меню паузы)
@@ -112,6 +114,13 @@ AContrarySurvivorPlayerController::AContrarySurvivorPlayerController()
 	TouchWeaponButton.Label    = LOCTEXT("TouchWeapon", "ОРУЖИЕ");
 	TouchInventoryButton.Label = LOCTEXT("TouchInventory", "СУМКА");
 	TouchPauseButton.Label     = LOCTEXT("TouchPause", "II");
+
+	// Окно КПК: готовый файл /Game/UI/WBP_Pda, если он уже на диске; нет — тот же класс с
+	// деревом, построенным кодом (приём плашки конца сюжета в AContrarySurvivorHUD).
+	static ConstructorHelpers::FClassFinder<UPdaScreenWidget> PdaBP(TEXT("/Game/UI/WBP_Pda"));
+	PdaWidgetClass = PdaBP.Succeeded()
+		? TSubclassOf<UPdaScreenWidget>(PdaBP.Class)
+		: TSubclassOf<UPdaScreenWidget>(UPdaScreenWidget::StaticClass());
 
 	// G2: enum зоны жеста в заголовке только forward-объявлен — значение доступно здесь.
 	ShopTouchZone = EShopDragZone::None;
@@ -229,6 +238,15 @@ void AContrarySurvivorPlayerController::BeginPlay()
 				TouchControlsWidgetClass
 					? *FString::Printf(TEXT("WBP %s"), *TouchLayerClass->GetName())
 					: TEXT("code-built tree"));
+
+			// Кнопка «КПК» — отдельным маленьким окном рядом с кнопкой сумки: файл экранных
+			// кнопок (WBP_TouchControls) при этом не меняется. Тот же слой по высоте (Z=10).
+			PdaTouchButton = CreateWidget<UPdaTouchButtonWidget>(this, UPdaTouchButtonWidget::StaticClass());
+			if (PdaTouchButton)
+			{
+				PdaTouchButton->Setup(PdaTouchButtonMargin, PdaTouchButtonRadius, PdaTouchButtonLabel);
+				ContraryUI::AddToGameScreen(PdaTouchButton, /*ZOrder=*/10);
+			}
 		}
 	}
 
@@ -368,6 +386,10 @@ void AContrarySurvivorPlayerController::SetupInputComponent()
 		// без новой строки в Config/DefaultInput.ini.
 		InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &AContrarySurvivorPlayerController::OnQAToggleDebugMenu);
 #endif // CONTRARY_WITH_QA_CHEATS
+
+		// КПК (10.10.2026): клавиша M — карта и задания. Привязка прямо к клавише, без новой
+		// строки в Config/DefaultInput.ini (как у меню отладки выше).
+		InputComponent->BindKey(EKeys::M, IE_Pressed, this, &AContrarySurvivorPlayerController::OnTogglePda);
 
 		// #26: возрождение по клавише (Enter / Пробел) на экране смерти — дубль кнопки «Возродиться».
 		InputComponent->BindAction(TEXT("Respawn"), IE_Pressed, this, &AContrarySurvivorPlayerController::OnRespawnPressed);
@@ -520,6 +542,12 @@ void AContrarySurvivorPlayerController::OnTogglePauseMenu()
 	if (bCorpseLootOpen)
 	{
 		CloseCorpseLoot();
+		return;
+	}
+	// КПК закрывается той же клавишей Esc и системной «Назад» — меню паузы поверх не открываем.
+	if (bPdaOpen)
+	{
+		ClosePda();
 		return;
 	}
 	if (bPauseMenuOpen)
@@ -2674,6 +2702,7 @@ void AContrarySurvivorPlayerController::CloseAllUI()
 	CloseDialog();
 	CloseCorpseLoot();
 	ClosePauseMenu();
+	ClosePda();
 
 	// Инвентарь: сбрасываем флаг, синхронизируем HUD и режим ввода (как ветка «закрыто» в OnToggleInventory).
 	if (bInventoryOpen)
@@ -2694,8 +2723,8 @@ void AContrarySurvivorPlayerController::CloseAllUI()
 
 void AContrarySurvivorPlayerController::OnInteract()
 {
-	// Не смешиваем с инвентарём (модальные экраны взаимоисключающие).
-	if (bInventoryOpen)
+	// Не смешиваем с инвентарём и КПК (модальные экраны взаимоисключающие).
+	if (bInventoryOpen || bPdaOpen)
 	{
 		return;
 	}
@@ -3029,6 +3058,12 @@ void AContrarySurvivorPlayerController::OnToggleInventory()
 		return;
 	}
 
+	// Поверх открытого КПК сумка не открывается (окна взаимоисключающие).
+	if (bPdaOpen)
+	{
+		return;
+	}
+
 	bInventoryOpen = !bInventoryOpen;
 	bUIClickConsumed = false; // свежее состояние edge-клика на смене экрана (BUG1)
 
@@ -3072,6 +3107,89 @@ void AContrarySurvivorPlayerController::OnToggleInventory()
 			}
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Карманный компьютер, КПК (10.10.2026): карта и журнал заданий
+// ---------------------------------------------------------------------------
+
+void AContrarySurvivorPlayerController::OnTogglePda()
+{
+	if (bPdaOpen)
+	{
+		ClosePda();
+	}
+	else
+	{
+		OpenPda();
+	}
+}
+
+void AContrarySurvivorPlayerController::OpenPda()
+{
+	// Открывается только в игре и только когда не открыто ничего другого: окна проекта
+	// взаимоисключающие. Во вступлении управление ещё не у игрока.
+	APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	if (!ShouldOpenPda(PlayerChar != nullptr, bOnBootLevel, bIntroInputLocked, IsAnyModalUIOpen()))
+	{
+		return;
+	}
+
+	if (!PdaWidget)
+	{
+		PdaWidget = CreateWidget<UPdaScreenWidget>(this,
+			PdaWidgetClass ? PdaWidgetClass.Get() : UPdaScreenWidget::StaticClass());
+		if (!PdaWidget)
+		{
+			UE_LOG(LogQA, Warning, TEXT("QA: окно КПК не создалось"));
+			return;
+		}
+		PdaWidget->OnCloseRequested.AddUObject(this, &AContrarySurvivorPlayerController::ClosePda);
+	}
+	PdaWidget->InitPda(PlayerChar);
+	if (!PdaWidget->IsInViewport())
+	{
+		// Z=30: как сумка, магазин и разговор.
+		ContraryUI::AddToGameScreen(PdaWidget, /*ZOrder=*/30);
+	}
+
+	bPdaOpen = true;
+	bUIClickConsumed = false;
+
+	// Режим ввода — как у сумки: указатель виден, нажатия ловят кнопки окна, а клавиши игры
+	// (M, Esc) по-прежнему доходят до контроллера. Ходьбу и стрельбу глушит признак bPdaOpen.
+	FInputModeGameAndUI Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	SetInputMode(Mode);
+	bShowMouseCursor = true;
+
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(this))
+	{
+		Analytics->RecordPdaOpened();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: PDA window OPENED"));
+}
+
+void AContrarySurvivorPlayerController::ClosePda()
+{
+	if (!bPdaOpen)
+	{
+		return;
+	}
+	bPdaOpen = false;
+	bUIClickConsumed = false;
+
+	if (PdaWidget && PdaWidget->IsInViewport())
+	{
+		PdaWidget->RemoveFromParent();
+	}
+	if (!IsAnyModalUIOpen())
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	bShowMouseCursor = true; // указатель нужен и в игре (выбор цели нажатием)
+	UE_LOG(LogQA, Display, TEXT("QA: PDA window CLOSED"));
 }
 
 void AContrarySurvivorPlayerController::Tick(float DeltaTime)
@@ -3580,7 +3698,7 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 	CurrentCorpseGroup.Reset();
 
 	// Пока открыт модальный экран (вкл. экран смерти и стартовый экран Б3) — подсказку не предлагаем.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bStartScreenOpen)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bStartScreenOpen || bPdaOpen)
 	{
 		return;
 	}
@@ -3926,7 +4044,7 @@ void AContrarySurvivorPlayerController::Move(const FInputActionValue& Value)
 	// Пока открыт инвентарь/магазин/диалог/обыск трупа/экран смерти/меню паузы/стартовый экран
 	// Б3 ИЛИ идёт авто-подход интро — движение игрока подавлено. Гейт общий для WASD и тач-стика
 	// (инжекция стика идёт тем же MoveAction). Во время интро персонажа ведёт авто-подход.
-	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bIntroInputLocked)
+	if (bInventoryOpen || bShopOpen || bDialogOpen || bCorpseLootOpen || bDeathScreen || bPauseMenuOpen || bStartScreenOpen || bIntroInputLocked || bPdaOpen)
 	{
 		return;
 	}
@@ -4058,8 +4176,8 @@ void AContrarySurvivorPlayerController::Fire(const FInputActionValue& Value)
 	}
 
 	// Окно обыска трупа (Build 1.2.1): клики обрабатывают Slate-кнопки самого окна
-	// (UMG-виджет), стрельбу глушим целиком — как у прочих модалок.
-	if (bCorpseLootOpen)
+	// (UMG-виджет), стрельбу глушим целиком — как у прочих модалок. То же с окном КПК.
+	if (bCorpseLootOpen || bPdaOpen)
 	{
 		return;
 	}
