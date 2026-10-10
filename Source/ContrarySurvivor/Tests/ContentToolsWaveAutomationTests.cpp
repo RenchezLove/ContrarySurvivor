@@ -46,6 +46,8 @@
 #include "Engine/DataTable.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInterface.h"       // параметр облезлости краски у материала кузова
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/UnrealType.h" // FindFProperty (тест ставит настройки машины через рефлексию)
 
 static constexpr EAutomationTestFlags ContentToolsTestFlags =
@@ -454,6 +456,128 @@ bool FContentToolsAbandonedCarTest::RunTest(const FString& Parameters)
 	{
 		AddError(TEXT("Нет свойства DoorRLMount"));
 	}
+
+	ContentToolsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// 5б. Облезлость краски (Ринат 10.10.2026): значение поля машины доходит до скалярного
+//     параметра материала кузова и крашеных деталей в игровом мире; колёсам не идёт;
+//     значение 1 возвращает то, что заложено в материале.
+//     Материал — боевой MI_UAZ452Kit (у его родителя есть параметр PaintPeel).
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FContentToolsCarPaintPeelTest,
+	"ContrarySurvivor.ContentTools.AbandonedCarPaintPeelReachesMaterial", ContentToolsTestFlags)
+
+bool FContentToolsCarPaintPeelTest::RunTest(const FString& Parameters)
+{
+	UMaterialInterface* KitMaterial = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Environment/Props/UAZ452/MI_UAZ452Kit.MI_UAZ452Kit"));
+	if (!TestNotNull(TEXT("Материал кузова УАЗа загружен"), KitMaterial))
+	{
+		return false;
+	}
+	const FName PeelParam(TEXT("PaintPeel"));
+	float NativePeel = -1.0f;
+	if (!TestTrue(TEXT("У материала кузова УАЗа есть параметр облезлости"),
+		KitMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(PeelParam), NativePeel)))
+	{
+		return false;
+	}
+
+	UWorld* World = ContentToolsTestWorld::Create();
+	if (!World)
+	{
+		AddError(TEXT("Не создан тестовый мир"));
+		return false;
+	}
+	AAbandonedCar* Car = ContentToolsTestWorld::Spawn<AAbandonedCar>(World);
+	if (!Car)
+	{
+		AddError(TEXT("Не заспавнена машина"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	TestTrue(TEXT("Мир теста — игровой"), World->IsGameWorld());
+
+	auto FindPart = [&](const TCHAR* Name) -> UStaticMeshComponent*
+	{
+		TArray<UStaticMeshComponent*> Parts;
+		Car->GetComponents<UStaticMeshComponent>(Parts);
+		for (UStaticMeshComponent* Part : Parts)
+		{
+			if (Part && Part->GetName() == Name)
+			{
+				return Part;
+			}
+		}
+		return nullptr;
+	};
+	UStaticMeshComponent* Body = FindPart(TEXT("Body"));
+	UStaticMeshComponent* DoorFL = FindPart(TEXT("DoorFL"));
+	UStaticMeshComponent* WheelFL = FindPart(TEXT("WheelFL"));
+	FFloatProperty* PeelProp = FindFProperty<FFloatProperty>(AAbandonedCar::StaticClass(), TEXT("PaintPeel"));
+	if (!Body || !DoorFL || !WheelFL || !PeelProp)
+	{
+		AddError(TEXT("Не найдены детали машины или поле облезлости"));
+		ContentToolsTestWorld::Destroy(World);
+		return false;
+	}
+	Body->SetMaterial(0, KitMaterial);
+	DoorFL->SetMaterial(0, KitMaterial);
+	WheelFL->SetMaterial(0, KitMaterial);
+
+	// Значение параметра у материала детали прямо сейчас (и динамический ли он).
+	auto PeelOf = [&](const UStaticMeshComponent* Part, bool& bOutDynamic) -> float
+	{
+		const UMaterialInterface* Material = Part->GetMaterial(0);
+		bOutDynamic = Cast<UMaterialInstanceDynamic>(Material) != nullptr;
+		float Value = -1.0f;
+		if (Material)
+		{
+			Material->GetScalarParameterValue(FHashedMaterialParameterInfo(PeelParam), Value);
+		}
+		return Value;
+	};
+	auto Rebuild = [&](float Peel)
+	{
+		PeelProp->SetPropertyValue_InContainer(Car, Peel);
+		Car->ExecuteConstruction(Car->GetActorTransform(), /*TransformRotationCache=*/nullptr,
+			/*InstanceDataCache=*/nullptr);
+	};
+
+	bool bDynamic = false;
+
+	// Значение 1 и без перекраски: динамический материал ради облезлости не создаётся.
+	Rebuild(1.0f);
+	PeelOf(Body, bDynamic);
+	TestFalse(TEXT("Облезлость 1: динамический материал кузову не нужен"), bDynamic);
+
+	// Поле изменили — параметр материала кузова и двери принял значение.
+	Rebuild(0.3f);
+	TestEqual(TEXT("Облезлость 0.3 дошла до материала кузова"), PeelOf(Body, bDynamic), 0.3f);
+	TestTrue(TEXT("У кузова динамический материал"), bDynamic);
+	TestEqual(TEXT("Облезлость 0.3 дошла до материала двери"), PeelOf(DoorFL, bDynamic), 0.3f);
+	TestEqual(TEXT("Колесу облезлость не идёт"), PeelOf(WheelFL, bDynamic), NativePeel);
+	TestFalse(TEXT("У колеса динамический материал не создан"), bDynamic);
+	TestTrue(TEXT("Родитель динамического материала — материал кузова УАЗа"),
+		Cast<UMaterialInstanceDynamic>(Body->GetMaterial(0))
+		&& Cast<UMaterialInstanceDynamic>(Body->GetMaterial(0))->Parent == KitMaterial);
+
+	// Повторная правка идёт в тот же материал, а не плодит новые.
+	const UMaterialInterface* FirstDynamic = Body->GetMaterial(0);
+	Rebuild(0.0f);
+	TestEqual(TEXT("Облезлость 0 дошла до материала кузова"), PeelOf(Body, bDynamic), 0.0f);
+	TestTrue(TEXT("Повторная правка пишет в тот же динамический материал"), Body->GetMaterial(0) == FirstDynamic);
+
+	// Значение вне границ прижимается к границе.
+	Rebuild(-5.0f);
+	TestEqual(TEXT("Отрицательная облезлость прижата к нулю"), PeelOf(Body, bDynamic), 0.0f);
+
+	// Возврат к 1 возвращает значение, заложенное в материале.
+	Rebuild(1.0f);
+	TestEqual(TEXT("Облезлость 1 возвращает значение из материала"), PeelOf(Body, bDynamic), NativePeel);
 
 	ContentToolsTestWorld::Destroy(World);
 	return true;
