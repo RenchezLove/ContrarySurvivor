@@ -7,6 +7,7 @@
 #include "QuestTrackerWidget.generated.h"
 
 class UTextBlock;
+enum class EElderNotebookWaitPhase : uint8;
 
 /**
  * Трекер активного квеста на UMG (ADR-048, этап 3): строка «Квест: Шкуры волков —
@@ -46,6 +47,24 @@ public:
 	// Между двумя целями, когда их у квеста две.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "4"))
 	FText ObjectiveSeparator = NSLOCTEXT("Quest", "ObjectiveSeparator", ", ");
+
+	// --- Ожидание после сдачи ноутбука старосте (Ринат 10.10.2026) ---
+	// Пока староста «разбирается с ноутбуком», в этом же блоке стоит строка с оставшимся
+	// временем: {Minutes} — сколько минут осталось (вверх до целой, не меньше одной).
+	// Черновик, правится здесь. Перенос строки внутри текста — намеренный: строка длинная.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "5", MultiLine = "true"))
+	FText ElderWaitFormat = NSLOCTEXT("QuestTracker", "ElderWaitFormat",
+		"Староста разбирается с ноутбуком — осталось около {Minutes} мин.\nПока можно заработать на волчьих шкурах.");
+
+	// Время вышло — строка держится, пока следующее задание у старосты не взято. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "6", MultiLine = "true"))
+	FText ElderWaitReadyText = NSLOCTEXT("QuestTracker", "ElderWaitReady",
+		"Староста разобрался с ноутбуком. Поговорите с ним.");
+
+	// Строка ожидания по её состоянию (пусто — показывать нечего). Чистая функция: её же
+	// зовёт запасная отрисовка экрана игры и проверяют автотесты.
+	static FText BuildElderWaitLine(EElderNotebookWaitPhase Phase, float RemainingSeconds,
+		const FText& WaitFormat, const FText& ReadyText);
 
 	// Цвета строки: активный квест — золотой, выполненный — зелёный (как Canvas).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker", meta = (DisplayPriority = "4"))

@@ -229,8 +229,18 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bElderNotebookHintShown = false;
 
-	// Build 1.2: сообщение о конце сюжета (плашка через ~30 с после сценки старосты про
-	// шкуры) показывается ОДИН раз за сохранение. Читает/пишет ContrarySurvivorHUD.
+	// Ожидание после сценки про ноутбук (Ринат 10.10.2026: «староста говорит, что нужно
+	// подождать, пока он в нём покопается»). Значение накопителя игрового времени
+	// (TotalPlayTimeSeconds), при котором ожидание кончается: третье задание старосты
+	// открывается только после него. Считается игровым временем — на паузе стоит, выход из
+	// игры и смерть его не сбрасывают. Меньше нуля — таймера нет: так читаются сохранения,
+	// записанные до этого поля, и для них ожидание считается оконченным (не застревают).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
+	float ElderNotebookWaitEndPlayTime = -1.0f;
+
+	// Сообщение о конце сюжета показывается ОДИН раз за сохранение. С 10.10.2026 оно выходит
+	// не после сценки старосты, а когда игрок сдал ноутбук квестовому учёному и закрыл с ним
+	// разговор. Читает/пишет ContrarySurvivorHUD.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Retention")
 	bool bEndOfStoryShown = false;
 

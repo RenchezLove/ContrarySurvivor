@@ -306,7 +306,8 @@ void UDialogScreenWidget::RefreshDialog()
 			// Build 1: TurnedIn здесь = сдан ТЕРМИНАЛЬНЫЙ квест (кв.2 — ноутбук; промежуточные
 			// состояния GetQuestForPlayer перескакивает на следующий квест). Сценка-намёк уже
 			// показана (иначе шла бы она) — повторные разговоры получают короткое напоминание
-			// про ноутбук и волков; поле пустое — прежняя «Спасибо…».
+			// про ноутбук и волков; поле пустое — прежняя «Спасибо…». Эта же реплика звучит,
+			// пока идёт ожидание (10.10.2026): третье задание до конца таймера не открывается.
 			NPCText = !Elder->GetNotebookHintRepeatText().IsEmpty()
 				? Elder->GetNotebookHintRepeatText() : Elder->GetDialogueTurnedInText();
 			// Третье задание сдано учёным (10.10.2026): «копаюсь в ноутбуке» уже неправда.
@@ -641,14 +642,7 @@ bool UDialogScreenWidget::ShouldPlayNotebookHint() const
 
 	// Намёк в этом профиле уже показан — повторные разговоры идут коротким напоминанием
 	// (NotebookHintRepeatText в ветке TurnedIn RefreshDialog).
-	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
-	{
-		if (Save->bElderNotebookHintShown)
-		{
-			return false;
-		}
-	}
-	return true;
+	return !Player->IsElderNotebookHintShown();
 }
 
 void UDialogScreenWidget::RefreshNotebookHintLine()
@@ -696,16 +690,10 @@ void UDialogScreenWidget::RefreshNotebookHintLine()
 
 	// Последняя реплика сценки на экране — помечаем «намёк показан» в сейве (один раз за
 	// профиль), чтобы при повторных разговорах шло короткое напоминание, а не вся сценка.
+	// С этой же минуты идёт ожидание: староста «разбирается с ноутбуком» (10.10.2026).
 	if (NotebookHintStep == Lines.Num() - 1)
 	{
-		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
-		{
-			if (!Save->bElderNotebookHintShown)
-			{
-				Save->bElderNotebookHintShown = true;
-				Player->WriteSaveObject(Save);
-			}
-		}
+		Player->MarkElderNotebookHintShown(Elder->GetNotebookWaitSeconds());
 	}
 }
 

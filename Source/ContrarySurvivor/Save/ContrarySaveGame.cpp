@@ -23,6 +23,7 @@ void UContrarySaveGame::CopyRetentionData(const UContrarySaveGame* From, UContra
 	To->bElderFirstGiftGiven = From->bElderFirstGiftGiven;
 	To->bElderHookShown     = From->bElderHookShown;
 	To->bElderNotebookHintShown = From->bElderNotebookHintShown;
+	To->ElderNotebookWaitEndPlayTime = From->ElderNotebookWaitEndPlayTime; // 10.10.2026
 	To->bEndOfStoryShown    = From->bEndOfStoryShown;
 
 	// Build 1.2: накопитель игрового времени и счётчики rewarded-рекламы — без переноса

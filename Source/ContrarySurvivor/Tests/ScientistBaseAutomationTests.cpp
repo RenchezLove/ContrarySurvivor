@@ -14,6 +14,9 @@
 //     платы, когда показ не готов;
 //   - прайс-лист учёного-торговца и покупка двустволки;
 //   - запас патронов при стволе не дарится заново при каждом «Продолжить».
+//   - ожидание после сценки про ноутбук: таймер идёт игровым временем, пишется в сохранение,
+//     третье задание до его конца закрыто; сохранение без таймера не застревает;
+//   - сюжетные кнопки меню отладки: чистое состояние, запись в сохранение, пропуск ожидания.
 //
 // Разговор проверяется теми же вызовами, что делает окно (ATalkerNPC::BuildTalkView и
 // HandleTalkPrimary) — живой Slate в прогонах проекта не поднимается.
@@ -25,6 +28,10 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "SaveTestPlayerCharacter.h"
+#include "ContrarySurvivor/Debug/QADebug.h"            // CONTRARY_WITH_QA_CHEATS
+#include "ContrarySurvivor/Debug/ContraryDebugMenu.h"  // сюжетные кнопки меню отладки
+#include "ContrarySurvivor/Actors/MasterEnemyBase.h"
+#include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // строка ожидания старосты
 #include "ContrarySurvivor/Actors/Campfire.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
@@ -248,13 +255,24 @@ namespace ScientistTest
 		return Player && Player->GetQuests() && Player->GetQuests()->FindQuest(QuestId) != nullptr;
 	}
 
-	static void SetNotebookHintShown(const APlayerCharacter* Player, bool bShown)
+	// Запись сохранения, как её оставила сборка ДО таймера ожидания: признак сценки есть,
+	// отметки конца ожидания нет. Герой перечитывает признаки — как при запуске игры.
+	static void SetNotebookHintShown(APlayerCharacter* Player, bool bShown)
 	{
 		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
 		{
 			Save->bElderNotebookHintShown = bShown;
+			Save->ElderNotebookWaitEndPlayTime = -1.0f;
 			Player->WriteSaveObject(Save);
 		}
+		Player->ReloadStoryStateFromSave();
+	}
+
+	// Кадр тестового мира (счётчик кадров двигаем сами — см. CombatAutomationTests.cpp).
+	static void TickWorld(UWorld* World, float DeltaSeconds)
+	{
+		++GFrameCounter;
+		World->Tick(LEVELTICK_All, DeltaSeconds);
 	}
 
 	static void DeleteSlot(const FString& Slot)
@@ -280,13 +298,15 @@ bool FScientistThirdQuestTest::RunTest(const FString& Parameters)
 
 	// Чистое правило открытия.
 	TestFalse(TEXT("Второе задание не сдано — третьего нет"),
-		AElderNPC::ShouldUnlockThirdQuest(false, true, true, true));
+		AElderNPC::ShouldUnlockThirdQuest(false, true, true, true, true));
 	TestFalse(TEXT("Сценка про ноутбук ещё не показана — третьего нет"),
-		AElderNPC::ShouldUnlockThirdQuest(true, false, true, true));
+		AElderNPC::ShouldUnlockThirdQuest(true, false, true, true, true));
 	TestTrue(TEXT("Второе сдано и сценка показана — третье открывается"),
-		AElderNPC::ShouldUnlockThirdQuest(true, true, true, true));
+		AElderNPC::ShouldUnlockThirdQuest(true, true, true, true, true));
+	TestFalse(TEXT("Сценка показана, но староста ещё разбирается с ноутбуком — третьего нет"),
+		AElderNPC::ShouldUnlockThirdQuest(true, true, true, true, false));
 	TestTrue(TEXT("Сценки у старосты нет вовсе — ждать нечего"),
-		AElderNPC::ShouldUnlockThirdQuest(true, false, false, true));
+		AElderNPC::ShouldUnlockThirdQuest(true, false, false, true, false));
 
 	UWorld* World = ScientistTest::Create();
 	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
@@ -334,8 +354,10 @@ bool FScientistThirdQuestTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("До сценки староста говорит о втором задании"),
 		Elder->GetQuestForPlayer(Quests).QuestId, Elder->GetSecondQuest().QuestId);
 
-	// Сценка показана — в СЛЕДУЮЩЕМ разговоре задание открывается.
+	// Сценка показана, а таймера ожидания в записи нет (сохранение до правки 10.10.2026):
+	// ожидание считается оконченным, задание открывается сразу — такой игрок не застревает.
 	ScientistTest::SetNotebookHintShown(Player, true);
+	TestEqual(TEXT("У сохранения без таймера ждать нечего"), Player->GetElderNotebookWaitRemaining(), 0.0f);
 	TestTrue(TEXT("После сценки третье задание открывается"), Elder->TryUnlockThirdQuest(Player));
 	TestFalse(TEXT("Повторное открытие ничего не делает"), Elder->TryUnlockThirdQuest(Player));
 	TestEqual(TEXT("Третье задание предложено, но не взято"), ScientistTest::StateOf(Player, Q3), EQuestState::NotStarted);
@@ -863,5 +885,352 @@ bool FScientistWeaponReserveSaveTest::RunTest(const FString& Parameters)
 	ScientistTest::DeleteSlot(Slot);
 	return true;
 }
+
+// ===========================================================================
+// 6. Ожидание после сценки про ноутбук: таймер идёт, пишется в сохранение, третье задание
+//    до конца ожидания закрыто и открывается после; строка для списка заданий на экране.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FScientistElderWaitTest,
+	"ContrarySurvivor.Scientists.ElderNotebookWaitGatesThirdQuest", ScientistTestFlags)
+
+bool FScientistElderWaitTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContraryElderWaitQA");
+	ScientistTest::DeleteSlot(Slot);
+	ScientistTest::FScopedTables Tables;
+
+	// --- Чистые правила ---
+	TestEqual(TEXT("Отметки в записи нет — ждать нечего"), AElderNPC::GetNotebookWaitRemaining(-1.0f, 100.0f), 0.0f);
+	TestEqual(TEXT("Остаток — разница отметки и накопителя"), AElderNPC::GetNotebookWaitRemaining(400.0f, 100.0f), 300.0f);
+	TestEqual(TEXT("Отметка в прошлом — остатка нет"), AElderNPC::GetNotebookWaitRemaining(50.0f, 100.0f), 0.0f);
+	TestEqual(TEXT("Пять минут — пять"), AElderNPC::GetNotebookWaitMinutesLeft(300.0f), 5);
+	TestEqual(TEXT("Чуть больше четырёх минут — пять"), AElderNPC::GetNotebookWaitMinutesLeft(241.0f), 5);
+	TestEqual(TEXT("Ровно четыре минуты — четыре"), AElderNPC::GetNotebookWaitMinutesLeft(240.0f), 4);
+	TestEqual(TEXT("Последние секунды — одна минута, а не ноль"), AElderNPC::GetNotebookWaitMinutesLeft(10.0f), 1);
+
+	TestTrue(TEXT("Сценки не было — строки ожидания нет"),
+		AElderNPC::GetNotebookWaitPhase(false, false, 120.0f) == EElderNotebookWaitPhase::None);
+	TestTrue(TEXT("Время идёт — староста разбирается"),
+		AElderNPC::GetNotebookWaitPhase(true, false, 120.0f) == EElderNotebookWaitPhase::Waiting);
+	TestTrue(TEXT("Время вышло — пора поговорить"),
+		AElderNPC::GetNotebookWaitPhase(true, false, 0.0f) == EElderNotebookWaitPhase::Ready);
+	TestTrue(TEXT("Следующее задание взято — строки нет"),
+		AElderNPC::GetNotebookWaitPhase(true, true, 0.0f) == EElderNotebookWaitPhase::None);
+
+	const FText WaitFormat = FText::FromString(TEXT("ждать {Minutes} мин"));
+	const FText ReadyText = FText::FromString(TEXT("готово"));
+	TestEqual(TEXT("Строка ожидания несёт число минут"),
+		UQuestTrackerWidget::BuildElderWaitLine(EElderNotebookWaitPhase::Waiting, 300.0f, WaitFormat, ReadyText).ToString(),
+		FString(TEXT("ждать 5 мин")));
+	TestEqual(TEXT("Строка «время вышло» — как задана"),
+		UQuestTrackerWidget::BuildElderWaitLine(EElderNotebookWaitPhase::Ready, 0.0f, WaitFormat, ReadyText).ToString(),
+		ReadyText.ToString());
+	TestTrue(TEXT("Без ожидания строка пустая"),
+		UQuestTrackerWidget::BuildElderWaitLine(EElderNotebookWaitPhase::None, 0.0f, WaitFormat, ReadyText).IsEmpty());
+
+	// --- В мире ---
+	UWorld* World = ScientistTest::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+	ASaveTestPlayerCharacter* Player = ScientistTest::Spawn<ASaveTestPlayerCharacter>(World, FVector(4000.0f, 0.0f, 100.0f));
+	AElderNPC* Elder = ScientistTest::Spawn<AElderNPC>(World, FVector(7000.0f, 0.0f, 100.0f));
+	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	if (!Player || !Elder || !Quests)
+	{
+		AddError(TEXT("Не заспавнены игрок или староста"));
+		ScientistTest::Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+	Player->ReloadStoryStateFromSave(); // признаки — из своего пустого слота, а не из боевого
+
+	const FName Q3 = Elder->GetThirdQuest().QuestId;
+	FQuest Q1Done = Elder->GetOfferedQuest();
+	Q1Done.State = EQuestState::TurnedIn;
+	FQuest Q2Done = Elder->GetSecondQuest();
+	Q2Done.State = EQuestState::TurnedIn;
+	Quests->RestoreQuests({ Q1Done, Q2Done });
+
+	TestFalse(TEXT("В свежем слоте сценка не показана"), Player->IsElderNotebookHintShown());
+	TestFalse(TEXT("До сценки третье задание закрыто"), Elder->TryUnlockThirdQuest(Player));
+
+	// Сценка доиграна — ожидание пошло.
+	const float Wait = Elder->GetNotebookWaitSeconds();
+	TestTrue(TEXT("У старосты задано время ожидания"), Wait > 1.0f);
+	Player->MarkElderNotebookHintShown(Wait);
+	TestTrue(TEXT("Сценка отмечена показанной"), Player->IsElderNotebookHintShown());
+	const float RemainingAtStart = Player->GetElderNotebookWaitRemaining();
+	TestTrue(TEXT("Ожидание началось с полного времени"),
+		RemainingAtStart > Wait - 1.0f && RemainingAtStart <= Wait + 0.01f);
+	TestFalse(TEXT("Пока староста разбирается, третье задание закрыто"), Elder->TryUnlockThirdQuest(Player));
+	TestFalse(TEXT("Третьего задания нет в журнале"), ScientistTest::InJournal(Player, Q3));
+	TestEqual(TEXT("Староста по-прежнему говорит о втором задании"),
+		Elder->GetQuestForPlayer(Quests).QuestId, Elder->GetSecondQuest().QuestId);
+
+	// Таймер считает игровое время.
+	for (int32 Frame = 0; Frame < 5; ++Frame)
+	{
+		ScientistTest::TickWorld(World, 0.2f);
+	}
+	const float RemainingAfterTicks = Player->GetElderNotebookWaitRemaining();
+	TestTrue(TEXT("Игровое время идёт — остаток уменьшился"), RemainingAfterTicks < RemainingAtStart);
+	TestTrue(TEXT("Секунда игры не съела всё ожидание"), RemainingAfterTicks > 0.0f);
+
+	// Повторная отметка таймер заново не заводит.
+	Player->MarkElderNotebookHintShown(Wait);
+	TestTrue(TEXT("Повторная отметка сценки ожидание не продлила"),
+		Player->GetElderNotebookWaitRemaining() <= RemainingAfterTicks + 0.01f);
+
+	// Запись в сохранении и её перенос при обычном сохранении игры.
+	float SavedEnd = -1.0f;
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		TestTrue(TEXT("Признак сценки записан в сохранение"), Save->bElderNotebookHintShown);
+		SavedEnd = Save->ElderNotebookWaitEndPlayTime;
+		TestTrue(TEXT("Отметка конца ожидания записана в сохранение"), SavedEnd >= 0.0f);
+	}
+	TestTrue(TEXT("Обычное сохранение прошло"), Player->SaveGame());
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		TestEqual(TEXT("Обычное сохранение отметку ожидания не потеряло"), Save->ElderNotebookWaitEndPlayTime, SavedEnd);
+		TestTrue(TEXT("Обычное сохранение признак сценки не потеряло"), Save->bElderNotebookHintShown);
+	}
+	Player->ReloadStoryStateFromSave();
+	TestTrue(TEXT("После перечитывания сохранения ожидание продолжается"), Player->GetElderNotebookWaitRemaining() > 0.0f);
+	TestFalse(TEXT("После перечитывания третье задание всё ещё закрыто"), Elder->TryUnlockThirdQuest(Player));
+
+	// Время выходит само: оставляем полсекунды и проживаем их.
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		Save->ElderNotebookWaitEndPlayTime = Player->GetTotalPlayTimeSeconds() + 0.5f;
+		Player->WriteSaveObject(Save);
+	}
+	Player->ReloadStoryStateFromSave();
+	TestTrue(TEXT("Осталось полсекунды — ещё ждём"), Player->GetElderNotebookWaitRemaining() > 0.0f);
+	for (int32 Frame = 0; Frame < 6; ++Frame)
+	{
+		ScientistTest::TickWorld(World, 0.2f);
+	}
+	TestEqual(TEXT("Время вышло — остатка нет"), Player->GetElderNotebookWaitRemaining(), 0.0f);
+	TestTrue(TEXT("Время вышло — на экране «поговорите со старостой»"),
+		AElderNPC::GetNotebookWaitPhase(Player->IsElderNotebookHintShown(),
+			AQuestGiverNPC::IsStoryEndingQuestTaken(Quests->GetQuests()), Player->GetElderNotebookWaitRemaining())
+		== EElderNotebookWaitPhase::Ready);
+
+	TestTrue(TEXT("После ожидания третье задание открывается"), Elder->TryUnlockThirdQuest(Player));
+	TestEqual(TEXT("Третье задание предложено, но не взято"), ScientistTest::StateOf(Player, Q3), EQuestState::NotStarted);
+	TestTrue(TEXT("Пока задание не взято, строка «поговорите» держится"),
+		AElderNPC::GetNotebookWaitPhase(true, AQuestGiverNPC::IsStoryEndingQuestTaken(Quests->GetQuests()), 0.0f)
+		== EElderNotebookWaitPhase::Ready);
+	TestTrue(TEXT("Третье задание берётся"), Quests->AcceptQuest(Q3));
+	TestTrue(TEXT("Задание взято — строка ожидания убрана"),
+		AElderNPC::GetNotebookWaitPhase(true, AQuestGiverNPC::IsStoryEndingQuestTaken(Quests->GetQuests()), 0.0f)
+		== EElderNotebookWaitPhase::None);
+
+	ScientistTest::Destroy(World);
+	ScientistTest::DeleteSlot(Slot);
+	return true;
+}
+
+#if CONTRARY_WITH_QA_CHEATS
+
+// ===========================================================================
+// 7. Сюжетные кнопки меню отладки: чистое состояние из любого исходного, запись в
+//    сохранение, «Продолжить» даёт то же самое, пропуск ожидания.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDebugMenuStoryButtonsTest,
+	"ContrarySurvivor.DebugMenu.StoryButtonsGiveCleanState", ScientistTestFlags)
+
+bool FDebugMenuStoryButtonsTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContraryDebugStoryQA");
+	ScientistTest::DeleteSlot(Slot);
+	ScientistTest::FScopedTables Tables;
+
+	UWorld* World = ScientistTest::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	// Костёр рядом со старостой: сохранение у старосты остаётся «у костра», и «Продолжить»
+	// героя не переставляет. Игрок появляется вдали и только потом получает свой слот.
+	if (ACampfire* Campfire = ScientistTest::Spawn<ACampfire>(World, FVector(0.0f, 0.0f, 100.0f)))
+	{
+		if (FFloatProperty* CooldownProp = FindFProperty<FFloatProperty>(ACampfire::StaticClass(), TEXT("AutoSaveCooldown")))
+		{
+			CooldownProp->SetPropertyValue_InContainer(Campfire, 0.0f);
+		}
+	}
+	ASaveTestPlayerCharacter* Player = ScientistTest::Spawn<ASaveTestPlayerCharacter>(World, FVector(4000.0f, 0.0f, 100.0f));
+	AElderNPC* Elder = ScientistTest::Spawn<AElderNPC>(World, FVector(300.0f, 0.0f, 100.0f));
+	AMasterEnemyBase* BanditBase = ScientistTest::Spawn<AMasterEnemyBase>(World, FVector(30000.0f, 0.0f, 0.0f));
+	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	if (!Player || !Elder || !BanditBase || !Quests || !Player->GetInventory())
+	{
+		AddError(TEXT("Не заспавнены игрок, староста или база"));
+		ScientistTest::Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+	Player->ReloadStoryStateFromSave();
+
+	const FQuest& First = Elder->GetOfferedQuest();
+	const FQuest& Second = Elder->GetSecondQuest();
+	const FName Q1 = First.QuestId;
+	const FName Q2 = Second.QuestId;
+	const FName Q3 = Elder->GetThirdQuest().QuestId;
+	const FString RadioKey = ScientistTest::RadioRow.ToString();
+
+	// База бандитов — та, на которую ведёт метка второго задания.
+	if (FNameProperty* MarkerProp = FindFProperty<FNameProperty>(AMasterEnemyBase::StaticClass(), TEXT("QuestMarkerTag")))
+	{
+		MarkerProp->SetPropertyValue_InContainer(BanditBase, Second.MapMarkerTag);
+	}
+	else
+	{
+		AddError(TEXT("У базы нет поля метки задания"));
+	}
+	const FName BaseId = BanditBase->GetBaseSaveId();
+	auto SaveHasBaseRecord = [Player, BaseId]()
+	{
+		const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject();
+		return Save && Save->EnemyBaseStates.ContainsByPredicate(
+			[BaseId](const FSavedEnemyBaseState& State) { return State.BaseId == BaseId; });
+	};
+
+	TestFalse(TEXT("Ожидание не идёт — пропускать нечего"), ContraryDebugTools::SkipElderNotebookWait(Player));
+
+	// --- Исходное состояние: сюжет пройден дальше и намусорено ---
+	FQuest Q1Done = First;
+	Q1Done.State = EQuestState::TurnedIn;
+	FQuest Q2Done = Second;
+	Q2Done.State = EQuestState::TurnedIn;
+	FQuest Q3Active = Elder->GetThirdQuest();
+	Q3Active.State = EQuestState::Active;
+	FQuest RadioQuest;
+	RadioQuest.QuestId = FName(TEXT("QA_RadioQuest"));
+	RadioQuest.TargetCount = 0;
+	RadioQuest.RequiredItemName = RadioKey;
+	RadioQuest.RequiredItemCount = 1;
+	RadioQuest.State = EQuestState::Active;
+	Quests->RestoreQuests({ Q1Done, Q2Done, Q3Active, RadioQuest });
+	Player->GiveItemFromRow(ScientistTest::LaptopRow, 1);
+	Player->GiveItemFromRow(ScientistTest::RadioRow, 1);
+	TestEqual(TEXT("В исходном состоянии в сумке ноутбук"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 1);
+	TestEqual(TEXT("В исходном состоянии в сумке рация"), ScientistTest::CountInBag(Player, RadioKey), 1);
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		Save->bElderNotebookHintShown = true;
+		Save->ElderNotebookWaitEndPlayTime = 99999.0f;
+		Save->bEndOfStoryShown = true;
+		Save->bElderHookShown = false;
+		FSavedEnemyBaseState BaseState;
+		BaseState.BaseId = BaseId;
+		BaseState.Tier = 3;
+		BaseState.LastClearedTier = 2;
+		BaseState.LastClearUtc = FDateTime::UtcNow();
+		Save->EnemyBaseStates.Add(BaseState);
+		Player->WriteSaveObject(Save);
+	}
+	Player->ReloadStoryStateFromSave();
+
+	// --- Кнопка «сдать старосте ноутбук бандитов» ---
+	TestTrue(TEXT("Кнопка «сдать ноутбук» отработала"), ContraryDebugTools::SetStoryReadyToTurnInBanditLaptop(Player));
+	TestEqual(TEXT("В журнале только два задания старосты"), Quests->GetQuests().Num(), 2);
+	TestEqual(TEXT("Первое задание сдано"), ScientistTest::StateOf(Player, Q1), EQuestState::TurnedIn);
+	TestEqual(TEXT("Задание на бандитов готово к сдаче"), ScientistTest::StateOf(Player, Q2), EQuestState::Completed);
+	TestFalse(TEXT("Третьего задания в журнале нет"), ScientistTest::InJournal(Player, Q3));
+	TestEqual(TEXT("В сумке ровно один ноутбук"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 1);
+	TestEqual(TEXT("Рация чужого задания убрана"), ScientistTest::CountInBag(Player, RadioKey), 0);
+	TestFalse(TEXT("У героя сценка про ноутбук не показана"), Player->IsElderNotebookHintShown());
+	TestEqual(TEXT("У героя ожидания нет"), Player->GetElderNotebookWaitRemaining(), 0.0f);
+	TestTrue(TEXT("Герой стоит рядом со старостой"),
+		FVector::Dist2D(Player->GetActorLocation(), Elder->GetActorLocation()) <= 700.0f);
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		TestTrue(TEXT("Состояние записано в сохранение"), Save->bHasData);
+		TestEqual(TEXT("В сохранении тот же журнал"), Save->Quests.Num(), 2);
+		TestFalse(TEXT("В сохранении сценка про ноутбук сброшена"), Save->bElderNotebookHintShown);
+		TestTrue(TEXT("В сохранении таймера ожидания нет"), Save->ElderNotebookWaitEndPlayTime < 0.0f);
+		TestFalse(TEXT("В сохранении сообщение о конце сюжета сброшено"), Save->bEndOfStoryShown);
+		TestTrue(TEXT("В сохранении вступление старосты пройдено"), Save->bElderHookShown);
+	}
+	TestTrue(TEXT("Кнопка «сдать ноутбук» память базы не трогает"), SaveHasBaseRecord());
+
+	// «Продолжить» читает именно эту запись: в ней то же задание в том же состоянии и один
+	// ноутбук. (Само восстановление сумки из записи держат проверки сохранений; звать его
+	// здесь на живом герое нельзя — оно рассчитано на пустую сумку после запуска игры.)
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		const FQuest* SavedSecond = Save->Quests.FindByPredicate([Q2](const FQuest& Q) { return Q.QuestId == Q2; });
+		TestTrue(TEXT("В сохранении задание на бандитов готово к сдаче"),
+			SavedSecond && SavedSecond->State == EQuestState::Completed);
+		int32 SavedLaptops = 0;
+		for (const FSavedInventoryEntry& Entry : Save->InventoryEntries)
+		{
+			if (Entry.ItemName.Equals(ScientistTest::LaptopKey, ESearchCase::CaseSensitive))
+			{
+				SavedLaptops += FMath::Max(1, Entry.StackCount);
+			}
+		}
+		TestEqual(TEXT("В сохранении ровно один ноутбук"), SavedLaptops, 1);
+	}
+
+	// Дальше сюжет идёт сам: сдача, сценка, ожидание, пропуск, третье задание.
+	TestTrue(TEXT("Задание на бандитов сдаётся старосте"), Quests->TurnInQuest(Q2));
+	TestEqual(TEXT("Ноутбук изъят при сдаче"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 0);
+	TestFalse(TEXT("До сценки третье задание закрыто"), Elder->TryUnlockThirdQuest(Player));
+	Player->MarkElderNotebookHintShown(Elder->GetNotebookWaitSeconds());
+	TestFalse(TEXT("Во время ожидания третье задание закрыто"), Elder->TryUnlockThirdQuest(Player));
+
+	TestTrue(TEXT("Сохранение во время ожидания прошло"), Player->SaveGame());
+	TestTrue(TEXT("«Продолжить» во время ожидания прошло"), Player->LoadGameForContinue());
+	TestTrue(TEXT("После «Продолжить» сценка остаётся показанной"), Player->IsElderNotebookHintShown());
+	TestTrue(TEXT("После «Продолжить» ожидание продолжается"), Player->GetElderNotebookWaitRemaining() > 0.0f);
+	TestFalse(TEXT("После «Продолжить» третье задание всё ещё закрыто"), Elder->TryUnlockThirdQuest(Player));
+
+	TestTrue(TEXT("Кнопка «пропустить ожидание» отработала"), ContraryDebugTools::SkipElderNotebookWait(Player));
+	TestEqual(TEXT("После пропуска ждать нечего"), Player->GetElderNotebookWaitRemaining(), 0.0f);
+	TestFalse(TEXT("Второй пропуск уже нечего снимать"), ContraryDebugTools::SkipElderNotebookWait(Player));
+	TestTrue(TEXT("После пропуска третье задание открывается"), Elder->TryUnlockThirdQuest(Player));
+
+	// --- Кнопка «староста выдаёт задание на бандитов» из ушедшего дальше сюжета ---
+	TestTrue(TEXT("Третье задание берётся"), Quests->AcceptQuest(Q3));
+	TestEqual(TEXT("Староста отдал ноутбук"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 1);
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		Save->bEndOfStoryShown = true;
+		Player->WriteSaveObject(Save);
+	}
+
+	TestTrue(TEXT("Кнопка «задание на бандитов» отработала"), ContraryDebugTools::SetStoryElderOffersBanditQuest(Player));
+	TestEqual(TEXT("В журнале одно задание"), Quests->GetQuests().Num(), 1);
+	TestEqual(TEXT("Первое задание сдано"), ScientistTest::StateOf(Player, Q1), EQuestState::TurnedIn);
+	TestEqual(TEXT("Староста предлагает задание на бандитов"), Elder->GetQuestForPlayer(Quests).QuestId, Q2);
+	TestEqual(TEXT("Ноутбука в сумке нет"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 0);
+	TestFalse(TEXT("Сценка про ноутбук сброшена"), Player->IsElderNotebookHintShown());
+	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		TestEqual(TEXT("В сохранении одно задание"), Save->Quests.Num(), 1);
+		TestFalse(TEXT("В сохранении сценка сброшена"), Save->bElderNotebookHintShown);
+		TestTrue(TEXT("В сохранении таймера нет"), Save->ElderNotebookWaitEndPlayTime < 0.0f);
+		TestFalse(TEXT("В сохранении сообщение о конце сюжета сброшено"), Save->bEndOfStoryShown);
+	}
+	TestFalse(TEXT("Память базы бандитов стёрта из сохранения"), SaveHasBaseRecord());
+
+	// Игрок сам берёт задание у старосты.
+	Quests->OfferQuest(Elder->GetQuestForPlayer(Quests));
+	TestTrue(TEXT("Задание на бандитов берётся"), Quests->AcceptQuest(Q2));
+	TestEqual(TEXT("Задание на бандитов взято и не выполнено"), ScientistTest::StateOf(Player, Q2), EQuestState::Active);
+
+	ScientistTest::Destroy(World);
+	ScientistTest::DeleteSlot(Slot);
+	return true;
+}
+
+#endif // CONTRARY_WITH_QA_CHEATS
 
 #endif // WITH_DEV_AUTOMATION_TESTS

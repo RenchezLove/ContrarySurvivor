@@ -357,6 +357,10 @@ public:
 	// сохраняют (ТЗ издателя 22.08 §1) — сброс делает ТОЛЬКО явная «Новая игра».
 	void ResetForNewGame();
 
+	// Под каким именем память этой базы лежит в сохранении (меню отладки стирает запись,
+	// когда возвращает сюжет к заданию на бандитов).
+	FName GetBaseSaveId() const { return ResolveBaseSaveId(); }
+
 private:
 	FTimerHandle ActivationTimerHandle;
 	FTimerHandle SpawnDelayTimerHandle;

@@ -654,6 +654,26 @@ public:
     void NotifyElderGiftGiven() { bElderGiftGiven = true; LimpFirstHint.bConsumed = true; }
     bool IsElderGiftGiven() const { return bElderGiftGiven; }
 
+    // --- Ожидание после сценки старосты про ноутбук (Ринат 10.10.2026) ---
+    // Староста «разбирается с ноутбуком» заданное игровое время; пока оно не вышло, третье
+    // задание не открывается, а список заданий на экране показывает остаток. Признаки лежат в
+    // сохранении, здесь — их копия в памяти (остаток спрашивают каждый кадр).
+
+    // Сценка про ноутбук доиграна: ставит признак «показана» и запускает ожидание на
+    // WaitSeconds игрового времени, сразу пишет в сохранение. Повторный вызов ничего не меняет.
+    void MarkElderNotebookHintShown(float WaitSeconds);
+
+    // Закончить ожидание сейчас (меню отладки). true — ожидание шло и снято.
+    bool SkipElderNotebookWait();
+
+    bool IsElderNotebookHintShown() const { return bElderNotebookHintShown; }
+
+    // Сколько секунд игрового времени осталось ждать (0 — не ждём: время вышло либо таймера нет).
+    float GetElderNotebookWaitRemaining() const;
+
+    // Перечитать эти признаки из сохранения (после «Продолжить», правок меню отладки, в автотестах).
+    void ReloadStoryStateFromSave();
+
     // Есть ли у игрока хоть одна броня — в сумке или надетая. По этому признаку при открытии
     // сумки показывается подсказка про слоты брони (решение Рината 07.10.2026).
     bool HasAnyArmor() const;
@@ -1199,4 +1219,13 @@ private:
     // сохранения: читается в BeginPlay, ставится NotifyElderGiftGiven, сбрасывается новой
     // игрой). Нужна в памяти, потому что правило хромоты спрашивает её каждый кадр.
     bool bElderGiftGiven = false;
+
+    // Копии признаков сохранения bElderNotebookHintShown и ElderNotebookWaitEndPlayTime
+    // (см. MarkElderNotebookHintShown): читаются в BeginPlay и при «Продолжить», сбрасываются
+    // новой игрой.
+    bool bElderNotebookHintShown = false;
+    float ElderNotebookWaitEndPlayTime = -1.0f;
+
+    // Разложить признаки ожидания из объекта сохранения по полям выше.
+    void ApplyStoryStateFromSave(const UContrarySaveGame* Save);
 };

@@ -153,6 +153,12 @@ public:
 	// (ноутбук). Одно место правды для экрана игры (страховка по сохранению) и собеседника.
 	static bool IsStoryEndingQuest(const FQuest& Quest);
 
+	// Есть ли в журнале такое задание в нужном состоянии. Страховка экрана игры при загрузке
+	// сохранения спрашивает «сдано ли» (сюжет пройден), список заданий на экране — «взято ли»
+	// (любое состояние, кроме «только предложено»).
+	static bool IsStoryEndingQuestTurnedIn(const TArray<FQuest>& Journal);
+	static bool IsStoryEndingQuestTaken(const TArray<FQuest>& Journal);
+
 	// Пора ли планировать сообщение о конце сюжета при закрытии этого разговора — чистое
 	// правило для автотеста (самого экрана игры в нём нет).
 	bool ShouldAnnounceStoryEndOnClose() const { return bForeignTurnInEndsStory && bStoryEndingQuestReceivedThisTalk; }

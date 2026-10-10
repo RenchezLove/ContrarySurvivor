@@ -1929,7 +1929,7 @@ void AContrarySurvivorHUD::DrawIntroDirectionMarker()
 
 void AContrarySurvivorHUD::NotifyStoryEpilogueFinished()
 {
-	// Сценку доиграли только что — «показано ли уже» берём из сейва (страховка от повторов
+	// Ноутбук учёному сдали только что — «показано ли уже» берём из сейва (страховка от повторов
 	// при пересоздании HUD в той же сессии).
 	bool bShownInSave = false;
 	if (APlayerController* PC = GetOwningPlayerController())
@@ -1958,16 +1958,17 @@ void AContrarySurvivorHUD::MaybeScheduleEndOfStoryFromSave(APlayerCharacter* Pla
 		// 10.10.2026: сюжет кончается не сценкой про ноутбук у старосты, а сдачей ноутбука
 		// квестовому учёному — смотрим журнал заданий из сохранения. Кто сообщение уже видел,
 		// второй раз его не увидит (признак bEndOfStoryShown прежний).
-		bool bStoryFinished = false;
-		for (const FQuest& Saved : Save->Quests)
-		{
-			if (Saved.State == EQuestState::TurnedIn && AQuestGiverNPC::IsStoryEndingQuest(Saved))
-			{
-				bStoryFinished = true;
-				break;
-			}
-		}
-		ScheduleEndOfStoryMessage(bStoryFinished, Save->bEndOfStoryShown);
+		ScheduleEndOfStoryMessage(AQuestGiverNPC::IsStoryEndingQuestTurnedIn(Save->Quests), Save->bEndOfStoryShown);
+	}
+}
+
+void AContrarySurvivorHUD::ResetEndOfStoryState()
+{
+	GetWorldTimerManager().ClearTimer(EndOfStoryTimer);
+	EndOfStoryGate = FEndOfStoryGate();
+	if (EndOfStoryWidgetInstance && EndOfStoryWidgetInstance->IsInViewport())
+	{
+		EndOfStoryWidgetInstance->RemoveFromParent();
 	}
 }
 

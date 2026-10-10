@@ -9,14 +9,18 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Controllers/EnemyAIController.h"
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"
+#include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"
+#include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h"
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h"
 #include "UInventoryComponent.h"
 #include "AAmmoItem.h"
+#include "AMasterInventoryItem.h"
 #include "APistol.h"
 #include "ARangedWeapon.h"
 #include "AShotgun.h"
@@ -241,6 +245,164 @@ int32 KillEnemiesNear(APlayerCharacter* Player, float Radius)
 	return Victims.Num();
 }
 
+namespace
+{
+	// Общая часть сюжетных кнопок. bBanditQuestReady: false — задание на бандитов ещё не
+	// взято, true — взято и готово к сдаче.
+	bool SetElderStoryState(APlayerCharacter* Player, bool bBanditQuestReady)
+	{
+		UWorld* World = Player ? Player->GetWorld() : nullptr;
+		UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+		UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+		AElderNPC* Elder = nullptr;
+		if (World)
+		{
+			for (TActorIterator<AElderNPC> It(World); It; ++It)
+			{
+				Elder = *It;
+				break;
+			}
+		}
+		if (!Elder || !Quests || !Inventory)
+		{
+			UE_LOG(LogQA, Warning, TEXT("QA: STORY - на уровне нет старосты либо у героя нет журнала заданий или сумки"));
+			return false;
+		}
+
+		AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController());
+		if (PC)
+		{
+			PC->CloseDialog(); // открытый разговор показывал бы уже несуществующее состояние
+		}
+
+		const FQuest& First = Elder->GetOfferedQuest();
+		const FQuest& Second = Elder->GetSecondQuest();
+
+		// 1) Предметы заданий, которых в новом состоянии быть не должно: ноутбук и предметы
+		// прочих заданий журнала (рация охранника). Шкуры первого задания не трогаем — это товар.
+		TSet<FString> QuestItemKeys;
+		auto AddKey = [&QuestItemKeys, &First](const FQuest& Quest)
+		{
+			if (Quest.QuestId != First.QuestId && !Quest.RequiredItemName.IsEmpty())
+			{
+				QuestItemKeys.Add(Quest.RequiredItemName);
+			}
+		};
+		AddKey(Second);
+		AddKey(Elder->GetThirdQuest());
+		for (const FQuest& Quest : Quests->GetQuests())
+		{
+			AddKey(Quest);
+		}
+		for (AMasterInventoryItem* Item : Inventory->GetInventoryItems()) // копия списка
+		{
+			if (Item && QuestItemKeys.Contains(Item->ItemName))
+			{
+				Inventory->RemoveItem(Item);
+				Item->Destroy();
+			}
+		}
+
+		// 2) Журнал: только цепочка старосты, первое задание сдано.
+		FQuest FirstDone = First;
+		FirstDone.Progress = First.TargetCount;
+		FirstDone.ItemProgress = First.RequiredItemCount;
+		FirstDone.State = EQuestState::TurnedIn;
+		Quests->RestoreQuests({ FirstDone });
+
+		bool bOk = true;
+		if (bBanditQuestReady)
+		{
+			// Тем же путём, что в игре: предложено, взято, бандиты убиты, ноутбук в сумке.
+			Quests->OfferQuest(Second);
+			bOk = Quests->AcceptQuest(Second.QuestId);
+			for (int32 Kill = 0; bOk && Kill < Second.TargetCount; ++Kill)
+			{
+				Quests->NotifyKill(Second.KillTargetTag);
+			}
+			if (bOk && Second.RequiredItemCount > 0)
+			{
+				const FName ItemRow = ContraryItems::FindRowNameByLegacyKey(Second.RequiredItemName);
+				const int32 Given = Player->GiveItemFromRow(ItemRow, Second.RequiredItemCount);
+				if (Given < Second.RequiredItemCount)
+				{
+					UE_LOG(LogQA, Warning, TEXT("QA: STORY - предмет задания '%s' не выдан (строка таблицы предметов '%s')"),
+						*Second.RequiredItemName, *ItemRow.ToString());
+				}
+			}
+			Quests->SyncInventoryQuests(Inventory);
+			const FQuest* InLog = Quests->FindQuest(Second.QuestId);
+			bOk = InLog && InLog->State == EQuestState::Completed;
+		}
+
+		// 3) База бандитов — как до задания: иначе на зачищенной базе его не выполнить.
+		TArray<FName> ResetBaseIds;
+		if (!bBanditQuestReady && !Second.MapMarkerTag.IsNone())
+		{
+			for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+			{
+				if (It->GetQuestMarkerTag() == Second.MapMarkerTag)
+				{
+					It->ResetForNewGame();
+					ResetBaseIds.Add(It->GetBaseSaveId());
+				}
+			}
+		}
+
+		// 4) Признаки сюжета в сохранении.
+		if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+		{
+			Save->bElderNotebookHintShown = false;
+			Save->ElderNotebookWaitEndPlayTime = -1.0f;
+			Save->bEndOfStoryShown = false;
+			// Вступительная сценка старосты и его подарок к этому месту сюжета уже позади.
+			Save->bElderHookShown = true;
+			Save->bElderFirstGiftGiven = true;
+			Save->EnemyBaseStates.RemoveAll([&ResetBaseIds](const FSavedEnemyBaseState& State)
+				{ return ResetBaseIds.Contains(State.BaseId); });
+			Player->WriteSaveObject(Save);
+		}
+		Player->ReloadStoryStateFromSave();
+		Player->NotifyElderGiftGiven();
+
+		// 5) Запланированное или показанное сообщение о конце сюжета — забыть.
+		if (PC)
+		{
+			if (AContrarySurvivorHUD* CSHUD = PC->GetHUD<AContrarySurvivorHUD>())
+			{
+				CSHUD->ResetEndOfStoryState();
+			}
+		}
+
+		// 6) К старосте — и всё в сохранение, чтобы «Продолжить» дало то же самое.
+		if (!TeleportPawnNear(Player, Elder->GetActorLocation()))
+		{
+			UE_LOG(LogQA, Warning, TEXT("QA: STORY - рядом со старостой нет свободного места, герой остался где был"));
+		}
+		if (!Player->SaveGame())
+		{
+			UE_LOG(LogQA, Warning, TEXT("QA: STORY - состояние не записалось в сохранение"));
+			bOk = false;
+		}
+		return bOk;
+	}
+}
+
+bool SetStoryElderOffersBanditQuest(APlayerCharacter* Player)
+{
+	return SetElderStoryState(Player, /*bBanditQuestReady=*/false);
+}
+
+bool SetStoryReadyToTurnInBanditLaptop(APlayerCharacter* Player)
+{
+	return SetElderStoryState(Player, /*bBanditQuestReady=*/true);
+}
+
+bool SkipElderNotebookWait(APlayerCharacter* Player)
+{
+	return Player && Player->SkipElderNotebookWait();
+}
+
 } // namespace ContraryDebugTools
 
 // ---------------------------------------------------------------------------
@@ -457,6 +619,24 @@ void SContraryDebugMenu::RebuildContent()
 	{
 		const int32 Killed = ContraryDebugTools::KillEnemiesNear(PlayerOf(WeakPC), DebugMenuKillRadius);
 		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: KILL NEARBY (%d)"), Killed), /*bScreen=*/true);
+	});
+
+	// --- Сюжет ---
+	AddHeader(TEXT("Сюжет"));
+	AddButton(TEXT("Сюжет: староста выдаёт задание на бандитов"), [WeakPC, PlayerOf]()
+	{
+		const bool bOk = ContraryDebugTools::SetStoryElderOffersBanditQuest(PlayerOf(WeakPC));
+		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY bandit quest offer %s"), bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
+	});
+	AddButton(TEXT("Сюжет: сдать старосте ноутбук бандитов"), [WeakPC, PlayerOf]()
+	{
+		const bool bOk = ContraryDebugTools::SetStoryReadyToTurnInBanditLaptop(PlayerOf(WeakPC));
+		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY laptop turn-in %s"), bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
+	});
+	AddButton(TEXT("Сюжет: пропустить ожидание у старосты"), [WeakPC, PlayerOf]()
+	{
+		const bool bOk = ContraryDebugTools::SkipElderNotebookWait(PlayerOf(WeakPC));
+		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY skip elder wait %s"), bOk ? TEXT("OK") : TEXT("ожидание не идёт")), /*bScreen=*/true);
 	});
 
 	// --- Телепорт ---

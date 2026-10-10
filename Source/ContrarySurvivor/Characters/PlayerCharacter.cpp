@@ -41,6 +41,7 @@
 #include "ContrarySurvivor/Actors/Campfire.h"  // смертельное возрождение — всегда у костра (вариант 1+3)
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // «Новая игра» сбрасывает память баз (баг Рината 23.08)
 #include "ContrarySurvivor/Actors/StashChest.h"      // личный сундук: общее хранилище в сохранении
+#include "ContrarySurvivor/Actors/ElderNPC.h"        // правило ожидания старосты после сценки про ноутбук
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
@@ -248,6 +249,7 @@ void APlayerCharacter::BeginPlay()
     {
         SavedPlayTimeBase = FMath::Max(0.0f, PlaySave->TotalPlayTimeSeconds);
         bElderGiftGiven = PlaySave->bElderFirstGiftGiven; // правило развёрнутой подсказки хромоты
+        ApplyStoryStateFromSave(PlaySave);                // ожидание старосты после сценки про ноутбук
     }
     if (UWorld* PlayWorld = GetWorld())
     {
@@ -2263,6 +2265,10 @@ bool APlayerCharacter::LoadGameForContinue()
     SavedPlayTimeBase = FMath::Max(0.0f, Save->TotalPlayTimeSeconds);
     UnflushedPlayTime = 0.0f;
 
+    // Ожидание старосты после сценки про ноутбук — из того же сохранения (отметка считается
+    // от накопителя игрового времени, который только что переприменён).
+    ApplyStoryStateFromSave(Save);
+
     // Статы + телепорт в сейв-точку (зона костра) — теперь, когда память уже полная.
     ApplySaveData(Save);
 
@@ -2325,6 +2331,10 @@ void APlayerCharacter::ResetToNewGame()
     // Накопитель игрового времени — заново (гейт рекламы 15 минут не наследует чужой прогресс).
     SavedPlayTimeBase = 0.0f;
     UnflushedPlayTime = 0.0f;
+
+    // Сценки про ноутбук в новой игре ещё не было — ожидания старосты тоже нет.
+    bElderNotebookHintShown = false;
+    ElderNotebookWaitEndPlayTime = -1.0f;
 
     // Позиция — стартовый спавн (сейв в живого персонажа ещё не грузился, откатывать нечего).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
@@ -2729,6 +2739,65 @@ void APlayerCharacter::FlushPlayTime()
             UnflushedPlayTime = 0.0f;
         }
     }
+}
+
+void APlayerCharacter::ApplyStoryStateFromSave(const UContrarySaveGame* Save)
+{
+    bElderNotebookHintShown = Save && Save->bElderNotebookHintShown;
+    ElderNotebookWaitEndPlayTime = Save ? Save->ElderNotebookWaitEndPlayTime : -1.0f;
+}
+
+void APlayerCharacter::ReloadStoryStateFromSave()
+{
+    ApplyStoryStateFromSave(LoadOrCreateSaveObject());
+}
+
+float APlayerCharacter::GetElderNotebookWaitRemaining() const
+{
+    return AElderNPC::GetNotebookWaitRemaining(ElderNotebookWaitEndPlayTime, GetTotalPlayTimeSeconds());
+}
+
+void APlayerCharacter::MarkElderNotebookHintShown(float WaitSeconds)
+{
+    if (bElderNotebookHintShown)
+    {
+        return; // сценка уже отмечена — таймер заново не заводим
+    }
+
+    // Сначала сбрасываем в сохранение накопленное игровое время: отметка конца ожидания
+    // считается от накопителя, и после перезапуска игры остаток должен сойтись.
+    FlushPlayTime();
+
+    UContrarySaveGame* Save = LoadOrCreateSaveObject();
+    if (!Save)
+    {
+        UE_LOG(LogQA, Warning, TEXT("QA: сценка про ноутбук не отмечена — сохранение не открылось"));
+        return;
+    }
+    Save->bElderNotebookHintShown = true;
+    Save->ElderNotebookWaitEndPlayTime = GetTotalPlayTimeSeconds() + FMath::Max(0.0f, WaitSeconds);
+    WriteSaveObject(Save);
+    ApplyStoryStateFromSave(Save);
+
+    UE_LOG(LogQA, Display, TEXT("QA: elder notebook wait started (%.0f s)"), GetElderNotebookWaitRemaining());
+}
+
+bool APlayerCharacter::SkipElderNotebookWait()
+{
+    if (!bElderNotebookHintShown || GetElderNotebookWaitRemaining() <= 0.0f)
+    {
+        return false;
+    }
+    UContrarySaveGame* Save = LoadOrCreateSaveObject();
+    if (!Save)
+    {
+        return false;
+    }
+    Save->ElderNotebookWaitEndPlayTime = 0.0f; // отметка в прошлом: ожидание было и кончилось
+    WriteSaveObject(Save);
+    ApplyStoryStateFromSave(Save);
+    UE_LOG(LogQA, Display, TEXT("QA: elder notebook wait skipped"));
+    return true;
 }
 
 int32 APlayerCharacter::GetBackpackAdUsesToday() const

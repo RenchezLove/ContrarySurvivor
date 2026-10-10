@@ -250,10 +250,35 @@ void AElderNPC::PostInitializeComponents()
 }
 
 bool AElderNPC::ShouldUnlockThirdQuest(bool bSecondQuestTurnedIn, bool bNotebookHintShown,
-	bool bHasNotebookHintLines, bool bThirdQuestConfigured)
+	bool bHasNotebookHintLines, bool bThirdQuestConfigured, bool bNotebookWaitOver)
 {
-	// Сценки нет вовсе (реплики вычищены в редакторе) — ждать её показа бессмысленно.
-	return bThirdQuestConfigured && bSecondQuestTurnedIn && (bNotebookHintShown || !bHasNotebookHintLines);
+	// Сценки нет вовсе (реплики вычищены в редакторе) — ждать её показа бессмысленно, и
+	// таймер ожидания без неё не запускается.
+	return bThirdQuestConfigured && bSecondQuestTurnedIn
+		&& ((bNotebookHintShown && bNotebookWaitOver) || !bHasNotebookHintLines);
+}
+
+float AElderNPC::GetNotebookWaitRemaining(float WaitEndPlayTime, float TotalPlayTime)
+{
+	return WaitEndPlayTime < 0.0f ? 0.0f : FMath::Max(0.0f, WaitEndPlayTime - TotalPlayTime);
+}
+
+int32 AElderNPC::GetNotebookWaitMinutesLeft(float RemainingSeconds)
+{
+	// Целыми числами: секунды вверх до целой, минуты вверх до целой.
+	int32 Seconds = FMath::TruncToInt32(RemainingSeconds);
+	Seconds += (static_cast<float>(Seconds) < RemainingSeconds) ? 1 : 0;
+	return FMath::Max(1, (Seconds + 59) / 60);
+}
+
+EElderNotebookWaitPhase AElderNPC::GetNotebookWaitPhase(bool bNotebookHintShown,
+	bool bNextQuestTaken, float RemainingSeconds)
+{
+	if (!bNotebookHintShown || bNextQuestTaken)
+	{
+		return EElderNotebookWaitPhase::None;
+	}
+	return RemainingSeconds > 0.0f ? EElderNotebookWaitPhase::Waiting : EElderNotebookWaitPhase::Ready;
 }
 
 bool AElderNPC::TryUnlockThirdQuest(APlayerCharacter* Player) const
@@ -264,17 +289,10 @@ bool AElderNPC::TryUnlockThirdQuest(APlayerCharacter* Player) const
 		return false; // нет журнала, задание выключено или уже открыто
 	}
 
+	// Признак «сценка показана» и остаток ожидания герой держит в памяти (копия сохранения).
 	const bool bSecondDone = PlayerQuests->IsQuestTurnedIn(SecondQuest.QuestId);
-	bool bHintShown = false;
-	if (bSecondDone)
-	{
-		// Сохранение читаем один раз на открытие разговора и только когда второе задание сдано.
-		if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
-		{
-			bHintShown = Save->bElderNotebookHintShown;
-		}
-	}
-	if (!ShouldUnlockThirdQuest(bSecondDone, bHintShown, NotebookHintLines.Num() > 0, /*bThirdQuestConfigured=*/true))
+	if (!ShouldUnlockThirdQuest(bSecondDone, Player->IsElderNotebookHintShown(), NotebookHintLines.Num() > 0,
+		/*bThirdQuestConfigured=*/true, Player->GetElderNotebookWaitRemaining() <= 0.0f))
 	{
 		return false;
 	}

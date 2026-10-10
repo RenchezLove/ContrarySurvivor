@@ -232,6 +232,18 @@ bool AQuestGiverNPC::IsStoryEndingQuest(const FQuest& Quest)
 	return !Quest.TurnInNpcTag.IsNone() && Quest.TurnInNpcTag == ScientistBaseTags::QuestScientist;
 }
 
+bool AQuestGiverNPC::IsStoryEndingQuestTurnedIn(const TArray<FQuest>& Journal)
+{
+	return Journal.ContainsByPredicate([](const FQuest& Q)
+		{ return Q.State == EQuestState::TurnedIn && IsStoryEndingQuest(Q); });
+}
+
+bool AQuestGiverNPC::IsStoryEndingQuestTaken(const TArray<FQuest>& Journal)
+{
+	return Journal.ContainsByPredicate([](const FQuest& Q)
+		{ return Q.State != EQuestState::NotStarted && IsStoryEndingQuest(Q); });
+}
+
 void AQuestGiverNPC::OnTalkClosed(APlayerCharacter* Player)
 {
 	// Разговор, в котором принят ноутбук, закрылся (реплика-заглушка прочитана) — экран игры
