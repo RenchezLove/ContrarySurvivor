@@ -54,7 +54,7 @@ protected:
 	// Задание, которому принадлежит предмет (идентификатор латиницей).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestItem", meta = (DisplayPriority = "1",
 		DisplayName = "Задание (идентификатор)"))
-	FName QuestId = FName(TEXT("FetchGuardRadio"));
+	FName QuestId = ContraryQuestIds::FetchGuardRadio;
 
 	// Что лежит: строка таблицы предметов.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestItem", meta = (DisplayPriority = "2",

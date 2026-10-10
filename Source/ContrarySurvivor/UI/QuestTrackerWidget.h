@@ -59,7 +59,7 @@ public:
 	// Время вышло — строка держится, пока следующее задание у старосты не взято. Черновик.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|Texts", meta = (DisplayPriority = "6", MultiLine = "true"))
 	FText ElderWaitReadyText = NSLOCTEXT("QuestTracker", "ElderWaitReady",
-		"Староста разобрался с ноутбуком. Поговорите с ним.");
+		"Староста зовёт: есть новости про ноутбук.");
 
 	// Строка ожидания по её состоянию (пусто — показывать нечего). Чистая функция: её же
 	// зовёт запасная отрисовка экрана игры и проверяют автотесты.

@@ -206,7 +206,7 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "3", MultiLine = "true"))
 	FText DialogueCompletedText = NSLOCTEXT("Dialog", "ElderCompleted",
-		"Отлично! Задание выполнено. Вот твоя награда.");
+		"Управился, значит. Не зря понадеялся. Держи плату.");
 
 	// ADR-065 (замысел Рината: «первое оружие — решение игрока, а не подарок»). Реплика
 	// показывается ТОЛЬКО при сдаче ПЕРВОГО квеста, вместе с наградой: староста не даёт
@@ -215,7 +215,7 @@ protected:
 	// обычная реплика выше. Очистить это поле — вернуть прежнее поведение для всех квестов.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4", MultiLine = "true"))
 	FText FirstQuestCompletedText = NSLOCTEXT("Dialog", "ElderFirstQuestCompleted",
-		"Держи, заработал. И вот что: загляни к торговцу, он под навесом. С ножом на волка ходить — дело молодое, а с железом в руке и подальше зайти можно. Да про припасы не забудь: голодному дорога короткая.");
+		"Держи, заработал. И вот что: загляни к торговцу, он под навесом. С ножом на волка ходить — дело молодое, а с железом в руке и подальше зайти можно. Да про припасы не забудь. Снарядишься — приходи: есть дело посерьёзнее волков.");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
 	FText DialogueTurnedInText = NSLOCTEXT("Dialog", "ElderTurnedIn",
@@ -310,12 +310,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "8", MultiLine = "true",
 		DisplayName = "Реплика: герой ещё несёт ноутбук учёным"))
 	FText ThirdQuestCarryText = NSLOCTEXT("Dialog", "ElderThirdQuestCarry",
-		"Ноутбук у тебя. Неси его учёным на базу — дорогу покажет метка.");
+		"Ноутбук у тебя — вот и неси. База учёных на юго-западе, от перекрёстка на юг.");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "9", MultiLine = "true",
 		DisplayName = "Реплика: ноутбук отнесён учёным"))
 	FText ThirdQuestDoneText = NSLOCTEXT("Dialog", "ElderThirdQuestDone",
-		"Отнёс ноутбук? Добро. Теперь дело за учёными: как разберутся — узнаем, кто за тобой охотится.");
+		"Отнёс? Добро. Теперь дело за учёными: как разберутся — узнаем, кто за тобой охотится. А пока живи с оглядкой.");
 
 	// Сценка после сдачи кв.2 (Build 1.2, формулировка Рината 07-31): реплика 1 — сюжетный
 	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится», СОХРАНЁН); дальше
@@ -333,7 +333,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint",
 		meta = (DisplayPriority = "2", MultiLine = "true", DisplayName = "Реплика при повторных разговорах"))
 	FText NotebookHintRepeatText = NSLOCTEXT("Dialog", "ElderNotebookHintRepeat",
-		"Копаюсь в ноутбуке, дай мне время. А волки к югу никуда не делись — и торговец за шкуры платит исправно.");
+		"Не торопи. Сижу над ноутбуком, а он упирается, как чужой пёс. Волки к югу никуда не делись — и торговец за шкуры платит исправно.");
 
 	// Сколько староста «разбирается с ноутбуком» после сценки (Ринат 10.10.2026), секунды
 	// ИГРОВОГО времени: на паузе не идёт, выход из игры и смерть не сбрасывают. Пока время не
