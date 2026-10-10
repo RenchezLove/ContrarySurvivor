@@ -12,6 +12,7 @@
 #include "AArmor.h"               // EArmorSlot, надетая броня paper-doll
 #include "AMasterInventoryItem.h" // EItemCategory, ItemIcon
 #include "AMasterWeapon.h"        // слот оружия (отображение)
+#include "ARangedWeapon.h"        // EFirearmSlot: два слота огнестрела
 #include "UInventoryComponent.h"
 #include "Blueprint/WidgetTree.h" // сетка плиток строится в дереве живого экрана
 #include "Components/TextBlock.h"
@@ -45,6 +46,14 @@ void UInventoryScreenWidget::NativeOnInitialized()
 	if (LegsSlotButton)
 	{
 		LegsSlotButton->OnClicked.AddDynamic(this, &UInventoryScreenWidget::HandleLegsSlotClicked);
+	}
+	if (RangedSlotButton)
+	{
+		RangedSlotButton->OnClicked.AddDynamic(this, &UInventoryScreenWidget::HandleRangedSlotClicked);
+	}
+	if (LongSlotButton)
+	{
+		LongSlotButton->OnClicked.AddDynamic(this, &UInventoryScreenWidget::HandleLongSlotClicked);
 	}
 	if (CloseButton)
 	{
@@ -180,11 +189,13 @@ FString UInventoryScreenWidget::MakeWeaponSignature() const
 	{
 		return FString();
 	}
-	const AMasterWeapon* Ranged = Player->GetRangedWeaponInstance();
+	const AMasterWeapon* Ranged = Player->GetFirearmInSlot(EFirearmSlot::Sidearm);
+	const AMasterWeapon* Long = Player->GetFirearmInSlot(EFirearmSlot::Long);
 	const AMasterWeapon* Melee = Player->GetMeleeWeaponInstance();
 	const AMasterWeapon* InHands = Player->GetCurrentWeapon();
-	return FString::Printf(TEXT("%s|%s|%s"),
+	return FString::Printf(TEXT("%s|%s|%s|%s"),
 		Ranged ? *Ranged->GetName() : TEXT("-"),
+		Long ? *Long->GetName() : TEXT("-"),
 		Melee ? *Melee->GetName() : TEXT("-"),
 		InHands ? *InHands->GetName() : TEXT("-"));
 }
@@ -213,10 +224,13 @@ void UInventoryScreenWidget::RefreshAll()
 	// огнестрельное»). Экземпляры живут оба сразу, в руках — один: он и помечается.
 	// Это ТОЛЬКО отображение, переключение оружия по-прежнему делает SwitchWeapon.
 	const AMasterWeapon* InHands = Player->GetCurrentWeapon();
-	const AMasterWeapon* Ranged = Player->GetRangedWeaponInstance();
+	// 10.10.2026: слотов огнестрела два — короткое (прежние кубики RangedSlot*) и длинное.
+	const AMasterWeapon* Ranged = Player->GetFirearmInSlot(EFirearmSlot::Sidearm);
+	const AMasterWeapon* Long = Player->GetFirearmInSlot(EFirearmSlot::Long);
 	const AMasterWeapon* Melee = Player->GetMeleeWeaponInstance();
-	RefreshWeaponSlot(Ranged, Ranged && Ranged == InHands, RangedSlotText, RangedSlotIcon);
-	RefreshWeaponSlot(Melee, Melee && Melee == InHands, MeleeSlotText, MeleeSlotIcon);
+	RefreshWeaponSlot(Ranged, Ranged && Ranged == InHands, RangedSlotText, RangedSlotIcon, EmptySidearmSlotText);
+	RefreshWeaponSlot(Long, Long && Long == InHands, LongSlotText, LongSlotIcon, EmptyLongSlotText);
+	RefreshWeaponSlot(Melee, Melee && Melee == InHands, MeleeSlotText, MeleeSlotIcon, EmptySlotText);
 
 	// --- Рюкзак: СЕТКА ПЛИТОК (Build 1.2.2, Ринат: «иконки в сетке, как в сталкере или
 	// LDoE») внутри прежнего ScrollBox-кубика. Плитки — динамика (как раньше строки):
@@ -307,16 +321,23 @@ void UInventoryScreenWidget::RefreshAll()
 }
 
 void UInventoryScreenWidget::RefreshWeaponSlot(const AMasterWeapon* Weapon, bool bInHands,
-	UTextBlock* SlotText, UImage* SlotIcon)
+	UTextBlock* SlotText, UImage* SlotIcon, const FText& EmptyText)
 {
 	if (SlotText)
 	{
 		// Здесь была ГЛАВНАЯ протечка служебных имён: стоял Weapon->GetName() и игрок читал
 		// «BP_Pistol_C_1» (ADR-049, ревью издателя). Название берётся как у любого предмета,
 		// пустой слот — то же слово, что у пустого слота брони.
-		FFormatNamedArguments Args;
-		Args.Add(TEXT("ItemName"), Weapon ? Weapon->GetItemDisplayText() : EmptySlotText);
-		SlotText->SetText(FText::Format(bInHands ? WeaponInHandsFormat : WeaponFormat, Args));
+		if (Weapon)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("ItemName"), Weapon->GetItemDisplayText());
+			SlotText->SetText(FText::Format(bInHands ? WeaponInHandsFormat : WeaponFormat, Args));
+		}
+		else
+		{
+			SlotText->SetText(EmptyText); // пустой слот называет себя сам
+		}
 	}
 
 	if (SlotIcon)
@@ -391,6 +412,17 @@ void UInventoryScreenWidget::HandleHeadSlotClicked()  { UnequipSlot(EArmorSlot::
 void UInventoryScreenWidget::HandleTorsoSlotClicked() { UnequipSlot(EArmorSlot::Torso); }
 void UInventoryScreenWidget::HandleLegsSlotClicked()  { UnequipSlot(EArmorSlot::Legs); }
 
+void UInventoryScreenWidget::UnequipFirearmSlot(EFirearmSlot FirearmSlot)
+{
+	if (Player && PanelMode == EItemPanelMode::Normal && Player->UnequipFirearmToBackpack(FirearmSlot))
+	{
+		RefreshAll();
+	}
+}
+
+void UInventoryScreenWidget::HandleRangedSlotClicked() { UnequipFirearmSlot(EFirearmSlot::Sidearm); }
+void UInventoryScreenWidget::HandleLongSlotClicked()   { UnequipFirearmSlot(EFirearmSlot::Long); }
+
 void UInventoryScreenWidget::HandleCloseClicked()
 {
 	OnCloseRequested.Broadcast(); // закрывает контроллер (тот же путь, что клавиша Tab)
@@ -431,7 +463,7 @@ void UInventoryScreenWidget::HandleTileUse(UItemTileWidget* Tile)
 		else if (Category == EItemCategory::Weapon)
 		{
 			// STALKER-поток: тап по огнестрелу в рюкзаке переносит его в пустой слот оружия
-			// (в кобуру). Слот занят другим стволом (двустволка, 09.10.2026) — стволы
+			// ЕГО ВИДА (короткое или длинное, 10.10.2026). Слот этого вида занят — стволы
 			// меняются местами: прежний уходит в рюкзак. Не дальнобойное оружие — оба вызова
 			// вернут false, предмет просто остаётся в рюкзаке, окно не перерисовываем.
 			if (Player->TryAdoptRangedWeapon(Item) || Player->SwapRangedWeaponFromBackpack(Item))

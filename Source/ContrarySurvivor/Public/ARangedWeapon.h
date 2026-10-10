@@ -12,6 +12,18 @@ class UStaticMeshComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 
+// Слот огнестрела у игрока (Ринат 10.10.2026: «быстро переключаться между пистолетом и
+// двуручным оружием»). Слотов два, и какой из них занимает ствол — признак самого оружия:
+// короткое (пистолет) носится в одном, длинное двуручное (двустволка, будущие автоматы и
+// винтовки) — в другом. Оба могут быть заняты одновременно.
+UENUM(BlueprintType)
+enum class EFirearmSlot : uint8
+{
+	Sidearm UMETA(DisplayName = "Короткое (пистолет)"),
+	Long    UMETA(DisplayName = "Длинное двуручное"),
+	Count   UMETA(Hidden)
+};
+
 UCLASS(Abstract, Blueprintable)
 class CONTRARYSURVIVOR_API ARangedWeapon : public AMasterWeapon
 {
@@ -63,6 +75,13 @@ protected:
 		DisplayName = "Вид патрона (строка таблицы предметов)",
 		ToolTip = "Каким патроном заряжается оружие: имя строки таблицы предметов (ammo_9mm — пистолетный, ammo_12g — дробовой). Должно совпадать с видом патрона у пачки."))
 	FName AmmoType;
+
+	// Какой слот оружия игрока занимает этот ствол (см. EFirearmSlot). По умолчанию короткое —
+	// прежний пистолет; длинное оружие ставит значение в своём классе или чертеже.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Stats", meta = (DisplayPriority = "1",
+		DisplayName = "Слот оружия у игрока",
+		ToolTip = "В какой слот оружия игрока встаёт этот ствол: короткое (пистолет) или длинное двуручное (ружьё, автомат, винтовка). Стволы разных слотов носятся одновременно, кнопка смены оружия переключает между ними."))
+	EFirearmSlot FirearmSlot = EFirearmSlot::Sidearm;
 
 	// --- Звук выстрела (Демо; вариации — Ринат 30.08) ---
 	// Проигрывается в момент реального выстрела (не на пустой обойме). Выстрел бандита
@@ -216,6 +235,10 @@ public:
 	// Вид патрона оружия (пустое поле = прежний пистолетный).
 	UFUNCTION(BlueprintPure, Category = "Weapon|Ammo")
 	FName GetAmmoType() const;
+
+	// Слот оружия игрока, который занимает этот ствол.
+	UFUNCTION(BlueprintPure, Category = "Weapon|Stats")
+	EFirearmSlot GetFirearmSlot() const { return FirearmSlot; }
 
 	// Случайные направления дробин внутри конуса вокруг AimDir (полный угол в градусах).
 	// Чистый расчёт без мира — его же проверяет автотест «дробины не выходят за конус».

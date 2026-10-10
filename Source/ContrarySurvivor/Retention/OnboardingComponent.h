@@ -269,11 +269,11 @@ public:
 	// Про смену оружия — когда у игрока впервые появилось второе оружие.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "4"))
 	FText HintTextWeaponSwitch = NSLOCTEXT("OnboardingComponent", "HintWeaponSwitch",
-		"Q — сменить оружие");
+		"Q — сменить оружие, V — удар ножом");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "4"))
 	FText HintTextWeaponSwitchTouch = NSLOCTEXT("OnboardingComponent", "HintWeaponSwitchTouch",
-		"Кнопка ОРУЖИЕ — сменить оружие");
+		"Кнопка ОРУЖИЕ — сменить оружие, кнопка с ножом — удар ножом");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Onboarding|Texts", meta = (DisplayPriority = "5"))
 	FText HintTextPickup = NSLOCTEXT("OnboardingComponent", "HintPickup", "Нажми E, чтобы подобрать");

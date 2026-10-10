@@ -513,7 +513,9 @@ bool FShotgunAmmoTypeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Пистолетные патроны в ружьё не ушли"), Player->GetReserveAmmoInInventory(Type9), 23);
 	Player->AddAmmoToInventory(4, Type12);
 
-	// --- Смена ствола в занятом слоте: пистолет вместо ружья, ружьё уходит в рюкзак ---
+	// --- Второй ствол другого вида (10.10.2026, два слота огнестрела): пистолет встаёт в СВОЙ
+	// слот рядом с ружьём, ружьё никуда не уходит и остаётся в руках. Раньше слот был один и
+	// пистолет вытеснял ружьё в рюкзак — это поведение намеренно заменено. ---
 	APistol* Pistol = ShotgunTestWorld::Spawn<APistol>(World, Origin);
 	if (!TestNotNull(TEXT("Пистолет заспавнен"), Pistol))
 	{
@@ -524,11 +526,13 @@ bool FShotgunAmmoTypeTest::RunTest(const FString& Parameters)
 	Pistol->SetActorHiddenInGame(true);
 	Pistol->SetActorEnableCollision(false);
 	Inv->AddItem(Pistol);
-	TestFalse(TEXT("В занятый слот ствол сам не встаёт (прежнее правило)"), Player->TryAdoptRangedWeapon(Pistol));
-	TestTrue(TEXT("Нажатие на ствол при занятом слоте меняет стволы"), Player->SwapRangedWeaponFromBackpack(Pistol));
-	TestTrue(TEXT("В слоте теперь пистолет"), Player->GetRangedWeaponInstance() == Pistol);
-	TestTrue(TEXT("Пистолет в руках (прежний ствол был в руках)"), Player->GetCurrentWeapon() == Pistol);
-	TestTrue(TEXT("Ружьё лежит в рюкзаке"), Inv->GetInventoryItems().Contains(Shotgun));
+	TestTrue(TEXT("Пистолет встаёт в свой слот при занятом слоте ружья"), Player->TryAdoptRangedWeapon(Pistol));
+	TestTrue(TEXT("В слоте короткого оружия пистолет"), Player->GetFirearmInSlot(EFirearmSlot::Sidearm) == Pistol);
+	TestTrue(TEXT("Ружьё осталось в слоте длинного оружия"), Player->GetFirearmInSlot(EFirearmSlot::Long) == Shotgun);
+	TestTrue(TEXT("В руках по-прежнему ружьё"), Player->GetCurrentWeapon() == Shotgun);
+	TestFalse(TEXT("Ружьё в рюкзак не ушло"), Inv->GetInventoryItems().Contains(Shotgun));
+	Player->SwitchWeapon();
+	TestTrue(TEXT("Кнопка смены оружия берёт пистолет"), Player->GetCurrentWeapon() == Pistol);
 	TestFalse(TEXT("Пистолета в рюкзаке больше нет"), Inv->GetInventoryItems().Contains(Pistol));
 	const int32 Expected9 = 23 + PistolCameWith;
 	TestEqual(TEXT("Запас пистолета лёг пистолетными патронами"), Player->GetReserveAmmoInInventory(Type9), Expected9);

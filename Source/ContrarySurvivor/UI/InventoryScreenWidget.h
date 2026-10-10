@@ -17,6 +17,7 @@ class APlayerCharacter;
 class AMasterWeapon;
 class AMasterInventoryItem;
 enum class EArmorSlot : uint8;
+enum class EFirearmSlot : uint8;
 
 /**
  * Экран инвентаря на UMG (ADR-048, этап 2). Логика — здесь; раскладку WBP_Inventory
@@ -132,6 +133,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "7"))
 	FText WeaponInHandsFormat = NSLOCTEXT("Inventory", "WeaponInHandsFormat", "{ItemName} — в руках");
 
+	// Надписи ПУСТЫХ слотов огнестрела (10.10.2026: слотов два). По ним игрок видит, какой
+	// слот под какое оружие, пока в нём ничего нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "8"))
+	FText EmptySidearmSlotText = NSLOCTEXT("Inventory", "EmptySidearmSlot", "Пистолет — пусто");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
+	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Длинное оружие — пусто");
+
 	// Подписи «Использовать»/«Надеть» и формат «{ItemName} x{Count}» строкового рюкзака
 	// УДАЛЕНЫ (Build 1.2.2, тайлы): действие теперь — клик по самой плитке, а количество —
 	// цифра в правом нижнем углу иконки (UItemTileWidget::CountFormat).
@@ -150,6 +159,8 @@ protected:
 	UFUNCTION() void HandleTorsoSlotClicked();
 	UFUNCTION() void HandleLegsSlotClicked();
 	UFUNCTION() void HandleCloseClicked();
+	UFUNCTION() void HandleRangedSlotClicked();
+	UFUNCTION() void HandleLongSlotClicked();
 
 	// Клики плиток рюкзака (payload — в плитке): клик по плитке = использовать/надеть,
 	// мини-кнопка в углу = выбросить.
@@ -170,7 +181,11 @@ protected:
 	// Один слот оружия (Build 1.2.2): название по WeaponFormat/WeaponInHandsFormat
 	// (активный помечается), иконка через GetItemIcon; нет оружия — слово пустого слота.
 	void RefreshWeaponSlot(const AMasterWeapon* Weapon, bool bInHands,
-		UTextBlock* SlotText, UImage* SlotIcon);
+		UTextBlock* SlotText, UImage* SlotIcon, const FText& EmptyText);
+
+	// Снять ствол из слота в рюкзак (нажатие на занятый слот; пустой — ничего). Только в
+	// обычном режиме окна: при обыске и торговле нажатия в сумке значат другое.
+	void UnequipFirearmSlot(EFirearmSlot FirearmSlot);
 
 	// Снять броню слота (клик по занятому слоту; пустой — ничего).
 	void UnequipSlot(EArmorSlot ArmorSlot);
@@ -239,6 +254,23 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> MeleeSlotIcon;
+
+	// Второй слот огнестрела — длинное двуручное оружие (Ринат 10.10.2026). Прежний слот
+	// RangedSlot* теперь показывает короткое оружие (пистолет).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> LongSlotText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> LongSlotIcon;
+
+	// Кнопки слотов огнестрела: нажатие на занятый слот снимает ствол в рюкзак (как у слотов
+	// брони). У пистолета это невидимая кнопка по месту значка, слот длинного оружия — сам
+	// кнопка (устроен как слот брони: подпись, значок и название внутри).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> RangedSlotButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> LongSlotButton;
 
 	// Список рюкзака (ScrollBox из WBP; Build 1.2.2 — код кладёт внутрь СЕТКУ плиток).
 	UPROPERTY(meta = (BindWidgetOptional))

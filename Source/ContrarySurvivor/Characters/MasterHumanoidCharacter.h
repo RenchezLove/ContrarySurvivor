@@ -11,6 +11,7 @@
 class UInventoryComponent;
 class UAnimMontage;
 class UAnimSequence;
+class AMeleeWeapon;
 
 #include "MasterHumanoidCharacter.generated.h"
 
@@ -207,8 +208,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void UnequipWeapon();
 
+	// Крепит оружие к правой кисти (сокет хвата или кость + поправка хвата класса оружия).
+	// Общая часть EquipWeapon; отдельно нужна игроку, чтобы на время удара ножом с отдельной
+	// кнопки показать нож в руке, не меняя оружие «в руках» (CurrentWeapon).
+	void AttachWeaponToHand(AMasterWeapon* Weapon);
+
+	// virtual: APlayerCharacter не стреляет, пока идёт замах ножом с отдельной кнопки.
 	UFUNCTION(BlueprintCallable, Category = "Combat")
-	void FireCurrentWeapon(AActor* Target);
+	virtual void FireCurrentWeapon(AActor* Target);
+
+	// Холодное оружие, чей замах сейчас может ждать кадр удара (метка UAnimNotify_MeleeHit).
+	// По умолчанию — то, что в руках; у игрока нож бьёт и при огнестреле в руках, поэтому
+	// он отдаёт свой нож всегда (APlayerCharacter).
+	virtual AMeleeWeapon* GetSwingMeleeWeapon() const;
 
 	// --- Боевые анимации (Build 1.1, требование Рината: «человеческие персонажи, в том числе
 	// игрок и бандиты»). Ссылки живут на ПЕРСОНАЖЕ, поэтому одинаково работают у игрока и у

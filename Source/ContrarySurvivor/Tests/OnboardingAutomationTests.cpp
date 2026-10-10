@@ -143,10 +143,10 @@ bool FOnboardingStartHintOnlyMovementTest::RunTest(const FString& Parameters)
 		FString(TEXT("Нажми на врага, чтобы ударить")));
 	TestEqual(TEXT("Смена оружия, телефон"),
 		Hints->GetHintText(EOnboardingHint::WeaponSwitch, true).ToString(),
-		FString(TEXT("Кнопка ОРУЖИЕ — сменить оружие")));
+		FString(TEXT("Кнопка ОРУЖИЕ — сменить оружие, кнопка с ножом — удар ножом")));
 	TestEqual(TEXT("Смена оружия, ПК"),
 		Hints->GetHintText(EOnboardingHint::WeaponSwitch, false).ToString(),
-		FString(TEXT("Q — сменить оружие")));
+		FString(TEXT("Q — сменить оружие, V — удар ножом")));
 
 	// Когда показывать.
 	const float Trigger = Hints->AttackHintDistance;

@@ -6,6 +6,7 @@
 #include "Animation/AnimMontage.h" // Build 1.1: боевые монтажи (выстрел/удар)
 #include "Animation/AnimSequence.h" // Build 1.2: анимация смерти (полное тело, Single Node)
 #include "ARangedWeapon.h"         // Build 1.1: признак прицеливания (HasTarget)
+#include "AMeleeWeapon.h"          // GetSwingMeleeWeapon
 #include "GameFramework/CharacterMovementComponent.h"
 #include "ContrarySurvivor/ContrarySurvivor.h"
 #include "UInventoryComponent.h"
@@ -258,21 +259,15 @@ void AMasterHumanoidCharacter::EndAimTurn()
 	}
 }
 
-void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
+// Крепление оружия к правой кисти: общая часть экипировки (EquipWeapon) и короткого показа
+// ножа в руке при ударе с отдельной кнопки (APlayerCharacter::QuickMeleeAttack). Какое оружие
+// считается «в руках» (CurrentWeapon), здесь не решается — только место и поза в ладони.
+void AMasterHumanoidCharacter::AttachWeaponToHand(AMasterWeapon* Weapon)
 {
-    if (!NewWeapon)
+    if (!Weapon)
     {
-        UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: NewWeapon is null"));
         return;
     }
-
-    // Снимаем текущее оружие если есть
-    if (CurrentWeapon)
-    {
-        UnequipWeapon();
-    }
-
-    CurrentWeapon = NewWeapon;
 
     // Крепим оружие к КОСТИ правой кисти (R_Hand), а не к сокету (сокета WeaponSocket на
     // TorsoMesh нет — оружие падало в origin). Носитель кости определяем ПО ФАКТУ:
@@ -343,7 +338,7 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
         // наследовало крупный масштаб кости и раздувалось до scale~100 (гигантский
         // пистолет в воздухе). NotIncludingScale сохраняет собственный масштаб оружия (1).
         const FName AttachName = bUseGripSocket ? WeaponGripSocketName : WeaponAttachBoneName;
-        CurrentWeapon->AttachToComponent(BoneCarrier,
+        Weapon->AttachToComponent(BoneCarrier,
             FAttachmentTransformRules::SnapToTargetNotIncludingScale,
             AttachName);
 
@@ -356,12 +351,12 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
         // Масштаб не трогаем: attach выше сохранил мировой масштаб оружия (KeepWorld),
         // а SetRelativeLocationAndRotation масштабную часть не пишет.
         const FTransform WeaponGripOffsetTM(
-            CurrentWeapon->GetGripOffsetRotation(), CurrentWeapon->GetGripOffsetLocation());
+            Weapon->GetGripOffsetRotation(), Weapon->GetGripOffsetLocation());
         const FTransform BaseGripTM = bUseGripSocket
             ? FTransform::Identity
             : FTransform(WeaponGripRotation, WeaponGripLocation);
         const FTransform FinalGripTM = WeaponGripOffsetTM * BaseGripTM;
-        if (USceneComponent* WeaponRoot = CurrentWeapon->GetRootComponent())
+        if (USceneComponent* WeaponRoot = Weapon->GetRootComponent())
         {
             WeaponRoot->SetRelativeLocationAndRotation(
                 FinalGripTM.GetLocation(), FinalGripTM.GetRotation());
@@ -370,11 +365,11 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
         const USkeletalMesh* CarrierAsset = BoneCarrier->GetSkeletalMeshAsset();
         // Владелец — ЯВНО в лог (запрос лида 08-05: строки «EquipWeapon: Equipped BP_Pistol_C»
         // у игрока/врага/торговца были неотличимы — расследование регрессии заняло полчаса
-        // именно из-за этого). Владелец — ЭТОТ гуманоид (this), не путать с CurrentWeapon.
+        // именно из-за этого). Владелец — ЭТОТ гуманоид (this), не путать с Weapon.
         UE_LOG(LogTemp, Log,
             TEXT("EquipWeapon[%s]: attached %s to %s '%s' on %s mesh '%s' (component '%s')"),
             *GetName(),
-            *CurrentWeapon->GetName(),
+            *Weapon->GetName(),
             bUseGripSocket ? TEXT("SOCKET") : TEXT("bone"),
             *AttachName.ToString(),
             bCarrierIsLeader ? TEXT("LEADER") : TEXT("follower"),
@@ -385,12 +380,31 @@ void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
     {
         // Кость не найдена ни на одном меше — крепим к капсуле (корню), чтобы оружие не
         // улетало в origin мира, и громко логируем (нужно поправить имя кости/скелет).
-        CurrentWeapon->AttachToComponent(GetRootComponent(),
+        Weapon->AttachToComponent(GetRootComponent(),
             FAttachmentTransformRules::KeepRelativeTransform);
         UE_LOG(LogTemp, Warning,
             TEXT("EquipWeapon: bone '%s' NOT found on Head/Torso/Legs meshes — attached to root as fallback. Check bone name / skeleton."),
             *WeaponAttachBoneName.ToString());
     }
+}
+
+void AMasterHumanoidCharacter::EquipWeapon(AMasterWeapon* NewWeapon)
+{
+    if (!NewWeapon)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("EquipWeapon: NewWeapon is null"));
+        return;
+    }
+
+    // Снимаем текущее оружие если есть
+    if (CurrentWeapon)
+    {
+        UnequipWeapon();
+    }
+
+    CurrentWeapon = NewWeapon;
+
+    AttachWeaponToHand(NewWeapon);
 
     // Устанавливаем владельца оружия
     CurrentWeapon->SetInstigator(this);
@@ -546,6 +560,11 @@ void AMasterHumanoidCharacter::FireCurrentWeapon(AActor* Target)
     }
 
     CurrentWeapon->Fire(Target);
+}
+
+AMeleeWeapon* AMasterHumanoidCharacter::GetSwingMeleeWeapon() const
+{
+    return Cast<AMeleeWeapon>(CurrentWeapon);
 }
 
 void AMasterHumanoidCharacter::ReloadCurrentWeapon()

@@ -279,6 +279,7 @@ public:
 	void TouchInteract()        { OnInteract(); }
 	void TouchToggleInventory() { OnToggleInventory(); }
 	void TouchSwitchWeapon()    { OnSwitchWeapon(); }
+	void TouchMeleeAttack()     { OnMeleeAttack(); }
 	void TouchTogglePauseMenu() { OnTogglePauseMenu(); }
 
 	// Тач-слой активен (Android всегда; ПК — по флагу bEnableTouchControls). HUD выбирает
@@ -565,6 +566,11 @@ protected:
 	// ОРУЖИЕ: смена пистолет<->нож, тот же обработчик, что клавиша Q.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 12))
 	FTouchButtonSettings TouchWeaponButton;
+
+	// НОЖ: удар ножом при огнестреле в руках, тот же обработчик, что клавиша V. Настройки
+	// действуют для слоя, построенного кодом; в готовом файле экранных кнопок кнопку двигают там.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 12))
+	FTouchButtonSettings TouchMeleeButton;
 
 	// СУМКА: открыть/закрыть инвентарь (Tab). Видна и при открытых окнах — повторный тап закрывает.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls", meta = (DisplayPriority = 13))
@@ -858,6 +864,12 @@ protected:
 	// (Config/DefaultInput.ini), чтобы не плодить Enhanced Input .uasset без редактора (Фаза 3).
 	UFUNCTION()
 	void OnSwitchWeapon();
+
+	// Удар ножом с отдельной кнопки (Ринат 10.10.2026): работает при любом оружии в руках,
+	// оружие в руках не меняется. LEGACY ActionMapping "MeleeAttack" (Config/DefaultInput.ini):
+	// клавиша V и средняя кнопка мыши; на телефоне — экранная кнопка с ножом.
+	UFUNCTION()
+	void OnMeleeAttack();
 
 	// Открыть/закрыть экран инвентаря (клавиша Tab / I). Привязано через LEGACY ActionMapping
 	// "ToggleInventory" (Config/DefaultInput.ini) — без нового IA/.uasset (Фаза 4).

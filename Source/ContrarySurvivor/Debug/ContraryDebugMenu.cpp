@@ -193,14 +193,15 @@ ARangedWeapon* GiveFirearm(APlayerCharacter* Player, FName PreferredRow,
 	Weapon->SetActorEnableCollision(false);
 	Inventory->AddItem(Weapon);
 
-	// В слот: пустой — занять, занятый — поменять стволы местами; затем в руки.
+	// В слот СВОЕГО вида (короткое или длинное): пустой — занять, занятый — поменять стволы
+	// местами; второй слот не трогается. Затем в руки.
 	if (!Player->TryAdoptRangedWeapon(Weapon))
 	{
 		Player->SwapRangedWeaponFromBackpack(Weapon);
 	}
-	if (Player->GetRangedWeaponInstance() == Weapon && Player->GetCurrentWeapon() != Weapon)
+	if (Player->IsSlotFirearm(Weapon))
 	{
-		Player->SwitchWeapon();
+		Player->SelectFirearmSlot(Weapon->GetFirearmSlot());
 	}
 
 	if (ExtraAmmo > 0)

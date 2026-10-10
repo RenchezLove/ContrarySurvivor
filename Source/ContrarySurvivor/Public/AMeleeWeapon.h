@@ -47,6 +47,14 @@ public:
 	// цели выбирает сектор.
 	virtual void Fire(AActor* Target) override;
 
+	// То же, что Fire, но с ответом: true — замах реально начался (кулдаун прошёл, носитель
+	// есть). Нужен удару ножом с отдельной кнопки (APlayerCharacter::QuickMeleeAttack): по
+	// ответу игрок понимает, запирать ли стрельбу на время замаха.
+	bool StartSwing();
+
+	// Замах начат и ещё ждёт свой кадр удара (метку на дорожке анимации).
+	bool IsSwingAwaitingHit() const { return bSwingAwaitingNotify; }
+
 	// Урон по ПЕРЕДНЕМУ СЕКТОРУ (ADR-037): до MaxTargetsPerSwing ближайших целей в секторе
 	// с полууглом MeleeSectorHalfAngleDeg на дистанции MeleeRange, плюс микро-заморозка при
 	// попадании игрока. Зовётся уведомлением UAnimNotify_MeleeHit с кадра взмаха, а при

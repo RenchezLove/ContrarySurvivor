@@ -12,6 +12,7 @@
 #include "GameFramework/Controller.h" // Enhanced Input
 //#include "PlayerController.h"
 #include "AMasterWeapon.h"
+#include "ARangedWeapon.h" // EFirearmSlot: два слота огнестрела
 #include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // ULimpIndicatorWidget + FLimpFirstHintState (индикатор хромоты, Build 1)
 #include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
 #include "ContrarySurvivor/Debug/QADebug.h"      // CONTRARY_WITH_QA_CHEATS: отладочной клавиши нет в Shipping
@@ -498,6 +499,13 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
     TSubclassOf<AMasterWeapon> DefaultMeleeWeaponClass;
 
+    // Удар ножом с отдельной кнопки при огнестреле в руках: сколько секунд нож показан в
+    // ладони вместо ствола и заперта стрельба. Подбирается под длину анимации удара: меньше —
+    // ствол вернётся в руку до конца взмаха, больше — после удара дольше нельзя стрелять.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment", meta = (ClampMin = "0.05", DisplayPriority = "7",
+        DisplayName = "Удар ножом с кнопки: время замаха, сек"))
+    float QuickMeleeLockTime = 0.6f;
+
     // Тест-комплект брони для QA-клавиши F3 (EquipTestArmor). ADR-042: автонадевание брони
     // при старте УБРАНО (игрок начинает с нулевой защитой), поэтому эти классы используются
     // ТОЛЬКО тест-клавишей. По умолчанию — полный сет Т3 (0.48 суммарно), верх прогрессии.
@@ -556,6 +564,10 @@ protected:
     void SpawnMeleeWeapon();
 
 public:
+    // ДВА СЛОТА ОГНЕСТРЕЛА (Ринат 10.10.2026): короткое оружие и длинное двуручное носятся
+    // одновременно, каждый ствол встаёт в слот своего вида (ARangedWeapon::GetFirearmSlot).
+    // Всё ниже работает со слотом ИМЕННО ЭТОГО ствола: «слот занят» значит «занят слот его вида».
+    //
     // Занять пустой слот огнестрела предметом из рюкзака. Единый поток огнестрела (ТЗ
     // Рината 08-08 + ADR-063 п.2): ЛЮБОЙ полученный ствол (покупка И лут с трупа) лежит в
     // рюкзаке, а в слот его переносит сам игрок тапом по плитке в окне инвентаря
@@ -573,6 +585,11 @@ public:
     // в окне инвентаря; покупка и восстановление из сохранения по-прежнему ничего сами не
     // отбирают. Слот пуст, предмет не огнестрел или это тот же ствол — false, ничего не меняется.
     bool SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item);
+
+    // Снять ствол из слота обратно в рюкзак (нажатие на занятый слот оружия в окне сумки).
+    // Патроны в его магазине остаются при нём. Был в руках — в руки берётся второй ствол,
+    // а если его нет, нож. Слот пуст — false, ничего не меняется.
+    bool UnequipFirearmToBackpack(EFirearmSlot Slot);
 
     // Страховка от «огнестрела мимо слота» (корень спама 07-08: легаси-граф BP_PlayerCharacter
     // на ReceiveBeginPlay спавнит BP_Pistol и зовёт EquipWeapon НАПРЯМУЮ — CurrentWeapon
@@ -618,10 +635,26 @@ public:
     UFUNCTION(BlueprintPure, Category = "Quest")
     bool HasTurnedInFirstQuest() const;
 
-    // Build 1.2.2 (два слота оружия в инвентаре, Ринат): экземпляры живут ОБА (спавн в
-    // BeginPlay), в руках один — CurrentWeapon базы. Экрану инвентаря нужны оба сразу.
+    // Ствол в слоте огнестрела (null — слот пуст). Экземпляры живут все сразу, в руках один —
+    // CurrentWeapon базы.
     UFUNCTION(BlueprintPure, Category = "Weapon")
-    AMasterWeapon* GetRangedWeaponInstance() const { return RangedWeaponInstance; }
+    ARangedWeapon* GetFirearmInSlot(EFirearmSlot Slot) const;
+
+    // Стоит ли это оружие в одном из слотов огнестрела. Экранные индикаторы этим проверяют,
+    // что огнестрел в руках — штатный, а не экипированный мимо слотов.
+    UFUNCTION(BlueprintPure, Category = "Weapon")
+    bool IsSlotFirearm(const AMasterWeapon* Weapon) const;
+
+    // Сколько слотов огнестрела занято (0..2).
+    UFUNCTION(BlueprintPure, Category = "Weapon")
+    int32 GetEquippedFirearmCount() const;
+
+    // «Огнестрел игрока» одним указателем — для мест, которым хватает одного ствола (экранные
+    // индикаторы, старые проверки): ствол в руках; если в руках нож — тот ствол, который
+    // кнопка смены оружия возьмёт первым (последний, что был в руках, иначе любой занятый
+    // слот). Ни одного ствола — null. Оба слота сразу — GetFirearmInSlot.
+    UFUNCTION(BlueprintPure, Category = "Weapon")
+    AMasterWeapon* GetRangedWeaponInstance() const;
 
     UFUNCTION(BlueprintPure, Category = "Weapon")
     AMasterWeapon* GetMeleeWeaponInstance() const { return MeleeWeaponInstance; }
@@ -689,10 +722,39 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Camera|PostProcess")
     void SetIntroGradeAlpha(float Alpha);
 
-    // Переключение между дальним (пистолет) и ближним (нож) оружием.
+    // Кнопка смены оружия (Ринат 10.10.2026). Оба слота огнестрела заняты — переключает
+    // короткое и длинное, нож в цикл не входит (у него своя кнопка, QuickMeleeAttack). Занят
+    // один слот — переключает этот ствол и нож, как раньше. Стволов нет — в руках нож.
     // Вызывается из контроллера по legacy-инпуту (DefaultInput.ini), без нового .uasset.
     UFUNCTION(BlueprintCallable, Category = "Equipment")
     void SwitchWeapon();
+
+    // Взять в руки ствол из заданного слота (прямой выбор). Слот пуст — false, в руках
+    // остаётся прежнее оружие.
+    UFUNCTION(BlueprintCallable, Category = "Equipment")
+    bool SelectFirearmSlot(EFirearmSlot Slot);
+
+    // Взять в руки нож (стволы остаются в слотах). false — ножа нет.
+    UFUNCTION(BlueprintCallable, Category = "Equipment")
+    bool TakeKnifeInHands();
+
+    // Удар ножом с отдельной кнопки (Ринат 10.10.2026): работает при любом оружии в руках.
+    // Удар тот же, что у ножа в руках (AMeleeWeapon: урон, сектор, доворот к ближайшему
+    // врагу, кулдаун), оружие в руках не меняется. С огнестрелом в руках нож на время замаха
+    // показывается в ладони вместо ствола, а стрельба заперта (QuickMeleeLockTime).
+    // true — замах начался.
+    UFUNCTION(BlueprintCallable, Category = "Combat")
+    bool QuickMeleeAttack();
+
+    // Идёт ли замах ножом с отдельной кнопки при огнестреле в руках (стрельба заперта).
+    UFUNCTION(BlueprintPure, Category = "Combat")
+    bool IsQuickMeleeInProgress() const;
+
+    // Пока идёт замах ножом с отдельной кнопки, оружие в руках не стреляет.
+    virtual void FireCurrentWeapon(AActor* Target) override;
+
+    // Нож игрока бьёт и при огнестреле в руках — метке удара отдаём его всегда.
+    virtual AMeleeWeapon* GetSwingMeleeWeapon() const override;
 
     // Доля денег, теряемая при смерти (для текста попапа смерти на HUD — чтобы не расходился
     // с фактическим штрафом при смене параметра). 0.50 = 50%.
@@ -1075,9 +1137,33 @@ private:
     float UnflushedPlayTime = 0.0f;
     FTimerHandle PlaytimeFlushTimer;
 
-    // Инстансы оружия (оба заспавнены в BeginPlay). CurrentWeapon базы указывает на активный.
+    // Оружие игрока: два слота огнестрела (короткое и длинное двуручное, 10.10.2026) и нож
+    // (заспавнен в BeginPlay). CurrentWeapon базы указывает на то, что в руках.
     UPROPERTY()
-    AMasterWeapon* RangedWeaponInstance = nullptr;
+    AMasterWeapon* SidearmWeaponInstance = nullptr;
+
+    UPROPERTY()
+    AMasterWeapon* LongWeaponInstance = nullptr;
+
+    // Слот ствола, который был в руках последним: с ножа кнопка смены оружия возвращает к нему.
+    EFirearmSlot PreferredFirearmSlot = EFirearmSlot::Sidearm;
+
+    // Ссылка на поле слота (для записи). Неизвестный слот — короткое.
+    AMasterWeapon*& FirearmSlotRef(EFirearmSlot Slot);
+
+    // Взять оружие в руки: прежнее прячется, новое крепится и показывается; замах ножом с
+    // отдельной кнопки, если шёл, завершается.
+    void TakeWeaponInHands(AMasterWeapon* Target);
+
+    // --- Замах ножом с отдельной кнопки при огнестреле в руках ---
+    // Ствол, спрятанный на время замаха (нож показан в ладони вместо него). Пусто — замаха нет.
+    UPROPERTY()
+    AMasterWeapon* QuickMeleeHiddenWeapon = nullptr;
+
+    FTimerHandle QuickMeleeTimerHandle;
+
+    // Вернуть ствол в ладонь и спрятать нож (по таймеру замаха и при любой смене оружия).
+    void EndQuickMeleeVisual();
 
     UPROPERTY()
     AMasterWeapon* MeleeWeaponInstance = nullptr;

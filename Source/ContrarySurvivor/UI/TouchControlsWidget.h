@@ -12,6 +12,7 @@ class UImage;
 class UButton;
 class UTextBlock;
 class UTexture2D;
+class AMasterWeapon;
 class UInputAction;
 class UEnhancedInputLocalPlayerSubsystem;
 class AContrarySurvivorPlayerController;
@@ -42,6 +43,7 @@ struct FTouchControlsConfig
 	FTouchButtonSettings InteractButton;  // ДЕЙСТВИЕ (E) — правый-нижний (левее огня)
 	FTouchButtonSettings SprintButton;    // БЕГ — правый-нижний (диагональ от огня)
 	FTouchButtonSettings WeaponButton;    // ОРУЖИЕ (смена) — правый-нижний (над перезарядкой)
+	FTouchButtonSettings MeleeButton;     // НОЖ (удар при огнестреле в руках) — рядом с огнём
 	FTouchButtonSettings InventoryButton; // СУМКА — правый-верхний
 	FTouchButtonSettings PauseButton;     // ПАУЗА — левый-верхний (малозаметная)
 
@@ -356,6 +358,7 @@ protected:
 	UFUNCTION() void HandleSprintPressed();
 	UFUNCTION() void HandleSprintReleased();
 	UFUNCTION() void HandleInteractPressed();
+	UFUNCTION() void HandleMeleePressed();
 	UFUNCTION() void HandleWeaponPressed();
 	UFUNCTION() void HandleInventoryPressed();
 	UFUNCTION() void HandlePausePressed();
@@ -385,6 +388,16 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> WeaponButton;
+
+	// НОЖ — удар ножом при огнестреле в руках (Ринат 10.10.2026). Показывает и прячет кнопку
+	// КОД (UpdateMeleeButton): с ножом в руках удар и так на кнопке ОГОНЬ. Место, размер и вид —
+	// в дизайнере; спрятана там — код её не показывает.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MeleeButton;
+
+	// Подпись кнопки НОЖ в дереве, построенном кодом (в готовом файле на кнопке значок).
+	UPROPERTY()
+	TObjectPtr<UTextBlock> MeleeText;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> InventoryButton;
@@ -577,6 +590,17 @@ private:
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
 	void UpdateWeaponIcon(bool bForceHide);
+
+	// Кнопка НОЖ видна только с огнестрелом в руках и вне окон (bForceHide — окно открыто).
+	void UpdateMeleeButton(bool bForceHide);
+
+	// Видимость кнопки НОЖ «как в дизайнере», снятая при первом обновлении, и её текущее
+	// состояние (-1 — ещё не считалось, 0 — спрятана, 1 — показана).
+	ESlateVisibility MeleeButtonShownVisibility = ESlateVisibility::Visible;
+	int8 MeleeButtonState = -1;
+
+	// Оружие, чей значок сейчас показан (у каждого ствола значок свой).
+	TWeakObjectPtr<const AMasterWeapon> IconWeapon;
 
 	// Сабсистема Enhanced Input локального игрока (null, если игрока нет).
 	UEnhancedInputLocalPlayerSubsystem* GetInputSubsystem() const;

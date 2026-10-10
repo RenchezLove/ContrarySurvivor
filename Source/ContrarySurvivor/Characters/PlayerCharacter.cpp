@@ -315,8 +315,9 @@ void APlayerCharacter::BeginPlay()
     // чтобы расследование расхождений между кодом и живой игрой не требовало собирать картину
     // по разрозненным строкам EquipWeapon (те теперь помечены владельцем — MasterHumanoidCharacter.cpp).
     UE_LOG(LogQA, Display,
-        TEXT("QA: PLAYER WEAPON STATE at BeginPlay end — ranged slot %s, in hands %s"),
-        RangedWeaponInstance ? *RangedWeaponInstance->GetName() : TEXT("empty"),
+        TEXT("QA: PLAYER WEAPON STATE at BeginPlay end — sidearm slot %s, long slot %s, in hands %s"),
+        SidearmWeaponInstance ? *SidearmWeaponInstance->GetName() : TEXT("empty"),
+        LongWeaponInstance ? *LongWeaponInstance->GetName() : TEXT("empty"),
         GetCurrentWeapon() ? *GetCurrentWeapon()->GetName() : TEXT("nothing"));
 
     // ADR-042: стартовой брони НЕТ — игрок начинает с нулевой защитой (полный урон),
@@ -936,7 +937,11 @@ void APlayerCharacter::EquipDefaultWeapon()
 
     if (SpawnedWeapon)
     {
-        RangedWeaponInstance = SpawnedWeapon;
+        // Стартовый ствол встаёт в слот своего вида (не огнестрел — в слот короткого, как раньше).
+        const ARangedWeapon* SpawnedAsRanged = Cast<ARangedWeapon>(SpawnedWeapon);
+        const EFirearmSlot StartSlot = SpawnedAsRanged ? SpawnedAsRanged->GetFirearmSlot() : EFirearmSlot::Sidearm;
+        FirearmSlotRef(StartSlot) = SpawnedWeapon;
+        PreferredFirearmSlot = StartSlot;
         // EquipWeapon крепит оружие к WeaponSocketName на TorsoMesh и выставляет CurrentWeapon.
         EquipWeapon(SpawnedWeapon);
 
@@ -957,19 +962,20 @@ void APlayerCharacter::EquipDefaultWeapon()
 
 void APlayerCharacter::ReconcileOutOfSlotRangedWeapon()
 {
-    // Дальнобой в руках обязан быть ИМЕННО стволом слота: все штатные пути (EquipDefaultWeapon,
-    // TryAdoptRangedWeapon -> SwitchWeapon) ставят RangedWeaponInstance ДО экипировки.
+    // Дальнобой в руках обязан быть ИМЕННО стволом одного из слотов: все штатные пути
+    // (EquipDefaultWeapon, TryAdoptRangedWeapon -> SwitchWeapon) ставят слот ДО экипировки.
     // Несовпадение — артефакт обхода слота (см. комментарий в заголовке).
     ARangedWeapon* Ranged = Cast<ARangedWeapon>(GetCurrentWeapon());
-    if (!Ranged || Ranged == RangedWeaponInstance)
+    if (!Ranged || IsSlotFirearm(Ranged))
     {
         return;
     }
 
     UE_LOG(LogQA, Warning,
-        TEXT("QA: огнестрел '%s' экипирован МИМО слота (слот: '%s') — снят и уничтожен, это артефакт обхода RangedWeaponInstance"),
+        TEXT("QA: огнестрел '%s' экипирован МИМО слотов (короткое: '%s', длинное: '%s') — снят и уничтожен, это артефакт обхода слотов"),
         *Ranged->GetName(),
-        RangedWeaponInstance ? *RangedWeaponInstance->GetName() : TEXT("пусто"));
+        SidearmWeaponInstance ? *SidearmWeaponInstance->GetName() : TEXT("пусто"),
+        LongWeaponInstance ? *LongWeaponInstance->GetName() : TEXT("пусто"));
 
     UnequipWeapon(); // CurrentWeapon -> null, мировая коллизия оружию возвращена
     Ranged->Destroy();
@@ -991,9 +997,9 @@ bool APlayerCharacter::HasTurnedInFirstQuest() const
 bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
 {
     ARangedWeapon* Ranged = Cast<ARangedWeapon>(Item);
-    if (!Ranged || RangedWeaponInstance)
+    if (!Ranged || GetFirearmInSlot(Ranged->GetFirearmSlot()) || IsSlotFirearm(Ranged))
     {
-        return false; // не огнестрел либо слот уже занят — вещь остаётся в рюкзаке
+        return false; // не огнестрел либо слот его вида уже занят — вещь остаётся в рюкзаке
     }
 
     // Оружие в слоте — это не содержимое рюкзака: нож и прежний стартовый пистолет тоже
@@ -1004,7 +1010,7 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         Inventory->RemoveItem(Ranged);
     }
 
-    RangedWeaponInstance = Ranged;
+    FirearmSlotRef(Ranged->GetFirearmSlot()) = Ranged;
     Ranged->SetOwner(this);
     Ranged->SetInstigator(this);
     // «В кобуре», как нож: в руки берёт сам игрок кнопкой «Оружие» (SwitchWeapon).
@@ -1018,15 +1024,17 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         AddAmmoToInventory(Drained, Ranged->GetAmmoType());
     }
 
-    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия (в кобуре)"),
-        *Ranged->GetItemDisplayText().ToString());
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия %d (в кобуре)"),
+        *Ranged->GetItemDisplayText().ToString(), static_cast<int32>(Ranged->GetFirearmSlot()));
     return true;
 }
 
 bool APlayerCharacter::SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item)
 {
     ARangedWeapon* NewRanged = Cast<ARangedWeapon>(Item);
-    AMasterWeapon* OldRanged = RangedWeaponInstance;
+    // Меняется ствол в слоте ТОГО ЖЕ вида, что новый: пистолет на пистолет, длинное на длинное.
+    const EFirearmSlot Slot = NewRanged ? NewRanged->GetFirearmSlot() : EFirearmSlot::Sidearm;
+    AMasterWeapon* OldRanged = GetFirearmInSlot(Slot);
     if (!NewRanged || !OldRanged || NewRanged == OldRanged || !Inventory
         || !Inventory->GetInventoryItems().Contains(NewRanged))
     {
@@ -1037,16 +1045,17 @@ bool APlayerCharacter::SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item)
     const bool bWasInHands = (GetCurrentWeapon() == OldRanged);
     if (bWasInHands)
     {
+        EndQuickMeleeVisual();
         UnequipWeapon();
     }
     OldRanged->SetActorHiddenInGame(true);
     OldRanged->SetActorEnableCollision(false);
-    RangedWeaponInstance = nullptr;
+    FirearmSlotRef(Slot) = nullptr;
 
     if (!TryAdoptRangedWeapon(NewRanged))
     {
         // Новый ствол в слот не встал — возвращаем всё как было, вещь не теряется.
-        RangedWeaponInstance = OldRanged;
+        FirearmSlotRef(Slot) = OldRanged;
         if (bWasInHands)
         {
             EquipWeapon(OldRanged);
@@ -1060,8 +1069,8 @@ bool APlayerCharacter::SwapRangedWeaponFromBackpack(AMasterInventoryItem* Item)
 
     if (bWasInHands)
     {
-        EquipWeapon(RangedWeaponInstance);
-        RangedWeaponInstance->SetActorHiddenInGame(false);
+        EquipWeapon(NewRanged);
+        NewRanged->SetActorHiddenInGame(false);
     }
 
     UE_LOG(LogQA, Display, TEXT("QA: огнестрел в слоте заменён: '%s' -> '%s' (прежний в рюкзаке)"),
@@ -1867,17 +1876,50 @@ void APlayerCharacter::GiveTestItems()
         Inventory->GetInventoryItems().Num());
 }
 
-void APlayerCharacter::SwitchWeapon()
+AMasterWeapon*& APlayerCharacter::FirearmSlotRef(EFirearmSlot Slot)
 {
-    // Тоггл между дальним (пистолет) и ближним (нож) оружием.
-    AMasterWeapon* Active = GetCurrentWeapon();
-    AMasterWeapon* Target = (Active == MeleeWeaponInstance) ? RangedWeaponInstance : MeleeWeaponInstance;
+    return (Slot == EFirearmSlot::Long) ? LongWeaponInstance : SidearmWeaponInstance;
+}
 
+ARangedWeapon* APlayerCharacter::GetFirearmInSlot(EFirearmSlot Slot) const
+{
+    return Cast<ARangedWeapon>((Slot == EFirearmSlot::Long) ? LongWeaponInstance : SidearmWeaponInstance);
+}
+
+bool APlayerCharacter::IsSlotFirearm(const AMasterWeapon* Weapon) const
+{
+    return Weapon && (Weapon == SidearmWeaponInstance || Weapon == LongWeaponInstance);
+}
+
+int32 APlayerCharacter::GetEquippedFirearmCount() const
+{
+    return (SidearmWeaponInstance ? 1 : 0) + (LongWeaponInstance ? 1 : 0);
+}
+
+AMasterWeapon* APlayerCharacter::GetRangedWeaponInstance() const
+{
+    AMasterWeapon* InHands = GetCurrentWeapon();
+    if (IsSlotFirearm(InHands))
+    {
+        return InHands;
+    }
+    if (AMasterWeapon* Preferred = GetFirearmInSlot(PreferredFirearmSlot))
+    {
+        return Preferred;
+    }
+    return SidearmWeaponInstance ? SidearmWeaponInstance : LongWeaponInstance;
+}
+
+void APlayerCharacter::TakeWeaponInHands(AMasterWeapon* Target)
+{
+    AMasterWeapon* Active = GetCurrentWeapon();
     if (!Target || Target == Active)
     {
-        UE_LOG(LogTemp, Warning, TEXT("SwitchWeapon: no alternate weapon to switch to"));
         return;
     }
+
+    // Шёл замах ножом с отдельной кнопки — сначала возвращаем руки в обычный вид.
+    EndQuickMeleeVisual();
 
     // Прячем снимаемое, показываем экипируемое (EquipWeapon снимет текущее и прикрепит новое).
     if (Active)
@@ -1889,7 +1931,192 @@ void APlayerCharacter::SwitchWeapon()
     EquipWeapon(Target);
     Target->SetActorHiddenInGame(false);
 
+    if (const ARangedWeapon* Ranged = Cast<ARangedWeapon>(Target))
+    {
+        PreferredFirearmSlot = Ranged->GetFirearmSlot();
+    }
+
     UE_LOG(LogTemp, Log, TEXT("SwitchWeapon: now wielding %s"), *Target->GetName());
+}
+
+void APlayerCharacter::SwitchWeapon()
+{
+    AMasterWeapon* Active = GetCurrentWeapon();
+    AMasterWeapon* Target = nullptr;
+
+    if (SidearmWeaponInstance && LongWeaponInstance)
+    {
+        // Оба ствола: короткое <-> длинное, нож в цикл не входит (у него своя кнопка). С ножа
+        // в руках (так бывает сразу после экипировки второго ствола) — к последнему стволу.
+        if (Active == SidearmWeaponInstance)
+        {
+            Target = LongWeaponInstance;
+        }
+        else if (Active == LongWeaponInstance)
+        {
+            Target = SidearmWeaponInstance;
+        }
+        else
+        {
+            Target = GetFirearmInSlot(PreferredFirearmSlot);
+        }
+    }
+    else if (AMasterWeapon* OnlyFirearm = SidearmWeaponInstance ? SidearmWeaponInstance : LongWeaponInstance)
+    {
+        // Один ствол: кнопка переключает его и нож, как раньше, — в тупик игрок не попадает.
+        Target = (Active == OnlyFirearm) ? MeleeWeaponInstance : OnlyFirearm;
+    }
+    else
+    {
+        // Стволов нет: в руках нож (он же стартовое оружие).
+        Target = MeleeWeaponInstance;
+    }
+
+    if (!Target || Target == Active)
+    {
+        UE_LOG(LogTemp, Log, TEXT("SwitchWeapon: no alternate weapon to switch to"));
+        return;
+    }
+    TakeWeaponInHands(Target);
+}
+
+bool APlayerCharacter::SelectFirearmSlot(EFirearmSlot Slot)
+{
+    AMasterWeapon* Target = GetFirearmInSlot(Slot);
+    if (!Target)
+    {
+        return false;
+    }
+    TakeWeaponInHands(Target);
+    return true;
+}
+
+bool APlayerCharacter::TakeKnifeInHands()
+{
+    if (!MeleeWeaponInstance)
+    {
+        return false;
+    }
+    TakeWeaponInHands(MeleeWeaponInstance);
+    return true;
+}
+
+bool APlayerCharacter::UnequipFirearmToBackpack(EFirearmSlot Slot)
+{
+    AMasterWeapon* Weapon = GetFirearmInSlot(Slot);
+    if (!Weapon || !Inventory)
+    {
+        return false;
+    }
+
+    const bool bWasInHands = (GetCurrentWeapon() == Weapon);
+    if (bWasInHands)
+    {
+        EndQuickMeleeVisual();
+        UnequipWeapon();
+    }
+    Weapon->SetActorHiddenInGame(true);
+    Weapon->SetActorEnableCollision(false);
+    FirearmSlotRef(Slot) = nullptr;
+
+    // Снятый ствол — обычная вещь рюкзака (патроны в его магазине остаются при нём).
+    Inventory->AddItem(Weapon);
+
+    // Руки пустыми не оставляем: второй ствол, а без него нож.
+    if (bWasInHands)
+    {
+        AMasterWeapon* Next = SidearmWeaponInstance ? SidearmWeaponInstance : LongWeaponInstance;
+        TakeWeaponInHands(Next ? Next : MeleeWeaponInstance);
+    }
+
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' снят из слота оружия %d в рюкзак"),
+        *Weapon->GetItemDisplayText().ToString(), static_cast<int32>(Slot));
+    return true;
+}
+
+bool APlayerCharacter::QuickMeleeAttack()
+{
+    AMeleeWeapon* Knife = Cast<AMeleeWeapon>(MeleeWeaponInstance);
+    if (!Knife || (Stats && Stats->IsDead()))
+    {
+        return false;
+    }
+
+    // Сам удар — целиком нож: кулдаун, звук, доворот к ближайшему врагу, сектор, урон по кадру
+    // анимации. Здесь только то, чего нет у ножа в руках: показать его в ладони и запереть огонь.
+    if (!Knife->StartSwing())
+    {
+        return false; // кулдаун прошлого замаха ещё не прошёл
+    }
+
+    AMasterWeapon* InHands = GetCurrentWeapon();
+    if (InHands && InHands != Knife)
+    {
+        // Повторный замах до конца прошлого просто продлевает показ ножа.
+        if (!QuickMeleeHiddenWeapon)
+        {
+            QuickMeleeHiddenWeapon = InHands;
+            InHands->SetActorHiddenInGame(true);
+            AttachWeaponToHand(Knife);
+            Knife->SetActorHiddenInGame(false);
+        }
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().SetTimer(QuickMeleeTimerHandle, this,
+                &APlayerCharacter::EndQuickMeleeVisual, FMath::Max(0.05f, QuickMeleeLockTime), /*bLoop=*/false);
+        }
+    }
+    return true;
+}
+
+void APlayerCharacter::EndQuickMeleeVisual()
+{
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(QuickMeleeTimerHandle);
+    }
+    AMasterWeapon* Hidden = QuickMeleeHiddenWeapon;
+    if (!Hidden)
+    {
+        return;
+    }
+    QuickMeleeHiddenWeapon = nullptr;
+
+    // Нож обратно «в ножны», ствол — на вид, если он всё ещё в руках.
+    if (MeleeWeaponInstance && MeleeWeaponInstance != GetCurrentWeapon())
+    {
+        MeleeWeaponInstance->SetActorHiddenInGame(true);
+    }
+    if (IsValid(Hidden) && Hidden == GetCurrentWeapon())
+    {
+        Hidden->SetActorHiddenInGame(false);
+    }
+}
+
+bool APlayerCharacter::IsQuickMeleeInProgress() const
+{
+    if (QuickMeleeHiddenWeapon)
+    {
+        return true;
+    }
+    // Время показа вышло, а кадр удара ещё не наступил (длинная анимация) — выстрел сейчас
+    // сорвал бы замах до удара, поэтому огонь заперт до него.
+    const AMeleeWeapon* Knife = Cast<AMeleeWeapon>(MeleeWeaponInstance);
+    return Knife && Knife != GetCurrentWeapon() && Knife->IsSwingAwaitingHit();
+}
+
+void APlayerCharacter::FireCurrentWeapon(AActor* Target)
+{
+    if (IsQuickMeleeInProgress())
+    {
+        return;
+    }
+    Super::FireCurrentWeapon(Target);
+}
+
+AMeleeWeapon* APlayerCharacter::GetSwingMeleeWeapon() const
+{
+    return Cast<AMeleeWeapon>(MeleeWeaponInstance);
 }
 
 
@@ -1976,17 +2203,32 @@ bool APlayerCharacter::SaveGame()
     // брони); восстановление узнаёт огнестрел с этим признаком и возвращает В СЛОТ.
     // Обойма не сохраняется и раньше не сохранялась: восстановленный ствол приходит с
     // полной обоймой конструктора (патроны запаса — видимой пачкой, единая бухгалтерия).
-    if (RangedWeaponInstance)
+    // 10.10.2026: слотов огнестрела два — пишем оба тем же способом. Какой слот занять,
+    // запись не хранит: при восстановлении ствол сам встаёт в слот своего вида, поэтому
+    // сохранения с одним слотом читаются без переделки.
+    for (const AMasterWeapon* SlotWeapon : { SidearmWeaponInstance, LongWeaponInstance })
     {
+        if (!SlotWeapon)
+        {
+            continue;
+        }
         FSavedInventoryEntry SlotEntry;
-        SlotEntry.ClassPath = RangedWeaponInstance->GetClass()->GetPathName();
-        SlotEntry.ItemName = RangedWeaponInstance->ItemName;
-        SlotEntry.ItemRow = RangedWeaponInstance->SourceItemRow;
-        SlotEntry.ItemDisplayText = RangedWeaponInstance->ItemDisplayText;
+        SlotEntry.ClassPath = SlotWeapon->GetClass()->GetPathName();
+        SlotEntry.ItemName = SlotWeapon->ItemName;
+        SlotEntry.ItemRow = SlotWeapon->SourceItemRow;
+        SlotEntry.ItemDisplayText = SlotWeapon->ItemDisplayText;
         SlotEntry.StackCount = 1;
         SlotEntry.bEquipped = true;
-        SlotEntry.WeaponReserveAmmo = FMath::Max(0, RangedWeaponInstance->GetCurrentAmmoReserve());
+        SlotEntry.WeaponReserveAmmo = FMath::Max(0, SlotWeapon->GetCurrentAmmoReserve());
         Save->InventoryEntries.Add(SlotEntry);
+    }
+
+    // Что в руках: нож или ствол какого слота. Ствол мимо слотов сюда не попадает (нож).
+    {
+        const AMasterWeapon* InHands = GetCurrentWeapon();
+        Save->WeaponInHands = (InHands && InHands == LongWeaponInstance) ? ESavedWeaponInHands::Long
+            : (InHands && InHands == SidearmWeaponInstance) ? ESavedWeaponInHands::Sidearm
+            : ESavedWeaponInHands::Knife;
     }
 
     // Личный сундук (Ринат 09.10.2026): общее хранилище пишется тем же снимком, что рюкзак.
@@ -2524,6 +2766,16 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
                 }
             }
         }
+    }
+
+    // Оружие в руках — как было при записи (10.10.2026). Сохранения, записанные раньше, этого
+    // не знают (Unknown): для них в руках остаётся то, что есть, — нож, как и было до двух слотов.
+    switch (Save->WeaponInHands)
+    {
+        case ESavedWeaponInHands::Sidearm: SelectFirearmSlot(EFirearmSlot::Sidearm); break;
+        case ESavedWeaponInHands::Long:    SelectFirearmSlot(EFirearmSlot::Long); break;
+        case ESavedWeaponInHands::Knife:   TakeKnifeInHands(); break;
+        default: break;
     }
 
     UE_LOG(LogQA, Display, TEXT("QA: CONTINUE - restored %d/%d backpack item(s), %d entry(ies) matched to DT_Items by legacy key, total armor %.2f"),
