@@ -737,6 +737,22 @@ namespace
 	// своём канвас-слоте с ручками). Шаг между двумя слотами оружия считается от него.
 	constexpr float WeaponSlotIconSize = 40.0f;
 
+	// Невидимая кнопка поверх значка оружейного слота (нажатие по занятому слоту снимает
+	// оружие в сумку): в покое не рисуется, под пальцем и при наведении слегка светлеет.
+	FButtonStyle MakeInvisibleSlotButtonStyle()
+	{
+		FSlateBrush NoBrush;
+		NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
+		FButtonStyle Style;
+		Style.Normal = NoBrush;
+		Style.Disabled = NoBrush;
+		Style.Hovered = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.08f), 4.0f);
+		Style.Pressed = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.16f), 4.0f);
+		Style.NormalPadding = FMargin(0.0f);
+		Style.PressedPadding = FMargin(0.0f);
+		return Style;
+	}
+
 	// Слот брони paper-doll: кнопка (клик по занятому — снять) с подписью, иконкой и текстом
 	// надетого. Габарит задаёт канвас-слот вызывающего (ADR-051: ручки мышкой).
 	UButton* MakeArmorSlotButton(UWidgetTree* Tree, UObject* Roboto,
@@ -946,7 +962,9 @@ namespace
 		// Каждый слот = иконка + название, оба кубика в своих канвас-слотах (ручки мышкой).
 		// Текстуру и видимость иконки ставит код экрана, пустой слот — иконка спрятана,
 		// в ассете сразу Collapsed. Размер иконки живёт в кисти и принадлежит Ринату.
-		auto AddWeaponSlot = [&](const TCHAR* IconName, const TCHAR* TextName, float Y)
+		// 10.10.2026: слотов огнестрела два, оружие стоит одной группой — пистолет, под ним
+		// длинное, ниже нож. У слотов огнестрела поверх значка лежит невидимая кнопка снятия.
+		auto AddWeaponSlot = [&](const TCHAR* IconName, const TCHAR* TextName, const TCHAR* ButtonName, float Y)
 		{
 			UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), FName(IconName));
 			FSlateBrush IconBrush;
@@ -966,10 +984,25 @@ namespace
 				FLinearColor::White, 15, TEXT("Regular"));
 			Name->bIsVariable = true;
 			CanvasAuto(PanelCanvas, Name, FVector2D(64.0f + WeaponSlotIconSize + 8.0f, Y));
+
+			if (ButtonName)
+			{
+				UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), FName(ButtonName));
+				Button->SetStyle(MakeInvisibleSlotButtonStyle());
+				Button->bIsVariable = true;
+				if (UCanvasPanelSlot* ButtonSlot = CanvasAt(PanelCanvas, Button,
+					FVector2D(64.0f, Y - 3.0f), FVector2D(WeaponSlotIconSize, WeaponSlotIconSize)))
+				{
+					ButtonSlot->SetZOrder(1); // поверх значка
+				}
+			}
 		};
-		AddWeaponSlot(TEXT("RangedSlotIcon"), TEXT("RangedSlotText"), 319.0f);   // огнестрельное
-		AddWeaponSlot(TEXT("MeleeSlotIcon"), TEXT("MeleeSlotText"),
-			319.0f + WeaponSlotIconSize + 8.0f);                                 // холодное
+		const float WeaponSlotStep = WeaponSlotIconSize + 8.0f;
+		AddWeaponSlot(TEXT("RangedSlotIcon"), TEXT("RangedSlotText"), TEXT("RangedSlotButton"), 319.0f); // пистолет
+		AddWeaponSlot(TEXT("LongSlotIcon"), TEXT("LongSlotText"), TEXT("LongSlotButton"),
+			319.0f + WeaponSlotStep);                                                    // длинное
+		AddWeaponSlot(TEXT("MeleeSlotIcon"), TEXT("MeleeSlotText"), nullptr,
+			319.0f + WeaponSlotStep * 2.0f);                                             // холодное
 
 		// Правая колонка: рюкзак. Заголовок — у прежней доли 0.42; список — якоря-РАСТЯЖКА
 		// до краёв панели (низ — над кнопкой закрытия): при ресайзе панели тянется следом.
@@ -3262,7 +3295,8 @@ namespace
 			  TEXT("TorsoSlotButton"), TEXT("TorsoSlotText"), TEXT("TorsoSlotIcon"),
 			  TEXT("LegsSlotButton"), TEXT("LegsSlotText"), TEXT("LegsSlotIcon"),
 			  TEXT("ProtectionText"),
-			  TEXT("RangedSlotText"), TEXT("RangedSlotIcon"),
+			  TEXT("RangedSlotText"), TEXT("RangedSlotIcon"), TEXT("RangedSlotButton"),
+			  TEXT("LongSlotText"), TEXT("LongSlotIcon"), TEXT("LongSlotButton"),
 			  TEXT("MeleeSlotText"), TEXT("MeleeSlotIcon"),
 			  TEXT("BackpackList"), TEXT("CloseButton") } },
 		{ TEXT("/Game/UI/WBP_Death"), TEXT("WBP_Death"),
@@ -5460,97 +5494,19 @@ namespace
 			Name, *Center.ToString(), ButtonSize);
 	}
 
-	// WBP_Inventory: второй слот огнестрела — длинное оружие (Ринат 10.10.2026) и кнопка снятия
-	// пистолета поверх его значка. Существующие кубики не трогаются и не двигаются. Новый слот —
-	// цельная кнопка того же устройства и вида, что слоты брони (подпись, значок, название
-	// внутри), встаёт ОДИН раз под слотом штанов: в раскладке владельца средняя колонка занята
-	// пистолетом и ножом целиком, а под бронёй место свободно. Дальше слот двигает владелец.
-	// Каждый кубик со своей проверкой «уже сделано».
+	// WBP_Inventory: второй слот огнестрела — длинное оружие (Ринат 10.10.2026) и кнопки снятия
+	// огнестрела поверх значков. Оружие стоит ОДНОЙ ГРУППОЙ в колонке владельца «ОРУЖИЕ»:
+	// пистолет, под ним длинное, ниже нож. Слот длинного оружия — того же вида, что пистолетный
+	// у владельца: значок и название под ним, размеры и шрифт взяты с пистолетного слота (значок
+	// предмета квадратный, в квадрате он не сплющивается). Всё, что стояло в колонке ниже
+	// названия пистолета (подпись и слот ножа), опускается ровно на высоту вставленного слота;
+	// остальные кубики не трогаются. Первая раскладка того же дня (широкая кнопка под слотом
+	// штанов с начинкой внутри) переводится в этот вид: значок и название переезжают в колонку,
+	// подпись «Длинное оружие» и коробка начинки убираются, кнопка становится невидимой поверх
+	// значка. Слот ставится ОДИН раз, дальше его двигает владелец.
 	void AugmentInventoryWeaponSlots(UWidgetTree* Tree, bool& bChanged)
 	{
 		const TCHAR* Name = TEXT("WBP_Inventory");
-
-		// --- Слот длинного оружия ---
-		if (!Tree->FindWidget(TEXT("LongSlotButton")))
-		{
-			UButton* LegsButton = Cast<UButton>(AugFind(Tree, Name, TEXT("LegsSlotButton")));
-			UCanvasPanelSlot* LegsSlot = LegsButton ? Cast<UCanvasPanelSlot>(LegsButton->Slot) : nullptr;
-			UCanvasPanel* Parent = LegsButton ? Cast<UCanvasPanel>(LegsButton->GetParent()) : nullptr;
-			if (!LegsSlot || !Parent || Tree->FindWidget(TEXT("LongSlotIcon")) || Tree->FindWidget(TEXT("LongSlotText")))
-			{
-				UE_LOG(LogGenerateWbp, Warning,
-					TEXT("AUGMENT %s: слот штанов не в канвас-слоте либо кубики слота длинного оружия уже есть — слот не добавлен."), Name);
-			}
-			else
-			{
-				constexpr float SlotHeight = 124.0f;
-				constexpr float IconSize = 110.0f;
-				const FVector2D LegsPos = LegsSlot->GetPosition();
-				const FVector2D LegsSize = LegsSlot->GetSize();
-				const FVector2D LegsAlign = LegsSlot->GetAlignment();
-				const FVector2D SlotPos(LegsPos.X - LegsSize.X * LegsAlign.X,
-					LegsPos.Y - LegsSize.Y * LegsAlign.Y + LegsSize.Y + 8.0f);
-
-				UButton* LongButton = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("LongSlotButton"));
-				LongButton->SetStyle(LegsButton->GetStyle()); // вид владельца, а не наш
-				LongButton->SetBackgroundColor(LegsButton->GetBackgroundColor());
-				LongButton->bIsVariable = true;
-
-				UCanvasPanel* SlotBox = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LongSlotButtonBox"));
-				auto PlaceInSlot = [&](UWidget* Widget, const FVector2D& Pos, bool bAutoSize, const FVector2D& Size)
-				{
-					if (UCanvasPanelSlot* CanvasSlot = SlotBox->AddChildToCanvas(Widget))
-					{
-						CanvasSlot->SetAnchors(FAnchors(0.0f, 0.5f, 0.0f, 0.5f));
-						CanvasSlot->SetAlignment(FVector2D(0.0f, 0.5f));
-						CanvasSlot->SetPosition(Pos);
-						if (bAutoSize)
-						{
-							CanvasSlot->SetAutoSize(true);
-						}
-						else
-						{
-							CanvasSlot->SetSize(Size);
-						}
-					}
-				};
-
-				// Подпись и название — в стиле таких же кубиков слота штанов.
-				UTextBlock* Caption = AugMakeTextLike(Tree,
-					Cast<UTextBlock>(Tree->FindWidget(TEXT("LegsSlotButtonCaption"))),
-					TEXT("LongSlotButtonCaption"), NSLOCTEXT("Inventory", "LongSlotCaption", "Длинное оружие"));
-				Caption->bIsVariable = false; // статичная подпись, код её не пишет
-				PlaceInSlot(Caption, FVector2D(24.0f, -40.0f), /*bAutoSize=*/true, FVector2D::ZeroVector);
-
-				UImage* LongIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("LongSlotIcon"));
-				FSlateBrush IconBrush;
-				IconBrush.SetImageSize(FVector2D(IconSize, IconSize));
-				LongIcon->SetBrush(IconBrush);
-				LongIcon->SetVisibility(ESlateVisibility::Collapsed); // текстуру и показ ставит код окна
-				LongIcon->bIsVariable = true;
-				PlaceInSlot(LongIcon, FVector2D(FMath::Max(0.0f, LegsSize.X - IconSize - 16.0f), 0.0f),
-					/*bAutoSize=*/false, FVector2D(IconSize, IconSize));
-
-				UTextBlock* LongText = AugMakeTextLike(Tree,
-					Cast<UTextBlock>(Tree->FindWidget(TEXT("LegsSlotText"))),
-					TEXT("LongSlotText"), NSLOCTEXT("Inventory", "EmptyLongSlot", "Длинное оружие — пусто"));
-				PlaceInSlot(LongText, FVector2D(16.0f, 30.0f), /*bAutoSize=*/true, FVector2D::ZeroVector);
-
-				LongButton->SetContent(SlotBox);
-				if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(LongButton))
-				{
-					ButtonSlot->SetAnchors(LegsSlot->GetAnchors());
-					ButtonSlot->SetAlignment(FVector2D::ZeroVector);
-					ButtonSlot->SetPosition(SlotPos);
-					ButtonSlot->SetSize(FVector2D(LegsSize.X, SlotHeight));
-					ButtonSlot->SetZOrder(LegsSlot->GetZOrder());
-				}
-				bChanged = true;
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT %s: добавлен слот длинного оружия LongSlotButton (место %s, размер %.0fx%.0f)."),
-					Name, *SlotPos.ToString(), LegsSize.X, SlotHeight);
-			}
-		}
 
 		// --- Кнопка снятия пистолета: невидимая, ровно по месту его значка ---
 		if (!Tree->FindWidget(TEXT("RangedSlotButton")))
@@ -5566,16 +5522,7 @@ namespace
 			else
 			{
 				UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("RangedSlotButton"));
-				FSlateBrush NoBrush;
-				NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-				FButtonStyle Style;
-				Style.Normal = NoBrush;
-				Style.Disabled = NoBrush;
-				Style.Hovered = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.08f), 4.0f);
-				Style.Pressed = MakeRoundedBrush(FLinearColor(1.0f, 1.0f, 1.0f, 0.16f), 4.0f);
-				Style.NormalPadding = FMargin(0.0f);
-				Style.PressedPadding = FMargin(0.0f);
-				Button->SetStyle(Style);
+				Button->SetStyle(MakeInvisibleSlotButtonStyle());
 				Button->bIsVariable = true;
 				if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(Button))
 				{
@@ -5586,6 +5533,210 @@ namespace
 				bChanged = true;
 				UE_LOG(LogGenerateWbp, Display,
 					TEXT("AUGMENT %s: добавлена кнопка снятия пистолета RangedSlotButton (по месту значка)."), Name);
+			}
+		}
+
+		// --- Слот длинного оружия: в колонке оружия, сразу под пистолетом ---
+		UButton* LongButton = Cast<UButton>(Tree->FindWidget(TEXT("LongSlotButton")));
+		UPanelWidget* OldBox = Cast<UPanelWidget>(Tree->FindWidget(TEXT("LongSlotButtonBox")));
+		if (LongButton && !OldBox)
+		{
+			return; // слот уже стоит в колонке оружия — дальше им владеет хозяин окна
+		}
+
+		UImage* RangedIcon = Cast<UImage>(AugFind(Tree, Name, TEXT("RangedSlotIcon")));
+		UTextBlock* RangedText = Cast<UTextBlock>(AugFind(Tree, Name, TEXT("RangedSlotText")));
+		UCanvasPanelSlot* RangedIconSlot = RangedIcon ? Cast<UCanvasPanelSlot>(RangedIcon->Slot) : nullptr;
+		UCanvasPanelSlot* RangedTextSlot = RangedText ? Cast<UCanvasPanelSlot>(RangedText->Slot) : nullptr;
+		UCanvasPanel* Column = RangedIcon ? Cast<UCanvasPanel>(RangedIcon->GetParent()) : nullptr;
+		if (!RangedIconSlot || !RangedTextSlot || !Column || RangedText->GetParent() != Column)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: значок и название пистолета не лежат в одной канве — слот длинного оружия не поставлен."), Name);
+			return;
+		}
+
+		const FAnchorData IconLayout = RangedIconSlot->GetLayout();
+		const FAnchorData TextLayout = RangedTextSlot->GetLayout();
+		auto IsTopLeftPoint = [](const FAnchorData& Layout)
+		{
+			return Layout.Anchors.Minimum == Layout.Anchors.Maximum && Layout.Alignment.IsNearlyZero();
+		};
+		if (!IsTopLeftPoint(IconLayout) || !IsTopLeftPoint(TextLayout)
+			|| IconLayout.Anchors.Minimum != TextLayout.Anchors.Minimum || RangedIconSlot->GetAutoSize())
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: слот пистолета привязан не к левому верхнему углу — слот длинного оружия не поставлен."), Name);
+			return;
+		}
+
+		// Высоту строки текста без окна не измерить (Slate в служебном запуске не создаётся):
+		// оценка по кеглю, строка шрифта окна занимает около 1,6 кегля.
+		auto LineHeightOf = [](const UTextBlock* Text)
+		{
+			return FMath::CeilToFloat(Text->GetFont().Size * 1.6f);
+		};
+		constexpr float GapAboveSlot = 6.0f;  // от названия пистолета до значка длинного оружия
+		constexpr float GapIconToName = 8.0f; // от значка до названия (как у слота ножа владельца)
+		constexpr float GapBelowSlot = 8.0f;  // от названия до того, что стоит ниже
+		const float ColumnLeft = IconLayout.Offsets.Left;
+		const float ColumnRight = ColumnLeft + IconLayout.Offsets.Right;
+		const float IconHeight = IconLayout.Offsets.Bottom;
+		const float LongIconTop = TextLayout.Offsets.Top + LineHeightOf(RangedText) + GapAboveSlot;
+		const float LongTextTop = LongIconTop + IconHeight + GapIconToName;
+		const float LongBottom = LongTextTop + LineHeightOf(RangedText);
+
+		UImage* LongIcon = Cast<UImage>(Tree->FindWidget(TEXT("LongSlotIcon")));
+		UTextBlock* LongText = Cast<UTextBlock>(Tree->FindWidget(TEXT("LongSlotText")));
+		UWidget* OldCaption = Tree->FindWidget(TEXT("LongSlotButtonCaption"));
+
+		// Всё, что стоит в колонке оружия ниже названия пистолета, едет вниз целиком: подпись
+		// и слот ножа сохраняют взаимное расположение, заданное владельцем.
+		TArray<UCanvasPanelSlot*> BelowSlots;
+		float BelowTop = TNumericLimits<float>::Max();
+		float BelowBottom = LongBottom;
+		for (int32 Index = 0; Index < Column->GetChildrenCount(); ++Index)
+		{
+			UWidget* Child = Column->GetChildAt(Index);
+			UCanvasPanelSlot* ChildSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+			if (!ChildSlot || Child == LongButton || Child == LongIcon || Child == LongText)
+			{
+				continue;
+			}
+			const FAnchorData ChildLayout = ChildSlot->GetLayout();
+			if (!IsTopLeftPoint(ChildLayout) || ChildLayout.Anchors.Minimum != IconLayout.Anchors.Minimum)
+			{
+				continue;
+			}
+			if (ChildLayout.Offsets.Left < ColumnLeft - 1.0f || ChildLayout.Offsets.Left >= ColumnRight
+				|| ChildLayout.Offsets.Top <= TextLayout.Offsets.Top + 1.0f)
+			{
+				continue;
+			}
+			BelowSlots.Add(ChildSlot);
+			BelowTop = FMath::Min(BelowTop, ChildLayout.Offsets.Top);
+			const UTextBlock* ChildText = Cast<UTextBlock>(Child);
+			const float ChildHeight = ChildSlot->GetAutoSize() && ChildText
+				? LineHeightOf(ChildText) : ChildLayout.Offsets.Bottom;
+			BelowBottom = FMath::Max(BelowBottom, ChildLayout.Offsets.Top + ChildHeight);
+		}
+		const float ShiftDown = BelowSlots.Num() > 0
+			? FMath::Max(0.0f, LongBottom + GapBelowSlot - BelowTop) : 0.0f;
+		for (UCanvasPanelSlot* BelowSlot : BelowSlots)
+		{
+			const FVector2D OldPos = BelowSlot->GetPosition();
+			BelowSlot->SetPosition(OldPos + FVector2D(0.0f, ShiftDown));
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: %s опущен на %.0f: было (%.0f, %.0f), стало (%.0f, %.0f)."),
+				Name, *BelowSlot->Content->GetName(), ShiftDown, OldPos.X, OldPos.Y, OldPos.X, OldPos.Y + ShiftDown);
+		}
+		const float ColumnBottom = BelowSlots.Num() > 0 ? BelowBottom + ShiftDown : LongBottom;
+
+		// Значок: прежний переезжает из начинки кнопки в колонку, нового окна — создаётся.
+		if (LongIcon)
+		{
+			LongIcon->RemoveFromParent();
+		}
+		else
+		{
+			LongIcon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("LongSlotIcon"));
+			LongIcon->SetVisibility(ESlateVisibility::Collapsed); // текстуру и показ ставит код окна
+		}
+		FSlateBrush LongBrush = LongIcon->GetBrush();
+		LongBrush.SetImageSize(RangedIcon->GetBrush().GetImageSize());
+		LongIcon->SetBrush(LongBrush);
+		LongIcon->bIsVariable = true;
+		FAnchorData LongIconLayout = IconLayout;
+		LongIconLayout.Offsets.Top = LongIconTop;
+		if (UCanvasPanelSlot* LongIconSlot = Column->AddChildToCanvas(LongIcon))
+		{
+			LongIconSlot->SetLayout(LongIconLayout);
+			LongIconSlot->SetAutoSize(false);
+			LongIconSlot->SetZOrder(RangedIconSlot->GetZOrder());
+		}
+
+		// Название: вид — как у названия пистолета. Текст пустого слота живёт в одном месте —
+		// в настройках окна; свой прежний образец меняем, чужую правку текста не трогаем.
+		const FText EmptyLongText = GetDefault<UInventoryScreenWidget>()->EmptyLongSlotText;
+		if (LongText)
+		{
+			LongText->RemoveFromParent();
+			LongText->SetFont(RangedText->GetFont());
+			LongText->SetColorAndOpacity(RangedText->GetColorAndOpacity());
+			LongText->SetShadowOffset(RangedText->GetShadowOffset());
+			LongText->SetShadowColorAndOpacity(RangedText->GetShadowColorAndOpacity());
+			if (LongText->GetText().ToString() == TEXT("Длинное оружие — пусто"))
+			{
+				LongText->SetText(EmptyLongText);
+			}
+		}
+		else
+		{
+			LongText = AugMakeTextLike(Tree, RangedText, TEXT("LongSlotText"), EmptyLongText);
+		}
+		if (UCanvasPanelSlot* LongTextSlot = Column->AddChildToCanvas(LongText))
+		{
+			FAnchorData LongTextLayout = TextLayout;
+			LongTextLayout.Offsets.Top = LongTextTop;
+			LongTextSlot->SetLayout(LongTextLayout);
+			LongTextSlot->SetAutoSize(RangedTextSlot->GetAutoSize());
+			LongTextSlot->SetZOrder(RangedTextSlot->GetZOrder());
+		}
+
+		// Начинка прежней широкой кнопки больше не нужна.
+		if (OldCaption)
+		{
+			Tree->RemoveWidget(OldCaption);
+		}
+		if (OldBox)
+		{
+			Tree->RemoveWidget(OldBox);
+		}
+
+		// Кнопка снятия: невидимая, ровно по месту значка (как у пистолета).
+		if (LongButton)
+		{
+			LongButton->RemoveFromParent();
+		}
+		else
+		{
+			LongButton = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("LongSlotButton"));
+		}
+		LongButton->SetStyle(MakeInvisibleSlotButtonStyle());
+		LongButton->SetBackgroundColor(FLinearColor::White);
+		LongButton->bIsVariable = true;
+		if (UCanvasPanelSlot* LongButtonSlot = Column->AddChildToCanvas(LongButton))
+		{
+			LongButtonSlot->SetLayout(LongIconLayout);
+			LongButtonSlot->SetAutoSize(false);
+			LongButtonSlot->SetZOrder(RangedIconSlot->GetZOrder() + 1);
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: слот длинного оружия поставлен под пистолетом: значок (%.0f, %.0f) размером %.0fx%.0f, название (%.0f, %.0f)."),
+			Name, ColumnLeft, LongIconTop, IconLayout.Offsets.Right, IconHeight,
+			TextLayout.Offsets.Left, LongTextTop);
+
+		// Влезла ли колонка в подложку окна: высота канвы = высота подложки минус её отступы.
+		const UBorder* Plate = Cast<UBorder>(Column->GetParent());
+		const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (PlateSlot && !PlateSlot->GetAutoSize()
+			&& PlateSlot->GetAnchors().Minimum == PlateSlot->GetAnchors().Maximum)
+		{
+			const FMargin Pad = Plate->GetPadding();
+			const float CanvasHeight = PlateSlot->GetSize().Y - Pad.Top - Pad.Bottom;
+			if (ColumnBottom > CanvasHeight)
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: колонка оружия (низ %.0f) не помещается в подложку (высота %.0f) — поправь расстановку вручную."),
+					Name, ColumnBottom, CanvasHeight);
+			}
+			else
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: колонка оружия помещается в подложку: низ %.0f при высоте %.0f."),
+					Name, ColumnBottom, CanvasHeight);
 			}
 		}
 	}
@@ -6555,6 +6706,24 @@ static void DumpSlotSubtree(const TCHAR* AssetName, UWidget* Widget, int32 Depth
 	if (!FMath::IsNearlyEqual(Widget->GetRenderOpacity(), 1.0f))
 	{
 		VisDesc += FString::Printf(TEXT(" прозрачность=%.2f"), Widget->GetRenderOpacity());
+	}
+
+	// Содержимое, без которого схему окна по срезу не нарисовать (10.10.2026): текст и кегль
+	// подписи, внутренний отступ подложки, размер кисти картинки.
+	if (const UTextBlock* Text = Cast<UTextBlock>(Widget))
+	{
+		VisDesc += FString::Printf(TEXT(" текст=«%s» кегль=%.0f"),
+			*Text->GetText().ToString().Replace(TEXT("\n"), TEXT("\\n")), Text->GetFont().Size);
+	}
+	else if (const UBorder* Border = Cast<UBorder>(Widget))
+	{
+		const FMargin Pad = Border->GetPadding();
+		VisDesc += FString::Printf(TEXT(" отступ=(%.1f,%.1f,%.1f,%.1f)"), Pad.Left, Pad.Top, Pad.Right, Pad.Bottom);
+	}
+	else if (const UImage* Image = Cast<UImage>(Widget))
+	{
+		const FVector2D BrushSize = Image->GetBrush().GetImageSize();
+		VisDesc += FString::Printf(TEXT(" кисть=%.0fx%.0f"), BrushSize.X, BrushSize.Y);
 	}
 
 	UE_LOG(LogGenerateWbp, Display, TEXT("SLOTS %s: %s%s : %s : %s%s"),
