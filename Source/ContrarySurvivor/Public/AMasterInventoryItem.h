@@ -164,10 +164,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item|Stack")
 	FORCEINLINE int32 GetStackSpace() const { return FMath::Max(0, MaxStackCount - StackCount); }
 
-	// Можно ли слить этот стак с Other: оба стакаемы, ОДИН класс и ОДИН служебный ключ
-	// ItemName (класс общий на разные предметы: AQuestItem — и шкура, и ноутбук;
-	// AConsumableItem — вода/консервы/бинт, различает их именно ключ).
+	// Можно ли слить этот стак с Other: оба стакаемы и это ОДНА строка таблицы предметов
+	// (класс при этом может быть разным: пачка из кода и пачка из таблицы — один предмет).
+	// Для предметов вне таблицы — прежнее правило: один класс и один служебный ключ ItemName
+	// (класс общий на разные предметы: AQuestItem — и шкура, и ноутбук; AConsumableItem —
+	// вода/консервы/бинт, различает их именно ключ).
 	UFUNCTION(BlueprintPure, Category = "Item|Stack")
 	bool CanStackWith(const AMasterInventoryItem* Other) const;
+
+	// Строка таблицы предметов, которой соответствует этот предмет (заданная явно либо
+	// найденная по служебному ключу). Пусто — предмета в таблице нет.
+	FName GetItemRowName() const { return ResolveItemRowName(); }
 
 };

@@ -206,7 +206,7 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "3", MultiLine = "true"))
 	FText DialogueCompletedText = NSLOCTEXT("Dialog", "ElderCompleted",
-		"Управился, значит. Не зря понадеялся. Держи плату.");
+		"Значит, справился. Не зря я на тебя понадеялся. Вот твоя плата.");
 
 	// ADR-065 (замысел Рината: «первое оружие — решение игрока, а не подарок»). Реплика
 	// показывается ТОЛЬКО при сдаче ПЕРВОГО квеста, вместе с наградой: староста не даёт
@@ -215,7 +215,7 @@ protected:
 	// обычная реплика выше. Очистить это поле — вернуть прежнее поведение для всех квестов.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "4", MultiLine = "true"))
 	FText FirstQuestCompletedText = NSLOCTEXT("Dialog", "ElderFirstQuestCompleted",
-		"Держи, заработал. И вот что: загляни к торговцу, он под навесом. С ножом на волка ходить — дело молодое, а с железом в руке и подальше зайти можно. Да про припасы не забудь. Снарядишься — приходи: есть дело посерьёзнее волков.");
+		"Держи, ты это заработал. И вот тебе совет: зайди к торговцу, он сидит под навесом. С одним ножом далеко от деревни не уйдёшь, а с оружием получше ты сможешь зайти гораздо дальше. И не забудь купить припасы. Когда соберёшься — приходи: у меня есть дело серьёзнее волков.");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
 	FText DialogueTurnedInText = NSLOCTEXT("Dialog", "ElderTurnedIn",
@@ -227,7 +227,7 @@ protected:
 	// сейве). Поле оставлено, чтобы не терять текст/перевод; в потоке диалога больше НЕ участвует.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "5", MultiLine = "true"))
 	FText DialogueEarlyHookText = NSLOCTEXT("Dialog", "ElderEarlyHook",
-		"И вот что странно… За последние недели чужаки всё идут и идут к нам. Будто гонит их что-то. Или кто-то. Не моего ума дело. Ступай.");
+		"И вот что странно… В последние недели к нам всё идут и идут чужие люди. Как будто их что-то гонит. Или кто-то. Впрочем, это не моё дело. Иди.");
 
 	// Скриптовое интро первой встречи (Build 1, ТЗ издателя раздел 3): реплики старосты по очереди,
 	// под каждой — ровно одна кнопка-ответ игрока. Заполняется в конструкторе дословным текстом ТЗ;
@@ -310,12 +310,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "8", MultiLine = "true",
 		DisplayName = "Реплика: герой ещё несёт ноутбук учёным"))
 	FText ThirdQuestCarryText = NSLOCTEXT("Dialog", "ElderThirdQuestCarry",
-		"Ноутбук у тебя — вот и неси. База учёных на юго-западе, от перекрёстка на юг.");
+		"Ноутбук у тебя, так что неси его учёным. Их база находится на юго-западе: от перекрёстка иди на юг.");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (DisplayPriority = "9", MultiLine = "true",
 		DisplayName = "Реплика: ноутбук отнесён учёным"))
 	FText ThirdQuestDoneText = NSLOCTEXT("Dialog", "ElderThirdQuestDone",
-		"Отнёс? Добро. Теперь дело за учёными: как разберутся — узнаем, кто за тобой охотится. А пока живи с оглядкой.");
+		"Отнёс? Хорошо. Теперь всё зависит от учёных: когда они разберутся, мы узнаем, кто за тобой охотится. А пока будь осторожен.");
 
 	// Сценка после сдачи кв.2 (Build 1.2, формулировка Рината 07-31): реплика 1 — сюжетный
 	// крючок ADR-044 («на ноутбуке — данные о тех, кто за тобой охотится», СОХРАНЁН); дальше
@@ -333,7 +333,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|NotebookHint",
 		meta = (DisplayPriority = "2", MultiLine = "true", DisplayName = "Реплика при повторных разговорах"))
 	FText NotebookHintRepeatText = NSLOCTEXT("Dialog", "ElderNotebookHintRepeat",
-		"Не торопи. Сижу над ноутбуком, а он упирается, как чужой пёс. Волки к югу никуда не делись — и торговец за шкуры платит исправно.");
+		"Не торопи меня. Я всё ещё сижу над ноутбуком, а он никак не поддаётся. Волки к югу от деревни никуда не делись, и торговец по-прежнему хорошо платит за шкуры.");
 
 	// Сколько староста «разбирается с ноутбуком» после сценки (Ринат 10.10.2026), секунды
 	// ИГРОВОГО времени: на паузе не идёт, выход из игры и смерть не сбрасывают. Пока время не

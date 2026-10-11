@@ -73,6 +73,20 @@ enum class EQuestPrepStep : uint8
 	Done       UMETA(DisplayName = "Шаги пройдены или не нужны"),
 };
 
+/**
+ * Проводник к предмету-награде (11.10.2026, слова Рината: «после диалога - мигает кнопка
+ * инвентаря, а в нем мигает двустволка… когда игрок закрыл инвентарь - мигает кнопка смены
+ * оружия»). Тот же приём, что у подготовительного шага: ведёт, но ничего не запирает.
+ */
+UENUM(BlueprintType)
+enum class EQuestRewardGuideStep : uint8
+{
+	None   UMETA(DisplayName = "Не ведётся"), // так читаются и задания из старых сохранений
+	Equip  UMETA(DisplayName = "Поставить награду в слот"),
+	Switch UMETA(DisplayName = "Показать кнопку смены оружия"),
+	Done   UMETA(DisplayName = "Пройдено"),
+};
+
 /** Где у героя предмет подготовительного шага. */
 enum class EQuestPrepPossession : uint8
 {
@@ -251,6 +265,36 @@ struct FQuest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
 	FText PrepDebtText;
+
+	// Всплывающая подсказка сразу после покупки предмета: что делать дальше (закрыть торговлю,
+	// открыть сумку, поставить в слот). Пусто — подсказки нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FText PrepBoughtHintText;
+
+	// --- Предупреждение о малом здоровье при выходе из деревни (11.10.2026, слова Рината:
+	// «проверку хп игрока в момент его выхода из деревни в сторону бандитов… если у него
+	// маленькое хп (например ниже 45) - ХП будет мигать и будет появляться сообщение») ---
+
+	// Порог здоровья: ниже него герою, уходящему из деревни с этим заданием, показывается
+	// предупреждение. 0 — задание о здоровье не предупреждает. Действует, пока задание взято и
+	// его цель убийств не выполнена.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Здоровье", meta = (ClampMin = "0.0"))
+	float LowHealthWarnThreshold = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Здоровье", meta = (MultiLine = "true"))
+	FText LowHealthWarnText;
+
+	// --- Проводник к предмету-награде (11.10.2026) ---
+
+	// Строка таблицы предметов из награды, которую игроку помогают поставить в слот оружия
+	// (двустволка охранника): после разговора мигает кнопка сумки, в сумке — плитка предмета,
+	// затем кнопка смены оружия. Пусто — награду никто не ведёт.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
+	FName RewardEquipItemRow = NAME_None;
+
+	// Ход проводника (пишется в сохранение вместе с журналом).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
+	EQuestRewardGuideStep RewardGuideStep = EQuestRewardGuideStep::None;
 
 	// Ход подготовки (пишется в сохранение вместе с журналом).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest|Подготовка")
@@ -440,6 +484,37 @@ public:
 
 	// Идёт ли у какого-нибудь задания такой шаг.
 	bool IsAnyPrepStepShown(EQuestPrepStep Step) const;
+
+	// Донести до задания, уже лежащего в журнале, тексты и подсказки его описания (журнал
+	// хранит копию задания, снятую при выдаче, — без этого правка текста в таблице заданий не
+	// дошла бы до сохранения, записанного раньше). Ход задания не трогает.
+	static void RefreshDefinitionTexts(const FQuest& Definition, FQuest& InJournal);
+
+	// --- Предупреждение о малом здоровье при выходе из деревни (11.10.2026) ---
+
+	// Задание, которое при таком здоровье предупреждает героя (иначе null): взято, порог задан,
+	// цель убийств ещё не выполнена, здоровье ниже порога.
+	const FQuest* FindLowHealthWarning(float Health) const;
+
+	// То же правило для одного задания — чистой функцией для автопроверки.
+	static bool ShouldWarnLowHealth(const FQuest& Quest, float Health);
+
+	// --- Проводник к предмету-награде (11.10.2026) ---
+
+	// Чистое правило: каким должен стать шаг проводника при таком положении дел.
+	// bCanSwitchFirearms — заняты оба слота огнестрела, то есть кнопке смены оружия есть что менять.
+	static EQuestRewardGuideStep ComputeRewardGuideStep(const FQuest& Quest,
+		EQuestPrepPossession Possession, bool bCanSwitchFirearms);
+
+	// Есть ли задание, у которого проводник ещё идёт / стоит на таком шаге.
+	bool HasPendingRewardGuide() const;
+	bool IsAnyRewardGuideStep(EQuestRewardGuideStep Step) const;
+
+	// Сверить проводники всех заданий с тем, где сейчас предмет награды.
+	void UpdateRewardGuides(TFunctionRef<EQuestPrepPossession(FName)> GetPossession, bool bCanSwitchFirearms);
+
+	// Игрок нажал кнопку смены оружия: шаг «показать кнопку» пройден. true — что-то изменилось.
+	bool NoteWeaponSwitched();
 
 	// Выполнены ли ОБЕ цели квеста (kill + item). Цель с нулевым требованием считается выполненной.
 	static bool AreObjectivesMet(const FQuest& Quest);

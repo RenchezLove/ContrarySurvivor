@@ -171,7 +171,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPdaQuestKindsTest,
 
 bool FPdaQuestKindsTest::RunTest(const FString& Parameters)
 {
-	// Боевая таблица заданий: строки, заведённые до появления поля, — сюжет старосты.
+	// Боевая таблица заданий: задания старосты — сюжет; задание охранника базы учёных (в таблице
+	// с 11.10.2026) — побочное.
 	if (UDataTable* LiveTable = ContraryQuests::GetQuestTable())
 	{
 		for (const FName& RowName : LiveTable->GetRowNames())
@@ -179,8 +180,10 @@ bool FPdaQuestKindsTest::RunTest(const FString& Parameters)
 			const FContraryQuestRow* Row = LiveTable->FindRow<FContraryQuestRow>(RowName, TEXT("PdaQA"), /*bWarnIfRowMissing=*/false);
 			if (TestNotNull(*FString::Printf(TEXT("Строка таблицы заданий %s читается"), *RowName.ToString()), Row))
 			{
-				TestEqual(*FString::Printf(TEXT("Строка таблицы заданий %s — основное задание"), *RowName.ToString()),
-					Row->Kind, EQuestKind::Main);
+				const bool bSide = (RowName == ContraryQuestIds::FetchGuardRadio);
+				TestEqual(*FString::Printf(TEXT("Строка таблицы заданий %s — %s задание"), *RowName.ToString(),
+					bSide ? TEXT("побочное") : TEXT("основное")),
+					Row->Kind, bSide ? EQuestKind::Side : EQuestKind::Main);
 			}
 		}
 	}

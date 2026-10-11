@@ -15,6 +15,7 @@
 #include "ContrarySurvivor/Settings/ContrarySurvivorGameUserSettings.h" // громкость эффектов (экран настроек)
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // вариант A прицеливания: доворот корпуса носителя
 #include "AAmmoItem.h" // ContraryAmmo: вид патрона по умолчанию
+#include "ContrarySurvivor/Data/ContraryWeaponAudioSettings.h" // общие звуки «мало патронов» и «пустой магазин»
 
 ARangedWeapon::ARangedWeapon()
 {
@@ -426,12 +427,17 @@ int32 ARangedWeapon::DrainReserveAmmo()
 
 void ARangedWeapon::Fire(AActor* Target)
 {
-	if (!CanFire()) 
+	if (!CanFire())
 	{
 		// Если патронов нет — автоматически начинаем перезарядку
 		if (CurrentAmmoInClip <= 0)
 		{
 			Reload();
+			// Заряжать было нечем — ударник бьёт вхолостую (11.10.2026).
+			if (CurrentAmmoInClip <= 0)
+			{
+				NotifyDryFire();
+			}
 		}
 		return;
 	}
@@ -496,8 +502,78 @@ void ARangedWeapon::Fire(AActor* Target)
 	CurrentAmmoInClip--;
 	LastFireTime = GetWorld()->GetTimeSeconds();
 
-	UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Fired. Ammo: %d/%d"), 
+	UE_LOG(LogTemp, Warning, TEXT("ARangedWeapon: Fired. Ammo: %d/%d"),
 		CurrentAmmoInClip, MaxAmmoInClip);
+
+	// В магазине осталась четверть — предупреждаем звуком, один раз (11.10.2026).
+	NotifyShotForLowAmmo();
+}
+
+// ---------------------------------------------------------------------------
+// Звуки «мало патронов» и «пустой магазин» (11.10.2026)
+// ---------------------------------------------------------------------------
+
+int32 ARangedWeapon::ComputeLowAmmoThreshold(int32 ClipCapacity, float ClipFraction)
+{
+	if (ClipCapacity <= 0 || ClipFraction <= 0.0f)
+	{
+		return 0;
+	}
+	return FMath::Max(1, FMath::FloorToInt32(static_cast<float>(ClipCapacity) * ClipFraction));
+}
+
+bool ARangedWeapon::ShouldWarnLowAmmo(int32 AmmoLeftAfterShot, int32 ClipCapacity, float ClipFraction)
+{
+	const int32 Threshold = ComputeLowAmmoThreshold(ClipCapacity, ClipFraction);
+	return Threshold > 0 && AmmoLeftAfterShot == Threshold;
+}
+
+bool ARangedWeapon::IsDryFireClickAllowed(double Now, double LastClickTime, float MinInterval)
+{
+	return LastClickTime < 0.0 || (Now - LastClickTime) >= static_cast<double>(MinInterval);
+}
+
+void ARangedWeapon::PlayWeaponNoticeSound(USoundBase* Override, const TSoftObjectPtr<USoundBase>& Common, float Volume)
+{
+	// Свой звук ствола главнее общего; пустая ссылка в настройках — тишина без ошибок.
+	USoundBase* Sound = Override ? Override : (Common.IsNull() ? nullptr : Common.LoadSynchronous());
+	if (!Sound)
+	{
+		return;
+	}
+	UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation(),
+		Volume * UContrarySurvivorGameUserSettings::GetEffectsVolumeSafe());
+}
+
+void ARangedWeapon::NotifyShotForLowAmmo()
+{
+	const UContraryWeaponAudioSettings* Audio = UContraryWeaponAudioSettings::Get();
+	if (!Audio || !Cast<APlayerCharacter>(GetInstigator())
+		|| !ShouldWarnLowAmmo(CurrentAmmoInClip, MaxAmmoInClip, Audio->LowAmmoClipFraction))
+	{
+		return;
+	}
+	++LowAmmoWarningCount;
+	PlayWeaponNoticeSound(LowAmmoSoundOverride, Audio->LowAmmoSound, Audio->LowAmmoVolume);
+}
+
+void ARangedWeapon::NotifyDryFire()
+{
+	const UContraryWeaponAudioSettings* Audio = UContraryWeaponAudioSettings::Get();
+	const UWorld* World = GetWorld();
+	if (!Audio || !World || !Cast<APlayerCharacter>(GetInstigator()))
+	{
+		return;
+	}
+	// Кнопка выстрела при удержании срабатывает каждый кадр — щёлкаем не чаще заданного.
+	const double Now = World->GetTimeSeconds();
+	if (!IsDryFireClickAllowed(Now, LastDryFireClickTime, Audio->DryFireMinInterval))
+	{
+		return;
+	}
+	LastDryFireClickTime = Now;
+	++DryFireClickCount;
+	PlayWeaponNoticeSound(DryFireSoundOverride, Audio->DryFireSound, Audio->DryFireVolume);
 }
 
 void ARangedWeapon::SetTarget(AActor* NewTarget)

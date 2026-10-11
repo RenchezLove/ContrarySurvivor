@@ -2398,6 +2398,11 @@ void AContrarySurvivorPlayerController::OpenDialog(AElderNPC* Elder)
 		DialogBanditQuestId = Elder->GetSecondQuest().QuestId;
 		bBanditQuestTurnedInAtDialogOpen = IsQuestTurnedIn(DialogBanditQuestId);
 
+		// То же для сценки про ноутбук: «при открытии не показана — при закрытии показана»
+		// значит, что староста только что отметил южное логово на карте (см. CloseDialog).
+		bElderDialogOpen = true;
+		bNotebookHintShownAtDialogOpen = PlayerChar->IsElderNotebookHintShown();
+
 		// Build 1: подарок первой встречи (аптечка) больше НЕ выдаётся при открытии — иначе
 		// подсказка «Получена аптечка» всплывала бы до реплики. Теперь аптечку выдаёт
 		// скриптовое интро на реплике «Держи, затяни раны» (DialogScreenWidget::AdvanceIntro,
@@ -2525,6 +2530,25 @@ void AContrarySurvivorPlayerController::CloseDialog()
 	// закрылся. Без отложенного окна вызов — тихий no-op.
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
+		// Награда-оружие из этого разговора лежит в сумке и ждёт слота (двустволка охранника,
+		// 11.10.2026): мигает кнопка сумки — тем же миганием, что после подарка старосты;
+		// плитка мигает уже в самой сумке.
+		PlayerChar->UpdateQuestPrepSteps();
+		if (TouchControlsLayer && PlayerChar->GetQuests()
+			&& PlayerChar->GetQuests()->IsAnyRewardGuideStep(EQuestRewardGuideStep::Equip))
+		{
+			TouchControlsLayer->StartInventoryAttentionBlink();
+		}
+
+		// Сценка про ноутбук сыграна в ЭТОМ разговоре со старостой: он сказал, что отметил
+		// южное логово на карте героя (11.10.2026) — сообщаем тем, кто ведёт карту.
+		if (bElderDialogOpen && !bNotebookHintShownAtDialogOpen && PlayerChar->IsElderNotebookHintShown())
+		{
+			UE_LOG(LogQA, Display, TEXT("QA: elder marked the southern wolf den on the map"));
+			OnElderMarkedSouthDen.Broadcast();
+		}
+		bElderDialogOpen = false;
+
 		if (UDailyRewardComponent* Daily = PlayerChar->GetDailyReward())
 		{
 			Daily->NotifyElderDialogClosed();
@@ -3280,6 +3304,13 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 			PlayerQuests->SyncInventoryQuests(PlayerChar->GetInventory());
 			// Подготовительный шаг задания (купить пистолет, поставить в слот) — по сумке и слотам.
 			PlayerChar->UpdateQuestPrepSteps();
+			// Награда-оружие встала в слот — мигает кнопка смены оружия, пока игрок её не нажмёт
+			// (11.10.2026). Вид мигания — настройки экранных кнопок.
+			if (TouchControlsLayer)
+			{
+				TouchControlsLayer->SetWeaponAttentionBlink(
+					PlayerQuests->IsAnyRewardGuideStep(EQuestRewardGuideStep::Switch));
+			}
 			// Ход задания изменился — пишем сохранение (несколько изменений за кадр — одна запись).
 			PlayerChar->FlushAutoSave();
 		}
@@ -3917,6 +3948,38 @@ void AContrarySurvivorPlayerController::UpdateLeaveVillageHint()
 	{
 		OnboardingComp->TryShowHint(EOnboardingHint::LeaveVillage);
 	}
+
+	// Тот же переход — повод проверить здоровье (11.10.2026): герой с малым здоровьем уходит
+	// из деревни бить врагов по заданию. Раз за выход: признак «был внутри» уже сброшен.
+	WarnLowHealthOnLeavingVillage();
+}
+
+bool AContrarySurvivorPlayerController::WarnLowHealthOnLeavingVillage()
+{
+	const APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn());
+	const UStatsComponent* PlayerStats = PlayerChar ? PlayerChar->GetStats() : nullptr;
+	const UQuestComponent* PlayerQuests = PlayerChar ? PlayerChar->GetQuests() : nullptr;
+	if (!PlayerStats || !PlayerQuests || PlayerStats->IsDead())
+	{
+		return false;
+	}
+	// Порог и текст — данные задания (таблица заданий), здесь только сама проверка.
+	const FQuest* Warning = PlayerQuests->FindLowHealthWarning(PlayerStats->GetHealth());
+	if (!Warning)
+	{
+		return false;
+	}
+	if (UOnboardingComponent* OnboardingComp = GetOnboarding())
+	{
+		OnboardingComp->ShowTransientHint(Warning->LowHealthWarnText);
+	}
+	if (AContrarySurvivorHUD* CSHUD = GetHUD<AContrarySurvivorHUD>())
+	{
+		CSHUD->StartHealthAttentionBlink(); // мигает полоска здоровья
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: low health warning on leaving village (%s) - здоровье %.0f, порог %.0f"),
+		*Warning->QuestId.ToString(), PlayerStats->GetHealth(), Warning->LowHealthWarnThreshold);
+	return true;
 }
 
 void AContrarySurvivorPlayerController::UpdateCombatHints()
@@ -4082,6 +4145,11 @@ void AContrarySurvivorPlayerController::OnSwitchWeapon()
 	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
 	{
 		PlayerChar->SwitchWeapon();
+		// Кнопка смены оружия нажата — подсказка про неё своё дело сделала (11.10.2026).
+		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
+		{
+			PlayerQuests->NoteWeaponSwitched();
+		}
 	}
 }
 

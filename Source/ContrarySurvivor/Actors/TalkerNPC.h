@@ -199,6 +199,12 @@ protected:
 		DisplayName = "Реплика: задание сдано"))
 	FText QuestTurnedInText;
 
+	// Реплика сразу после сдачи, в том же разговоре: собеседник прямо говорит, что вручает
+	// награду (11.10.2026). Пусто — сразу звучит обычная реплика «задание сдано».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Задание", meta = (DisplayPriority = "7", MultiLine = "true",
+		DisplayName = "Реплика: сразу после сдачи (про награду)"))
+	FText QuestJustTurnedInText;
+
 	// --- Приём чужого задания (сдаётся этому собеседнику) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Приём задания", meta = (DisplayPriority = "1", MultiLine = "true",
@@ -230,6 +236,9 @@ protected:
 private:
 	// В этом разговоре принято задание, которым заканчивается сюжет.
 	bool bStoryEndingQuestReceivedThisTalk = false;
+
+	// В этом разговоре сдано своё задание собеседника (см. QuestJustTurnedInText).
+	bool bOwnQuestTurnedInThisTalk = false;
 
 	// Чужое готовое задание, которое герой может сдать этому собеседнику прямо сейчас.
 	const FQuest* FindForeignQuestToReceive(const APlayerCharacter* Player) const;

@@ -160,6 +160,7 @@ void AQuestGiverNPC::OnTalkOpened(APlayerCharacter* Player)
 {
 	ForeignRewardThisTalk = -1.0f;
 	bStoryEndingQuestReceivedThisTalk = false;
+	bOwnQuestTurnedInThisTalk = false;
 
 	// Своё задание попадает в журнал при первом разговоре (повторно — ничего не меняет).
 	if (OffersQuest() && Player && Player->GetQuests())
@@ -219,7 +220,10 @@ void AQuestGiverNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutVi
 				OutView.PrimaryLabel = !QData.TurnInReplyText.IsEmpty() ? QData.TurnInReplyText : ForeignTurnInReplyText;
 				break;
 			case EQuestState::TurnedIn:
-				OutView.Replica = QuestTurnedInText;
+				// В том разговоре, где задание сдано, собеседник говорит про награду прямо;
+				// во всех следующих — обычную реплику «задание сдано».
+				OutView.Replica = (bOwnQuestTurnedInThisTalk && !QuestJustTurnedInText.IsEmpty())
+					? QuestJustTurnedInText : QuestTurnedInText;
 				break;
 			default:
 				break;
@@ -305,7 +309,7 @@ bool AQuestGiverNPC::HandleTalkPrimary(APlayerCharacter* Player)
 		}
 		if (InLog && InLog->State == EQuestState::Completed)
 		{
-			Quests->TurnInQuest(OfferedQuest.QuestId, NpcTag);
+			bOwnQuestTurnedInThisTalk = Quests->TurnInQuest(OfferedQuest.QuestId, NpcTag);
 			return false;
 		}
 	}

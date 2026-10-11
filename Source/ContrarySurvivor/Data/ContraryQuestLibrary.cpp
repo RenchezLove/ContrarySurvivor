@@ -87,6 +87,10 @@ bool BuildQuestFromRow(FName RowName, FQuest& OutQuest)
 	Quest.PrepEquipObjectiveText = Row->PrepEquipObjectiveText;
 	Quest.PrepDealText = Row->PrepDealText;
 	Quest.PrepDebtText = Row->PrepDebtText;
+	Quest.PrepBoughtHintText = Row->PrepBoughtHintText;
+	Quest.LowHealthWarnThreshold = Row->LowHealthWarnThreshold;
+	Quest.LowHealthWarnText = Row->LowHealthWarnText;
+	Quest.RewardEquipItemRow = Row->RewardEquipItemRow;
 
 	OutQuest = Quest;
 	return true;
