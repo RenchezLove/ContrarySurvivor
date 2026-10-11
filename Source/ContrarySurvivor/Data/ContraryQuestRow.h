@@ -140,4 +140,30 @@ struct FContraryQuestRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (DisplayPriority = "20",
 		DisplayName = "Вид задания (основное или побочное)"))
 	EQuestKind Kind = EQuestKind::Main;
+
+	// --- Подготовительный шаг: купить предмет у торговца и поставить его в слот (11.10.2026) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "21",
+		DisplayName = "Предмет, который советуют купить (строка таблицы предметов)"))
+	FName PrepItemRow = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (ClampMin = "0.0", DisplayPriority = "22",
+		DisplayName = "Цена этого предмета со скидкой (одна покупка, пока идёт шаг)"))
+	float PrepDealPrice = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "23",
+		DisplayName = "Цель на экране: шаг покупки"))
+	FText PrepBuyObjectiveText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "24",
+		DisplayName = "Цель на экране: шаг «поставь в слот»"))
+	FText PrepEquipObjectiveText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "25",
+		DisplayName = "Подпись на плитке товара: скидка"))
+	FText PrepDealText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "26",
+		DisplayName = "Подпись на плитке товара: продажа в долг"))
+	FText PrepDebtText;
 };

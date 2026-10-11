@@ -188,6 +188,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Задания", meta = (DisplayName = "Кнопка у отслеживаемого задания"))
 	FText TrackedLabel = NSLOCTEXT("Pda", "Tracked", "Отслеживается");
 
+	// Строки списка заданий строит код, поэтому их размер — здесь (Class Defaults окна), а не
+	// в дереве: отступы вокруг названия дают строку высотой под палец (не ниже 96), просвет —
+	// расстояние между строками.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Задания", meta = (DisplayName = "Строка задания: отступы вокруг названия"))
+	FMargin QuestRowPadding = FMargin(12.0f, 36.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Задания", meta = (ClampMin = "0.0", DisplayName = "Строка задания: просвет между строками"))
+	float QuestRowGap = 12.0f;
+
 	// --- Карта ---
 
 	// Подпись зоны деревни, если места «рядом с ней» нет в списке мест настроек карты.

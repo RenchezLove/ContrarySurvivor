@@ -41,10 +41,24 @@ public:
 
 	virtual void BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const override;
 
+	// Начинает ли охранник с отказа (11.10.2026, слова Рината: «охранник говорит что староста за
+	// ГГ не поручился и он не может его пропустить. После чего… хотя если ты сможешь мне помочь,
+	// то пропущу»): шлагбаум для героя закрыт и задание про рацию ещё не взято. Чистое правило
+	// для автопроверки; условие шлагбаума — то же, что у самого шлагбаума (AQuestBarrier).
+	static bool ShouldStartWithRefusal(const TArray<FQuest>& Journal, FName LaptopQuestId, FName OwnQuestId);
+	const FText& GetNotVouchedText() const { return NotVouchedText; }
+
 	// Несёт ли герой ноутбук учёным: задание взято и ещё не сдано. Чистое правило для автотеста.
 	static bool IsCarryingLaptop(const TArray<FQuest>& Journal, FName LaptopQuestId);
 
 protected:
+	// Вступление, пока героя на базу не пускают: отказ и «хотя, если поможешь…». За ним идёт
+	// просьба про рацию («Реплика: просьба про рацию после пропуска») и кнопка взять задание.
+	// Пусто — охранник сразу говорит обычное описание задания. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "1", MultiLine = "true",
+		DisplayName = "Реплика: староста не поручился, но помоги — пропущу"))
+	FText NotVouchedText;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "1",
 		DisplayName = "Задание «отнести ноутбук» (идентификатор)"))
 	FName LaptopQuestId = ContraryQuestIds::DeliverLaptopToScientists;

@@ -123,7 +123,6 @@ bool FWeaponUiGatingRoundTripTest::RunTest(const FString& Parameters)
 			{
 				Inv->AddItem(Bought);
 				TestTrue(TEXT("Пистолет занял слот огнестрела"), Player->TryAdoptRangedWeapon(Bought));
-				Player->SwitchWeapon();
 				TestTrue(TEXT("После подбора: условие «дальнобой в руках» истинно (пистолет)"),
 					Cast<ARangedWeapon>(Player->GetCurrentWeapon()) != nullptr);
 

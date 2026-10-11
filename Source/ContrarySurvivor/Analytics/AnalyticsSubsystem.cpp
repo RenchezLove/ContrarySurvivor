@@ -175,6 +175,16 @@ void UAnalyticsSubsystem::RecordQuestTurnedIn(FName QuestId)
 	SendDesignEvent(FString::Printf(TEXT("quest:turnin:%s"), *SanitizeEventPart(QuestId.ToString())));
 }
 
+void UAnalyticsSubsystem::RecordQuestStep(FName QuestId, const FString& StepId)
+{
+	SendDesignEvent(MakeQuestStepEventId(QuestId, StepId));
+}
+
+FString UAnalyticsSubsystem::MakeQuestStepEventId(FName QuestId, const FString& StepId)
+{
+	return FString::Printf(TEXT("quest:step:%s:%s"), *SanitizeEventPart(QuestId.ToString()), *SanitizeEventPart(StepId));
+}
+
 void UAnalyticsSubsystem::RecordPurchase(const FString& ItemName, float TotalPrice)
 {
 	SendDesignEvent(FString::Printf(TEXT("shop:buy:%s"), *SanitizeEventPart(ItemName)),

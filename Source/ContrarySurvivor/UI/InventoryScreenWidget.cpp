@@ -291,6 +291,12 @@ void UInventoryScreenWidget::RefreshAll()
 						bGiftHighlightShown = true;
 					}
 				}
+				// Предмет, который задание просит поставить в слот (купленный пистолет), мигает
+				// тем же миганием, пока лежит в сумке (11.10.2026).
+				if (Player && Player->IsQuestPrepItemToEquip(Item))
+				{
+					Tile->SetAttentionBlink(true);
+				}
 				Tile->OnTileClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileUse);
 				Tile->OnDropClicked.AddUObject(this, &UInventoryScreenWidget::HandleTileDrop);
 

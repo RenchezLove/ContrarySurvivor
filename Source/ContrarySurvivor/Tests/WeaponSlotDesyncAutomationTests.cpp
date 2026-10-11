@@ -197,7 +197,6 @@ bool FWeaponSlotDesyncLegitPathUntouchedTest::RunTest(const FString& Parameters)
 		}
 		Inv->AddItem(Bought);
 		TestTrue(TEXT("Пистолет занял слот огнестрела"), Player->TryAdoptRangedWeapon(Bought));
-		Player->SwitchWeapon();
 		TestTrue(TEXT("Пистолет в руках и совпадает со слотом"),
 			Player->GetCurrentWeapon() == Bought
 			&& Player->GetRangedWeaponInstance() == Bought);

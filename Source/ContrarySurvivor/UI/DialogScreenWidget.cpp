@@ -360,7 +360,7 @@ void UDialogScreenWidget::RefreshDialog()
 		// плейсхолдера Format просто вернёт текст как есть. Реплики в квесте нет — берём
 		// формулировку владельца из ассета, и только за её отсутствием формат из C++.
 		FFormatNamedArguments Args;
-		Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(QData.RewardMoney)));
+		Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(QData.GetPayoutMoney()))); // за вычетом долга
 		const FText OwnerFallback = OwnerTurnInText.IsEmpty() ? TurnInFormat : OwnerTurnInText;
 		TurnInText->SetText(FText::Format(
 			!QData.TurnInReplyText.IsEmpty() ? QData.TurnInReplyText : OwnerFallback, Args));

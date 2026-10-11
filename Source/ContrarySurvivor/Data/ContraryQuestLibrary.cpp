@@ -81,6 +81,12 @@ bool BuildQuestFromRow(FName RowName, FQuest& OutQuest)
 	Quest.GiveOnAccept = Row->GiveOnAccept;
 	Quest.RewardItems = Row->RewardItems;
 	Quest.Kind = Row->Kind;
+	Quest.PrepItemRow = Row->PrepItemRow;
+	Quest.PrepDealPrice = Row->PrepDealPrice;
+	Quest.PrepBuyObjectiveText = Row->PrepBuyObjectiveText;
+	Quest.PrepEquipObjectiveText = Row->PrepEquipObjectiveText;
+	Quest.PrepDealText = Row->PrepDealText;
+	Quest.PrepDebtText = Row->PrepDebtText;
 
 	OutQuest = Quest;
 	return true;

@@ -43,6 +43,7 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // «Новая игра» сбрасывает память баз (баг Рината 23.08)
 #include "ContrarySurvivor/Actors/StashChest.h"      // личный сундук: общее хранилище в сохранении
 #include "ContrarySurvivor/Actors/ElderNPC.h"        // правило ожидания старосты после сценки про ноутбук
+#include "ContrarySurvivor/Data/ContraryItemRow.h"   // класс строки предмета подготовительного шага
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
@@ -191,6 +192,12 @@ APlayerCharacter::APlayerCharacter()
 void APlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Ход задания пишется в сохранение сразу, не дожидаясь костра (11.10.2026).
+    if (Quests)
+    {
+        Quests->OnQuestChanged.AddUniqueDynamic(this, &APlayerCharacter::HandleQuestChangedForAutoSave);
+    }
 
     // Камера НЕ настраивается в BeginPlay: knob-параметры применяются один раз в OnConstruction
     // (см. ApplyCameraSettings). Это убирает анти-паттерн «BeginPlay перетирает правки камеры».
@@ -1020,6 +1027,11 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         Inventory->RemoveItem(Ranged);
     }
 
+    // Был ли до этого у героя хоть один огнестрел в слотах (11.10.2026, слова Рината: «Если в
+    // любом из слотов огнестрельного оружия есть оружие, то кнопка выстрела должна работать и
+    // в ней должно быть изображено оружие» — без лишнего нажатия кнопки смены оружия).
+    const bool bFirstFirearm = !SidearmWeaponInstance && !LongWeaponInstance;
+
     FirearmSlotRef(Ranged->GetFirearmSlot()) = Ranged;
     Ranged->SetOwner(this);
     Ranged->SetInstigator(this);
@@ -1034,8 +1046,16 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         AddAmmoToInventory(Drained, Ranged->GetAmmoType());
     }
 
-    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия %d (в кобуре)"),
-        *Ranged->GetItemDisplayText().ToString(), static_cast<int32>(Ranged->GetFirearmSlot()));
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия %d (%s)"),
+        *Ranged->GetItemDisplayText().ToString(), static_cast<int32>(Ranged->GetFirearmSlot()),
+        bFirstFirearm ? TEXT("сразу в руки") : TEXT("в кобуре"));
+
+    // Единственный огнестрел сразу берётся в руки; второй ствол рук не меняет — между двумя
+    // выбирает игрок кнопкой смены оружия.
+    if (bFirstFirearm)
+    {
+        TakeWeaponInHands(Ranged);
+    }
     return true;
 }
 
@@ -1453,6 +1473,200 @@ int32 APlayerCharacter::GiveItemFromRow(FName RowName, int32 Count)
 // Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Подготовительный шаг задания: купить предмет и поставить в слот (11.10.2026)
+// ---------------------------------------------------------------------------
+
+float APlayerCharacter::GetShopBuyPrice(const FShopEntry& Entry, const FQuest** OutDeal) const
+{
+    const FQuest* Deal = (Quests && Entry.Kind == EShopEntryKind::Item) ? Quests->FindPrepDeal(Entry.ItemRow) : nullptr;
+    if (Deal && Deal->PrepDealPrice >= Entry.Price)
+    {
+        Deal = nullptr; // «скидка» не дешевле обычной цены — её нет
+    }
+    if (OutDeal)
+    {
+        *OutDeal = Deal;
+    }
+    return Deal ? Deal->PrepDealPrice : Entry.Price;
+}
+
+bool APlayerCharacter::DoesItemMatchRow(const AMasterInventoryItem* Item, FName ItemRow)
+{
+    if (!Item || ItemRow.IsNone())
+    {
+        return false;
+    }
+    if (!Item->SourceItemRow.IsNone())
+    {
+        return Item->SourceItemRow == ItemRow;
+    }
+    // Вещь без строки (выдана по-старому): сверяем по классу строки таблицы.
+    const FContraryItemRow* Row = ContraryItems::FindRow(ItemRow);
+    const UClass* RowClass = Row ? Row->ItemClass.LoadSynchronous() : nullptr;
+    return RowClass && (Item->IsA(RowClass) || RowClass->IsChildOf(Item->GetClass()));
+}
+
+EQuestPrepPossession APlayerCharacter::GetItemPossession(FName ItemRow) const
+{
+    for (const EFirearmSlot Slot : { EFirearmSlot::Sidearm, EFirearmSlot::Long })
+    {
+        if (DoesItemMatchRow(GetFirearmInSlot(Slot), ItemRow))
+        {
+            return EQuestPrepPossession::InSlot;
+        }
+    }
+    if (Inventory)
+    {
+        for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+        {
+            if (DoesItemMatchRow(Item, ItemRow))
+            {
+                return EQuestPrepPossession::InBag;
+            }
+        }
+    }
+    return EQuestPrepPossession::None;
+}
+
+bool APlayerCharacter::IsQuestPrepItemToEquip(const AMasterInventoryItem* Item) const
+{
+    if (!Quests || !Item)
+    {
+        return false;
+    }
+    for (const FQuest& Quest : Quests->GetQuests())
+    {
+        if (UQuestComponent::IsPrepStepShown(Quest) && Quest.PrepStep == EQuestPrepStep::Equip
+            && DoesItemMatchRow(Item, Quest.PrepItemRow))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void APlayerCharacter::UpdateQuestPrepSteps()
+{
+    if (!Quests || !Quests->HasPendingPrep())
+    {
+        return;
+    }
+    // Задание из сохранения, записанного до 11.10.2026, описания шага не несёт — его знает
+    // тот, кто задание выдал (староста).
+    if (Quests->HasUncheckedPrep())
+    {
+        if (UWorld* World = GetWorld())
+        {
+            for (TActorIterator<AElderNPC> It(World); It; ++It)
+            {
+                Quests->MergePrepDefinition(It->GetOfferedQuest());
+                Quests->MergePrepDefinition(It->GetSecondQuest());
+                Quests->MergePrepDefinition(It->GetThirdQuest());
+            }
+        }
+    }
+    Quests->UpdatePrepSteps([this](FName ItemRow) { return GetItemPossession(ItemRow); });
+}
+
+// ---------------------------------------------------------------------------
+// Запись хода игры без костра и страховка после загрузки (11.10.2026)
+// ---------------------------------------------------------------------------
+
+bool APlayerCharacter::CanAutoSave() const
+{
+    if (!Stats || Stats->IsDead() || bRestoringSaveState)
+    {
+        return false; // на экране смерти пишет сам Respawn, при восстановлении писать нельзя
+    }
+    const UWorld* World = GetWorld();
+    if (!World || !World->IsGameWorld())
+    {
+        return false;
+    }
+    if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))
+    {
+        if (PC->IsIntroMoveInputLocked())
+        {
+            return false; // вступление ещё идёт — игра не начата
+        }
+    }
+    // Свежая игра без единого задания и без сохранения: писать нечего, а слот с данными
+    // включил бы в меню «Продолжить» у игрока, который ещё не играл.
+    const bool bHasJournal = Quests && Quests->GetQuests().Num() > 0;
+    return bHasJournal || HasSaveGame();
+}
+
+void APlayerCharacter::RequestAutoSave(const TCHAR* Reason)
+{
+    if (!bAutoSavePending)
+    {
+        UE_LOG(LogQA, Verbose, TEXT("QA: autosave requested (%s)"), Reason);
+    }
+    bAutoSavePending = true;
+}
+
+bool APlayerCharacter::FlushAutoSave()
+{
+    if (!bAutoSavePending || !CanAutoSave())
+    {
+        return false; // просьба остаётся в силе до удобного кадра
+    }
+    bAutoSavePending = false;
+    return SaveGame();
+}
+
+bool APlayerCharacter::AutoSaveNow(const TCHAR* Reason)
+{
+    if (!CanAutoSave())
+    {
+        return false;
+    }
+    bAutoSavePending = false;
+    const bool bOk = SaveGame();
+    UE_LOG(LogQA, Display, TEXT("QA: autosave (%s): %s"), Reason, bOk ? TEXT("OK") : TEXT("FAIL"));
+    return bOk;
+}
+
+void APlayerCharacter::HandleQuestChangedForAutoSave(const FQuest& Quest)
+{
+    RequestAutoSave(TEXT("quest changed"));
+}
+
+int32 APlayerCharacter::RepairQuestTargetsAfterLoad()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Quests)
+    {
+        return 0;
+    }
+    Quests->SyncInventoryQuests(Inventory); // счёт предметов — по сумке из сохранения
+    int32 Rearmed = 0;
+    for (const FQuest& Quest : Quests->GetQuests())
+    {
+        if (Quest.State != EQuestState::Active || Quest.MapMarkerTag.IsNone())
+        {
+            continue;
+        }
+        const bool bKillsLeft = Quest.TargetCount > 0 && Quest.Progress < Quest.TargetCount;
+        const bool bItemsLeft = Quest.RequiredItemCount > 0 && Quest.ItemProgress < Quest.RequiredItemCount;
+        for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+        {
+            if (It->GetQuestMarkerTag() != Quest.MapMarkerTag)
+            {
+                continue;
+            }
+            // Предмет, который база кладёт сама (ноутбук), вернётся и на пустую базу; врагов
+            // и добычу с них (шкуры) возвращает только новая зачистка.
+            if (bKillsLeft || (bItemsLeft && !It->LaysQuestItem(Quest.RequiredItemName)))
+            {
+                Rearmed += It->RearmForQuestRetry() ? 1 : 0;
+            }
+        }
+    }
+    return Rearmed;
+}
+
 bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
 {
     return Shop_BuyEntryQty(Entry, 1);
@@ -1466,10 +1680,18 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
     }
 
     Qty = FMath::Max(1, Qty);
-    const float TotalPrice = Entry.Price * static_cast<float>(Qty);
+
+    // Скидка по заданию (11.10.2026): первая штука — по цене задания; не хватает монет на
+    // одну такую покупку — торговец отдаёт в долг, остаток спишется с награды за задание.
+    const FQuest* Deal = nullptr;
+    const float FirstUnitPrice = GetShopBuyPrice(Entry, &Deal);
+    const FName DealQuestId = Deal ? Deal->QuestId : NAME_None;
+    const float TotalPrice = FirstUnitPrice + Entry.Price * static_cast<float>(Qty - 1);
+    const bool bOnCredit = Deal && Qty == 1 && Stats->GetMoney() < TotalPrice;
+    const float DealDebt = bOnCredit ? TotalPrice - Stats->GetMoney() : 0.0f;
 
     // Проверяем платёжеспособность ДО выдачи товара (clamp >=0: нельзя купить без денег).
-    if (Stats->GetMoney() < TotalPrice)
+    if (!bOnCredit && Stats->GetMoney() < TotalPrice)
     {
         UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' x%d (%.0f < %.0f)"),
             *Entry.DisplayName, Qty, Stats->GetMoney(), TotalPrice);
@@ -1554,8 +1776,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
         }
     }
 
-    // Списываем итоговую цену (SpendMoney clamp >=0 + бродкаст HUD).
-    Stats->SpendMoney(TotalPrice);
+    // Списываем итоговую цену (SpendMoney clamp >=0 + бродкаст HUD); взятое в долг — за заданием.
+    Stats->SpendMoney(TotalPrice - DealDebt);
+    if (!DealQuestId.IsNone() && Quests)
+    {
+        Quests->NotePrepPurchase(DealQuestId, DealDebt);
+    }
     UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' x%d for %.0f. Money left %.0f"),
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),
@@ -2546,6 +2772,10 @@ bool APlayerCharacter::LoadGameForContinue()
 
     bRestoringSaveState = false;
 
+    // Сохранение, записанное до 11.10.2026, могло помнить зачищенную базу при несделанном
+    // задании — такую базу взводим заново, иначе задание не пройти.
+    RepairQuestTargetsAfterLoad();
+
     // Живое состояние теперь совпадает с содержимым слота: сразу после «Продолжить»
     // несохранённого прогресса нет, и меню паузы не должно спрашивать лишнего.
     CaptureProgressSnapshot();
@@ -2811,8 +3041,13 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
     // не знают (Unknown): для них в руках остаётся то, что есть, — нож, как и было до двух слотов.
     switch (Save->WeaponInHands)
     {
-        case ESavedWeaponInHands::Sidearm: SelectFirearmSlot(EFirearmSlot::Sidearm); break;
-        case ESavedWeaponInHands::Long:    SelectFirearmSlot(EFirearmSlot::Long); break;
+        // Записанный слот оказался пуст (ствол убрали, а запись старая) — берём занятый.
+        case ESavedWeaponInHands::Sidearm:
+            if (!SelectFirearmSlot(EFirearmSlot::Sidearm)) { SelectFirearmSlot(EFirearmSlot::Long); }
+            break;
+        case ESavedWeaponInHands::Long:
+            if (!SelectFirearmSlot(EFirearmSlot::Long)) { SelectFirearmSlot(EFirearmSlot::Sidearm); }
+            break;
         case ESavedWeaponInHands::Knife:   TakeKnifeInHands(); break;
         default: break;
     }

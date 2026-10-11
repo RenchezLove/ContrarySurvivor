@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ScientistNPCs.h"
+#include "ContrarySurvivor/Actors/QuestBarrier.h" // правило «шлагбаум открыт» — одно на шлагбаум и охранника
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"          // плата за просмотр зеркалится в сохранение
@@ -25,6 +26,9 @@ namespace
 
 AScientistGuardNPC::AScientistGuardNPC()
 {
+	// Вступление, пока героя на базу не пускают. Черновик, утверждает Ринат.
+	NotVouchedText = NSLOCTEXT("Scientists", "GuardNotVouched",
+		"Стой. Дальше — база учёных. Староста за тебя не поручился, пропустить не могу. Хотя… поможешь мне — пропущу.");
 	NpcTag = ScientistBaseTags::Guard;
 	DialogueDisplayName = NSLOCTEXT("Scientists", "GuardName", "ОХРАННИК");
 	NPCMarkerLabel = NSLOCTEXT("Scientists", "GuardMarker", "Охранник");
@@ -88,10 +92,36 @@ bool AScientistGuardNPC::IsCarryingLaptop(const TArray<FQuest>& Journal, FName L
 		{ return Q.QuestId == LaptopQuestId && UQuestComponent::IsInActivePhase(Q); });
 }
 
+bool AScientistGuardNPC::ShouldStartWithRefusal(const TArray<FQuest>& Journal, FName LaptopQuestId, FName OwnQuestId)
+{
+	for (const FQuest& Quest : Journal)
+	{
+		if (Quest.QuestId == OwnQuestId && Quest.State != EQuestState::NotStarted)
+		{
+			return false; // задание про рацию уже взято — уговор есть
+		}
+	}
+	return !AQuestBarrier::ShouldBeOpen(Journal, LaptopQuestId, OwnQuestId);
+}
+
 void AScientistGuardNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const
 {
 	// Кнопки и ветки своего задания — как у любого собеседника с заданием; меняется только реплика.
 	Super::BuildTalkView(Player, OutView);
+
+	// Героя на базу ещё не пускают и задание про рацию не взято: сначала отказ («староста за
+	// тебя не поручился… хотя, поможешь — пропущу»), затем просьба про рацию. Кнопка взять
+	// задание остаётся — её ставит общая ветка выше.
+	if (const UQuestComponent* GateQuests = Player ? Player->GetQuests() : nullptr)
+	{
+		if (OffersQuest() && !NotVouchedText.IsEmpty()
+			&& ShouldStartWithRefusal(GateQuests->GetQuests(), LaptopQuestId, OfferedQuest.QuestId))
+		{
+			const FText Ask = LaptopPassOfferText.IsEmpty() ? OutView.Replica : LaptopPassOfferText;
+			OutView.Replica = FText::Format(INVTEXT("{0}\n{1}"), NotVouchedText, Ask);
+			return;
+		}
+	}
 
 	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
 	if (!Quests || LaptopPassText.IsEmpty() || !IsCarryingLaptop(Quests->GetQuests(), LaptopQuestId))

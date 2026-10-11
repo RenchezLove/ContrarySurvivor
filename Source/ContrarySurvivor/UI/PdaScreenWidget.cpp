@@ -182,6 +182,21 @@ void UPdaQuestButton::HandlePicked()
 // Раскладка окна — одна на готовый файл и на кодовую запаску
 // ===========================================================================
 
+// Кисть-картинка для подложки окна. UBorder::SetBrushFromTexture меняет у кисти только картинку
+// (Border.cpp:261-263), а вид прежней кисти — скруглённая плашка с жёлтым контуром — остаётся:
+// отсюда была жёлтая рамка вокруг смартфона (замечание Рината 11.10.2026).
+static FSlateBrush MakePhonePictureBrush(UTexture2D* Texture)
+{
+	FSlateBrush Brush;
+	Brush.SetResourceObject(Texture);
+	Brush.DrawAs = ESlateBrushDrawType::Image;
+	Brush.Tiling = ESlateBrushTileType::NoTile;
+	Brush.TintColor = FSlateColor(FLinearColor::White);
+	const FIntPoint Size = PdaMap::GetPictureSize(Texture);
+	Brush.ImageSize = FVector2D(FMath::Max(1, Size.X), FMath::Max(1, Size.Y));
+	return Brush;
+}
+
 void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 {
 	if (!Tree)
@@ -210,6 +225,12 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	UBorder* Plate = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelPlate"));
 	Plate->SetBrush(RoundedBrush(FLinearColor(0.06f, 0.07f, 0.09f, 0.97f), 28.0f,
 		FLinearColor(0.8f, 0.65f, 0.25f, 0.9f), 2.0f));
+	// Картинка смартфона задана в настройках — подложка в файле окна сразу рисуется ею,
+	// чистой кистью: рамка и скругление запасной плашки на картинку не переходят.
+	if (UTexture2D* DesignPhoneTexture = Settings->PhoneTexture.IsNull() ? nullptr : Settings->PhoneTexture.LoadSynchronous())
+	{
+		Plate->SetBrush(MakePhonePictureBrush(DesignPhoneTexture));
+	}
 	Plate->SetPadding(PdaMap::ComputePhoneScreenPadding(DesignPhone, Settings->PhoneScreenInsets));
 	Plate->bIsVariable = true;
 	if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
@@ -226,7 +247,8 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	// чтобы карта справа получила всю высоту экрана смартфона и почти всю его ширину. ---
 	const float SideW = 220.0f;      // ширина столбца
 	const float ContentX = 236.0f;   // откуда начинается вкладка (столбец + просвет 16)
-	const float SideButtonH = 64.0f; // высота кнопок столбца — под палец
+	const float SideButtonH = 96.0f; // высота кнопок столбца — под палец на телефоне (Ринат 11.10.2026)
+	const float SideButtonGap = 12.0f;
 
 	PlaceAuto(Panel, NewText(Tree, TEXT("TitleText"), Defaults->TitleLabel, PdaTextColor, 24, TEXT("Bold")),
 		FVector2D(4.0f, 4.0f));
@@ -235,12 +257,12 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("QuestsTabButton"), TEXT("QuestsTabText"),
 		Defaults->QuestsTabLabel, TabColor, 20), FVector2D(0.0f, 56.0f), FVector2D(SideW, SideButtonH));
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("MapTabButton"), TEXT("MapTabText"),
-		Defaults->MapTabLabel, TabColor, 20), FVector2D(0.0f, 132.0f), FVector2D(SideW, SideButtonH));
+		Defaults->MapTabLabel, TabColor, 20), FVector2D(0.0f, 56.0f + SideButtonH + SideButtonGap), FVector2D(SideW, SideButtonH));
 
 	// Подсказка вкладки карты — в столбце под вкладками (на самой карте она отнимала бы место).
-	UTextBlock* Hint = NewText(Tree, TEXT("MapHintText"), Defaults->MapHintLabel, PdaDimTextColor, 14, TEXT("Regular"));
+	UTextBlock* Hint = NewText(Tree, TEXT("MapHintText"), Defaults->MapHintLabel, PdaDimTextColor, 14, TEXT("Bold"));
 	Hint->SetAutoWrapText(true);
-	PlaceAt(Panel, Hint, FVector2D(4.0f, 216.0f), FVector2D(SideW - 8.0f, 220.0f));
+	PlaceAt(Panel, Hint, FVector2D(4.0f, 56.0f + 2.0f * (SideButtonH + SideButtonGap) + 4.0f), FVector2D(SideW - 8.0f, 220.0f));
 
 	UButton* Close = NewCaptionButton(Tree, TEXT("CloseButton"), TEXT("CloseText"),
 		Defaults->CloseLabel, FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), 20);
@@ -262,7 +284,7 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	// Растянут по высоте панели, ширина 440 (при совпавших якорях правый отступ — это ширина).
 	PlaceStretch(Quests, List, FAnchors(0.0f, 0.0f, 0.0f, 1.0f), FMargin(0.0f, 0.0f, 440.0f, 0.0f));
 
-	PlaceAuto(Quests, NewText(Tree, TEXT("EmptyText"), Defaults->EmptyLabel, PdaDimTextColor, 16, TEXT("Regular")),
+	PlaceAuto(Quests, NewText(Tree, TEXT("EmptyText"), Defaults->EmptyLabel, PdaDimTextColor, 16, TEXT("Bold")),
 		FVector2D(8.0f, 8.0f));
 
 	// Сведения о задании тянутся от списка до правого края экрана смартфона (якоря по ширине
@@ -279,18 +301,18 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	};
 	PlaceAuto(Quests, NewText(Tree, TEXT("DetailTitleText"), FText::GetEmpty(), PdaTextColor, 22, TEXT("Bold")),
 		FVector2D(DetailX, 0.0f));
-	PlaceAuto(Quests, NewText(Tree, TEXT("DetailGiverText"), FText::GetEmpty(), PdaDimTextColor, 16, TEXT("Regular")),
+	PlaceAuto(Quests, NewText(Tree, TEXT("DetailGiverText"), FText::GetEmpty(), PdaDimTextColor, 16, TEXT("Bold")),
 		FVector2D(DetailX, 40.0f));
 
-	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Regular"));
+	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Description->SetAutoWrapText(true);
 	PlaceDetail(Description, 100.0f, 220.0f);
 
-	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Regular"));
+	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Objectives->SetAutoWrapText(true);
 	PlaceDetail(Objectives, 332.0f, 170.0f);
 
-	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 18, TEXT("Regular"));
+	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 18, TEXT("Bold"));
 	Reward->SetAutoWrapText(true);
 	PlaceDetail(Reward, 514.0f, 120.0f);
 
@@ -343,8 +365,8 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 
 	// Кнопки поля карты — столбиком в правом-нижнем углу, поверх карты: «+», «−», «найти героя».
 	// 90 на 90 — нижняя граница удобного под палец размера из руководства по раскладке.
-	const float MapButtonSize = 90.0f;
-	const float MapButtonGap = 10.0f;
+	const float MapButtonSize = 96.0f;
+	const float MapButtonGap = 12.0f;
 	const float MapButtonMargin = 14.0f;
 	const FLinearColor MapButtonColor(0.10f, 0.12f, 0.15f, 0.88f);
 	auto PlaceMapButton = [&](const TCHAR* ButtonName, const TCHAR* TextName, const FText& Caption, int32 FontSize, int32 FromBottom)
@@ -620,18 +642,19 @@ void UPdaScreenWidget::AddQuestRow(const FQuest& Quest, bool bTracked)
 	Args.Add(TEXT("Title"), Quest.Title);
 	UTextBlock* Title = NewText(WidgetTree, NAME_None,
 		bTracked ? FText::Format(TrackedRowFormat, Args) : Quest.Title,
-		UContraryPdaSettings::Get()->GetQuestKindColor(Quest.Kind), 17, bTracked ? TEXT("Bold") : TEXT("Regular"));
+		UContraryPdaSettings::Get()->GetQuestKindColor(Quest.Kind), 17, TEXT("Bold"));
+	Title->SetAutoWrapText(true); // длинное название переносится, а не обрезается
 	Row->SetContent(Title);
 	if (UButtonSlot* TitleSlot = Cast<UButtonSlot>(Title->Slot))
 	{
 		TitleSlot->SetHorizontalAlignment(HAlign_Left);
-		TitleSlot->SetPadding(FMargin(12.0f, 10.0f));
+		TitleSlot->SetPadding(QuestRowPadding);
 	}
 
 	QuestList->AddChild(Row);
 	if (UScrollBoxSlot* RowSlot = Cast<UScrollBoxSlot>(Row->Slot))
 	{
-		RowSlot->SetPadding(FMargin(0.0f, 2.0f, 8.0f, 2.0f));
+		RowSlot->SetPadding(FMargin(0.0f, QuestRowGap * 0.5f, 8.0f, QuestRowGap * 0.5f));
 	}
 	++QuestRowCount;
 }
@@ -701,12 +724,12 @@ void UPdaScreenWidget::RebuildQuestList()
 		if (UButtonSlot* ToggleSlot = Cast<UButtonSlot>(ToggleText->Slot))
 		{
 			ToggleSlot->SetHorizontalAlignment(HAlign_Left);
-			ToggleSlot->SetPadding(FMargin(6.0f, 8.0f));
+			ToggleSlot->SetPadding(FMargin(6.0f, QuestRowPadding.Top, 6.0f, QuestRowPadding.Bottom));
 		}
 		QuestList->AddChild(Toggle);
 		if (UScrollBoxSlot* ToggleRowSlot = Cast<UScrollBoxSlot>(Toggle->Slot))
 		{
-			ToggleRowSlot->SetPadding(FMargin(0.0f, 12.0f, 8.0f, 2.0f));
+			ToggleRowSlot->SetPadding(FMargin(0.0f, QuestRowGap, 8.0f, QuestRowGap * 0.5f));
 		}
 
 		if (bDoneExpanded)
@@ -715,7 +738,7 @@ void UPdaScreenWidget::RebuildQuestList()
 			{
 				if (const FQuest* Quest = Quests->FindQuest(Id))
 				{
-					UTextBlock* DoneTitle = NewText(WidgetTree, NAME_None, Quest->Title, PdaDimTextColor, 15, TEXT("Regular"));
+					UTextBlock* DoneTitle = NewText(WidgetTree, NAME_None, Quest->Title, PdaDimTextColor, 15, TEXT("Bold"));
 					QuestList->AddChild(DoneTitle);
 					if (UScrollBoxSlot* DoneSlot = Cast<UScrollBoxSlot>(DoneTitle->Slot))
 					{
@@ -758,7 +781,7 @@ FText UPdaScreenWidget::BuildRewardText(const FQuest& Quest) const
 {
 	TArray<FText> Parts;
 
-	const int32 Money = FMath::RoundToInt32(Quest.RewardMoney);
+	const int32 Money = FMath::RoundToInt32(Quest.GetPayoutMoney()); // за вычетом долга торговцу
 	if (Money > 0)
 	{
 		FFormatNamedArguments Args;
@@ -1383,9 +1406,12 @@ void UPdaScreenWidget::ApplyPhoneLayout(const FVector2D& ScreenSize)
 		}
 		PanelPlate->SetPadding(PhonePadding);
 		// Картинка есть — подложка рисуется ею; нет — остаётся вид из файла окна (тёмная плашка).
-		if (PhoneTexture && PhoneTexture != LoadedPhoneTexture)
+		// Кисть ставится, только если в окне сейчас не эта картинка чистой кистью: вид,
+		// заданный в файле окна, код не перетирает.
+		const FSlateBrush& Current = PanelPlate->Background;
+		if (PhoneTexture && (Current.GetResourceObject() != PhoneTexture || Current.DrawAs != ESlateBrushDrawType::Image))
 		{
-			PanelPlate->SetBrushFromTexture(PhoneTexture);
+			PanelPlate->SetBrush(MakePhonePictureBrush(PhoneTexture));
 			PanelPlate->SetBrushColor(FLinearColor::White);
 		}
 	}

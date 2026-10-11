@@ -128,6 +128,26 @@ public:
 	int32 GetCurrentTierForQA() const { return CurrentTier; }
 	EEnemyBaseOccupancy GetOccupancyForQA() const { return Occupancy; }
 
+	// --- Предмет задания базы и повтор задания (11.10.2026, ошибка Рината: «перебил бандитов…
+	// вышел из игры… бандитов там уже не было. И ноутбука тоже не было. Квест стал
+	// непроходимым») ---
+
+	// Сверить предмет задания (ноутбук) с журналом и сумкой героя: предмет лежит на базе,
+	// пока задание на него взято и предмета у героя нет, — сколько бы раз базу ни зачищали.
+	// До взятия задания и после сдачи предмета на базе нет. Зовётся таймером базы.
+	void RefreshQuestItem();
+
+	// Кладёт ли эта база сама предмет с таким служебным ключом.
+	bool LaysQuestItem(const FString& ItemKey) const { return bSpawnQuestItem && QuestItemName.Equals(ItemKey, ESearchCase::CaseSensitive); }
+
+	// Зачищенная база (идёт пауза возрождения) взводится заново на той же ступени, что была
+	// зачищена: нужна, когда сохранение помнит зачистку, а журнал задания — нет. true — взведена.
+	bool RearmForQuestRetry();
+
+	APickup* GetSpawnedQuestPickupForQA() const { return SpawnedQuestPickup.Get(); }
+	// Только для автопроверок: пометить базу зачищенной сейчас (как после боя), без добычи.
+	void MarkClearedForQA();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -448,6 +468,6 @@ private:
 	// Спавнит одного врага в позиции SpawnTransform (XY на навмеш + floor-trace Z, Yaw из точки).
 	void SpawnOneEnemy(const FTransform& SpawnTransform);
 
-	// Спавнит пикап с квест-предметом в центре зоны (если bSpawnQuestItem).
+	// Кладёт пикап с предметом задания в центре зоны. Когда класть — решает RefreshQuestItem.
 	void SpawnQuestItem();
 };

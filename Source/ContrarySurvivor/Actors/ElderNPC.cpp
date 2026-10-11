@@ -109,6 +109,15 @@ AElderNPC::AElderNPC()
 	SecondQuest.AcceptReplyText = NSLOCTEXT("Quest", "Q2AcceptReply", "Разберусь с ними.");
 	SecondQuest.TurnInReplyText = NSLOCTEXT("Quest", "Q2TurnInReply", "Вот их ноутбук.");
 	SecondQuest.CloseReplyText  = NSLOCTEXT("Quest", "Q2CloseReply", "Мне пора.");
+	// Подготовительный шаг (11.10.2026): перед бандитами купить пистолет у торговца — староста
+	// договорился о скидке. Цена со скидкой — половина награды за волков; черновики текстов
+	// утверждает Ринат. В игре значения приходят из строки таблицы заданий.
+	SecondQuest.PrepItemRow = FName(TEXT("pistol"));
+	SecondQuest.PrepDealPrice = 100.0f;
+	SecondQuest.PrepBuyObjectiveText = NSLOCTEXT("Quest", "Q2PrepBuy", "Купи пистолет у торговца");
+	SecondQuest.PrepEquipObjectiveText = NSLOCTEXT("Quest", "Q2PrepEquip", "Поставь пистолет в слот");
+	SecondQuest.PrepDealText = NSLOCTEXT("Quest", "Q2PrepDeal", "Скидка от старосты");
+	SecondQuest.PrepDebtText = NSLOCTEXT("Quest", "Q2PrepDebt", "В долг: остаток спишут с награды");
 
 	// КВЕСТ 3 (ЧЕРНОВИК; слова Рината 10.10.2026: «староста отправляет ГГ на базу учёных с самим
 	// ноутом»). Староста сам данные не разобрал и отдаёт ноутбук герою (выдача при взятии —

@@ -16,10 +16,13 @@
 #include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // ULimpIndicatorWidget + FLimpFirstHintState (индикатор хромоты, Build 1)
 #include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
 #include "ContrarySurvivor/Debug/QADebug.h"      // CONTRARY_WITH_QA_CHEATS: отладочной клавиши нет в Shipping
+#include "ContrarySurvivor/Components/QuestComponent.h" // FQuest в обработчике события журнала
 #include "PlayerCharacter.generated.h"
 
 class UStatsComponent;
 class UQuestComponent;
+struct FQuest;
+enum class EQuestPrepPossession : uint8;
 class UContrarySaveGame;
 class AMasterInventoryItem;
 enum class EConsumableType : uint8; // тип расходника (AConsumableItem.h) — параметр GiveConsumableToBackpack
@@ -1021,6 +1024,53 @@ public:
     // в рюкзак стаком; предметы — Qty копий в рюкзак) и списывает цену. Слайдер магазина зовёт
     // это с выбранным количеством (Фаза 5, STALKER 2-стиль). Возвращает true при успехе.
     bool Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty);
+
+    // --- Подготовительный шаг задания: купить предмет и поставить в слот (11.10.2026) ---
+
+    // Цена покупки позиции для этого героя: обычная либо со скидкой по заданию (тогда
+    // OutDeal — это задание; у него же подписи для плитки товара).
+    float GetShopBuyPrice(const FShopEntry& Entry, const FQuest** OutDeal = nullptr) const;
+
+    // Где у героя предмет такой строки таблицы: в слоте оружия, в сумке или нигде.
+    EQuestPrepPossession GetItemPossession(FName ItemRow) const;
+
+    // Тот ли это предмет, что строка таблицы (у вещей без строки — по классу строки).
+    static bool DoesItemMatchRow(const AMasterInventoryItem* Item, FName ItemRow);
+
+    // Предмет, который задание сейчас просит поставить в слот (плитка в сумке мигает).
+    bool IsQuestPrepItemToEquip(const AMasterInventoryItem* Item) const;
+
+    // Сверить шаги заданий с сумкой и слотами. Зовёт контроллер каждый кадр; дёшево, пока
+    // ни одно задание шагов не ждёт.
+    void UpdateQuestPrepSteps();
+
+    // --- Запись хода игры без костра (11.10.2026) ---
+    // Журнал заданий, сумка и память баз должны лежать в сохранении согласованно: зачистка
+    // базы пишется в сохранение сразу, поэтому и ход задания пишется сразу — при засчитанном
+    // убийстве, подобранном предмете задания, взятии и сдаче, а ещё когда приложение уходит
+    // в фон или закрывается.
+
+    // Попросить запись при ближайшем удобном кадре (несколько просьб подряд — одна запись).
+    void RequestAutoSave(const TCHAR* Reason);
+    bool HasPendingAutoSave() const { return bAutoSavePending; }
+    // Записать, если просили и сейчас можно. Зовёт контроллер каждый кадр.
+    bool FlushAutoSave();
+    // Записать прямо сейчас (уход приложения в фон). false — сейчас писать нельзя или нечего.
+    bool AutoSaveNow(const TCHAR* Reason);
+    // Можно ли сейчас писать: герой жив, не идёт восстановление, игра уже начата.
+    bool CanAutoSave() const;
+
+    // После загрузки: база, которую сохранение помнит зачищенной, а идущее задание — нет,
+    // взводится заново (страховка для сохранений, записанных до 11.10.2026).
+    int32 RepairQuestTargetsAfterLoad();
+
+    UFUNCTION()
+    void HandleQuestChangedForAutoSave(const FQuest& Quest);
+
+private:
+    bool bAutoSavePending = false;
+
+public:
 
     // Продать предмет рюкзака за SellPrice (целиком): экип. броню сначала снимает, удаляет
     // предмет, начисляет деньги. Для нестакающихся предметов.

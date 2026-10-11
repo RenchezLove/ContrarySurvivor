@@ -214,6 +214,7 @@ void UQuestComponent::OfferQuest(const FQuest& Quest)
 			Existing->GiverNpcTag = Quest.GiverNpcTag;
 			OnQuestChanged.Broadcast(*Existing);
 		}
+		MergePrepDefinition(Quest); // то же для подготовительного шага (11.10.2026)
 		return;
 	}
 
@@ -333,6 +334,178 @@ void UQuestComponent::NotifyKill(FName TargetTag)
 		RecomputeState(Q); // может перевести в Completed (лог внутри)
 		OnQuestChanged.Broadcast(Q);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Подготовительный шаг задания (11.10.2026)
+// ---------------------------------------------------------------------------
+
+EQuestPrepStep UQuestComponent::ComputePrepStep(const FQuest& Quest, EQuestPrepPossession Possession)
+{
+	if (Quest.PrepItemRow.IsNone() || Quest.PrepStep == EQuestPrepStep::Done)
+	{
+		return EQuestPrepStep::Done; // шагов нет либо они пройдены: снятый потом предмет заново не просим
+	}
+	if (Quest.State != EQuestState::Active)
+	{
+		return Quest.PrepStep; // не взято, готово к сдаче или сдано — шаг не двигается
+	}
+	// Первая сверка после взятия задания: предмет уже есть (в сумке или в слоте) — шаги
+	// засчитаны сразу, игрок их не видит.
+	if (Quest.PrepStep == EQuestPrepStep::NotChecked && Possession != EQuestPrepPossession::None)
+	{
+		return EQuestPrepStep::Done;
+	}
+	switch (Possession)
+	{
+		case EQuestPrepPossession::InSlot: return EQuestPrepStep::Done;
+		case EQuestPrepPossession::InBag:  return EQuestPrepStep::Equip;
+		default:                           return EQuestPrepStep::Buy;
+	}
+}
+
+FText UQuestComponent::GetPrepObjectiveText(const FQuest& Quest)
+{
+	if (!IsPrepStepShown(Quest))
+	{
+		return FText::GetEmpty();
+	}
+	return Quest.PrepStep == EQuestPrepStep::Buy ? Quest.PrepBuyObjectiveText : Quest.PrepEquipObjectiveText;
+}
+
+bool UQuestComponent::HasPendingPrep() const
+{
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.State == EQuestState::Active && Q.PrepStep != EQuestPrepStep::Done)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UQuestComponent::HasUncheckedPrep() const
+{
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.State == EQuestState::Active && Q.PrepStep == EQuestPrepStep::NotChecked)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UQuestComponent::IsAnyPrepStepShown(EQuestPrepStep Step) const
+{
+	for (const FQuest& Q : Quests)
+	{
+		if (IsPrepStepShown(Q) && Q.PrepStep == Step)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UQuestComponent::UpdatePrepSteps(TFunctionRef<EQuestPrepPossession(FName)> GetPossession)
+{
+	for (FQuest& Q : Quests)
+	{
+		if (Q.State != EQuestState::Active || Q.PrepStep == EQuestPrepStep::Done)
+		{
+			continue;
+		}
+		const EQuestPrepStep Old = Q.PrepStep;
+		const EQuestPrepStep New = ComputePrepStep(Q,
+			Q.PrepItemRow.IsNone() ? EQuestPrepPossession::None : GetPossession(Q.PrepItemRow));
+		if (New == Old)
+		{
+			continue;
+		}
+		Q.PrepStep = New;
+		if (Q.PrepItemRow.IsNone())
+		{
+			continue; // у задания шагов нет — отметили и молчим
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: quest prep step (%s) %d -> %d"), *Q.QuestId.ToString(),
+			static_cast<int32>(Old), static_cast<int32>(New));
+		if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(GetOwner()))
+		{
+			// Предмет уже был у героя при взятии задания — шагов он не видел, событий нет.
+			if (Old == EQuestPrepStep::NotChecked && New == EQuestPrepStep::Buy)
+			{
+				Analytics->RecordQuestStep(Q.QuestId, TEXT("prep_buy_shown"));
+			}
+			else if (New == EQuestPrepStep::Done && Old != EQuestPrepStep::NotChecked)
+			{
+				Analytics->RecordQuestStep(Q.QuestId, TEXT("prep_equipped"));
+			}
+		}
+		OnQuestChanged.Broadcast(Q);
+	}
+}
+
+const FQuest* UQuestComponent::FindPrepDeal(FName ItemRow) const
+{
+	if (ItemRow.IsNone())
+	{
+		return nullptr;
+	}
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.PrepItemRow == ItemRow && IsPrepStepShown(Q) && Q.PrepStep == EQuestPrepStep::Buy
+			&& !Q.bPrepDealUsed && Q.PrepDealPrice > 0.0f)
+		{
+			return &Q;
+		}
+	}
+	return nullptr;
+}
+
+bool UQuestComponent::NotePrepPurchase(FName QuestId, float Debt)
+{
+	FQuest* Q = FindQuestMutable(QuestId);
+	if (!Q || Q->PrepItemRow.IsNone())
+	{
+		return false;
+	}
+	Q->bPrepDealUsed = true;
+	Q->PrepDebt += FMath::Max(0.0f, Debt);
+	if (Q->PrepStep == EQuestPrepStep::Buy)
+	{
+		Q->PrepStep = EQuestPrepStep::Equip; // предмет в сумке; в слот его ставит игрок
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: quest prep purchase (%s) - долг %.0f, всего долга %.0f"),
+		*Q->QuestId.ToString(), Debt, Q->PrepDebt);
+	if (UAnalyticsSubsystem* Analytics = UAnalyticsSubsystem::Get(GetOwner()))
+	{
+		Analytics->RecordQuestStep(Q->QuestId, Debt > 0.0f ? TEXT("prep_bought_debt") : TEXT("prep_bought_discount"));
+	}
+	OnQuestChanged.Broadcast(*Q);
+	return true;
+}
+
+bool UQuestComponent::MergePrepDefinition(const FQuest& Definition)
+{
+	FQuest* Q = FindQuestMutable(Definition.QuestId);
+	if (!Q || Definition.PrepItemRow.IsNone() || !Q->PrepItemRow.IsNone())
+	{
+		return false;
+	}
+	Q->PrepItemRow = Definition.PrepItemRow;
+	Q->PrepDealPrice = Definition.PrepDealPrice;
+	Q->PrepBuyObjectiveText = Definition.PrepBuyObjectiveText;
+	Q->PrepEquipObjectiveText = Definition.PrepEquipObjectiveText;
+	Q->PrepDealText = Definition.PrepDealText;
+	Q->PrepDebtText = Definition.PrepDebtText;
+	// Задание могли успеть отметить «шагов нет», пока описания у него не было.
+	if (Q->PrepStep == EQuestPrepStep::Done && Q->State == EQuestState::Active && !Q->bPrepDealUsed)
+	{
+		Q->PrepStep = EQuestPrepStep::NotChecked;
+	}
+	return true;
 }
 
 void UQuestComponent::SyncInventoryQuests(UInventoryComponent* Inventory)
@@ -493,7 +666,7 @@ bool UQuestComponent::TurnInQuest(FName QuestId, FName ReceiverNpcTag)
 	{
 		if (UStatsComponent* Stats = OwnerActor->FindComponentByClass<UStatsComponent>())
 		{
-			Stats->AddMoney(Q->RewardMoney);
+			Stats->AddMoney(Q->GetPayoutMoney()); // награда минус долг за предмет подготовительного шага
 			Balance = Stats->GetMoney();
 		}
 	}
