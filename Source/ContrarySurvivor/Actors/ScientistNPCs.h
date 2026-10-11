@@ -40,11 +40,32 @@ public:
 	AScientistGuardNPC();
 
 	virtual void BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const override;
+	virtual bool HandleTalkPrimary(APlayerCharacter* Player) override;
+	virtual void OnTalkOpened(APlayerCharacter* Player) override;
+
+	// Поручился ли староста за героя (11.10.2026, слова Рината: «Охранник… должен говорить что
+	// староста на ГГ не поручился, поэтому он не может пропустить ГГ внутрь»): задание-поручительство
+	// сдано. Своё задание, уже взятое или сданное раньше (старое сохранение), остаётся в силе.
+	// Чистое правило для автопроверки.
+	static bool IsVouchedFor(const TArray<FQuest>& Journal, FName VouchQuestId, FName OwnQuestId);
+	bool IsHeroVouchedFor(const APlayerCharacter* Player) const;
+	const FText& GetNotVouchedText() const { return NotVouchedText; }
 
 	// Несёт ли герой ноутбук учёным: задание взято и ещё не сдано. Чистое правило для автотеста.
 	static bool IsCarryingLaptop(const TArray<FQuest>& Journal, FName LaptopQuestId);
 
 protected:
+	// Задание старосты, после сдачи которого охранник начинает разговаривать о деле. Пусто —
+	// охранник говорит с любым, как раньше.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "1",
+		DisplayName = "Задание-поручительство (идентификатор)"))
+	FName VouchQuestId = ContraryQuestIds::ClearBanditBase;
+
+	// Что охранник говорит, пока староста за героя не поручился. Кнопки взять задание нет. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "2", MultiLine = "true",
+		DisplayName = "Реплика: староста не поручился"))
+	FText NotVouchedText;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "1",
 		DisplayName = "Задание «отнести ноутбук» (идентификатор)"))
 	FName LaptopQuestId = ContraryQuestIds::DeliverLaptopToScientists;

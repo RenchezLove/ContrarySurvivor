@@ -25,6 +25,9 @@ namespace
 
 AScientistGuardNPC::AScientistGuardNPC()
 {
+	// Пока задание на бандитов не сдано старосте. Черновик, утверждает Ринат.
+	NotVouchedText = NSLOCTEXT("Scientists", "GuardNotVouched",
+		"Стой, дальше база учёных. Староста за тебя не поручился — пропустить не могу. Заслужишь его слово — приходи.");
 	NpcTag = ScientistBaseTags::Guard;
 	DialogueDisplayName = NSLOCTEXT("Scientists", "GuardName", "ОХРАННИК");
 	NPCMarkerLabel = NSLOCTEXT("Scientists", "GuardMarker", "Охранник");
@@ -88,10 +91,58 @@ bool AScientistGuardNPC::IsCarryingLaptop(const TArray<FQuest>& Journal, FName L
 		{ return Q.QuestId == LaptopQuestId && UQuestComponent::IsInActivePhase(Q); });
 }
 
+bool AScientistGuardNPC::IsVouchedFor(const TArray<FQuest>& Journal, FName VouchQuestId, FName OwnQuestId)
+{
+	if (VouchQuestId.IsNone())
+	{
+		return true;
+	}
+	for (const FQuest& Quest : Journal)
+	{
+		if (Quest.QuestId == VouchQuestId && Quest.State == EQuestState::TurnedIn)
+		{
+			return true;
+		}
+		// Своё задание уже взято или сдано (сохранение, записанное до 11.10.2026) — не отбираем.
+		if (!OwnQuestId.IsNone() && Quest.QuestId == OwnQuestId && Quest.State != EQuestState::NotStarted)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AScientistGuardNPC::IsHeroVouchedFor(const APlayerCharacter* Player) const
+{
+	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	return !Quests || IsVouchedFor(Quests->GetQuests(), VouchQuestId, OfferedQuest.QuestId);
+}
+
+void AScientistGuardNPC::OnTalkOpened(APlayerCharacter* Player)
+{
+	if (IsHeroVouchedFor(Player))
+	{
+		Super::OnTalkOpened(Player); // своё задание предлагается только тому, за кого поручились
+	}
+}
+
+bool AScientistGuardNPC::HandleTalkPrimary(APlayerCharacter* Player)
+{
+	return IsHeroVouchedFor(Player) ? Super::HandleTalkPrimary(Player) : true; // брать нечего — разговор окончен
+}
+
 void AScientistGuardNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const
 {
 	// Кнопки и ветки своего задания — как у любого собеседника с заданием; меняется только реплика.
 	Super::BuildTalkView(Player, OutView);
+
+	// Староста за героя не поручился: отказ и никакой кнопки «взять задание».
+	if (!IsHeroVouchedFor(Player))
+	{
+		OutView.Replica = NotVouchedText;
+		OutView.PrimaryLabel = FText::GetEmpty();
+		return;
+	}
 
 	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
 	if (!Quests || LaptopPassText.IsEmpty() || !IsCarryingLaptop(Quests->GetQuests(), LaptopQuestId))

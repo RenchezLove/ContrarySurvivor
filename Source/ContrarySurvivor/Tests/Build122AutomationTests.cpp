@@ -659,9 +659,8 @@ bool FBuild122StartWithoutFirearmTest::RunTest(const FString& Parameters)
 				TestFalse(TEXT("В рюкзаке пистолета больше нет"),
 					Inv->GetInventoryItems().Contains(Bought));
 
-				// Теперь кнопка «Оружие» переключает на огнестрел и обратно.
-				Player->SwitchWeapon();
-				TestEqual(TEXT("После переключения в руках пистолет"),
+				// Единственный огнестрел сразу в руках, без нажатия кнопки «Оружие» (11.10.2026).
+				TestEqual(TEXT("Пистолет из слота сразу в руках"),
 					Player->GetCurrentWeapon(), static_cast<AMasterWeapon*>(Bought));
 
 				// 3) Второй ствол слот не отбирает — остаётся в рюкзаке.

@@ -1027,6 +1027,11 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         Inventory->RemoveItem(Ranged);
     }
 
+    // Был ли до этого у героя хоть один огнестрел в слотах (11.10.2026, слова Рината: «Если в
+    // любом из слотов огнестрельного оружия есть оружие, то кнопка выстрела должна работать и
+    // в ней должно быть изображено оружие» — без лишнего нажатия кнопки смены оружия).
+    const bool bFirstFirearm = !SidearmWeaponInstance && !LongWeaponInstance;
+
     FirearmSlotRef(Ranged->GetFirearmSlot()) = Ranged;
     Ranged->SetOwner(this);
     Ranged->SetInstigator(this);
@@ -1041,8 +1046,16 @@ bool APlayerCharacter::TryAdoptRangedWeapon(AMasterInventoryItem* Item)
         AddAmmoToInventory(Drained, Ranged->GetAmmoType());
     }
 
-    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия %d (в кобуре)"),
-        *Ranged->GetItemDisplayText().ToString(), static_cast<int32>(Ranged->GetFirearmSlot()));
+    UE_LOG(LogQA, Display, TEXT("QA: огнестрел '%s' занял пустой слот оружия %d (%s)"),
+        *Ranged->GetItemDisplayText().ToString(), static_cast<int32>(Ranged->GetFirearmSlot()),
+        bFirstFirearm ? TEXT("сразу в руки") : TEXT("в кобуре"));
+
+    // Единственный огнестрел сразу берётся в руки; второй ствол рук не меняет — между двумя
+    // выбирает игрок кнопкой смены оружия.
+    if (bFirstFirearm)
+    {
+        TakeWeaponInHands(Ranged);
+    }
     return true;
 }
 
@@ -3028,8 +3041,13 @@ void APlayerCharacter::RestoreInventoryAndArmor(const UContrarySaveGame* Save)
     // не знают (Unknown): для них в руках остаётся то, что есть, — нож, как и было до двух слотов.
     switch (Save->WeaponInHands)
     {
-        case ESavedWeaponInHands::Sidearm: SelectFirearmSlot(EFirearmSlot::Sidearm); break;
-        case ESavedWeaponInHands::Long:    SelectFirearmSlot(EFirearmSlot::Long); break;
+        // Записанный слот оказался пуст (ствол убрали, а запись старая) — берём занятый.
+        case ESavedWeaponInHands::Sidearm:
+            if (!SelectFirearmSlot(EFirearmSlot::Sidearm)) { SelectFirearmSlot(EFirearmSlot::Long); }
+            break;
+        case ESavedWeaponInHands::Long:
+            if (!SelectFirearmSlot(EFirearmSlot::Long)) { SelectFirearmSlot(EFirearmSlot::Sidearm); }
+            break;
         case ESavedWeaponInHands::Knife:   TakeKnifeInHands(); break;
         default: break;
     }

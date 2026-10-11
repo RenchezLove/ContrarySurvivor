@@ -388,6 +388,8 @@ bool FBarrierGuardLaptopLineTest::RunTest(const FString& Parameters)
 	auto SetJournal = [&](bool bLaptopInJournal, EQuestState LaptopState, bool bRadioInJournal, EQuestState RadioState)
 	{
 		TArray<FQuest> Journal;
+		// Староста за героя поручился (задание на бандитов сдано) — иначе охранник о деле не говорит.
+		Journal.Add(BarrierTest::MakeQuest(ContraryQuestIds::ClearBanditBase, EQuestState::TurnedIn));
 		if (bLaptopInJournal)
 		{
 			Journal.Add(BarrierTest::MakeQuest(Laptop, LaptopState));

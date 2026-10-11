@@ -283,6 +283,10 @@ namespace ContraryQuestIds
 
 	// Задание охранника базы учёных «Рация охранника».
 	inline const FName FetchGuardRadio(TEXT("FetchGuardRadio"));
+
+	// Второе задание старосты «Зачистить базу бандитов»: пока оно не сдано, староста за героя
+	// не поручился и охранник базы учёных с ним дел не имеет.
+	inline const FName ClearBanditBase(TEXT("ClearBanditBase"));
 }
 
 // Делегат изменения квеста (для HUD/звука/журнала). Передаёт изменённый квест.

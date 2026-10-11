@@ -162,11 +162,10 @@ bool FWeaponSlotsBothEquippedAndSwitchTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Заняты оба слота"), Player->GetEquippedFirearmCount(), 2);
 		TestFalse(TEXT("Пистолет ушёл из рюкзака в слот"), WeaponSlotsTestWorld::InBackpack(Player, Pistol));
 		TestFalse(TEXT("Двустволка ушла из рюкзака в слот"), WeaponSlotsTestWorld::InBackpack(Player, Shotgun));
-		TestTrue(TEXT("Экипировка в слот оружие в руки не берёт: в руках нож"), Player->GetCurrentWeapon() == Knife);
+		// Первый поставленный ствол сразу в руках (11.10.2026); второй рук не меняет.
+		TestTrue(TEXT("Первый ствол в слоте сразу в руках: пистолет"), Player->GetCurrentWeapon() == Pistol);
 
-		// Кнопка смены оружия: с ножа — к стволу, дальше только между стволами.
-		Player->SwitchWeapon();
-		TestTrue(TEXT("Первое нажатие: в руках пистолет"), Player->GetCurrentWeapon() == Pistol);
+		// Кнопка смены оружия ходит только между стволами.
 		Player->SwitchWeapon();
 		TestTrue(TEXT("Второе нажатие: в руках двустволка"), Player->GetCurrentWeapon() == Shotgun);
 		Player->SwitchWeapon();
@@ -265,8 +264,7 @@ bool FWeaponSlotsOneOrNoneTest::RunTest(const FString& Parameters)
 
 		// Один ствол (только длинное): кнопка переключает его и нож.
 		TestTrue(TEXT("Двустволка в слоте"), Player->TryAdoptRangedWeapon(Shotgun));
-		Player->SwitchWeapon();
-		TestTrue(TEXT("Один ствол: нажатие берёт его в руки"), Player->GetCurrentWeapon() == Shotgun);
+		TestTrue(TEXT("Один ствол: он сразу в руках, без нажатия кнопки смены"), Player->GetCurrentWeapon() == Shotgun);
 		Player->SwitchWeapon();
 		TestTrue(TEXT("Один ствол: следующее нажатие возвращает нож"), Player->GetCurrentWeapon() == Knife);
 		Player->SwitchWeapon();
@@ -550,8 +548,8 @@ bool FWeaponSlotsOldSaveTest::RunTest(const FString& Parameters)
 			}
 		}
 		TestEqual(TEXT("Пистолет из рюкзака не потерян"), PistolsInBackpack, 1);
-		TestTrue(TEXT("В руках нож, как было до двух слотов"),
-			Player->GetCurrentWeapon() == Player->GetMeleeWeaponInstance() && Player->GetCurrentWeapon() != nullptr);
+		TestTrue(TEXT("В руках ствол из слота: кнопка выстрела работает без смены оружия"),
+			Player->GetCurrentWeapon() == Player->GetRangedWeaponInstance() && Player->GetCurrentWeapon() != nullptr);
 
 		// Запас старой записи переносится в рюкзак один раз (прежнее правило) — патроны не пропали.
 		TestEqual(TEXT("Дробь старой записи — запас класса, пачкой в рюкзаке"),
@@ -621,6 +619,111 @@ bool FWeaponSlotsDebugMenuGiveTest::RunTest(const FString& Parameters)
 	}
 
 	WeaponSlotsTestWorld::Destroy(World);
+	return true;
+}
+
+// ===========================================================================
+// Активный огнестрел не остаётся «пустым», когда в слотах есть оружие (ошибка Рината
+// 11.10.2026: «Когда игрок ставит в слот пистолет. Ему нужно ещё… нажать кнопку смены оружия…
+// Так не должно быть. Если в любом из слотов огнестрельного оружия есть оружие, то кнопка
+// выстрела должна работать и в ней должно быть изображено оружие»). Четыре случая; значок на
+// кнопке выстрела берётся по оружию в руках — то же условие «в руках огнестрел».
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWeaponSlotsActiveNeverEmptyTest,
+	"ContrarySurvivor.WeaponSlots.ActiveFirearmIsNeverAnEmptySlot", WeaponSlotsTestFlags)
+
+bool FWeaponSlotsActiveNeverEmptyTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContraryWeaponActiveQA");
+	if (UGameplayStatics::DoesSaveGameExist(Slot, 0))
+	{
+		UGameplayStatics::DeleteGameInSlot(Slot, 0);
+	}
+	// Значок кнопки выстрела: огнестрел в руках — значок ствола, иначе нож (правило слоя кнопок).
+	auto FireButtonShowsFirearm = [](const APlayerCharacter* Player)
+	{
+		return Cast<ARangedWeapon>(Player->GetCurrentWeapon()) != nullptr;
+	};
+
+	// (1) Оба слота пусты — оружие, поставленное в ЛЮБОЙ слот, сразу активно.
+	for (const bool bLong : { false, true })
+	{
+		UWorld* World = WeaponSlotsTestWorld::Create();
+		ASaveTestPlayerCharacter* Player = WeaponSlotsTestWorld::Spawn<ASaveTestPlayerCharacter>(World);
+		ARangedWeapon* Gun = bLong ? static_cast<ARangedWeapon*>(WeaponSlotsTestWorld::Spawn<AShotgun>(World))
+			: static_cast<ARangedWeapon*>(WeaponSlotsTestWorld::Spawn<APistol>(World));
+		if (TestTrue(TEXT("Герой и ствол созданы"), Player && Gun))
+		{
+			const TCHAR* Which = bLong ? TEXT("длинное") : TEXT("пистолет");
+			TestFalse(*FString::Printf(TEXT("(1) %s: до слота кнопка выстрела показывает нож"), Which), FireButtonShowsFirearm(Player));
+			Player->GetInventory()->AddItem(Gun);
+			TestTrue(*FString::Printf(TEXT("(1) %s встал в слот"), Which), Player->TryAdoptRangedWeapon(Gun));
+			TestTrue(*FString::Printf(TEXT("(1) %s сразу в руках, без кнопки смены оружия"), Which), Player->GetCurrentWeapon() == Gun);
+			TestTrue(*FString::Printf(TEXT("(1) %s: на кнопке выстрела значок ствола"), Which), FireButtonShowsFirearm(Player));
+			TestFalse(*FString::Printf(TEXT("(1) %s в руках виден"), Which), Gun->IsHidden());
+		}
+		WeaponSlotsTestWorld::Destroy(World);
+	}
+
+	// (2), (3), (4) — на одном герое с двумя стволами.
+	UWorld* World = WeaponSlotsTestWorld::Create();
+	ASaveTestPlayerCharacter* Player = WeaponSlotsTestWorld::Spawn<ASaveTestPlayerCharacter>(World);
+	APistol* Pistol = WeaponSlotsTestWorld::Spawn<APistol>(World);
+	AShotgun* Shotgun = WeaponSlotsTestWorld::Spawn<AShotgun>(World);
+	if (!TestTrue(TEXT("Герой и два ствола созданы"), Player && Pistol && Shotgun))
+	{
+		WeaponSlotsTestWorld::Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+	Player->GetInventory()->AddItem(Pistol);
+	Player->GetInventory()->AddItem(Shotgun);
+	TestTrue(TEXT("Пистолет в слоте"), Player->TryAdoptRangedWeapon(Pistol));
+	TestTrue(TEXT("Двустволка в слоте"), Player->TryAdoptRangedWeapon(Shotgun));
+
+	// (3) Оба слота заняты — как раньше: второй ствол рук не меняет, смена — кнопкой.
+	TestTrue(TEXT("(3) Второй ствол рук не меняет: в руках пистолет"), Player->GetCurrentWeapon() == Pistol);
+	Player->SwitchWeapon();
+	TestTrue(TEXT("(3) Кнопка смены: в руках двустволка"), Player->GetCurrentWeapon() == Shotgun);
+	Player->SwitchWeapon();
+	TestTrue(TEXT("(3) Кнопка смены: снова пистолет"), Player->GetCurrentWeapon() == Pistol);
+
+	// (2) Активный ствол убрали из слота — активным становится второй.
+	TestTrue(TEXT("(2) Пистолет снят из слота"), Player->UnequipFirearmToBackpack(EFirearmSlot::Sidearm));
+	TestTrue(TEXT("(2) В руках оставшаяся двустволка"), Player->GetCurrentWeapon() == Shotgun);
+	TestTrue(TEXT("(2) На кнопке выстрела значок ствола"), FireButtonShowsFirearm(Player));
+	TestTrue(TEXT("(2) Пистолет возвращён в слот"), Player->TryAdoptRangedWeapon(Pistol));
+	TestTrue(TEXT("(2) Возврат второго ствола рук не меняет"), Player->GetCurrentWeapon() == Shotgun);
+	TestTrue(TEXT("(2) Двустволка снята из слота"), Player->UnequipFirearmToBackpack(EFirearmSlot::Long));
+	TestTrue(TEXT("(2) В руках оставшийся пистолет"), Player->GetCurrentWeapon() == Pistol);
+	TestTrue(TEXT("(2) Последний ствол снят"), Player->UnequipFirearmToBackpack(EFirearmSlot::Sidearm));
+	TestFalse(TEXT("(2) Стволов нет — кнопка выстрела показывает нож"), FireButtonShowsFirearm(Player));
+
+	// (4) Сохранение, где записан пустой слот, а занят другой: пистолет в руках, запись
+	// «в руках длинное», двустволки в слотах нет.
+	TestTrue(TEXT("(4) Пистолет в слоте"), Player->TryAdoptRangedWeapon(Pistol));
+	TestTrue(TEXT("(4) Сохранение записано"), Player->SaveGame());
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		Save->WeaponInHands = ESavedWeaponInHands::Long; // в записи активен пустой слот
+		Player->WriteSaveObject(Save);
+	}
+	WeaponSlotsTestWorld::Destroy(World);
+
+	World = WeaponSlotsTestWorld::Create();
+	Player = WeaponSlotsTestWorld::Spawn<ASaveTestPlayerCharacter>(World);
+	if (TestNotNull(TEXT("(4) Герой после загрузки создан"), Player))
+	{
+		Player->UseTestSaveSlot(Slot);
+		TestTrue(TEXT("(4) Сохранение загрузилось"), Player->LoadGameForContinue());
+		TestNull(TEXT("(4) Записанный активный слот пуст"), Player->GetFirearmInSlot(EFirearmSlot::Long));
+		AMasterWeapon* Loaded = Player->GetFirearmInSlot(EFirearmSlot::Sidearm);
+		TestNotNull(TEXT("(4) Пистолет в своём слоте"), Loaded);
+		TestTrue(TEXT("(4) Активным стал занятый слот: пистолет в руках"), Loaded && Player->GetCurrentWeapon() == Loaded);
+		TestTrue(TEXT("(4) На кнопке выстрела значок ствола"), FireButtonShowsFirearm(Player));
+	}
+	WeaponSlotsTestWorld::Destroy(World);
+	UGameplayStatics::DeleteGameInSlot(Slot, 0);
 	return true;
 }
 
