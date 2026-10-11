@@ -117,6 +117,21 @@ public:
 	// Есть ли надпись о подарке, ждущая закрытия диалога.
 	bool HasPendingGiftNotice() const { return !PendingGiftNotice.IsEmpty(); }
 
+	// Староста сказал «я отметил на твоей карте» про южное логово волков (11.10.2026): стреляет
+	// один раз, при закрытии того разговора, в котором сыграла сценка после сдачи ноутбука.
+	// Подписывается тот, кто ставит отметку района на карте.
+	FSimpleMulticastDelegate OnElderMarkedSouthDen;
+
+	// То, что происходит в этот момент: район южного логова отмечается на карте смартфона
+	// (UMapExplorationComponent::MarkSouthWolfDenArea) и стреляет событие выше. Зовёт CloseDialog.
+	void NotifyElderMarkedSouthDen();
+
+	// Проверка здоровья при выходе из деревни (11.10.2026): если идущее задание предупреждает
+	// о малом здоровье — всплывающее сообщение и мигание полоски здоровья. Зовётся на переходе
+	// «был в деревне → вышел» (UpdateLeaveVillageHint), поэтому не чаще раза за выход.
+	// Публичная — её же зовёт автопроверка. true — предупреждение показано.
+	bool WarnLowHealthOnLeavingVillage();
+
 	// Показать отложенную надпись о подарке (зовёт CloseDialog). true — было что показывать.
 	bool FlushPendingGiftNotice();
 
@@ -812,11 +827,11 @@ protected:
 
 	// Задача вверху по центру после проявления мира: дойти до деревни.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "3"))
-	FText IntroObjectiveGoToVillage = NSLOCTEXT("Intro", "ObjGoVillage", "Впереди деревня. Дойти до неё.");
+	FText IntroObjectiveGoToVillage = NSLOCTEXT("Intro", "ObjGoVillage", "Впереди деревня. Дойди до неё.");
 
 	// Задача при входе в безопасную зону деревни: найти старосту.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "4"))
-	FText IntroObjectiveFindElder = NSLOCTEXT("Intro", "ObjFindElder", "Найти старосту и поговорить.");
+	FText IntroObjectiveFindElder = NSLOCTEXT("Intro", "ObjFindElder", "Найди старосту и поговори с ним.");
 
 	// Подсказка пропуска (показывается только при повторных заходах — hold-to-skip).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Intro|Texts", meta = (DisplayPriority = "5"))
@@ -1115,6 +1130,11 @@ private:
 	// закрылся именно диалог сдачи, и наступает точка полноэкранного показа без награды.
 	FName DialogBanditQuestId;
 	bool bBanditQuestTurnedInAtDialogOpen = false;
+
+	// Открыт разговор именно со старостой и была ли сценка про ноутбук показана ДО него
+	// (см. OnElderMarkedSouthDen).
+	bool bElderDialogOpen = false;
+	bool bNotebookHintShownAtDialogOpen = false;
 
 	// Сдано ли игроком задание QuestId (State == TurnedIn).
 	bool IsQuestTurnedIn(FName QuestId) const;

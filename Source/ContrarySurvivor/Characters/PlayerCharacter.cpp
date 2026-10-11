@@ -1542,13 +1542,57 @@ bool APlayerCharacter::IsQuestPrepItemToEquip(const AMasterInventoryItem* Item) 
         {
             return true;
         }
+        // Награда задания, которую игроку помогают поставить в слот (двустволка охранника).
+        if (Quest.RewardGuideStep == EQuestRewardGuideStep::Equip
+            && DoesItemMatchRow(Item, Quest.RewardEquipItemRow))
+        {
+            return true;
+        }
     }
     return false;
 }
 
+FText APlayerCharacter::GetPrepBoughtHint(FName BoughtItemRow) const
+{
+    if (Quests && !BoughtItemRow.IsNone())
+    {
+        for (const FQuest& Quest : Quests->GetQuests())
+        {
+            if (UQuestComponent::IsPrepStepShown(Quest) && Quest.PrepStep == EQuestPrepStep::Equip
+                && Quest.PrepItemRow == BoughtItemRow)
+            {
+                return Quest.PrepBoughtHintText;
+            }
+        }
+    }
+    return FText::GetEmpty();
+}
+
+void APlayerCharacter::ShowPrepBoughtHint(FName BoughtItemRow)
+{
+    // Шаг задания сверяем сразу: предмет мог быть куплен и без скидки задания.
+    UpdateQuestPrepSteps();
+    const FText Hint = GetPrepBoughtHint(BoughtItemRow);
+    if (!Hint.IsEmpty() && Onboarding)
+    {
+        Onboarding->ShowTransientHint(Hint);
+        UE_LOG(LogQA, Display, TEXT("QA: prep bought hint shown - %s"), *Hint.ToString());
+    }
+}
+
 void APlayerCharacter::UpdateQuestPrepSteps()
 {
-    if (!Quests || !Quests->HasPendingPrep())
+    if (!Quests)
+    {
+        return;
+    }
+    // Проводник к предмету-награде: в слоте ли он уже и есть ли что менять кнопкой смены оружия.
+    if (Quests->IsAnyRewardGuideStep(EQuestRewardGuideStep::Equip))
+    {
+        Quests->UpdateRewardGuides([this](FName ItemRow) { return GetItemPossession(ItemRow); },
+            GetEquippedFirearmCount() >= 2);
+    }
+    if (!Quests->HasPendingPrep())
     {
         return;
     }
@@ -1782,6 +1826,7 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
     {
         Quests->NotePrepPurchase(DealQuestId, DealDebt);
     }
+    ShowPrepBoughtHint(Entry.ItemRow);
     UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' x%d for %.0f. Money left %.0f"),
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),
@@ -1869,9 +1914,23 @@ void APlayerCharacter::AddAmmoToInventory(int32 Amount, FName AmmoType)
         AAmmoItem* NewPack = nullptr;
         if (Type == ContraryAmmo::DefaultType())
         {
-            // Пистолетный патрон — прежний путь без изменений.
-            NewPack = World->SpawnActor<AAmmoItem>(
-                AAmmoItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+            // Пистолетный патрон. Класс пачки — из строки таблицы, как у патронов с трупа и у
+            // торговца (11.10.2026): в сумке лежит одна и та же пачка, каким бы путём патроны
+            // ни пришли. Ключ пачка берёт из строки сама. Строки или её класса нет (игра без
+            // таблиц) — прежняя пачка класса кода.
+            const FContraryItemRow* Row = ContraryItems::FindRow(Type);
+            UClass* RowClass = Row ? Row->ItemClass.LoadSynchronous() : nullptr;
+            if (RowClass && RowClass->IsChildOf(AAmmoItem::StaticClass()))
+            {
+                NewPack = Cast<AAmmoItem>(ContraryItems::SpawnItem(World, RowClass,
+                    FTransform(GetActorRotation(), GetActorLocation()), this,
+                    [Type](AMasterInventoryItem& Item) { Item.SourceItemRow = Type; }));
+            }
+            else
+            {
+                NewPack = World->SpawnActor<AAmmoItem>(
+                    AAmmoItem::StaticClass(), GetActorLocation(), GetActorRotation(), Sp);
+            }
         }
         else
         {

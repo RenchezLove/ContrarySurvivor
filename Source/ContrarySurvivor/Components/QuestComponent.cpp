@@ -215,6 +215,7 @@ void UQuestComponent::OfferQuest(const FQuest& Quest)
 			OnQuestChanged.Broadcast(*Existing);
 		}
 		MergePrepDefinition(Quest); // то же для подготовительного шага (11.10.2026)
+		RefreshDefinitionTexts(Quest, *Existing); // и для текстов: журнал хранит их копию
 		return;
 	}
 
@@ -271,15 +272,12 @@ bool UQuestComponent::AcceptQuest(FName QuestId)
 		return false;
 	}
 
-	// Отслеживание (10.10.2026): основное задание становится отслеживаемым само, побочное —
-	// только если сейчас не отслеживается ничего. Спрашиваем ДО смены состояния.
-	const bool bNothingTracked = (GetTrackedQuest() == nullptr);
-
+	// Отслеживание: взятое задание сразу становится отслеживаемым — и основное, и побочное
+	// (Ринат 11.10.2026 про задание охранника: «Предлагаю сразу ставить в отслеживаемое этот
+	// квест»). Метка основного задания при этом с экрана не уходит: меток две, по одной на
+	// вид задания (QuestTargets::PickMarkerQuest).
 	Q->State = EQuestState::Active;
-	if (Q->Kind == EQuestKind::Main || bNothingTracked)
-	{
-		TrackedQuestId = QuestId;
-	}
+	TrackedQuestId = QuestId;
 
 	// Копия списка: выдача меняет рюкзак, а указатель на задание после неё перечитываем.
 	const TArray<FQuestItemGrant> GiveCopy = Q->GiveOnAccept;
@@ -500,12 +498,140 @@ bool UQuestComponent::MergePrepDefinition(const FQuest& Definition)
 	Q->PrepEquipObjectiveText = Definition.PrepEquipObjectiveText;
 	Q->PrepDealText = Definition.PrepDealText;
 	Q->PrepDebtText = Definition.PrepDebtText;
+	Q->PrepBoughtHintText = Definition.PrepBoughtHintText;
 	// Задание могли успеть отметить «шагов нет», пока описания у него не было.
 	if (Q->PrepStep == EQuestPrepStep::Done && Q->State == EQuestState::Active && !Q->bPrepDealUsed)
 	{
 		Q->PrepStep = EQuestPrepStep::NotChecked;
 	}
 	return true;
+}
+
+void UQuestComponent::RefreshDefinitionTexts(const FQuest& Definition, FQuest& InJournal)
+{
+	InJournal.Title = Definition.Title;
+	InJournal.Description = Definition.Description;
+	InJournal.KillObjectiveLabel = Definition.KillObjectiveLabel;
+	InJournal.ItemObjectiveLabel = Definition.ItemObjectiveLabel;
+	InJournal.AcceptReplyText = Definition.AcceptReplyText;
+	InJournal.TurnInReplyText = Definition.TurnInReplyText;
+	InJournal.CloseReplyText = Definition.CloseReplyText;
+	InJournal.TurnInHintText = Definition.TurnInHintText;
+	InJournal.LowHealthWarnThreshold = Definition.LowHealthWarnThreshold;
+	InJournal.LowHealthWarnText = Definition.LowHealthWarnText;
+	InJournal.RewardEquipItemRow = Definition.RewardEquipItemRow;
+	// Подписи подготовительного шага — только тому же шагу (другой предмет несёт свои подписи).
+	if (InJournal.PrepItemRow == Definition.PrepItemRow)
+	{
+		InJournal.PrepBuyObjectiveText = Definition.PrepBuyObjectiveText;
+		InJournal.PrepEquipObjectiveText = Definition.PrepEquipObjectiveText;
+		InJournal.PrepDealText = Definition.PrepDealText;
+		InJournal.PrepDebtText = Definition.PrepDebtText;
+		InJournal.PrepBoughtHintText = Definition.PrepBoughtHintText;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Предупреждение о малом здоровье при выходе из деревни (11.10.2026)
+// ---------------------------------------------------------------------------
+
+bool UQuestComponent::ShouldWarnLowHealth(const FQuest& Quest, float Health)
+{
+	// Только пока задание взято и врагов ещё надо бить: с перебитыми бандитами (осталось
+	// забрать ноутбук или вернуться к старосте) предупреждать уже не о чем.
+	return Quest.State == EQuestState::Active
+		&& Quest.LowHealthWarnThreshold > 0.0f
+		&& Quest.TargetCount > 0 && Quest.Progress < Quest.TargetCount
+		&& Health < Quest.LowHealthWarnThreshold;
+}
+
+const FQuest* UQuestComponent::FindLowHealthWarning(float Health) const
+{
+	for (const FQuest& Q : Quests)
+	{
+		if (ShouldWarnLowHealth(Q, Health))
+		{
+			return &Q;
+		}
+	}
+	return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Проводник к предмету-награде (11.10.2026)
+// ---------------------------------------------------------------------------
+
+EQuestRewardGuideStep UQuestComponent::ComputeRewardGuideStep(const FQuest& Quest,
+	EQuestPrepPossession Possession, bool bCanSwitchFirearms)
+{
+	if (Quest.RewardGuideStep != EQuestRewardGuideStep::Equip)
+	{
+		return Quest.RewardGuideStep; // шаг «показать кнопку» закрывает само нажатие кнопки
+	}
+	switch (Possession)
+	{
+		// В слоте: дальше показываем кнопку смены оружия, если ей есть что менять.
+		case EQuestPrepPossession::InSlot:
+			return bCanSwitchFirearms ? EQuestRewardGuideStep::Switch : EQuestRewardGuideStep::Done;
+		case EQuestPrepPossession::InBag:
+			return EQuestRewardGuideStep::Equip;
+		// Предмета больше нет (продан, выброшен) — вести не к чему.
+		default:
+			return EQuestRewardGuideStep::Done;
+	}
+}
+
+bool UQuestComponent::HasPendingRewardGuide() const
+{
+	return IsAnyRewardGuideStep(EQuestRewardGuideStep::Equip) || IsAnyRewardGuideStep(EQuestRewardGuideStep::Switch);
+}
+
+bool UQuestComponent::IsAnyRewardGuideStep(EQuestRewardGuideStep Step) const
+{
+	for (const FQuest& Q : Quests)
+	{
+		if (Q.RewardGuideStep == Step && !Q.RewardEquipItemRow.IsNone())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UQuestComponent::UpdateRewardGuides(TFunctionRef<EQuestPrepPossession(FName)> GetPossession, bool bCanSwitchFirearms)
+{
+	for (FQuest& Q : Quests)
+	{
+		if (Q.RewardGuideStep != EQuestRewardGuideStep::Equip || Q.RewardEquipItemRow.IsNone())
+		{
+			continue;
+		}
+		const EQuestRewardGuideStep New = ComputeRewardGuideStep(Q, GetPossession(Q.RewardEquipItemRow), bCanSwitchFirearms);
+		if (New == Q.RewardGuideStep)
+		{
+			continue;
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: quest reward guide (%s) %d -> %d"), *Q.QuestId.ToString(),
+			static_cast<int32>(Q.RewardGuideStep), static_cast<int32>(New));
+		Q.RewardGuideStep = New;
+		OnQuestChanged.Broadcast(Q);
+	}
+}
+
+bool UQuestComponent::NoteWeaponSwitched()
+{
+	bool bChanged = false;
+	for (FQuest& Q : Quests)
+	{
+		if (Q.RewardGuideStep == EQuestRewardGuideStep::Switch)
+		{
+			Q.RewardGuideStep = EQuestRewardGuideStep::Done;
+			UE_LOG(LogQA, Display, TEXT("QA: quest reward guide (%s) - кнопка смены оружия нажата"), *Q.QuestId.ToString());
+			OnQuestChanged.Broadcast(Q);
+			bChanged = true;
+		}
+	}
+	return bChanged;
 }
 
 void UQuestComponent::SyncInventoryQuests(UInventoryComponent* Inventory)
@@ -682,6 +808,12 @@ bool UQuestComponent::TurnInQuest(FName QuestId, FName ReceiverNpcTag)
 	if (!Q)
 	{
 		return true;
+	}
+
+	// Награду-оружие игроку помогают поставить в слот (двустволка охранника, 11.10.2026).
+	if (!Q->RewardEquipItemRow.IsNone())
+	{
+		Q->RewardGuideStep = EQuestRewardGuideStep::Equip;
 	}
 
 	OnQuestChanged.Broadcast(*Q);

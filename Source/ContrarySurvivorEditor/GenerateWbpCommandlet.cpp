@@ -63,6 +63,7 @@
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"    // раскладка окна КПК — одна с кодовой запаской
 #include "ContrarySurvivor/UI/PdaMapMath.h"         // размер картинки значка
+#include "ContrarySurvivor/Data/ContraryPdaSettings.h" // цвет побочных заданий, отступы экрана смартфона
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
 
 DEFINE_LOG_CATEGORY_STATIC(LogGenerateWbp, Log, All);
@@ -600,6 +601,22 @@ namespace
 	// Цифра количества по умолчанию стоит у правого нижнего угла иконки ДЕФОЛТНОГО размера
 	// (86); при другом размере иконки её ставит на место владелец в дизайнере — код
 	// геометрию не трогает (П.0).
+	//
+	// Цифра количества (Ринат 11.10.2026: «Сделай шрифт чуть больше. Ты можешь добавить черную
+	// обводку этим символам? Чтобы лучше было видно сколько предметов в стаке»): кегль 17 вместо
+	// 14 и чёрная обводка в настройках шрифта. Те же числа ставит готовому файлу AugmentItemTileCount.
+	constexpr int32 TileCountOldFontSize = 14;
+	constexpr int32 TileCountFontSize = 17;
+	constexpr int32 TileCountOutlineSize = 2;
+
+	void ApplyTileCountOutline(UTextBlock* Block)
+	{
+		FSlateFontInfo Font = Block->GetFont();
+		Font.OutlineSettings.OutlineSize = TileCountOutlineSize;
+		Font.OutlineSettings.OutlineColor = FLinearColor::Black;
+		Block->SetFont(Font);
+	}
+
 	bool BuildItemTile(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -649,8 +666,9 @@ namespace
 		// Цифра количества — видимость ведёт код (только у стака >1); по умолчанию у правого
 		// нижнего угла иконки, без тени пропадала бы на светлом арте.
 		UTextBlock* Count = MakeText(Tree, Roboto, TEXT("TileCountText"), TEXT("x1"),
-			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 14, TEXT("Bold"));
+			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), TileCountFontSize, TEXT("Bold"));
 		ApplyTextShadow(Count);
+		ApplyTileCountOutline(Count);
 		Count->bIsVariable = true;
 		Count->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 		if (UCanvasPanelSlot* CountSlot = CanvasAuto(Canvas, Count,
@@ -1259,6 +1277,79 @@ namespace
 	}
 
 	// Трекер квеста: плашка в правом-верхнем углу со строкой (текст/цвет ставит код).
+	// Строка задания стоит НАД кнопками сумки и смартфона (Ринат 11.10.2026: «Она отображается
+	// ниже кнопок инвентаря и смартфона, а должна быть над ними»): верх плашки — в 6 от верха
+	// экрана, кнопки под неё опущены (AugmentTouchButtonsBelowTracker).
+	constexpr float QuestTrackerTopAboveButtons = 6.0f;
+
+	// Синяя метка побочного задания в мире (Ринат 11.10.2026: «у игрока на экране 2 маркера.
+	// Один - маркер основного квеста (оранжевый/желтый как сейчас), второй - маркер
+	// второстепенного квеста - синий»). Блок SideQuestMarker: значок-ромб и подпись под ним,
+	// середина блока встаёт на цель; SideQuestEdgeArrow — стрелка у края экрана, когда цель за
+	// кадром. Место на экране ставит код окна, всё остальное владелец правит здесь, в файле.
+	// Повторный вызов ничего не меняет.
+	bool AddSideQuestMarker(UWidgetTree* Tree)
+	{
+		const TCHAR* Name = TEXT("WBP_QuestTracker");
+		UCanvasPanel* Root = Cast<UCanvasPanel>(Tree->RootWidget);
+		if (!Root || Tree->FindWidget(TEXT("SideQuestMarker")))
+		{
+			return false;
+		}
+		const FLinearColor SideColor = UContraryPdaSettings::Get()->SideQuestColor;
+
+		UCanvasPanel* Marker = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("SideQuestMarker"));
+		Marker->SetVisibility(ESlateVisibility::Collapsed);
+		Marker->bIsVariable = true;
+		if (UCanvasPanelSlot* MarkerSlot = Root->AddChildToCanvas(Marker))
+		{
+			MarkerSlot->SetAnchors(FAnchors(0.0f, 0.0f));
+			MarkerSlot->SetAlignment(FVector2D(0.5f, 0.5f)); // середина блока — на цели
+			MarkerSlot->SetPosition(FVector2D(960.0f, 420.0f));
+			MarkerSlot->SetSize(FVector2D(420.0f, 120.0f));
+		}
+
+		UImage* Icon = MakeIcon(Tree, Name, TEXT("SideQuestMarkerIcon"),
+			TEXT("/Game/UI/Textures/T_QuestSideMarker.T_QuestSideMarker"), 40.0f);
+		Icon->SetColorAndOpacity(SideColor);
+		Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UCanvasPanelSlot* IconSlot = Marker->AddChildToCanvas(Icon))
+		{
+			IconSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+			IconSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			IconSlot->SetPosition(FVector2D::ZeroVector);
+			IconSlot->SetSize(FVector2D(40.0f, 40.0f));
+		}
+
+		UTextBlock* Label = MakeText(Tree, LoadRobotoFont(), TEXT("SideQuestMarkerText"),
+			TEXT("Побочное задание"), SideColor, 16, TEXT("Bold"));
+		ApplyTextShadow(Label);
+		Label->SetJustification(ETextJustify::Center);
+		Label->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Label->bIsVariable = true;
+		if (UCanvasPanelSlot* LabelSlot = Marker->AddChildToCanvas(Label))
+		{
+			LabelSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+			LabelSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+			LabelSlot->SetPosition(FVector2D(0.0f, 24.0f)); // под ромбом
+			LabelSlot->SetAutoSize(true);
+		}
+
+		UImage* Arrow = MakeIcon(Tree, Name, TEXT("SideQuestEdgeArrow"),
+			TEXT("/Game/UI/Textures/T_QuestEdgeArrow.T_QuestEdgeArrow"), 44.0f);
+		Arrow->SetColorAndOpacity(SideColor);
+		Arrow->SetVisibility(ESlateVisibility::Collapsed);
+		Arrow->bIsVariable = true;
+		if (UCanvasPanelSlot* ArrowSlot = Root->AddChildToCanvas(Arrow))
+		{
+			ArrowSlot->SetAnchors(FAnchors(0.0f, 0.0f));
+			ArrowSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			ArrowSlot->SetPosition(FVector2D(960.0f, 56.0f));
+			ArrowSlot->SetSize(FVector2D(44.0f, 44.0f));
+		}
+		return true;
+	}
+
 	bool BuildQuestTracker(UWidgetTree* Tree)
 	{
 		UObject* Roboto = LoadRobotoFont();
@@ -1271,11 +1362,10 @@ namespace
 		Plate->SetPadding(FMargin(8.0f, 4.0f));
 		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
 		{
-			// Правый-верх под кнопкой сумки (212 сверху — ниже сумки в наибольшем размере), плашка
-			// по размеру текста.
+			// Правый-верх над кнопками сумки и смартфона, плашка по размеру текста, растёт вниз.
 			PlateSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
 			PlateSlot->SetAlignment(FVector2D(1.0f, 0.0f));
-			PlateSlot->SetPosition(FVector2D(-28.0f, 212.0f));
+			PlateSlot->SetPosition(FVector2D(-28.0f, QuestTrackerTopAboveButtons));
 			PlateSlot->SetAutoSize(true);
 		}
 
@@ -1284,6 +1374,8 @@ namespace
 			FLinearColor(1.0f, 0.85f, 0.3f, 1.0f), 16, TEXT("Regular")); // QuestTrackerColor
 		Line->bIsVariable = true;
 		Plate->SetContent(Line);
+
+		AddSideQuestMarker(Tree);
 		return true;
 	}
 
@@ -3310,7 +3402,7 @@ namespace
 			  TEXT("SaveBackpackButton"), TEXT("SaveBackpackSubText") } },
 		{ TEXT("/Game/UI/WBP_QuestTracker"), TEXT("WBP_QuestTracker"),
 			TEXT("/Script/ContrarySurvivor.QuestTrackerWidget"), &BuildQuestTracker,
-			{ TEXT("TrackerText") } },
+			{ TEXT("TrackerText"), TEXT("SideQuestMarker"), TEXT("SideQuestMarkerText"), TEXT("SideQuestEdgeArrow") } },
 		{ TEXT("/Game/UI/WBP_InteractPrompt"), TEXT("WBP_InteractPrompt"),
 			TEXT("/Script/ContrarySurvivor.InteractPromptWidget"), &BuildInteractPrompt,
 			{ TEXT("PromptText") } },
@@ -3482,7 +3574,8 @@ namespace
 			  TEXT("PanelPlate"),
 			  TEXT("MapPanel"), TEXT("MapArea"), TEXT("MapBackground"), TEXT("MapImage"),
 			  TEXT("MapFogImage"), TEXT("MapMarkers"), TEXT("MapHintText"),
-			  TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton") } },
+			  TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton"),
+			  TEXT("SideMenu"), TEXT("MapAreaMark"), TEXT("MapAreaMarkText") } },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -6120,6 +6213,275 @@ namespace
 			TEXT("AUGMENT %s: добавлен элемент черноты неизведанного MapFogImage (между картинкой карты и отметками)."), Name);
 	}
 
+	// ======================================================================
+	// Правки Рината после игры на телефоне 11.10.2026 (вечер): окно смартфона, плитка предмета,
+	// строка задания над кнопками, синяя метка побочного задания, пары окон с сумкой
+	// ======================================================================
+
+	// WBP_Pda (слова Рината: «у смартфона есть экран… некоторые кнопки на смартфоне выходят за
+	// пределы экрана. Такого быть не должно… На кнопке "где я" написано "где я". Замени на "моя
+	// позиция"… Слева - меню вкладок смартфона. Справа - содержимое активной вкладки… увеличивай
+	// меню вкладок так, чтобы весь экран смартфона был занят»; «на карте зеленым кругом
+	// отображается примерный район нахождения логова волков… и подпись»). Шаги раскладки — те же,
+	// что строят дерево без файла (UPdaScreenWidget), поэтому файл и запаска не расходятся.
+	// Каждый шаг делается один раз: повторный прогон ничего не меняет.
+	void AugmentPdaPolish(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Pda");
+		const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+
+		// Отступы экрана смартфона в файле — по нынешним настройкам (в игре их ставит код окна;
+		// здесь — чтобы в редакторе окон содержимое стояло там же, где в игре).
+		if (UBorder* Plate = Cast<UBorder>(AugFind(Tree, Name, TEXT("PanelPlate"))))
+		{
+			if (const UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(Plate->Slot))
+			{
+				const FMargin Wanted = PdaMap::ComputePhoneScreenPadding(PlateSlot->GetSize(), Settings->PhoneScreenInsets);
+				const FMargin Old = Plate->GetPadding();
+				if (!FMath::IsNearlyEqual(Old.Left, Wanted.Left, 0.05f) || !FMath::IsNearlyEqual(Old.Top, Wanted.Top, 0.05f)
+					|| !FMath::IsNearlyEqual(Old.Right, Wanted.Right, 0.05f) || !FMath::IsNearlyEqual(Old.Bottom, Wanted.Bottom, 0.05f))
+				{
+					Plate->SetPadding(Wanted);
+					bChanged = true;
+					UE_LOG(LogGenerateWbp, Display,
+						TEXT("AUGMENT %s: отступы экрана смартфона (%.1f, %.1f, %.1f, %.1f) -> (%.1f, %.1f, %.1f, %.1f)."),
+						Name, Old.Left, Old.Top, Old.Right, Old.Bottom, Wanted.Left, Wanted.Top, Wanted.Right, Wanted.Bottom);
+				}
+			}
+		}
+
+		if (UPdaScreenWidget::MoveMenuIntoSideMenu(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: заведено меню вкладок SideMenu; заголовок, вкладки, подсказка карты и «Закрыть» переложены в него."), Name);
+		}
+		if (UPdaScreenWidget::FitMapPanelToMap(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: поле карты прижато к правому краю экрана смартфона, ширина %.0f (карта, вписанная по высоте)."),
+				Name, UPdaScreenWidget::ComputeDesignMapPanelWidth());
+		}
+		if (UPdaScreenWidget::AddSearchAreaMark(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: добавлены круг района поиска MapAreaMark и подпись MapAreaMarkText."), Name);
+		}
+
+		// «Где я» -> «Моя позиция» в две строки. Меняется только прежняя подпись генератора:
+		// текст, который поставил владелец, не трогается.
+		if (UTextBlock* FindHero = Cast<UTextBlock>(AugFind(Tree, Name, TEXT("MapFindHeroText"))))
+		{
+			if (FindHero->GetText().ToString() == TEXT("Где я"))
+			{
+				FindHero->SetText(GetDefault<UPdaScreenWidget>()->FindHeroLabel);
+				FSlateFontInfo Font = FindHero->GetFont();
+				Font.Size = 14;
+				FindHero->SetFont(Font);
+				FindHero->SetJustification(ETextJustify::Center);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: подпись кнопки «Где я» заменена на «Моя позиция» в две строки, кегль 14."), Name);
+			}
+		}
+
+		// Сведения о задании: экран смартфона стал ниже (отступы сняты по скруглённым углам
+		// стекла), блоки ужаты, чтобы награда не налезала на кнопку «Отслеживать». Двигаются
+		// только блоки, стоящие на прежних местах генератора.
+		struct FDetailMove
+		{
+			const TCHAR* WidgetName;
+			float OldTop, OldHeight, NewTop, NewHeight;
+		};
+		static const FDetailMove Moves[] =
+		{
+			{ TEXT("DetailDescriptionText"), 100.0f, 220.0f, 100.0f, 236.0f },
+			{ TEXT("DetailObjectivesText"), 332.0f, 170.0f, 346.0f, 130.0f },
+			{ TEXT("DetailRewardText"), 514.0f, 120.0f, 486.0f, 94.0f },
+			// Первый заход этой правки (коммит ab9757c) ставил блоки иначе; описание задания
+			// охранника с тех пор выросло до восьми строк.
+			{ TEXT("DetailDescriptionText"), 100.0f, 208.0f, 100.0f, 236.0f },
+			{ TEXT("DetailObjectivesText"), 320.0f, 150.0f, 346.0f, 130.0f },
+			{ TEXT("DetailRewardText"), 482.0f, 108.0f, 486.0f, 94.0f },
+		};
+		for (const FDetailMove& Move : Moves)
+		{
+			UWidget* Widget = AugFind(Tree, Name, Move.WidgetName);
+			UCanvasPanelSlot* DetailSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+			if (!DetailSlot)
+			{
+				continue;
+			}
+			FMargin Offsets = DetailSlot->GetOffsets();
+			if (FMath::IsNearlyEqual(Offsets.Top, Move.OldTop, 0.05f) && FMath::IsNearlyEqual(Offsets.Bottom, Move.OldHeight, 0.05f))
+			{
+				Offsets.Top = Move.NewTop;
+				Offsets.Bottom = Move.NewHeight;
+				DetailSlot->SetOffsets(Offsets);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: %s — верх %.0f, высота %.0f (было %.0f и %.0f)."),
+					Name, Move.WidgetName, Move.NewTop, Move.NewHeight, Move.OldTop, Move.OldHeight);
+			}
+		}
+	}
+
+	// WBP_ItemTile: цифра количества крупнее и с чёрной обводкой (Ринат 11.10.2026: «Сделай
+	// шрифт чуть больше. Ты можешь добавить черную обводку этим символам?»). Кегль растёт
+	// только с прежнего значения генератора; обводка ставится, только если её нет.
+	void AugmentItemTileCount(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_ItemTile");
+		UTextBlock* Count = Cast<UTextBlock>(AugFind(Tree, Name, TEXT("TileCountText")));
+		if (!Count)
+		{
+			return;
+		}
+		FSlateFontInfo Font = Count->GetFont();
+		const bool bGrow = FMath::IsNearlyEqual(static_cast<float>(Font.Size), static_cast<float>(TileCountOldFontSize), 0.05f);
+		const bool bOutline = Font.OutlineSettings.OutlineSize == 0;
+		if (!bGrow && !bOutline)
+		{
+			return;
+		}
+		const float OldSize = static_cast<float>(Font.Size);
+		if (bGrow)
+		{
+			Font.Size = TileCountFontSize;
+		}
+		if (bOutline)
+		{
+			Font.OutlineSettings.OutlineSize = TileCountOutlineSize;
+			Font.OutlineSettings.OutlineColor = FLinearColor::Black;
+		}
+		Count->SetFont(Font);
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: цифра количества — кегль %.0f -> %.0f, чёрная обводка %d."),
+			Name, OldSize, static_cast<float>(Font.Size), Font.OutlineSettings.OutlineSize);
+	}
+
+	// Строка задания над кнопками сумки и смартфона (Ринат 11.10.2026: «Она отображается ниже
+	// кнопок инвентаря и смартфона, а должна быть над ними»). Над кнопками, как они стояли,
+	// места под строку нет (верх кнопок — в 48 от края экрана), поэтому обе кнопки опускаются
+	// на 60: под строкой в три строки текста остаётся просвет. Признак «ещё не сделано» —
+	// строка в файле WBP_QuestTracker стоит ниже 100 от верха. После переноса строки наверх
+	// повторный прогон кнопки не трогает — владелец ставит их как хочет.
+	constexpr float TouchButtonsDropForTracker = 60.0f;
+	constexpr float QuestTrackerBelowButtonsFrom = 100.0f;
+
+	void AugmentTouchButtonsBelowTracker(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_TouchControls");
+		const UWidgetBlueprint* Tracker = LoadObject<UWidgetBlueprint>(nullptr, TEXT("/Game/UI/WBP_QuestTracker.WBP_QuestTracker"));
+		const UWidget* Plate = Tracker && Tracker->WidgetTree ? Tracker->WidgetTree->FindWidget(TEXT("TrackerPlate")) : nullptr;
+		const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (!PlateSlot || PlateSlot->GetPosition().Y < QuestTrackerBelowButtonsFrom)
+		{
+			return; // строка уже наверху
+		}
+		for (const TCHAR* ButtonName : { TEXT("InventoryButton"), TEXT("PdaButton") })
+		{
+			UWidget* Button = AugFind(Tree, Name, ButtonName);
+			UCanvasPanelSlot* ButtonSlot = Button ? Cast<UCanvasPanelSlot>(Button->Slot) : nullptr;
+			if (!ButtonSlot || ButtonSlot->GetAnchors().Minimum.Y != 0.0f || ButtonSlot->GetAnchors().Maximum.Y != 0.0f)
+			{
+				continue; // кнопка привязана не к верху экрана — строке она не мешает
+			}
+			const FVector2D OldPos = ButtonSlot->GetPosition();
+			ButtonSlot->SetPosition(OldPos + FVector2D(0.0, TouchButtonsDropForTracker));
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: %s опущена на %.0f под строку задания: было (%.1f, %.1f), стало (%.1f, %.1f)."),
+				Name, ButtonName, TouchButtonsDropForTracker, OldPos.X, OldPos.Y, OldPos.X, OldPos.Y + TouchButtonsDropForTracker);
+		}
+	}
+
+	void AugmentQuestTrackerAboveButtons(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_QuestTracker");
+		UWidget* Plate = AugFind(Tree, Name, TEXT("TrackerPlate"));
+		UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (!PlateSlot || PlateSlot->GetPosition().Y < QuestTrackerBelowButtonsFrom)
+		{
+			return;
+		}
+		const FVector2D OldPos = PlateSlot->GetPosition();
+		PlateSlot->SetPosition(FVector2D(OldPos.X, QuestTrackerTopAboveButtons));
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: строка задания поднята над кнопками сумки и смартфона: верх был %.0f, стал %.0f."),
+			Name, OldPos.Y, QuestTrackerTopAboveButtons);
+	}
+
+	void AugmentQuestTrackerSideMarker(UWidgetTree* Tree, bool& bChanged)
+	{
+		if (AddSideQuestMarker(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT WBP_QuestTracker: добавлена синяя метка побочного задания — блок SideQuestMarker (значок и подпись) и стрелка SideQuestEdgeArrow."));
+		}
+	}
+
+	// Пара окон «напарник слева, сумка справа» (Ринат 11.10.2026: «Торговля, обыск, личный ящик.
+	// Виджет инвентаря заезжает на левый виджет»). Между подложкой левого окна и подложкой сумки
+	// должен быть просвет; обе привязаны к середине экрана, поэтому просвет один на любом
+	// экране. Левое окно сдвигается влево; если при этом оно вышло бы за экран 16:9 — на
+	// недостающее сужается. Сумка не трогается. Просвет уже есть — ничего не меняется.
+	constexpr float PairWindowGap = 16.0f;
+	constexpr float PairWindowScreenMargin = 8.0f;
+
+	void AugmentPairWindowGap(UWidgetTree* Tree, const TCHAR* Name, bool& bChanged)
+	{
+		auto CenterSlot = [](UWidget* Widget) -> UCanvasPanelSlot*
+		{
+			UCanvasPanelSlot* PlateSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+			return PlateSlot && !PlateSlot->GetAutoSize() && PlateSlot->GetAnchors().Minimum.X == 0.5f
+				&& PlateSlot->GetAnchors().Maximum.X == 0.5f ? PlateSlot : nullptr;
+		};
+		auto LeftEdge = [](const UCanvasPanelSlot* PlateSlot)
+		{
+			return static_cast<float>(PlateSlot->GetPosition().X - PlateSlot->GetSize().X * PlateSlot->GetAlignment().X);
+		};
+
+		UCanvasPanelSlot* PlateSlot = CenterSlot(AugFind(Tree, Name, TEXT("PanelPlate")));
+		const UWidgetBlueprint* Inventory = LoadObject<UWidgetBlueprint>(nullptr, TEXT("/Game/UI/WBP_Inventory.WBP_Inventory"));
+		const UCanvasPanelSlot* InventorySlot = CenterSlot(
+			Inventory && Inventory->WidgetTree ? Inventory->WidgetTree->FindWidget(TEXT("PanelPlate")) : nullptr);
+		if (!PlateSlot || !InventorySlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: подложка окна или подложка сумки не привязана к середине экрана — просвет не проверен."), Name);
+			return;
+		}
+
+		const float OldLeft = LeftEdge(PlateSlot);
+		const float OldRight = OldLeft + static_cast<float>(PlateSlot->GetSize().X);
+		const float WantedRight = LeftEdge(InventorySlot) - PairWindowGap;
+		if (OldRight <= WantedRight + 0.05f)
+		{
+			return; // просвет уже есть
+		}
+		const float NewLeft = FMath::Max(OldLeft - (OldRight - WantedRight), -960.0f + PairWindowScreenMargin);
+		const float NewWidth = WantedRight - NewLeft;
+		PlateSlot->SetSize(FVector2D(NewWidth, PlateSlot->GetSize().Y));
+		PlateSlot->SetPosition(FVector2D(NewLeft + NewWidth * PlateSlot->GetAlignment().X, PlateSlot->GetPosition().Y));
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: подложка отодвинута от сумки: была от %.1f до %.1f от середины экрана (ширина %.1f), стала от %.1f до %.1f (ширина %.1f); сумка начинается с %.1f."),
+			Name, OldLeft, OldRight, OldRight - OldLeft, NewLeft, WantedRight, NewWidth, LeftEdge(InventorySlot));
+	}
+
+	void AugmentShopGapToInventory(UWidgetTree* Tree, bool& bChanged)
+	{
+		AugmentPairWindowGap(Tree, TEXT("WBP_Shop"), bChanged);
+	}
+
+	void AugmentSearchGapToInventory(UWidgetTree* Tree, bool& bChanged)
+	{
+		AugmentPairWindowGap(Tree, TEXT("WBP_SearchWindow"), bChanged);
+	}
+
 	// Экраны с сетками плиток (Build 1.2.2): класс плитки WBP_ItemTile_C на CDO окна.
 	// Без него окно работает на кодовом дереве C++-плитки (дефолт в NativeOnInitialized),
 	// но стилизация Рината из ассета плитки не подхватится — назначаем сами (guide требовал
@@ -7309,6 +7671,17 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerBelowBag },
 		// Ринат 11.10.2026: кнопка смартфона — обычная кнопка слоя экранных кнопок.
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchPdaButton },
+		// Ринат 11.10.2026 (вечер, после игры на телефоне): окно смартфона, цифра количества на
+		// плитке, строка задания над кнопками, синяя метка побочного задания, просвет между
+		// сумкой и окном слева. Кнопки опускаются ДО переноса строки: правка смотрит на её
+		// прежнее место.
+		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaPolish },
+		{ TEXT("/Game/UI/WBP_ItemTile"),      TEXT("WBP_ItemTile"),      &AugmentItemTileCount },
+		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchButtonsBelowTracker },
+		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerAboveButtons },
+		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerSideMarker },
+		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopGapToInventory },
+		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentSearchGapToInventory },
 	};
 
 	int32 FailCount = 0;

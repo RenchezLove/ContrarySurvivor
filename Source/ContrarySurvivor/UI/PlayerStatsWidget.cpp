@@ -5,6 +5,7 @@
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
+#include "ContrarySurvivor/UI/TouchControlsWidget.h" // ComputeBlinkBrightness — общая формула миганий
 #include "ARangedWeapon.h" // патроны только у дальнобоя (#5, как Canvas DrawPlayerStats)
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h" // GetParent() в диагностике ряда голода (наследование для каста к UWidget)
@@ -16,6 +17,57 @@ void UPlayerStatsWidget::ApplyMainMenuGate(bool bMainMenuOnScreen)
 	// Прячем СОДЕРЖИМОЕ через базу USelfHidingWidget, а не сам виджет: свернувший себя
 	// UUserWidget теряет NativeTick навсегда (подробности — комментарий в заголовке).
 	SetContentVisible(!bMainMenuOnScreen);
+}
+
+void UPlayerStatsWidget::StartHealthAttentionBlink()
+{
+	HealthBlinkRemaining = FMath::Max(0.0f, HealthBlinkDuration);
+	HealthBlinkTime = 0.0f;
+}
+
+void UPlayerStatsWidget::UpdateHealthAttentionVisual(float DeltaTime)
+{
+	if (HealthBlinkRemaining > 0.0f)
+	{
+		if (!bHealthBlinkVisualActive)
+		{
+			// Прозрачность покоя снимаем с кубиков перед первым кадром мигания: это значение
+			// владельца окна, к нему и вернёмся.
+			HealthBarIdleOpacity = HealthBar ? HealthBar->GetRenderOpacity() : 1.0f;
+			HealthTextIdleOpacity = HealthText ? HealthText->GetRenderOpacity() : 1.0f;
+			bHealthBlinkVisualActive = true;
+		}
+		HealthBlinkRemaining -= DeltaTime;
+		HealthBlinkTime += DeltaTime;
+		const float Brightness = UTouchControlsWidget::ComputeBlinkBrightness(HealthBlinkTime, HealthBlinkPeriod, HealthBlinkDepth);
+		if (HealthBar)
+		{
+			HealthBar->SetRenderOpacity(HealthBarIdleOpacity * Brightness);
+		}
+		if (HealthText)
+		{
+			HealthText->SetRenderOpacity(HealthTextIdleOpacity * Brightness);
+		}
+		if (HealthBlinkRemaining > 0.0f)
+		{
+			return;
+		}
+	}
+
+	if (bHealthBlinkVisualActive)
+	{
+		// Срок вышел — один раз возвращаем кубики к покою.
+		if (HealthBar)
+		{
+			HealthBar->SetRenderOpacity(HealthBarIdleOpacity);
+		}
+		if (HealthText)
+		{
+			HealthText->SetRenderOpacity(HealthTextIdleOpacity);
+		}
+		bHealthBlinkVisualActive = false;
+	}
+	HealthBlinkRemaining = FMath::Max(0.0f, HealthBlinkRemaining);
 }
 
 void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -52,6 +104,7 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 		Args.Add(TEXT("Max"), FText::AsNumber(FMath::RoundToInt32(Stats->GetMaxHealth())));
 		HealthText->SetText(FText::Format(HealthFormat, Args));
 	}
+	UpdateHealthAttentionVisual(InDeltaTime);
 	if (HungerBar)
 	{
 		HungerBar->SetPercent(FMath::Clamp(Stats->GetHunger() / SurvivalMax, 0.0f, 1.0f));

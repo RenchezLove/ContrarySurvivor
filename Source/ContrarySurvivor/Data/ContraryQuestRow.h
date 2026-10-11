@@ -166,4 +166,26 @@ struct FContraryQuestRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "26",
 		DisplayName = "Подпись на плитке товара: продажа в долг"))
 	FText PrepDebtText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (DisplayPriority = "27", MultiLine = "true",
+		DisplayName = "Подсказка сразу после покупки предмета"))
+	FText PrepBoughtHintText;
+
+	// --- Предупреждение о малом здоровье при выходе из деревни (11.10.2026) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Здоровье", meta = (ClampMin = "0.0", DisplayPriority = "28",
+		DisplayName = "Порог здоровья для предупреждения при выходе из деревни (0 = не предупреждать)"))
+	float LowHealthWarnThreshold = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Здоровье", meta = (DisplayPriority = "29", MultiLine = "true",
+		DisplayName = "Текст предупреждения о малом здоровье"))
+	FText LowHealthWarnText;
+
+	// --- Проводник к предмету-награде (11.10.2026) ---
+
+	// Строка таблицы предметов из награды, которую игроку помогают поставить в слот оружия:
+	// мигает кнопка сумки, плитка предмета в сумке, затем кнопка смены оружия.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Предметы", meta = (DisplayPriority = "30",
+		DisplayName = "Награда, которую подсказка ведёт в слот оружия (строка таблицы предметов)"))
+	FName RewardEquipItemRow = NAME_None;
 };

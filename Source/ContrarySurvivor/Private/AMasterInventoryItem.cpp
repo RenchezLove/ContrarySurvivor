@@ -122,13 +122,27 @@ FText AMasterInventoryItem::GetItemDisplayText() const
 
 bool AMasterInventoryItem::CanStackWith(const AMasterInventoryItem* Other) const
 {
-	// Оба стакаемы + один класс + один служебный ключ. Сравнение ключа — посимвольное,
-	// как в логике квестов (QuestComponent.cpp): имена задаются детерминированно.
-	return Other
-		&& Other != this
-		&& IsStackable()
-		&& Other->IsStackable()
-		&& GetClass() == Other->GetClass()
+	if (!Other || Other == this || !IsStackable() || !Other->IsStackable())
+	{
+		return false;
+	}
+
+	// Один и тот же предмет — это одна и та же строка таблицы предметов, а не один и тот же
+	// класс (ADR-075). Корень раздвоенных стопок 11.10.2026 («одна плитка с 36 патронами 9мм и
+	// другая… 10 шт»): патроны купленного ствола ложились пачкой класса из кода (AAmmoItem), а
+	// патроны с трупа — пачкой класса из таблицы (BP_Ammo9mm); строка у них одна, классы
+	// разные, и прежнее сравнение по классу стопки не сливало. То же было у подаренной и
+	// найденной аптечки.
+	const FName MyRow = ResolveItemRowName();
+	const FName OtherRow = Other->ResolveItemRowName();
+	if (!MyRow.IsNone() || !OtherRow.IsNone())
+	{
+		return MyRow == OtherRow;
+	}
+
+	// Предметов нет в таблице (игра без таблиц, проверочные предметы) — прежнее правило:
+	// один класс и один служебный ключ, сравнение ключа посимвольное.
+	return GetClass() == Other->GetClass()
 		&& ItemName.Equals(Other->ItemName, ESearchCase::CaseSensitive);
 }
 

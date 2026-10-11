@@ -306,15 +306,15 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 
 	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Description->SetAutoWrapText(true);
-	PlaceDetail(Description, 100.0f, 220.0f);
+	PlaceDetail(Description, 100.0f, 236.0f);
 
 	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Objectives->SetAutoWrapText(true);
-	PlaceDetail(Objectives, 332.0f, 170.0f);
+	PlaceDetail(Objectives, 346.0f, 130.0f);
 
 	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 18, TEXT("Bold"));
 	Reward->SetAutoWrapText(true);
-	PlaceDetail(Reward, 514.0f, 120.0f);
+	PlaceDetail(Reward, 486.0f, 94.0f);
 
 	UButton* Track = NewCaptionButton(Tree, TEXT("TrackButton"), TEXT("TrackText"),
 		Defaults->TrackLabel, FLinearColor(0.16f, 0.36f, 0.16f, 1.0f), 20);
@@ -382,9 +382,160 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 			ButtonSlot->SetZOrder(5); // поверх карты и отметок
 		}
 	};
-	PlaceMapButton(TEXT("MapFindHeroButton"), TEXT("MapFindHeroText"), Defaults->FindHeroLabel, 16, 0);
+	// «Моя позиция» — в две строки кеглем 14: слово «позиция» уже кнопки с запасом.
+	PlaceMapButton(TEXT("MapFindHeroButton"), TEXT("MapFindHeroText"), Defaults->FindHeroLabel, 14, 0);
 	PlaceMapButton(TEXT("MapZoomOutButton"), TEXT("MapZoomOutText"), Defaults->ZoomOutLabel, 34, 1);
 	PlaceMapButton(TEXT("MapZoomInButton"), TEXT("MapZoomInText"), Defaults->ZoomInLabel, 34, 2);
+
+	// Шаги, общие с дополнением готового файла окна: меню вкладок, поле карты под саму карту,
+	// круг района поиска.
+	MoveMenuIntoSideMenu(Tree);
+	FitMapPanelToMap(Tree);
+	AddSearchAreaMark(Tree);
+}
+
+float UPdaScreenWidget::ComputeDesignMapPanelWidth()
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	double Aspect = Settings->PhoneAspectRatio;
+	const FIntPoint Picture = PdaMap::GetPictureSize(Settings->PhoneTexture.IsNull() ? nullptr : Settings->PhoneTexture.LoadSynchronous());
+	if (Picture.X > 0 && Picture.Y > 0)
+	{
+		Aspect = static_cast<double>(Picture.X) / Picture.Y;
+	}
+	const FVector2D Phone = PdaMap::ComputePhoneSize(FVector2D(1920.0, 1080.0),
+		Settings->PhoneHeightFraction, Aspect, Settings->PhoneSideMargin);
+	const FMargin Pad = PdaMap::ComputePhoneScreenPadding(Phone, Settings->PhoneScreenInsets);
+	const double InnerHeight = FMath::Max(1.0, Phone.Y - Pad.Top - Pad.Bottom);
+	// Места по ширине «сколько угодно» — карту ограничивает только высота.
+	return FMath::RoundToFloat(static_cast<float>(PdaMap::FitMapSize(FVector2D(1.0e7, InnerHeight),
+		Settings->MapWorldTopLeft, Settings->MapWorldBottomRight).X));
+}
+
+bool UPdaScreenWidget::MoveMenuIntoSideMenu(UWidgetTree* Tree)
+{
+	if (!Tree || Tree->FindWidget(TEXT("SideMenu")))
+	{
+		return false; // меню уже есть
+	}
+	UWidget* Quests = Tree->FindWidget(TEXT("QuestsPanel"));
+	const UCanvasPanelSlot* QuestsSlot = Quests ? Cast<UCanvasPanelSlot>(Quests->Slot) : nullptr;
+	UCanvasPanel* Panel = Quests ? Cast<UCanvasPanel>(Quests->GetParent()) : nullptr;
+	if (!QuestsSlot || !Panel)
+	{
+		return false;
+	}
+	// В файле окна меню стоит как при вкладке «Задания»: от левого края до вкладки за вычетом
+	// просвета. В игре ширину под открытую вкладку ставит UpdateSideMenuWidth.
+	const float MenuWidth = FMath::Max(1.0f, QuestsSlot->GetOffsets().Left - GetDefault<UPdaScreenWidget>()->SideMenuGap);
+
+	UCanvasPanel* Menu = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("SideMenu"));
+	Menu->bIsVariable = true;
+	if (UCanvasPanelSlot* MenuSlot = Panel->AddChildToCanvas(Menu))
+	{
+		MenuSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 1.0f));
+		MenuSlot->SetOffsets(FMargin(0.0f, 0.0f, MenuWidth, 0.0f)); // при совпавших якорях правый отступ — ширина
+	}
+
+	for (const TCHAR* WidgetName : { TEXT("TitleText"), TEXT("QuestsTabButton"), TEXT("MapTabButton"), TEXT("MapHintText"), TEXT("CloseButton") })
+	{
+		UWidget* Widget = Tree->FindWidget(WidgetName);
+		const UCanvasPanelSlot* OldSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+		if (!OldSlot || Widget->GetParent() != Panel)
+		{
+			continue;
+		}
+		FAnchorData Layout = OldSlot->GetLayout();
+		const bool bAutoSize = OldSlot->GetAutoSize();
+		const int32 ZOrder = OldSlot->GetZOrder();
+		// Кнопки и подсказка тянутся на всю ширину меню с прежними отступами от его краёв;
+		// элемент по размеру текста (заголовок) остаётся, где стоял.
+		if (!bAutoSize && Layout.Anchors.Minimum.X == 0.0f && Layout.Anchors.Maximum.X == 0.0f)
+		{
+			const float Left = Layout.Offsets.Left - Layout.Offsets.Right * Layout.Alignment.X;
+			const float Right = FMath::Max(0.0f, MenuWidth - (Left + Layout.Offsets.Right));
+			Layout.Anchors.Maximum.X = 1.0f;
+			Layout.Offsets.Left = Left;
+			Layout.Offsets.Right = Right;
+		}
+		Panel->RemoveChild(Widget);
+		if (UCanvasPanelSlot* NewSlot = Menu->AddChildToCanvas(Widget))
+		{
+			NewSlot->SetLayout(Layout);
+			NewSlot->SetAutoSize(bAutoSize);
+			NewSlot->SetZOrder(ZOrder);
+		}
+	}
+	return true;
+}
+
+bool UPdaScreenWidget::FitMapPanelToMap(UWidgetTree* Tree)
+{
+	UWidget* Map = Tree ? Tree->FindWidget(TEXT("MapPanel")) : nullptr;
+	UCanvasPanelSlot* MapSlot = Map ? Cast<UCanvasPanelSlot>(Map->Slot) : nullptr;
+	if (!MapSlot || MapSlot->GetAnchors().Minimum.X == MapSlot->GetAnchors().Maximum.X)
+	{
+		return false; // поля нет либо оно уже стоит своей шириной
+	}
+	const FAnchors OldAnchors = MapSlot->GetAnchors();
+	const FMargin OldOffsets = MapSlot->GetOffsets();
+	// К правому краю экрана смартфона; по высоте растянуто, как было. При одной точке привязки
+	// по ширине левый отступ — место, правый — ширина.
+	MapSlot->SetAnchors(FAnchors(1.0f, OldAnchors.Minimum.Y, 1.0f, OldAnchors.Maximum.Y));
+	MapSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+	MapSlot->SetOffsets(FMargin(-OldOffsets.Right, OldOffsets.Top, ComputeDesignMapPanelWidth(), OldOffsets.Bottom));
+	return true;
+}
+
+bool UPdaScreenWidget::AddSearchAreaMark(UWidgetTree* Tree)
+{
+	if (!Tree || Tree->FindWidget(TEXT("MapAreaMark")))
+	{
+		return false; // уже добавлен
+	}
+	UWidget* Markers = Tree->FindWidget(TEXT("MapMarkers"));
+	UCanvasPanel* Area = Markers ? Cast<UCanvasPanel>(Markers->GetParent()) : nullptr;
+	if (!Area)
+	{
+		return false;
+	}
+	const UCanvasPanelSlot* MarkersSlot = Cast<UCanvasPanelSlot>(Markers->Slot);
+	const int32 ZOrder = MarkersSlot ? MarkersSlot->GetZOrder() : 0;
+	int32 InsertAt = Area->GetChildIndex(Markers); // под отметками: нажатия по отметкам заданий остаются
+
+	// Зелёный полупрозрачный круг с контуром. В файле стоит в середине карты; в игре код ставит
+	// его на место района и растягивает вместе с приближением карты.
+	const float MarkSize = 150.0f;
+	UBorder* Mark = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MapAreaMark"));
+	Mark->SetBrush(CircleBrush(FLinearColor(0.2f, 0.85f, 0.3f, 0.22f), FLinearColor(0.3f, 1.0f, 0.4f, 0.95f), 3.0f));
+	Mark->SetVisibility(ESlateVisibility::Collapsed);
+	Mark->bIsVariable = true;
+	if (UCanvasPanelSlot* MarkSlot = Cast<UCanvasPanelSlot>(Area->InsertChildAt(InsertAt++, Mark)))
+	{
+		MarkSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		MarkSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		MarkSlot->SetPosition(FVector2D::ZeroVector);
+		MarkSlot->SetSize(FVector2D(MarkSize, MarkSize));
+		MarkSlot->SetZOrder(ZOrder);
+	}
+
+	// Подпись под кругом: в своём блоке с переносом строк.
+	UTextBlock* Caption = NewText(Tree, TEXT("MapAreaMarkText"), GetDefault<UPdaScreenWidget>()->SearchAreaLabel,
+		FLinearColor(0.6f, 1.0f, 0.65f, 1.0f), 14, TEXT("Bold"));
+	Caption->SetAutoWrapText(true);
+	Caption->SetJustification(ETextJustify::Center);
+	Caption->SetShadowOffset(FVector2D(1.0f, 1.0f));
+	Caption->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
+	Caption->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* CaptionSlot = Cast<UCanvasPanelSlot>(Area->InsertChildAt(InsertAt, Caption)))
+	{
+		CaptionSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		CaptionSlot->SetAlignment(FVector2D(0.5f, 0.0f));
+		CaptionSlot->SetPosition(FVector2D(0.0f, MarkSize * 0.5f + 6.0f));
+		CaptionSlot->SetSize(FVector2D(300.0f, 130.0f));
+		CaptionSlot->SetZOrder(ZOrder);
+	}
+	return true;
 }
 
 // ===========================================================================
@@ -482,6 +633,9 @@ void UPdaScreenWidget::BindCodeTree()
 	PDA_BIND(MapFogImage, UImage);
 	PDA_BIND(MapMarkers, UCanvasPanel);
 	PDA_BIND(MapHintText, UTextBlock);
+	PDA_BIND(SideMenu, UCanvasPanel);
+	PDA_BIND(MapAreaMark, UBorder);
+	PDA_BIND(MapAreaMarkText, UTextBlock);
 #undef PDA_BIND
 }
 
@@ -503,6 +657,13 @@ void UPdaScreenWidget::InitPda(APlayerCharacter* InPlayer)
 	bMouseDragging = false;
 	MapTouches.Reset();
 
+	// Смартфон открыт — кнопка на экране своё отмигала (вкладка «Карта» мигает дальше, пока
+	// игрок на неё не перейдёт).
+	if (UMapExplorationComponent* Exploration = GetExplorationMutable())
+	{
+		Exploration->NotePhoneOpened();
+	}
+
 	RefreshNow();
 	RefreshTabLook();
 }
@@ -514,6 +675,7 @@ void UPdaScreenWidget::RefreshNow()
 	RebuildQuestList();
 	RefreshDetails();
 	RebuildMap();
+	UpdateSearchAreaMark();
 }
 
 void UPdaScreenWidget::ShowTab(bool bMap)
@@ -545,6 +707,15 @@ void UPdaScreenWidget::RefreshTabLook()
 	if (MapTabText)
 	{
 		MapTabText->SetColorAndOpacity(FSlateColor(bMapTab ? PdaGoldColor : PdaDimTextColor));
+	}
+	UpdateSideMenuWidth();
+	// Игрок на вкладке «Карта» — район поиска он увидел: мигания гаснут.
+	if (bMapTab)
+	{
+		if (UMapExplorationComponent* Exploration = GetExplorationMutable())
+		{
+			Exploration->NoteMapTabShown();
+		}
 	}
 }
 
@@ -1322,6 +1493,7 @@ void UPdaScreenWidget::ApplyMapView()
 	{
 		MapZoomOutButton->SetIsEnabled(MapView.Zoom > 1.0 + KINDA_SMALL_NUMBER);
 	}
+	UpdateSearchAreaMark(); // круг района растёт вместе с картой
 }
 
 void UPdaScreenWidget::ZoomMapAt(const FVector2D& ViewportPoint, double NewZoom)
@@ -1416,6 +1588,7 @@ void UPdaScreenWidget::ApplyPhoneLayout(const FVector2D& ScreenSize)
 		}
 	}
 	LoadedPhoneTexture = PhoneTexture;
+	UpdateSideMenuWidth();
 
 	// Одна строка на каждую подгонку (открытие окна, смена размера экрана): по ней видно, с
 	// какими числами смартфон встал на экран.
@@ -1625,6 +1798,136 @@ void UPdaScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 		{
 			RebuildMap();
 		}
+	}
+	// Район поиска мог появиться или пропасть (время вышло, герой пришёл), пока окно открыто.
+	UpdateSearchAreaMark();
+	UpdateMapTabAttention(InDeltaTime);
+}
+
+// ===========================================================================
+// Меню вкладок, район поиска, мигание вкладки «Карта»
+// ===========================================================================
+
+UMapExplorationComponent* UPdaScreenWidget::GetExplorationMutable() const
+{
+	return Player.IsValid() ? Player->GetMapExploration() : nullptr;
+}
+
+void UPdaScreenWidget::UpdateSideMenuWidth()
+{
+	UCanvasPanelSlot* MenuSlot = SideMenu ? Cast<UCanvasPanelSlot>(SideMenu->Slot) : nullptr;
+	const UWidget* ActivePanel = bMapTab ? static_cast<const UWidget*>(MapPanel) : static_cast<const UWidget*>(QuestsPanel);
+	const UCanvasPanelSlot* ActiveSlot = ActivePanel ? Cast<UCanvasPanelSlot>(ActivePanel->Slot) : nullptr;
+	const double InnerWidth = PhoneSize.X - PhonePadding.Left - PhonePadding.Right;
+	if (!MenuSlot || !ActiveSlot || InnerWidth < 1.0)
+	{
+		return; // размер смартфона ещё не посчитан — меню стоит, как в файле окна
+	}
+	// Левый край открытой вкладки — из её места в файле окна.
+	const FAnchors Anchors = ActiveSlot->GetAnchors();
+	const FMargin Offsets = ActiveSlot->GetOffsets();
+	const bool bStretched = Anchors.Minimum.X != Anchors.Maximum.X;
+	const double PanelLeft = Anchors.Minimum.X * InnerWidth
+		+ (bStretched ? Offsets.Left : Offsets.Left - Offsets.Right * ActiveSlot->GetAlignment().X);
+
+	FAnchorData Layout = MenuSlot->GetLayout();
+	SideMenuWidth = FMath::Max(0.0, PanelLeft - SideMenuGap - Layout.Offsets.Left);
+	if (Layout.Anchors.Minimum.X != 0.0f || Layout.Anchors.Maximum.X != 0.0f
+		|| !FMath::IsNearlyEqual(Layout.Offsets.Right, static_cast<float>(SideMenuWidth), 0.05f))
+	{
+		Layout.Anchors.Minimum.X = 0.0f;
+		Layout.Anchors.Maximum.X = 0.0f;
+		Layout.Alignment.X = 0.0f;
+		Layout.Offsets.Right = static_cast<float>(SideMenuWidth); // при одной точке привязки — ширина
+		MenuSlot->SetLayout(Layout);
+	}
+}
+
+void UPdaScreenWidget::UpdateSearchAreaMark()
+{
+	const UMapExplorationComponent* Exploration = GetExploration();
+	const bool bShow = Exploration && Exploration->IsSearchAreaMarked() && (MapAreaMark || MapAreaMarkText);
+	if (!bShow)
+	{
+		bSearchAreaShown = false;
+		if (MapAreaMark && MapAreaMark->GetVisibility() != ESlateVisibility::Collapsed)
+		{
+			MapAreaMark->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		if (MapAreaMarkText && MapAreaMarkText->GetVisibility() != ESlateVisibility::Collapsed)
+		{
+			MapAreaMarkText->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
+
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	const FVector2D UV = PdaMap::WorldToMapUV(Exploration->GetSearchAreaCenter(),
+		Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
+	if (bSearchAreaShown && UV.Equals(ShownSearchAreaUV, 0.0001) && FMath::IsNearlyEqual(MapView.Zoom, ShownSearchAreaZoom, 0.0001))
+	{
+		return; // стоит, где надо
+	}
+	bSearchAreaShown = true;
+	ShownSearchAreaUV = UV;
+	ShownSearchAreaZoom = MapView.Zoom;
+
+	// Место — долями карты (якоря), как у остальных отметок; размер, вид и сдвиг подписи — из
+	// файла окна. Круг растёт вместе с приближением карты, подпись отъезжает на край круга.
+	const FAnchors Anchors(static_cast<float>(UV.X), static_cast<float>(UV.Y));
+	double MarkHalfHeight = 0.0;
+	if (MapAreaMark)
+	{
+		if (UCanvasPanelSlot* MarkSlot = Cast<UCanvasPanelSlot>(MapAreaMark->Slot))
+		{
+			MarkSlot->SetAnchors(Anchors);
+			MarkHalfHeight = MarkSlot->GetSize().Y * 0.5;
+		}
+		MapAreaMark->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		MapAreaMark->SetRenderScale(FVector2D(MapView.Zoom, MapView.Zoom));
+		MapAreaMark->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	if (MapAreaMarkText)
+	{
+		if (UCanvasPanelSlot* CaptionSlot = Cast<UCanvasPanelSlot>(MapAreaMarkText->Slot))
+		{
+			CaptionSlot->SetAnchors(Anchors);
+		}
+		MapAreaMarkText->SetRenderTranslation(FVector2D(0.0, MarkHalfHeight * (MapView.Zoom - 1.0)));
+		MapAreaMarkText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+}
+
+void UPdaScreenWidget::UpdateMapTabAttention(float DeltaTime)
+{
+	UMapExplorationComponent* Exploration = GetExplorationMutable();
+	if (Exploration && bMapTab)
+	{
+		Exploration->NoteMapTabShown();
+	}
+	const bool bBlink = Exploration && Exploration->IsMapTabAttentionOn() && MapTabButton;
+	if (bBlink)
+	{
+		if (!bMapTabAttentionActive)
+		{
+			MapTabIdleColor = MapTabButton->GetBackgroundColor(); // цвет из файла окна, к нему вернёмся
+			MapTabAttentionTime = 0.0f;
+			bMapTabAttentionActive = true;
+		}
+		MapTabAttentionTime += DeltaTime;
+		// Та же формула, что у мигания экранных кнопок: яркость ходит по синусу.
+		const float Pulse = 0.5f + 0.5f * FMath::Sin(2.0f * UE_PI * MapTabAttentionTime / FMath::Max(0.05f, MapTabAttentionPeriod));
+		FLinearColor Color = MapTabAttentionColor * (1.0f - FMath::Clamp(MapTabAttentionDepth, 0.0f, 1.0f) * (1.0f - Pulse));
+		Color.A = MapTabAttentionColor.A;
+		MapTabButton->SetBackgroundColor(Color);
+	}
+	else if (bMapTabAttentionActive)
+	{
+		if (MapTabButton)
+		{
+			MapTabButton->SetBackgroundColor(MapTabIdleColor);
+		}
+		bMapTabAttentionActive = false;
 	}
 }
 

@@ -17,6 +17,7 @@
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Characters/MasterHumanoidCharacter.h" // GetCurrentWeapon (иконка оружия)
 #include "ContrarySurvivor/Characters/PlayerCharacter.h" // GetRangedWeaponInstance (защитный гейт иконки)
+#include "ContrarySurvivor/Components/MapExplorationComponent.h" // район поиска на карте: мигание кнопки смартфона
 #include "ContrarySurvivor/UI/WeaponUiSyncLog.h" // Warning рассинхрона — один раз при входе
 #include "ARangedWeapon.h"   // пистолет/нож различаются классом оружия
 #include "Engine/Texture2D.h"
@@ -970,6 +971,77 @@ void UTouchControlsWidget::UpdateInventoryAttentionVisual(float DeltaTime, bool 
 	InventoryBlinkRemaining = FMath::Max(0.0f, InventoryBlinkRemaining);
 }
 
+void UTouchControlsWidget::UpdatePdaAttentionVisual(float DeltaTime)
+{
+	const APlayerCharacter* Player = OwnerPC ? Cast<APlayerCharacter>(OwnerPC->GetPawn()) : nullptr;
+	const UMapExplorationComponent* Exploration = Player ? Player->GetMapExploration() : nullptr;
+	if (Exploration && Exploration->IsPhoneAttentionOn() && PdaButton)
+	{
+		if (!bPdaVisualActive)
+		{
+			PdaIdleColor = PdaButton->GetBackgroundColor(); // цвет владельца, к нему и вернёмся
+			PdaBlinkTime = 0.0f;
+			bPdaVisualActive = true;
+		}
+		PdaBlinkTime += DeltaTime;
+		FLinearColor C = InventoryBlinkColor
+			* ComputeBlinkBrightness(PdaBlinkTime, InventoryBlinkPeriod, InventoryBlinkDepth);
+		C.A = InventoryBlinkColor.A;
+		PdaButton->SetBackgroundColor(C);
+		const float Pulse01 = ComputeBlinkBrightness(PdaBlinkTime, InventoryBlinkPeriod, 1.0f);
+		const float Scale = FMath::Lerp(1.0f, FMath::Max(1.0f, InventoryBlinkScale), Pulse01);
+		PdaButton->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		PdaButton->SetRenderScale(FVector2D(Scale, Scale));
+		return;
+	}
+
+	if (bPdaVisualActive)
+	{
+		// Смартфон открыт или район снят — один раз возвращаем кнопку к покою.
+		if (PdaButton)
+		{
+			PdaButton->SetBackgroundColor(PdaIdleColor);
+			PdaButton->SetRenderScale(FVector2D(1.0f, 1.0f));
+		}
+		bPdaVisualActive = false;
+	}
+}
+
+void UTouchControlsWidget::UpdateWeaponAttentionVisual(float DeltaTime, bool bModal)
+{
+	if (bWeaponAttentionBlink && !bModal && WeaponButton)
+	{
+		if (!bWeaponVisualActive)
+		{
+			// Цвет покоя снимаем с кнопки перед первым кадром мигания — как у кнопки СУМКА.
+			WeaponIdleColor = WeaponButton->GetBackgroundColor();
+			bWeaponVisualActive = true;
+			WeaponBlinkTime = 0.0f;
+		}
+		WeaponBlinkTime += DeltaTime;
+		FLinearColor C = InventoryBlinkColor
+			* ComputeBlinkBrightness(WeaponBlinkTime, InventoryBlinkPeriod, InventoryBlinkDepth);
+		C.A = InventoryBlinkColor.A;
+		WeaponButton->SetBackgroundColor(C);
+		const float Pulse01 = ComputeBlinkBrightness(WeaponBlinkTime, InventoryBlinkPeriod, 1.0f);
+		const float Scale = FMath::Lerp(1.0f, FMath::Max(1.0f, InventoryBlinkScale), Pulse01);
+		WeaponButton->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		WeaponButton->SetRenderScale(FVector2D(Scale, Scale));
+		return;
+	}
+
+	if (bWeaponVisualActive)
+	{
+		// Мигание снято или открыто окно — один раз возвращаем кнопку к покою.
+		if (WeaponButton)
+		{
+			WeaponButton->SetBackgroundColor(WeaponIdleColor);
+			WeaponButton->SetRenderScale(FVector2D(1.0f, 1.0f));
+		}
+		bWeaponVisualActive = false;
+	}
+}
+
 FLinearColor UTouchControlsWidget::GetReloadIdleColor() const
 {
 	// Задан свой цвет покоя полем — берём поле; иначе тот, что снят с кнопки при создании
@@ -1102,6 +1174,9 @@ void UTouchControlsWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	// Мигание кнопки СУМКА после подарка (06.10.2026): до гейта модалки — кнопка видна и на
 	// модальных экранах, а открытое окно как раз и гасит мигание.
 	UpdateInventoryAttentionVisual(InDeltaTime, bModal);
+	UpdatePdaAttentionVisual(InDeltaTime);
+	// Мигание кнопки смены оружия (11.10.2026): под окном кнопка спрятана и возвращается к покою.
+	UpdateWeaponAttentionVisual(InDeltaTime, bModal);
 	if (bModal)
 	{
 		return;

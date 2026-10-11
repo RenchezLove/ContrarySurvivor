@@ -7,6 +7,7 @@
 class AActor;
 class UWorld;
 struct FQuest;
+enum class EQuestKind : uint8;
 
 /**
  * Куда ведёт задание — ОДИН источник для метки-указателя в мире (AContrarySurvivorHUD::
@@ -25,6 +26,18 @@ namespace QuestTargets
 	// Актор, к которому сейчас ведёт задание. null — цель не размещена на уровне, у задания
 	// нет метки цели либо задание не идёт. Перебирает акторы мира — не звать каждый кадр.
 	CONTRARYSURVIVOR_API AActor* FindTargetActor(UWorld* World, const FQuest& Quest);
+
+	// Какое задание показывает метку в мире (Ринат 11.10.2026: «у игрока на экране 2 маркера.
+	// Один - маркер основного квеста (оранжевый/желтый как сейчас), второй - маркер
+	// второстепенного квеста - синий»). Для каждого вида — отслеживаемое задание, если оно
+	// этого вида, иначе первое идущее задание этого вида. null — идущих заданий вида нет.
+	CONTRARYSURVIVOR_API const FQuest* PickMarkerQuest(const TArray<FQuest>& Journal, const FQuest* Tracked, EQuestKind Kind);
+
+	// Подпись метки: текущая невыполненная цель, шаг подготовки либо «Сдать: название».
+	CONTRARYSURVIVOR_API FString BuildMarkerLabel(const FQuest& Quest, const FString& TurnInPrefix);
+
+	// На сколько поднять метку над актором цели: над собеседником — выше его собственной метки.
+	CONTRARYSURVIVOR_API float GetMarkerZOffset(const FQuest& Quest, const AActor* Target, float DefaultZOffset);
 
 	// Имя собеседника для игрока по его метке (подпись над головой: «Староста», «Охранник»).
 	// Пустая метка — староста. Пустой текст — такого персонажа на уровне нет.

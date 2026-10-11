@@ -2,6 +2,7 @@
 
 #include "ContrarySurvivor/UI/QuestTargets.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
+#include "ContrarySurvivor/Actors/InteractableNPCInterface.h" // подъём метки над собеседником
 #include "ContrarySurvivor/Actors/ShopTypes.h"
 #include "ContrarySurvivor/Characters/MasterTrader.h" // цель шага покупки
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
@@ -80,6 +81,66 @@ namespace QuestTargets
 			}
 		}
 		return nullptr;
+	}
+
+	const FQuest* PickMarkerQuest(const TArray<FQuest>& Journal, const FQuest* Tracked, EQuestKind Kind)
+	{
+		if (Tracked && Tracked->Kind == Kind && UQuestComponent::IsInActivePhase(*Tracked))
+		{
+			return Tracked;
+		}
+		for (const FQuest& Quest : Journal)
+		{
+			if (Quest.Kind == Kind && UQuestComponent::IsInActivePhase(Quest))
+			{
+				return &Quest;
+			}
+		}
+		return nullptr;
+	}
+
+	float GetMarkerZOffset(const FQuest& Quest, const AActor* Target, float DefaultZOffset)
+	{
+		// К сдаче метка висит над собеседником ВЫШЕ его зелёного ромба (чтобы не сливались).
+		if (LeadsToReceiver(Quest))
+		{
+			if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
+			{
+				return NPC->GetNPCMarkerZOffset() + 120.0f;
+			}
+		}
+		return DefaultZOffset;
+	}
+
+	FString BuildMarkerLabel(const FQuest& Quest, const FString& TurnInPrefix)
+	{
+		if (LeadsToReceiver(Quest))
+		{
+			return FString::Printf(TEXT("%s%s"), *TurnInPrefix, *Quest.Title.ToString());
+		}
+		if (UQuestComponent::IsPrepStepShown(Quest))
+		{
+			return UQuestComponent::GetPrepObjectiveText(Quest).ToString(); // «Купи пистолет у торговца»
+		}
+		// Текст метки = ПЕРВАЯ невыполненная цель квеста (фидбек Рината 07-06), меняется по
+		// ходу: «Перебить бандитов (1/3)» -> «Забрать ноутбук». Порядок целей kill -> item —
+		// тот же, что в строке задания. Подписи берутся из данных квеста (FQuest::*ObjectiveLabel).
+		if (Quest.TargetCount > 0 && Quest.Progress < Quest.TargetCount)
+		{
+			const FString Obj = !Quest.KillObjectiveLabel.IsEmpty()
+				? Quest.KillObjectiveLabel.ToString() : Quest.KillTargetTag.ToString();
+			return FString::Printf(TEXT("%s (%d/%d)"), *Obj, Quest.Progress, Quest.TargetCount);
+		}
+		if (Quest.RequiredItemCount > 0 && Quest.ItemProgress < Quest.RequiredItemCount)
+		{
+			const FString Obj = !Quest.ItemObjectiveLabel.IsEmpty()
+				? Quest.ItemObjectiveLabel.ToString() : Quest.RequiredItemName;
+			// Счётчик (x/N) у единичной цели («Забрать ноутбук») — шум, не показываем.
+			return (Quest.RequiredItemCount > 1)
+				? FString::Printf(TEXT("%s (%d/%d)"), *Obj, Quest.ItemProgress, Quest.RequiredItemCount)
+				: Obj;
+		}
+		return Quest.Title.ToString(); // целей с подписью нет — название квеста
 	}
 
 	FText ResolveNpcName(UWorld* World, FName NpcTag)

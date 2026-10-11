@@ -314,6 +314,17 @@ public:
 	// Мигает ли кнопка СУМКА прямо сейчас.
 	bool IsInventoryAttentionBlinking() const { return InventoryBlinkRemaining > 0.0f; }
 
+	// Мигает ли сейчас кнопка СМАРТФОН (на карте отмечен район поиска, а игрок смартфон ещё не
+	// открывал — Ринат 11.10.2026: «После диалога начинает мигать иконка смартфона»).
+	bool IsPdaAttentionBlinking() const { return bPdaVisualActive; }
+
+	// Мигание кнопки смены оружия (11.10.2026, слова Рината: «когда игрок закрыл инвентарь -
+	// мигает кнопка смены оружия»): тем же миганием и с теми же настройками цвета, периода,
+	// глубины и увеличения, что кнопка СУМКА. Срока нет — включает и гасит контроллер (гасит
+	// после первого нажатия кнопки). Под открытым окном кнопка спрятана, мигание ждёт.
+	void SetWeaponAttentionBlink(bool bOn) { bWeaponAttentionBlink = bOn; }
+	bool IsWeaponAttentionBlinking() const { return bWeaponAttentionBlink; }
+
 	// Яркость мигающей кнопки в момент Time: ходит по синусу между (1 - Depth) и 1. Общая
 	// формула миганий слоя, вынесена чистой функцией для автотеста.
 	static float ComputeBlinkBrightness(float Time, float Period, float Depth);
@@ -604,6 +615,14 @@ private:
 	// кадр; bModal — открыто окно: мигание гаснет досрочно, кнопка возвращается к покою.
 	void UpdateInventoryAttentionVisual(float DeltaTime, bool bModal);
 
+	// Мигание кнопки СМАРТФОН, пока герой не открыл смартфон с отмеченным районом поиска
+	// (состояние — UMapExplorationComponent). Вид мигания — тот же, что у кнопки СУМКА.
+	void UpdatePdaAttentionVisual(float DeltaTime);
+
+	// Мигание кнопки смены оружия (см. SetWeaponAttentionBlink). Зовётся каждый кадр;
+	// bModal — открыто окно: кнопка возвращается к покою, мигание продолжится после него.
+	void UpdateWeaponAttentionVisual(float DeltaTime, bool bModal);
+
 	// Сверяет оружие пешки контроллера с показанным и применяет смену (текстура+видимость).
 	// bForceHide: модальное окно открыто — иконка прячется вместе с боевой группой.
 	void UpdateWeaponIcon(bool bForceHide);
@@ -696,4 +715,15 @@ private:
 	float InventoryBlinkTime = 0.0f;      // накопитель фазы синуса мигания
 	bool bInventoryVisualActive = false;  // цвет кнопки сейчас подменён миганием
 	FLinearColor InventoryIdleColor = FLinearColor::White; // цвет кнопки, снятый перед миганием
+
+	// --- Мигание кнопки СМАРТФОН при отмеченном районе поиска (11.10.2026) ---
+	float PdaBlinkTime = 0.0f;       // накопитель фазы синуса мигания
+	bool bPdaVisualActive = false;   // цвет кнопки сейчас подменён миганием
+	FLinearColor PdaIdleColor = FLinearColor::White; // цвет кнопки, снятый перед миганием
+
+	// --- Мигание кнопки смены оружия (11.10.2026) ---
+	bool bWeaponAttentionBlink = false;   // мигание заказано контроллером
+	float WeaponBlinkTime = 0.0f;         // накопитель фазы синуса мигания
+	bool bWeaponVisualActive = false;     // цвет кнопки сейчас подменён миганием
+	FLinearColor WeaponIdleColor = FLinearColor::White; // цвет кнопки, снятый перед миганием
 };

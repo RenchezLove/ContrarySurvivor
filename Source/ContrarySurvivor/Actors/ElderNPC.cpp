@@ -58,7 +58,7 @@ AElderNPC::AElderNPC()
 	// интро IntroLines (реплики по очереди, чинит «свалку реплик» — баг издателя). Описание
 	// квеста теперь — ТОЛЬКО задача (как у кв.2/кв.3): его читают в журнале/на HUD, не в интро.
 	OfferedQuest.Description = NSLOCTEXT("Quest", "Q1Description",
-		"Волки у самой околицы рыщут — ни по дрова, ни по воду не выйти. Разори логово на западе, принеси три шкуры.");
+		"Волки подходят к самой деревне, люди боятся выйти за дровами и за водой. Уничтожь волчье логово на западе и принеси мне три шкуры.");
 	OfferedQuest.Type = EQuestType::Collect;
 	OfferedQuest.Kind = EQuestKind::Main; // задания старосты — сюжет (10.10.2026)
 	OfferedQuest.KillTargetTag = NAME_None;
@@ -92,7 +92,7 @@ AElderNPC::AElderNPC()
 	// Сумма награды из описания УБРАНА намеренно: её дописывает панель диалога из поля
 	// RewardMoney (иначе при смене баланса текст соврал бы), и вписанная руками строка
 	// показывалась бы второй раз.
-	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "Бандиты к северу от деревни обирают и нас, и торговца. Перебей троих и принеси их ноутбук — узнаю, кто их сюда навёл.");
+	SecondQuest.Description = NSLOCTEXT("Quest", "Q2Description", "К северу от деревни засели бандиты. Они грабят и нас, и торговца. Убей троих бандитов и принеси мне их ноутбук — я хочу узнать, кто их сюда прислал. С одним ножом туда не ходи: я договорился с торговцем, он продаст тебе пистолет со скидкой. Если монет не хватит, он даст пистолет в долг, а я вычту долг из твоей награды.");
 	SecondQuest.Type = EQuestType::Deliver;
 	SecondQuest.Kind = EQuestKind::Main;
 	SecondQuest.KillTargetTag = FName(TEXT("Bandit"));
@@ -115,9 +115,17 @@ AElderNPC::AElderNPC()
 	SecondQuest.PrepItemRow = FName(TEXT("pistol"));
 	SecondQuest.PrepDealPrice = 100.0f;
 	SecondQuest.PrepBuyObjectiveText = NSLOCTEXT("Quest", "Q2PrepBuy", "Купи пистолет у торговца");
-	SecondQuest.PrepEquipObjectiveText = NSLOCTEXT("Quest", "Q2PrepEquip", "Поставь пистолет в слот");
+	SecondQuest.PrepEquipObjectiveText = NSLOCTEXT("Quest", "Q2PrepEquip", "Открой сумку и поставь пистолет в слот оружия");
 	SecondQuest.PrepDealText = NSLOCTEXT("Quest", "Q2PrepDeal", "Скидка от старосты");
-	SecondQuest.PrepDebtText = NSLOCTEXT("Quest", "Q2PrepDebt", "В долг: остаток спишут с награды");
+	SecondQuest.PrepDebtText = NSLOCTEXT("Quest", "Q2PrepDebt", "В долг, остаток вычтут из награды");
+	// Подсказка сразу после покупки (11.10.2026, слова Рината: «после покупки игроком пистолета
+	// - необходимо закрыть окно торговли, открыть инвентарь и экипировать пистолет»).
+	SecondQuest.PrepBoughtHintText = NSLOCTEXT("Quest", "Q2PrepBoughtHint",
+		"Пистолет куплен. Закрой окно торговли, открой сумку и поставь пистолет в слот оружия.");
+	// Проверка здоровья при выходе из деревни (11.10.2026): порог и текст — черновик Рината.
+	SecondQuest.LowHealthWarnThreshold = 45.0f;
+	SecondQuest.LowHealthWarnText = NSLOCTEXT("Quest", "Q2LowHealthWarn",
+		"Здоровье на исходе. Перед походом на бандитов купи у торговца аптечку и подлечись.");
 
 	// КВЕСТ 3 (ЧЕРНОВИК; слова Рината 10.10.2026: «староста отправляет ГГ на базу учёных с самим
 	// ноутом»). Староста сам данные не разобрал и отдаёт ноутбук герою (выдача при взятии —
@@ -127,7 +135,7 @@ AElderNPC::AElderNPC()
 	ThirdQuest.QuestId = ContraryQuestIds::DeliverLaptopToScientists;
 	ThirdQuest.Title = NSLOCTEXT("Quest", "Q3Title", "Отнести ноутбук учёным");
 	ThirdQuest.Description = NSLOCTEXT("Quest", "Q3Description",
-		"Не сладил я с ноутбуком: данные запрятаны не по моим зубам. Неси учёным — их база на юго-западе, от перекрёстка дорога на юг. Им такие загадки в радость, а мне деревню не бросить. Забирай, да в дороге не свети.");
+		"Я не справился с ноутбуком: данные в нём защищены слишком хорошо для меня. Отнеси его учёным. Их база находится на юго-западе: от перекрёстка иди по дороге на юг. Учёные любят такие загадки, а я не могу оставить деревню. Забирай ноутбук и по дороге никому его не показывай.");
 	ThirdQuest.Type = EQuestType::Deliver;
 	ThirdQuest.Kind = EQuestKind::Main;
 	ThirdQuest.KillTargetTag = NAME_None;
@@ -139,7 +147,7 @@ AElderNPC::AElderNPC()
 	ThirdQuest.TurnInNpcTag = ScientistBaseTags::QuestScientist;
 	ThirdQuest.MapMarkerTag = ScientistBaseTags::QuestScientist; // метка собеседника — она же метка актора
 	ThirdQuest.TurnInHintText = NSLOCTEXT("Quest", "Q3TurnInHint", "отнеси ноутбук учёным");
-	ThirdQuest.AcceptReplyText = NSLOCTEXT("Quest", "Q3AcceptReply", "Отнесу. Сам хочу знать.");
+	ThirdQuest.AcceptReplyText = NSLOCTEXT("Quest", "Q3AcceptReply", "Отнесу. Я и сам хочу это знать.");
 	ThirdQuest.TurnInReplyText = NSLOCTEXT("Quest", "Q3TurnInReply", "Вот ноутбук.");
 	ThirdQuest.CloseReplyText  = NSLOCTEXT("Quest", "Q3CloseReply", "Мне пора.");
 	FQuestItemGrant LaptopGrant;
@@ -161,24 +169,24 @@ AElderNPC::AElderNPC()
 		return Line;
 	};
 	IntroLines.Add(MakeLine(
-		NSLOCTEXT("Dialog", "ElderIntro0", "Живой. В наших краях уже редкость. Откуда бредёшь такой?"),
+		NSLOCTEXT("Dialog", "ElderIntro0", "Надо же, живой человек. В наших краях это теперь редкость. Откуда ты идёшь?"),
 		NSLOCTEXT("Dialog", "ElderIntroBtn0", "Из столицы."),
 		EElderIntroAction::None));
 	IntroLines.Add(MakeLine(
-		NSLOCTEXT("Dialog", "ElderIntro1", "Столица… Оттуда давно одни дурные вести доходят."),
-		NSLOCTEXT("Dialog", "ElderIntroBtn1", "Потому и ушёл."),
+		NSLOCTEXT("Dialog", "ElderIntro1", "Из столицы… Оттуда уже давно приходят только плохие новости."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn1", "Поэтому я и ушёл."),
 		EElderIntroAction::None));
 	IntroLines.Add(MakeLine(
 		// 06.10.2026 (решение Рината): в реплике прямо сказано, что староста даёт аптечку —
 		// раньше было «Держи, затяни раны», и игрок не понимал, что именно получил. Черновик
 		// формулировки, утверждает Ринат.
-		NSLOCTEXT("Dialog", "ElderIntro2", "Ладно. Держи аптечку, затяни раны — до утра иначе не дотянешь."),
+		NSLOCTEXT("Dialog", "ElderIntro2", "Ладно. Возьми аптечку и перевяжи раны, иначе до утра ты не дотянешь."),
 		NSLOCTEXT("Dialog", "ElderIntroBtn2", "Взять аптечку"),
 		EElderIntroAction::GiveGift)); // выдаёт аптечку тем же путём, что магазин (GiveConsumableToBackpack)
 	IntroLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderIntro3",
-			"Только вот что. Чужаков у нас не привечают: ртов хватает, а рук мало. Хочешь остаться — покажи, чего стоишь.\n"
-			"Волки у самой околицы рыщут — ни по дрова, ни по воду не выйти, а мужиков у меня раз-два и обчёлся. Разори логово на западе, принеси три шкуры. Тогда и поговорим по-людски."),
+			"Но имей в виду: чужих у нас не любят. Едоков в деревне хватает, а работать некому. Хочешь остаться — докажи, что от тебя есть польза.\n"
+			"Волки подходят к самой деревне, люди боятся выйти за дровами и за водой, а мужчин у меня почти не осталось. Уничтожь волчье логово на западе и принеси мне три шкуры. Тогда и поговорим как следует."),
 		NSLOCTEXT("Dialog", "ElderIntroBtn3", "Взяться за дело"),
 		EElderIntroAction::StartQuest)); // запускает существующий квест «Шкуры волков»
 	// Намёк про пистолет (Build 1.2.2, дополнение Рината 05-08). Нужен потому, что с этой
@@ -188,14 +196,14 @@ AElderNPC::AElderNPC()
 	// перенумерованы — иначе разошлись бы уже собранные переводы.
 	IntroLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderIntro3b",
-			"Только на одном ноже далеко не уедешь — волка ножом брать это не охота, а драка.\n"
-			"У торговца под навесом пистолет с прошлого завоза лежит, никто в деревне такую цену не потянул. Продай ему шкуры, накопи — и ствол твой."),
+			"Только с одним ножом тебе будет тяжело: идти на волка с ножом — это не охота, а драка.\n"
+			"У торговца под навесом лежит пистолет из прошлого завоза, в деревне он никому не по карману. Продавай торговцу шкуры, накопи денег — и пистолет будет твоим."),
 		NSLOCTEXT("Dialog", "ElderIntroBtn3b", "Учту."),
 		EElderIntroAction::None));
 	IntroLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderIntro4",
-			"И вот что. Третьего дня тут чужие ходили, расспрашивали про пришлого из столицы. Не наши и не с окрестных. Я смолчал. А ты поглядывай за спину. Ступай."),
-		NSLOCTEXT("Dialog", "ElderIntroBtn4", "Буду поглядывать."),
+			"И ещё одно. Позавчера здесь ходили чужие люди и расспрашивали про человека, который пришёл из столицы. Они не из нашей деревни и не из соседних. Я им ничего не сказал. А ты будь осторожен и почаще оглядывайся. Теперь иди."),
+		NSLOCTEXT("Dialog", "ElderIntroBtn4", "Буду осторожен."),
 		EElderIntroAction::None)); // последняя реплика-крючок: показывается один раз (bElderHookShown)
 
 	// СЦЕНКА ПОСЛЕ СДАЧИ НОУТБУКА (Build 1.2, формулировка Рината 07-31). Реплика 1 несёт
@@ -207,18 +215,20 @@ AElderNPC::AElderNPC()
 	// Action у этих реплик не действует.
 	NotebookHintLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderNotebookHint0",
-			"Погоди-ка… Тут про тебя. Одно ясно уже сейчас: на ноутбуке — данные о тех, кто за тобой охотится. Остальное под замком. Дай время покопаться: узнаю, кто именно, — расскажу."),
+			"Подожди… Здесь написано про тебя. Одно понятно уже сейчас: в ноутбуке есть данные о тех, кто за тобой охотится. Всё остальное защищено паролем. Дай мне время разобраться: когда я узнаю, кто это, я тебе расскажу."),
 		NSLOCTEXT("Dialog", "ElderNotebookHintBtn0", "Кто они такие?"),
 		EElderIntroAction::None));
 	NotebookHintLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderNotebookHint1",
-			"Кабы знал — сказал бы. Машина хитрая, быстро не дастся. А ты без дела не сиди: к югу от деревни снова видели волков. Нам от них беда, а торговец за шкуры платит исправно. Заодно и руку набьёшь — пригодится."),
+			// 11.10.2026 (Ринат): староста прямо говорит, что отметил южное логово на карте героя;
+			// саму отметку ставят по событию AContrarySurvivorPlayerController::OnElderMarkedSouthDen.
+			"Если бы я знал, я бы сказал. Ноутбук защищён хитро, быстро его не вскрыть. А ты пока не сиди без дела: к югу от деревни снова видели волков, там у них логово. Я отметил его на твоей карте. Деревне от волков одни беды, а торговец хорошо платит за шкуры. Заодно наберёшься опыта — он тебе пригодится."),
 		NSLOCTEXT("Dialog", "ElderNotebookHintBtn1", "Займусь."),
 		EElderIntroAction::None));
 	NotebookHintLines.Add(MakeLine(
 		NSLOCTEXT("Dialog", "ElderNotebookHint2",
-			"И к торговцу загляни. Бандитов не стало — завоз до него наконец дошёл: появилась добротная броня, а скоро, обещает, будет и оружие. Сдашь шкуры — справишь снаряжение. Те, кто тебя ищет, с пустыми руками не ходят."),
-		NSLOCTEXT("Dialog", "ElderNotebookHintBtn2", "Понял. Загляну на юг."),
+			"И зайди к торговцу. Бандитов больше нет, поэтому товар до него наконец дошёл: появилась хорошая броня, а скоро он обещает привезти и оружие. Продашь шкуры — купишь себе снаряжение. Те, кто тебя ищет, с пустыми руками не приходят."),
+		NSLOCTEXT("Dialog", "ElderNotebookHintBtn2", "Понял. Схожу на юг."),
 		EElderIntroAction::None));
 }
 

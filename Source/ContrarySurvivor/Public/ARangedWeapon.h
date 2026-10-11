@@ -121,6 +121,19 @@ protected:
 	// его избегает; при двух звуках это чистое чередование.
 	int32 LastFireSoundIndex = -1;
 
+	// --- Звуки «мало патронов» и «пустой магазин» (11.10.2026) ---
+	// Общие звуки всех стволов задаются в настройках проекта (UContraryWeaponAudioSettings,
+	// Config/DefaultGame.ini); здесь — необязательная замена для одного ствола. Пусто = общий
+	// звук; общий тоже пуст = тишина. Звучат только у оружия в руках игрока.
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (DisplayPriority = "5",
+		DisplayName = "Звук: мало патронов (пусто = общий из настроек проекта)"))
+	TObjectPtr<USoundBase> LowAmmoSoundOverride;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Audio", meta = (DisplayPriority = "6",
+		DisplayName = "Звук: пустой магазин, щелчок (пусто = общий из настроек проекта)"))
+	TObjectPtr<USoundBase> DryFireSoundOverride;
+
 	// --- Вспышка выстрела + след пули (D2, Этап D) ---
 	// Дёшево для слабого Android: два ПЕРЕИСПОЛЬЗУЕМЫХ StaticMesh-компонента на оружии
 	// (базовые меши движка /Engine/BasicShapes), показываются на доли секунды по таймеру.
@@ -257,7 +270,38 @@ public:
 	int32 GetLastShotPelletsFired() const { return LastShotPelletsFired; }
 	int32 GetLastShotPelletsHit() const { return LastShotPelletsHit; }
 
+	// --- Звуки «мало патронов» и «пустой магазин» (11.10.2026) ---
+
+	// Порог «мало патронов» в штуках: доля от вместимости магазина с округлением вниз, но не
+	// меньше одного патрона. 0 — предупреждения нет (доля нулевая или магазин пуст по замыслу).
+	static int32 ComputeLowAmmoThreshold(int32 ClipCapacity, float ClipFraction);
+
+	// Пора ли предупредить: после выстрела в магазине осталось РОВНО пороговое число патронов
+	// (поэтому звук один на магазин, а не на каждый следующий выстрел).
+	static bool ShouldWarnLowAmmo(int32 AmmoLeftAfterShot, int32 ClipCapacity, float ClipFraction);
+
+	// Можно ли щёлкнуть пустым магазином сейчас: с прошлого щелчка прошла заданная пауза.
+	// LastClickTime меньше нуля — щелчков ещё не было.
+	static bool IsDryFireClickAllowed(double Now, double LastClickTime, float MinInterval);
+
+	// Сколько раз этот ствол предупредил о малом магазине и щёлкнул пустым (считается и без
+	// назначенных звуков — по этим числам поведение проверяют автопроверки).
+	int32 GetLowAmmoWarningCount() const { return LowAmmoWarningCount; }
+	int32 GetDryFireClickCount() const { return DryFireClickCount; }
+
 private:
+
+	// Предупреждение о малом магазине после выстрела и щелчок пустого магазина (оба — только у
+	// оружия в руках игрока).
+	void NotifyShotForLowAmmo();
+	void NotifyDryFire();
+
+	// Проиграть общий звук оружия в точке ствола с громкостью эффектов из настроек игры.
+	void PlayWeaponNoticeSound(USoundBase* Override, const TSoftObjectPtr<USoundBase>& Common, float Volume);
+
+	int32 LowAmmoWarningCount = 0;
+	int32 DryFireClickCount = 0;
+	double LastDryFireClickTime = -1.0;
 
 	// LineTrace от мушки до цели, возвращает true если попал
 	bool PerformLineTrace(AActor* Target, FHitResult& OutHit);

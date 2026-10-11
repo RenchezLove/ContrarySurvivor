@@ -7,6 +7,7 @@
 #include "QuestTrackerWidget.generated.h"
 
 class UTextBlock;
+class APlayerCharacter;
 enum class EElderNotebookWaitPhase : uint8;
 
 /**
@@ -75,6 +76,52 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker", meta = (DisplayPriority = "5"))
 	FLinearColor DoneColor = FLinearColor(0.4f, 1.0f, 0.4f, 1.0f);
 
+	// --- Метка побочного задания в мире (Ринат 11.10.2026: «у игрока на экране 2 маркера. Один -
+	// маркер основного квеста (оранжевый/желтый как сейчас), второй - маркер второстепенного
+	// квеста - синий»). Значок, подпись и краевая стрелка лежат в файле окна (SideQuestMarker,
+	// SideQuestMarkerText, SideQuestEdgeArrow): вид, размер, цвет и шрифт правятся там. Код
+	// только показывает их и ставит на место цели на экране. ---
+
+	// Подъём метки над целью, как у метки основного задания.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|SideMarker", meta = (DisplayPriority = "1",
+		DisplayName = "Подъём метки над целью, см"))
+	float SideMarkerZOffset = 300.0f;
+
+	// Цель за кадром: стрелка стоит на таком расстоянии от края экрана.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|SideMarker", meta = (ClampMin = "0.0", DisplayPriority = "2",
+		DisplayName = "Отступ краевой стрелки от края экрана"))
+	float SideMarkerEdgeMargin = 56.0f;
+
+	// Начало подписи метки, когда задание готово и ведёт к тому, кто его принимает.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestTracker|SideMarker", meta = (DisplayPriority = "3",
+		DisplayName = "Начало подписи готового задания"))
+	FText SideMarkerTurnInPrefix = NSLOCTEXT("QuestTracker", "SideTurnIn", "Сдать: ");
+
+	// Показывать метку второстепенного задания на точке мира с такой подписью. Действует, пока
+	// точку не сменят или метку не спрячут.
+	void ShowSideQuestMarker(const FVector& WorldPoint, const FText& Label);
+	void HideSideQuestMarker();
+	bool IsSideQuestMarkerShown() const { return bSideMarkerWanted; }
+	FVector GetSideQuestMarkerPoint() const { return SideMarkerWorldPoint; }
+	FText GetSideQuestMarkerLabel() const { return SideMarkerLabel; }
+
+	// Перечитать журнал героя: есть идущее побочное задание с целью на уровне — показать метку
+	// на ней, нет — спрятать. В игре зовёт кадр окна; автопроверки — напрямую.
+	void RefreshSideQuestMarker(APlayerCharacter* Player);
+
+	// Где на экране стоит метка. Цель в кадре — сама метка в точке цели; цель за кадром или за
+	// спиной камеры — стрелка у края экрана на луче из середины, повёрнутая к цели.
+	struct FMarkerPlacement
+	{
+		bool bInView = false;
+		FVector2D Position = FVector2D::ZeroVector;
+		float ArrowAngle = 0.0f; // градусы по часовой; 0 — стрелка смотрит вверх
+	};
+	// Projected — точка цели на экране (единицы раскладки), bInFront — цель перед камерой;
+	// BehindDir — направление на цель на экране, когда она за спиной камеры.
+	static FMarkerPlacement ComputeMarkerPlacement(bool bInFront, const FVector2D& Projected,
+		const FVector2D& BehindDir, const FVector2D& Area, float Margin);
+
 protected:
 	// Каждый кадр: текст/цвет/видимость (дёшево; модалки и прогресс меняются на лету).
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -84,4 +131,29 @@ protected:
 	// Строка трекера. Видимость и цвет ставит код.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TrackerText;
+
+	// Метка побочного задания: значок с подписью (середина блока встаёт на цель) и стрелка у
+	// края экрана. Место на экране ставит код, всё остальное — файл окна.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> SideQuestMarker;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SideQuestMarkerText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> SideQuestEdgeArrow;
+
+private:
+	// Поставить метку или стрелку на экран по нынешнему виду камеры.
+	void PlaceSideQuestMarker(const FGeometry& MyGeometry);
+
+	bool bSideMarkerWanted = false;
+	FVector SideMarkerWorldPoint = FVector::ZeroVector;
+	FText SideMarkerLabel;
+
+	// Цель побочного задания ищется по уровню не каждый кадр: пока задание, его метка и стадия
+	// те же, берётся найденная; неудачный поиск повторяется раз в полсекунды.
+	TWeakObjectPtr<AActor> SideTargetCache;
+	uint32 SideTargetKey = 0;
+	float SideTargetNextSearchTime = 0.0f;
 };

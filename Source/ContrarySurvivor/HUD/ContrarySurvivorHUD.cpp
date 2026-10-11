@@ -108,6 +108,14 @@ void AContrarySurvivorHUD::BeginPlay()
 	}
 }
 
+void AContrarySurvivorHUD::StartHealthAttentionBlink()
+{
+	if (PlayerStatsWidgetInstance)
+	{
+		PlayerStatsWidgetInstance->StartHealthAttentionBlink();
+	}
+}
+
 void AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel()
 {
 	const AContrarySurvivorPlayerController* CSPC =
@@ -2687,11 +2695,16 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		return;
 	}
 
+	// Здесь рисуется метка ОСНОВНОГО задания (Ринат 11.10.2026: «у игрока на экране 2 маркера.
+	// Один - маркер основного квеста (оранжевый/желтый как сейчас), второй - маркер
+	// второстепенного квеста - синий»). Синюю метку побочного задания показывает окно
+	// WBP_QuestTracker (UQuestTrackerWidget) — она лежит в файле окна.
 	UQuestComponent* Quests = Player->GetQuests();
-	const FQuest* Tracked = Quests ? Quests->GetTrackedQuest() : nullptr;
+	const FQuest* Tracked = Quests
+		? QuestTargets::PickMarkerQuest(Quests->GetQuests(), Quests->GetTrackedQuest(), EQuestKind::Main) : nullptr;
 	if (!Tracked || Tracked->MapMarkerTag.IsNone())
 	{
-		return; // нет активного квеста с меткой (после сдачи GetTrackedQuest = null — метка гаснет)
+		return; // нет идущего основного задания с меткой (после сдачи метка гаснет)
 	}
 
 	// Фикс меты (фидбек Рината 07-05): пока цели квеста НЕ выполнены — метка на цель (базу);
@@ -2736,42 +2749,9 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 
 	// К сдаче метка висит над старостой ВЫШЕ его зелёного NPC-ромба (чтобы не сливались),
 	// подпись — «Сдать: <квест>»; на цели — обычный подъём и ТЕКУЩАЯ невыполненная цель.
-	float ZOff = QuestTargetMarkerZOffset;
-	FString Label = Tracked->Title.ToString(); // фолбэк: целей с подписью нет — название квеста
-	if (bToGiver)
-	{
-		if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
-		{
-			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
-		}
-		Label = FString::Printf(TEXT("%s%s"), *QuestTurnInMarkerPrefix, *Tracked->Title.ToString());
-	}
-	else if (PrepStepKey != 0)
-	{
-		Label = UQuestComponent::GetPrepObjectiveText(*Tracked).ToString(); // «Купи пистолет у торговца»
-	}
-	else
-	{
-		// Текст метки = ПЕРВАЯ невыполненная цель квеста (фидбек Рината 07-06), меняется по
-		// ходу: «Перебить бандитов (1/3)» -> «Забрать ноутбук». Порядок целей kill -> item —
-		// тот же, что в трекере верхнего правого угла (DrawQuestTracker). Не хардкод под
-		// конкретный квест: подписи берутся из данных квеста (FQuest::*ObjectiveLabel).
-		if (Tracked->TargetCount > 0 && Tracked->Progress < Tracked->TargetCount)
-		{
-			const FString Obj = !Tracked->KillObjectiveLabel.IsEmpty()
-				? Tracked->KillObjectiveLabel.ToString() : Tracked->KillTargetTag.ToString();
-			Label = FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->Progress, Tracked->TargetCount);
-		}
-		else if (Tracked->RequiredItemCount > 0 && Tracked->ItemProgress < Tracked->RequiredItemCount)
-		{
-			const FString Obj = !Tracked->ItemObjectiveLabel.IsEmpty()
-				? Tracked->ItemObjectiveLabel.ToString() : Tracked->RequiredItemName;
-			// Счётчик (x/N) у единичной цели («Забрать ноутбук») — шум, не показываем.
-			Label = (Tracked->RequiredItemCount > 1)
-				? FString::Printf(TEXT("%s (%d/%d)"), *Obj, Tracked->ItemProgress, Tracked->RequiredItemCount)
-				: Obj;
-		}
-	}
+	// Правила подписи и подъёма — общие с синей меткой побочного задания (QuestTargets).
+	const float ZOff = QuestTargets::GetMarkerZOffset(*Tracked, Target, QuestTargetMarkerZOffset);
+	const FString Label = QuestTargets::BuildMarkerLabel(*Tracked, QuestTurnInMarkerPrefix);
 
 	// Д3: своя картинка типа Quest (пуста — ромб). Цвет метки — по виду задания (10.10.2026):
 	// основное оранжевым, побочное синим (UContraryPdaSettings).

@@ -7,8 +7,8 @@
 // Что держат:
 //   - вид задания (основное или побочное) проставлен у всех существующих заданий: три задания
 //     старосты — основные, задание охранника — побочное, строки боевой таблицы заданий;
-//   - правила отслеживания: взятое основное становится отслеживаемым само, побочное — только
-//     если ничего не отслеживается; сданное отслеживаемое уступает первому идущему основному,
+//   - правила отслеживания: взятое задание (основное или побочное) сразу становится
+//     отслеживаемым; меток в мире две — по одной на вид задания; сданное отслеживаемое уступает первому идущему основному,
 //     иначе первому идущему; старое сохранение читается как «первое идущее»;
 //   - отслеживаемое задание переживает сохранение и «Продолжить»;
 //   - пересчёт «точка мира -> точка карты»: углы, центр, прижатие к краю, пропорции, и то,
@@ -171,7 +171,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPdaQuestKindsTest,
 
 bool FPdaQuestKindsTest::RunTest(const FString& Parameters)
 {
-	// Боевая таблица заданий: строки, заведённые до появления поля, — сюжет старосты.
+	// Боевая таблица заданий: задания старосты — сюжет; задание охранника базы учёных (в таблице
+	// с 11.10.2026) — побочное.
 	if (UDataTable* LiveTable = ContraryQuests::GetQuestTable())
 	{
 		for (const FName& RowName : LiveTable->GetRowNames())
@@ -179,8 +180,10 @@ bool FPdaQuestKindsTest::RunTest(const FString& Parameters)
 			const FContraryQuestRow* Row = LiveTable->FindRow<FContraryQuestRow>(RowName, TEXT("PdaQA"), /*bWarnIfRowMissing=*/false);
 			if (TestNotNull(*FString::Printf(TEXT("Строка таблицы заданий %s читается"), *RowName.ToString()), Row))
 			{
-				TestEqual(*FString::Printf(TEXT("Строка таблицы заданий %s — основное задание"), *RowName.ToString()),
-					Row->Kind, EQuestKind::Main);
+				const bool bSide = (RowName == ContraryQuestIds::FetchGuardRadio);
+				TestEqual(*FString::Printf(TEXT("Строка таблицы заданий %s — %s задание"), *RowName.ToString(),
+					bSide ? TEXT("побочное") : TEXT("основное")),
+					Row->Kind, bSide ? EQuestKind::Side : EQuestKind::Main);
 			}
 		}
 	}
@@ -282,7 +285,16 @@ bool FPdaTrackingRulesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Взятое основное становится отслеживаемым само"), PdaTest::TrackedId(Quests), M1);
 
 	TestTrue(TEXT("Второе побочное взято"), Quests->AcceptQuest(S2));
-	TestEqual(TEXT("Побочное не перебивает отслеживаемое"), PdaTest::TrackedId(Quests), M1);
+	// Ринат 11.10.2026 про задание охранника: «Предлагаю сразу ставить в отслеживаемое этот квест».
+	TestEqual(TEXT("Взятое побочное тоже сразу становится отслеживаемым"), PdaTest::TrackedId(Quests), S2);
+	// Метка основного задания при этом остаётся: меток две, по одной на вид задания.
+	const FQuest* MainMarker = QuestTargets::PickMarkerQuest(Quests->GetQuests(), Quests->GetTrackedQuest(), EQuestKind::Main);
+	const FQuest* SideMarker = QuestTargets::PickMarkerQuest(Quests->GetQuests(), Quests->GetTrackedQuest(), EQuestKind::Side);
+	TestTrue(TEXT("Метку основного показывает идущее основное задание"), MainMarker && MainMarker->QuestId == M1);
+	TestTrue(TEXT("Метку побочного показывает отслеживаемое побочное, а не первое по журналу"), SideMarker && SideMarker->QuestId == S2);
+	TestTrue(TEXT("Игрок вернул отслеживание основному"), Quests->SetTrackedQuest(M1));
+	SideMarker = QuestTargets::PickMarkerQuest(Quests->GetQuests(), Quests->GetTrackedQuest(), EQuestKind::Side);
+	TestTrue(TEXT("При отслеживаемом основном метку побочного показывает первое идущее побочное"), SideMarker && SideMarker->QuestId == S1);
 
 	TestTrue(TEXT("Игрок выбрал побочное для отслеживания"), Quests->SetTrackedQuest(S2));
 	TestEqual(TEXT("Отслеживается выбранное игроком"), PdaTest::TrackedId(Quests), S2);

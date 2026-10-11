@@ -194,6 +194,25 @@ public:
 		DisplayName = "Расстояние, на котором место из списка совпадает с объектом уровня, см"))
 	float MapPlaceMergeRadius = 2500.0f;
 
+	// --- Район поиска на карте (слова Рината 11.10.2026: «на карте зеленым кругом отображается
+	// примерный район нахождения логова волков (южного от деревни)… По приходу игрока в логово
+	// и (или) по прошествии 3 минут пропадает и отметка района поиска, и подпись») ---
+
+	// Метка базы врагов на уровне (QuestMarkerTag), чей район отмечает староста: южное логово.
+	UPROPERTY(config, EditAnywhere, Category = "Карта: район поиска", meta = (
+		DisplayName = "Метка южного логова волков на уровне"))
+	FName SouthWolfDenMarkerTag = FName(TEXT("WolfDen2"));
+
+	// Отсчёт идёт игровым временем: на паузе стоит.
+	UPROPERTY(config, EditAnywhere, Category = "Карта: район поиска", meta = (ClampMin = "1.0",
+		DisplayName = "Сколько держится отметка района, сек"))
+	float SearchAreaSeconds = 180.0f;
+
+	// Герой ближе этого расстояния к середине района — он «пришёл», отметка снимается.
+	UPROPERTY(config, EditAnywhere, Category = "Карта: район поиска", meta = (ClampMin = "100.0",
+		DisplayName = "Расстояние, на котором герой «пришёл» в район, см"))
+	float SearchAreaArrivalRadius = 2500.0f;
+
 	UContraryPdaSettings()
 	{
 		auto AddPlace = [this](const FText& Name, double X, double Y, EPdaMapPlaceKind Kind)

@@ -112,8 +112,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «отдалить карту»"))
 	FText ZoomOutLabel = NSLOCTEXT("Pda", "ZoomOut", "−");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «найти героя на карте»"))
-	FText FindHeroLabel = NSLOCTEXT("Pda", "FindHero", "Где я");
+	// Две строки: кнопка квадратная, в одну строку подпись была бы шире неё (Ринат 11.10.2026:
+	// «Замени на "моя позиция". Смотри при этом что бы текст кнопки не выходил за пределы кнопки»).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Кнопка «найти героя на карте»", MultiLine = "true"))
+	FText FindHeroLabel = NSLOCTEXT("Pda", "FindHero", "Моя\nпозиция");
+
+	// Подпись района поиска на карте (слова Рината 11.10.2026, дословно).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Подпись района поиска на карте", MultiLine = "true"))
+	FText SearchAreaLabel = NSLOCTEXT("Pda", "SearchArea",
+		"Ещё одно логово волков, староста предлагает отправиться туда, раздобыть их шкуры. Торговец хорошо за них платит");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Подписи", meta = (DisplayName = "Подсказка вкладки карты"))
 	FText MapHintLabel = NSLOCTEXT("Pda", "MapHint",
@@ -229,6 +236,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Карта", meta = (ClampMin = "0.1", ClampMax = "1.0", DisplayName = "Тусклость прочих отметок заданий"))
 	float OtherQuestMarkerOpacity = 0.55f;
 
+	// --- Меню вкладок и мигание вкладки «Карта» ---
+
+	// Меню вкладок (SideMenu) занимает всё место слева от открытой вкладки (слова Рината
+	// 11.10.2026: «Слева - меню вкладок смартфона. Справа - содержимое активной вкладки…
+	// увеличивай меню вкладок так, чтобы весь экран смартфона был занят»). Ширины вкладок лежат
+	// в файле окна (место QuestsPanel и MapPanel); здесь — только просвет между меню и вкладкой.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Меню", meta = (ClampMin = "0.0", DisplayName = "Просвет между меню и вкладкой"))
+	float SideMenuGap = 16.0f;
+
+	// Вкладка «Карта» мигает, пока игрок не посмотрел на отмеченный район поиска.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Меню", meta = (DisplayName = "Цвет мигания вкладки «Карта»"))
+	FLinearColor MapTabAttentionColor = FLinearColor(0.25f, 1.0f, 0.35f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Меню", meta = (ClampMin = "0.05", DisplayName = "Период мигания вкладки «Карта», сек"))
+	float MapTabAttentionPeriod = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pda|Меню", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Глубина мигания вкладки «Карта» (1 — гаснет полностью)"))
+	float MapTabAttentionDepth = 0.85f;
+
 	// --- Работа с окном ---
 
 	// Наполнить окно журналом героя. Звать при КАЖДОМ открытии.
@@ -291,6 +317,28 @@ public:
 	FVector2D GetPhoneSize() const { return PhoneSize; }
 	FMargin GetPhoneScreenPadding() const { return PhonePadding; }
 	bool IsPhoneTextureShown() const { return LoadedPhoneTexture != nullptr; }
+
+	// --- Раскладка, общая для нового дерева и для дополнения готового файла окна (генератор
+	// окон зовёт те же шаги; каждый шаг повторно ничего не меняет и возвращает false) ---
+
+	// Завести меню вкладок SideMenu и переложить в него заголовок, вкладки, подсказку карты и
+	// «Закрыть» с их местами; кнопки и подсказка тянутся на всю ширину меню.
+	static bool MoveMenuIntoSideMenu(UWidgetTree* Tree);
+	// Поле карты: по высоте — весь экран смартфона, по ширине — ровно под карту, вписанную по
+	// высоте (пропорции мира сохранены), и прижато к правому краю. Остальное достаётся меню.
+	static bool FitMapPanelToMap(UWidgetTree* Tree);
+	// Круг района поиска MapAreaMark и его подпись MapAreaMarkText (спрятаны, пока района нет).
+	static bool AddSearchAreaMark(UWidgetTree* Tree);
+	// Ширина поля карты в файле окна: карта, вписанная по высоте экрана смартфона на экране
+	// высотой 1080 единиц раскладки при нынешних настройках.
+	static float ComputeDesignMapPanelWidth();
+
+	// Ширина меню вкладок при нынешней вкладке и размере смартфона (0 — размер ещё неизвестен).
+	double GetSideMenuWidth() const { return SideMenuWidth; }
+	// Показаны ли сейчас круг района поиска и его подпись.
+	bool IsSearchAreaMarkShown() const { return bSearchAreaShown; }
+	// Мигает ли сейчас вкладка «Карта».
+	bool IsMapTabAttentionShown() const { return bMapTabAttentionActive; }
 
 	// Разложить журнал по разделам окна. Чистое правило — его гоняют автопроверки.
 	static void BuildJournalView(const TArray<FQuest>& Journal, FName TrackedQuestId, FPdaJournalView& OutView);
@@ -365,6 +413,14 @@ private:
 	void RefreshDetails();
 	void RebuildMap();
 	void RefreshTabLook();
+
+	// Растянуть меню вкладок до открытой вкладки (её место берётся из файла окна).
+	void UpdateSideMenuWidth();
+	// Показать или спрятать круг района поиска с подписью и поставить их на место района.
+	void UpdateSearchAreaMark();
+	// Мигание вкладки «Карта» и отметка «игрок посмотрел».
+	void UpdateMapTabAttention(float DeltaTime);
+	UMapExplorationComponent* GetExplorationMutable() const;
 
 	// Поставить карту в поле по нынешнему виду (приближение и сдвиг): карта не растягивается,
 	// пропорции прямоугольника мира сохраняются.
@@ -485,6 +541,18 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MapHintText;
 
+	// Меню вкладок: заголовок, вкладки, подсказка карты и «Закрыть» лежат внутри.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UCanvasPanel> SideMenu;
+
+	// Район поиска на карте: круг и подпись. Вид, размер и текст — в файле окна; код только
+	// показывает их и ставит на место района.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> MapAreaMark;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MapAreaMarkText;
+
 	// --- Состояние ---
 
 	TWeakObjectPtr<APlayerCharacter> Player;
@@ -527,6 +595,18 @@ private:
 	bool bMouseDragging = false;
 	FVector2D LastMouseDragPoint = FVector2D::ZeroVector;
 	TMap<uint32, FVector2D> MapTouches;
+
+	double SideMenuWidth = 0.0;
+
+	// Район поиска: что показано сейчас (чтобы не трогать раскладку каждый кадр).
+	bool bSearchAreaShown = false;
+	FVector2D ShownSearchAreaUV = FVector2D(-1.0, -1.0);
+	double ShownSearchAreaZoom = 0.0;
+
+	// Мигание вкладки «Карта».
+	bool bMapTabAttentionActive = false;
+	float MapTabAttentionTime = 0.0f;
+	FLinearColor MapTabIdleColor = FLinearColor::White;
 
 	int32 QuestRowCount = 0;
 	int32 QuestMapMarkerCount = 0;

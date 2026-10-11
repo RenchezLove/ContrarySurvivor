@@ -190,6 +190,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
 	TArray<uint8> MapFogRuns;
 
+	// --- Район поиска на карте (11.10.2026: зелёный круг южного логова после сдачи ноутбука) ---
+	// Сколько секунд отметке осталось (0 — отметки нет), где её середина в мире и погашено ли
+	// уже мигание кнопки смартфона и вкладки «Карта». Старые сохранения читают «отметки нет».
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	float MapSearchAreaRemaining = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	FVector2D MapSearchAreaCenter = FVector2D::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	bool bMapSearchAreaPhoneUnseen = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Map")
+	bool bMapSearchAreaMapUnseen = false;
+
 	// --- Этап F: удержание (ежедневная награда ADR-044 п.4 + одноразовые подсказки F1) ---
 	// Эти поля заполняет НЕ SaveGame() игрока, а UDailyRewardComponent/UOnboardingComponent
 	// (запись в тот же слот). SaveGame() переносит их из прежнего сейва через CopyRetentionData —
