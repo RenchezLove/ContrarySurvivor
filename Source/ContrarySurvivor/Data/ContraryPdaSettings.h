@@ -118,21 +118,6 @@ public:
 		DisplayName = "Поля слева и справа от смартфона, единиц раскладки"))
 	float PhoneSideMargin = 24.0f;
 
-	// Значок на экранной кнопке вместо слова «КПК» (слова Рината: «значок смартфона, лежащего
-	// на боку, и в нём на месте экрана схематично нарисован земной шар»). Белый значок на
-	// прозрачном фоне; пусто — на кнопке остаётся текст.
-	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
-		DisplayName = "Значок экранной кнопки"))
-	TSoftObjectPtr<UTexture2D> PdaButtonIcon;
-
-	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (
-		DisplayName = "Цвет значка экранной кнопки"))
-	FLinearColor PdaButtonIconColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.95f);
-
-	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.2", ClampMax = "1.0",
-		DisplayName = "Размер значка (доля поперечника кнопки)"))
-	float PdaButtonIconScale = 0.85f;
-
 	// --- Приближение карты (слова Рината: «дай игроку возможность приближать и отдалять её как
 	// кнопками (+ и −), так и пальцами (раздвигая)») ---
 

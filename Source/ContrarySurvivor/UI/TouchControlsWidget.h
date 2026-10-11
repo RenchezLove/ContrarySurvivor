@@ -112,10 +112,6 @@ public:
 	// поднимается пропорционально (прежнее соотношение 0.5 / 0.85 сохраняется при значении 50%).
 	void ApplyPlayerSettings();
 
-	// Где в слое стоит кнопка СУМКА: якорь, ЦЕНТР и размер в единицах раскладки. От этого
-	// места ставится кнопка «КПК», чтобы не наехать на сумку, куда бы её ни подвинул владелец
-	// файла экранных кнопок. false — кнопки нет либо она привязана не к одной точке экрана.
-	bool GetInventoryButtonPlacement(FAnchors& OutAnchors, FVector2D& OutCenter, FVector2D& OutSize) const;
 
 	// Во сколько раз кнопка СУМКА вырастает на пике мигания-подсказки (1 — не растёт).
 	float GetInventoryBlinkScale() const { return FMath::Max(1.0f, InventoryBlinkScale); }
@@ -370,6 +366,7 @@ protected:
 	UFUNCTION() void HandleMeleePressed();
 	UFUNCTION() void HandleWeaponPressed();
 	UFUNCTION() void HandleInventoryPressed();
+	UFUNCTION() void HandlePdaClicked();
 	UFUNCTION() void HandlePausePressed();
 
 	// --- Кубики WBP_TouchControls (имена ТОЧНЫЕ — см. umg-layout-guide.md).
@@ -407,6 +404,17 @@ protected:
 	// Подпись кнопки НОЖ в дереве, построенном кодом (в готовом файле на кнопке значок).
 	UPROPERTY()
 	TObjectPtr<UTextBlock> MeleeText;
+
+	// СМАРТФОН — открывает и закрывает окно смартфона (карта и задания). Обычная кнопка слоя
+	// (Ринат 11.10.2026: «Перенести её в WBP touch controls. Я хочу настраивать размер, иконку,
+	// размер иконки»): место, размер, значок PdaButtonIcon, его размер и цвет — в дизайнере,
+	// код из этого ничего не ставит. В старом файле без кнопки она просто не работает.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PdaButton;
+
+	// Подпись кнопки СМАРТФОН в дереве, построенном кодом (в готовом файле на кнопке значок).
+	UPROPERTY()
+	TObjectPtr<UTextBlock> PdaText;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> InventoryButton;

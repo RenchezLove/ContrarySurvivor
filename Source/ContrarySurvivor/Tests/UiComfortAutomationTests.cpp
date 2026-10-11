@@ -99,14 +99,31 @@ bool FUiComfortTouchButtonsDoNotOverlapTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// Кнопка смартфона: место считается так же, как его считает контроллер при создании слоя.
-	const AContrarySurvivorPlayerController* Defaults = GetDefault<AContrarySurvivorPlayerController>();
-	const double PdaRadius = Defaults->GetPdaTouchButtonRadius();
+	// Кнопка смартфона — обычная кнопка этого же файла (Ринат 11.10.2026: «Перенести её в WBP
+	// touch controls»): место и размер берутся из файла, на кнопке лежит значок с картинкой.
+	const UButton* PdaButton = Cast<UButton>(Tree->FindWidget(TEXT("PdaButton")));
+	const UCanvasPanelSlot* PdaSlot = PointSlot(PdaButton);
+	if (!TestNotNull(TEXT("Кнопка смартфона PdaButton лежит в файле экранных кнопок"), PdaSlot))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Кнопка смартфона лежит прямо в корне слоя, как остальные кнопки"), PdaButton->GetParent() == Root);
+	TestTrue(TEXT("Кнопка смартфона видна"), PdaButton->GetVisibility() == ESlateVisibility::Visible);
+	const UImage* PdaIcon = Cast<UImage>(Tree->FindWidget(TEXT("PdaButtonIcon")));
+	if (TestNotNull(TEXT("Значок PdaButtonIcon лежит в файле экранных кнопок"), PdaIcon))
+	{
+		TestTrue(TEXT("Значок лежит на кнопке смартфона"), PdaIcon->GetParent() == PdaButton);
+		TestNotNull(TEXT("У значка есть картинка"), PdaIcon->GetBrush().GetResourceObject());
+		const FVector2D IconSize = PdaIcon->GetBrush().GetImageSize();
+		AddInfo(FString::Printf(TEXT("Кнопка смартфона %.0f на %.0f, значок %.1f на %.1f."),
+			PdaSlot->GetSize().X, PdaSlot->GetSize().Y, IconSize.X, IconSize.Y));
+		TestTrue(TEXT("Значок не больше своей кнопки"),
+			IconSize.X > 1.0 && IconSize.Y > 1.0 && IconSize.X <= PdaSlot->GetSize().X && IconSize.Y <= PdaSlot->GetSize().Y);
+		TestTrue(TEXT("Значок не перехватывает нажатие у кнопки"),
+			PdaIcon->GetVisibility() == ESlateVisibility::HitTestInvisible || PdaIcon->GetVisibility() == ESlateVisibility::SelfHitTestInvisible);
+	}
 	const double BagScale = GetDefault<UTouchControlsWidget>()->GetInventoryBlinkScale();
-	const FVector2D BagSize = BagSlot->GetSize();
-	const FVector2D BagCenter = BagSlot->GetPosition() + BagSize * (FVector2D(0.5, 0.5) - BagSlot->GetAlignment());
-	const FVector2D PdaCenter = UPdaTouchButtonWidget::ComputeCenterBeside(BagCenter, BagSize,
-		BagScale, PdaRadius, Defaults->GetPdaTouchButtonGap(), BagSlot->GetAnchors().Minimum.X >= 0.5);
+	const double PdaRadius = PdaSlot->GetSize().GetMin() * 0.5;
 
 	// Размеры: нож и смартфон не меньше кнопки перезарядки.
 	const FVector2D ReloadSize = ReloadSlot->GetSize();
@@ -140,9 +157,7 @@ bool FUiComfortTouchButtonsDoNotOverlapTest::RunTest(const FString& Parameters)
 				Boxes.Add({ Child->GetName(), BoxOn(ChildSlot, Screen) });
 			}
 		}
-		const FVector2D PdaOnScreen = FVector2D(BagSlot->GetAnchors().Minimum) * Screen + PdaCenter;
-		const FBox2D PdaBox(PdaOnScreen - FVector2D(PdaRadius), PdaOnScreen + FVector2D(PdaRadius));
-		Boxes.Add({ TEXT("кнопка смартфона"), PdaBox });
+		const FBox2D PdaBox = BoxOn(PdaSlot, Screen); // сама кнопка уже в общем списке
 		TestTrue(*FString::Printf(TEXT("На экране шириной %.0f кнопок не меньше девяти (нашлось %d)"), ScreenWidth, Boxes.Num()),
 			Boxes.Num() >= 9);
 
@@ -295,11 +310,11 @@ bool FUiComfortPhonePicturesConfiguredTest::RunTest(const FString& Parameters)
 {
 	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
 	const UTexture2D* Phone = Settings->PhoneTexture.LoadSynchronous();
-	const UTexture2D* Icon = Settings->PdaButtonIcon.LoadSynchronous();
+	const UTexture2D* Icon = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Textures/T_PdaButtonIcon.T_PdaButtonIcon"));
 	// Размер картинки здесь не сверяется: в прогоне без графики картинка сразу после загрузки
 	// ещё готовится и отдаёт нулевой размер (сам размер снят с файла отдельно — 1536 на 824).
 	TestNotNull(TEXT("Картинка смартфона из настроек загружается"), Phone);
-	TestNotNull(TEXT("Значок экранной кнопки из настроек загружается"), Icon);
+	TestNotNull(TEXT("Картинка значка экранной кнопки лежит в проекте"), Icon);
 
 	const FMargin Insets = Settings->PhoneScreenInsets;
 	TestTrue(*FString::Printf(TEXT("Отступы экрана внутри картинки заданы под эту картинку (%.4f, %.4f, %.4f, %.4f)"),
@@ -384,21 +399,12 @@ bool FUiComfortPhoneIsNotNarrowTest::RunTest(const FString& Parameters)
 		World->DestroyWorld(/*bInformEngineOfWorld=*/false);
 	}
 
-	// Значок кнопки.
-	const UTexture2D* Icon = Settings->PdaButtonIcon.LoadSynchronous();
+	// Картинка значка кнопки: обрезана по рисунку. Сам значок и его размер на кнопке теперь
+	// лежат в файле экранных кнопок, их правит владелец (проверка — TouchButtonsDoNotOverlap).
+	const UTexture2D* Icon = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/Textures/T_PdaButtonIcon.T_PdaButtonIcon"));
 	const FIntPoint IconPicture = PdaMap::GetPictureSize(Icon);
-	if (TestTrue(*FString::Printf(TEXT("Картинка значка обрезана по рисунку, без прозрачных полей сверху и снизу (%d на %d)"),
-		IconPicture.X, IconPicture.Y), IconPicture.Y > 0 && static_cast<double>(IconPicture.X) / IconPicture.Y >= 1.7))
-	{
-		const double Diameter = GetDefault<AContrarySurvivorPlayerController>()->GetPdaTouchButtonRadius() * 2.0;
-		const FVector2D IconSize = UPdaTouchButtonWidget::ComputeIconSize(Diameter * 0.5, Settings->PdaButtonIconScale, IconPicture);
-		AddInfo(FString::Printf(TEXT("Кнопка смартфона %.0f, значок %.1f на %.1f."), Diameter, IconSize.X, IconSize.Y));
-		TestTrue(*FString::Printf(TEXT("Рисунок значка занимает около 85%% поперечника кнопки (%.1f из %.0f)"), IconSize.X, Diameter),
-			FMath::Abs(IconSize.X / Diameter - 0.85) <= 0.02);
-		TestTrue(TEXT("Пропорции значка не искажены"),
-			FMath::Abs((IconSize.X / IconSize.Y) / (static_cast<double>(IconPicture.X) / IconPicture.Y) - 1.0) <= 0.01);
-		TestTrue(TEXT("Значок целиком помещается в круг кнопки"), IconSize.Size() <= Diameter);
-	}
+	TestTrue(*FString::Printf(TEXT("Картинка значка обрезана по рисунку, без прозрачных полей сверху и снизу (%d на %d)"),
+		IconPicture.X, IconPicture.Y), IconPicture.Y > 0 && static_cast<double>(IconPicture.X) / IconPicture.Y >= 1.7);
 	return true;
 }
 

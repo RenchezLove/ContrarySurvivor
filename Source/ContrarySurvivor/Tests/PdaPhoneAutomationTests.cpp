@@ -81,7 +81,7 @@ namespace PdaPhoneTest
 		FVector2D TopLeft, BottomRight;
 		float MaxZoom, ZoomStep, HeightFraction, Aspect, SideMargin;
 		FMargin Insets;
-		TSoftObjectPtr<UTexture2D> PhoneTexture, ButtonIcon;
+		TSoftObjectPtr<UTexture2D> PhoneTexture;
 
 		FScopedPhoneSettings()
 			: Settings(GetMutableDefault<UContraryPdaSettings>())
@@ -95,7 +95,6 @@ namespace PdaPhoneTest
 			SideMargin = Settings->PhoneSideMargin;
 			Insets = Settings->PhoneScreenInsets;
 			PhoneTexture = Settings->PhoneTexture;
-			ButtonIcon = Settings->PdaButtonIcon;
 
 			// Квадратная карта 40000 на 40000: вверх карты +Y мира, вправо −X (как в игре).
 			Settings->MapWorldTopLeft = FVector2D(20000.0, 20000.0);
@@ -107,7 +106,6 @@ namespace PdaPhoneTest
 			Settings->PhoneSideMargin = 24.0f;
 			Settings->PhoneScreenInsets = FMargin(0.04f, 0.06f, 0.04f, 0.06f);
 			Settings->PhoneTexture = nullptr;
-			Settings->PdaButtonIcon = nullptr;
 		}
 
 		~FScopedPhoneSettings()
@@ -121,7 +119,6 @@ namespace PdaPhoneTest
 			Settings->PhoneSideMargin = SideMargin;
 			Settings->PhoneScreenInsets = Insets;
 			Settings->PhoneTexture = PhoneTexture;
-			Settings->PdaButtonIcon = ButtonIcon;
 		}
 	};
 
@@ -406,31 +403,6 @@ bool FPdaPhoneWindowTest::RunTest(const FString& Parameters)
 		PdaPhoneTest::Destroy(World);
 	}
 
-	// Экранная кнопка: без значка в настройках — текст, со значком — значок.
-	{
-		UWorld* World = PdaPhoneTest::Create();
-		UPdaTouchButtonWidget* Button = World ? CreateWidget<UPdaTouchButtonWidget>(World, UPdaTouchButtonWidget::StaticClass()) : nullptr;
-		if (TestNotNull(TEXT("Экранная кнопка создана"), Button))
-		{
-			const FText Label = FText::FromString(TEXT("КПК"));
-			Button->Setup(FVector2D(330.0, 114.0), 44.0f, Label);
-			TestFalse(TEXT("Значка в настройках нет — на кнопке текст"), Button->IsIconShown());
-
-			UTexture2D* Icon = UTexture2D::CreateTransient(128, 96, PF_B8G8R8A8);
-			if (TestNotNull(TEXT("Проверочный значок создан"), Icon))
-			{
-				Icon->AddToRoot();
-				Scoped.Settings->PdaButtonIcon = Icon;
-				Button->Setup(FVector2D(330.0, 114.0), 44.0f, Label);
-				TestTrue(TEXT("Значок задан — на кнопке значок"), Button->IsIconShown());
-				Scoped.Settings->PdaButtonIcon = nullptr;
-				Button->Setup(FVector2D(330.0, 114.0), 44.0f, Label);
-				TestFalse(TEXT("Значок убрали — снова текст"), Button->IsIconShown());
-				Icon->RemoveFromRoot();
-			}
-		}
-		PdaPhoneTest::Destroy(World);
-	}
 
 	PdaPhoneTest::DeleteSlot(TEXT("ContraryPdaPhoneQA"));
 	return true;

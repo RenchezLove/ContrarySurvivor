@@ -62,6 +62,7 @@
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
 #include "ContrarySurvivor/UI/CorpseLootWidget.h"   // TileWidgetClass окна обыска (Build 1.2.2)
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"    // раскладка окна КПК — одна с кодовой запаской
+#include "ContrarySurvivor/UI/PdaMapMath.h"         // размер картинки значка
 #include "ContrarySurvivor/UI/ItemTileWidget.h"     // полный тип для TSubclassOf-присваивания
 
 DEFINE_LOG_CATEGORY_STATIC(LogGenerateWbp, Log, All);
@@ -5963,6 +5964,87 @@ namespace
 		}
 	}
 
+	// WBP_TouchControls: кнопка смартфона — обычная кнопка слоя (Ринат 11.10.2026: «Перенести
+	// её в WBP touch controls. Я хочу настраивать размер, иконку, размер иконки»). Раньше её
+	// рисовал код отдельным окном рядом с сумкой. Кнопка встаёт ОДИН раз там же, где стояла:
+	// слева от кнопки сумки вровень с ней, 130 на 130, вид — как у кнопки сумки (её стиль),
+	// на кнопке значок PdaButtonIcon (ширина 85% кнопки, высота по пропорциям картинки).
+	// Дальше место, размер, картинку, размер и цвет значка правит владелец в редакторе окон;
+	// существующее в файле не трогается и не двигается.
+	void AugmentTouchPdaButton(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_TouchControls");
+		if (Tree->FindWidget(TEXT("PdaButton")))
+		{
+			return; // уже добавлена
+		}
+
+		UButton* BagBtn = Cast<UButton>(Tree->FindWidget(TEXT("InventoryButton")));
+		UCanvasPanelSlot* BagSlot = BagBtn ? Cast<UCanvasPanelSlot>(BagBtn->Slot) : nullptr;
+		UCanvasPanel* Parent = BagBtn ? Cast<UCanvasPanel>(BagBtn->GetParent()) : nullptr;
+		if (!BagSlot || !Parent || BagSlot->GetAutoSize() || BagSlot->GetAnchors().Minimum != BagSlot->GetAnchors().Maximum)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: InventoryButton не найден в канвас-слоте с одной точкой привязки — кнопка смартфона не добавлена."), Name);
+			return;
+		}
+
+		constexpr float ButtonSize = 130.0f;
+		constexpr float Gap = 12.0f;      // просвет до сумки в её наибольшем размере (при мигании)
+		constexpr float IconShare = 0.85f; // ширина значка — доля ширины кнопки
+		const TCHAR* IconPath = TEXT("/Game/UI/Textures/T_PdaButtonIcon.T_PdaButtonIcon");
+
+		const FVector2D BagSize = BagSlot->GetSize();
+		const FVector2D BagCenter = BagSlot->GetPosition() + BagSize * (FVector2D(0.5, 0.5) - BagSlot->GetAlignment());
+		const float BagScale = GetDefault<UTouchControlsWidget>()->GetInventoryBlinkScale();
+		// Сумка в правой половине экрана — кнопка слева от неё, иначе справа.
+		const float Side = BagSlot->GetAnchors().Minimum.X >= 0.5 ? -1.0f : 1.0f;
+		const FVector2D Center(BagCenter.X + Side * (BagSize.X * 0.5f * BagScale + Gap + ButtonSize * 0.5f), BagCenter.Y);
+
+		UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PdaButton"));
+		Button->SetStyle(BagBtn->GetStyle());                 // вид владельца, а не наш
+		Button->SetBackgroundColor(BagBtn->GetBackgroundColor());
+		Button->SetRenderOpacity(BagBtn->GetRenderOpacity());
+		Button->bIsVariable = true;
+
+		UImage* Icon = MakeIcon(Tree, Name, TEXT("PdaButtonIcon"), IconPath, ButtonSize * IconShare);
+		FVector2D IconSize(ButtonSize * IconShare, ButtonSize * IconShare);
+		if (const UTexture2D* Texture = Cast<UTexture2D>(Icon->GetBrush().GetResourceObject()))
+		{
+			const FIntPoint Picture = PdaMap::GetPictureSize(Texture);
+			if (Picture.X > 0 && Picture.Y > 0)
+			{
+				IconSize.Y = IconSize.X * Picture.Y / Picture.X;
+			}
+		}
+		FSlateBrush IconBrush = Icon->GetBrush();
+		IconBrush.SetImageSize(IconSize);
+		Icon->SetBrush(IconBrush);
+		Icon->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 0.95f));
+		Icon->SetVisibility(ESlateVisibility::SelfHitTestInvisible); // нажатие ловит кнопка
+		Button->SetContent(Icon);
+		if (UButtonSlot* ContentSlot = Cast<UButtonSlot>(Icon->Slot))
+		{
+			ContentSlot->SetPadding(FMargin(0.0f));
+			ContentSlot->SetHorizontalAlignment(HAlign_Center);
+			ContentSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		if (UCanvasPanelSlot* ButtonSlot = Parent->AddChildToCanvas(Button))
+		{
+			ButtonSlot->SetAnchors(BagSlot->GetAnchors());
+			ButtonSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			ButtonSlot->SetPosition(Center);
+			ButtonSlot->SetSize(FVector2D(ButtonSize, ButtonSize));
+			ButtonSlot->SetZOrder(BagSlot->GetZOrder());
+		}
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: добавлена кнопка смартфона PdaButton (центр %s, размер %.0f) со значком PdaButtonIcon %.1fx%.1f."),
+			Name, *Center.ToString(), ButtonSize, IconSize.X, IconSize.Y);
+	}
+
 	// WBP_QuestTracker: строка отслеживаемого задания стояла в правом верхнем углу (28 от края)
 	// и при двух строках задевала кнопки сумки и смартфона. Опускается под кнопку сумки в её
 	// наибольшем размере (при мигании). Двигается, только пока стоит на прежнем месте генератора.
@@ -7225,6 +7307,8 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventoryWeaponSlotFrames },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchMeleeButtonComfort },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerBelowBag },
+		// Ринат 11.10.2026: кнопка смартфона — обычная кнопка слоя экранных кнопок.
+		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchPdaButton },
 	};
 
 	int32 FailCount = 0;

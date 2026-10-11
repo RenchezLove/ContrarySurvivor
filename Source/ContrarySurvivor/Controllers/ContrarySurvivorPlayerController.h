@@ -33,7 +33,6 @@ class USupportAuthorWidget;                // Окно «Поддержать а
 class UIntroScreenWidget;                 // Build 1: экран интро (чёрный + строки), строится кодом
 class UCorpseLootComponent;               // контейнер обыска (группа тел под одно нажатие)
 class UPdaScreenWidget;                   // окно карманного компьютера (КПК, 10.10.2026)
-class UPdaTouchButtonWidget;              // кнопка «КПК» на экране игры для телефона
 enum class EShopDragZone : uint8; // зоны тач-жестов магазина (ContrarySurvivorHUD.h, G2)
 
 // Фаза скриптового интро (Build 1, ТЗ раздел 2). Идёт по порядку; None — интро не играет.
@@ -306,9 +305,6 @@ public:
 	UPdaScreenWidget* GetPdaWidget() const { return PdaWidget; }
 	TSubclassOf<UPdaScreenWidget> GetPdaWidgetClass() const { return PdaWidgetClass; }
 
-	// Радиус кнопки «КПК» и её просвет до кнопки сумки (для проверок раскладки).
-	float GetPdaTouchButtonRadius() const { return PdaTouchButtonRadius; }
-	float GetPdaTouchButtonGap() const { return PdaTouchButtonGap; }
 
 	// Тач-слой активен (Android всегда; ПК — по флагу bEnableTouchControls). HUD выбирает
 	// по этому текст подсказки прокрутки магазина: «свайп» против «колесо» (G2).
@@ -1282,27 +1278,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Окно КПК"))
 	TSubclassOf<UPdaScreenWidget> PdaWidgetClass;
 
-	// Кнопка «КПК» на экране игры (только когда показан слой экранных кнопок).
-	UPROPERTY()
-	TObjectPtr<UPdaTouchButtonWidget> PdaTouchButton;
-
-	// Кнопка «КПК» встаёт рядом с кнопкой сумки, вровень с ней по высоте: место сумки
-	// берётся из слоя экранных кнопок, поэтому «КПК» едет следом, когда сумку двигают.
-	// Просвет считается от сумки в наибольшем размере (она вырастает, когда мигает).
-	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "0.0", DisplayName = "Кнопка КПК: просвет до кнопки сумки"))
-	float PdaTouchButtonGap = 12.0f;
-
-	// Запасное место — отступ ЦЕНТРА кнопки «КПК» от правого-верхнего угла экрана. Работает,
-	// только если кнопку сумки в слое найти не удалось.
-	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: запасной отступ от правого-верхнего угла"))
-	FVector2D PdaTouchButtonMargin = FVector2D(360.0, 114.0);
-
-	// Не меньше кнопок перезарядки и сумки (Ринат 11.10.2026: кнопки были мелкими).
-	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "15.0", DisplayName = "Кнопка КПК: радиус"))
-	float PdaTouchButtonRadius = 65.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: подпись"))
-	FText PdaTouchButtonLabel = NSLOCTEXT("ContrarySurvivorPlayerController", "TouchPda", "КПК");
 
 	// Виджет меню паузы: создаётся лениво при первом открытии, дальше переиспользуется.
 	UPROPERTY()

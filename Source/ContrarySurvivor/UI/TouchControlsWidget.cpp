@@ -148,24 +148,6 @@ void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
 	}
 }
 
-bool UTouchControlsWidget::GetInventoryButtonPlacement(FAnchors& OutAnchors, FVector2D& OutCenter, FVector2D& OutSize) const
-{
-	const UCanvasPanelSlot* ButtonSlot = InventoryButton ? Cast<UCanvasPanelSlot>(InventoryButton->Slot) : nullptr;
-	if (!ButtonSlot || ButtonSlot->GetAutoSize())
-	{
-		return false;
-	}
-	const FAnchors Anchors = ButtonSlot->GetAnchors();
-	if (Anchors.Minimum != Anchors.Maximum)
-	{
-		return false; // растянутая кнопка: её место зависит от размера экрана
-	}
-	OutAnchors = Anchors;
-	OutSize = ButtonSlot->GetSize();
-	OutCenter = ButtonSlot->GetPosition() + OutSize * (FVector2D(0.5, 0.5) - ButtonSlot->GetAlignment());
-	return true;
-}
-
 void UTouchControlsWidget::ApplyPlayerSettings()
 {
 	// Прозрачность экранных кнопок (спека, раздел «Управление»). Ползунок задаёт прозрачность
@@ -192,6 +174,7 @@ void UTouchControlsWidget::ApplyPlayerSettings()
 	ApplyIdle(WeaponButton);
 	ApplyIdle(MeleeButton);
 	ApplyIdle(InventoryButton);
+	ApplyIdle(PdaButton);
 	ApplyIdle(PauseButton);
 	ApplyIdle(WeaponIconImage);
 	// Компас (ADR-076 п.5) живёт той же прозрачностью покоя, что и стик, вокруг которого стоит.
@@ -283,6 +266,12 @@ void UTouchControlsWidget::BuildButtons()
 		TEXT("MeleeButton"), MeleeText);
 	InventoryButton = MakeTouchButton(Config.InventoryButton, ETouchCorner::TopRight,
 		TEXT("InventoryButton"), InventoryText);
+	// СМАРТФОН — слева от сумки. Отдельной настройки у контроллера нет: это запасной вид без
+	// готового файла, настоящую кнопку владелец правит в файле экранных кнопок.
+	FTouchButtonSettings PdaSettings = Config.InventoryButton;
+	PdaSettings.Margin.X += Config.InventoryButton.Radius * 3.0f;
+	PdaSettings.Label = NSLOCTEXT("TouchControls", "PdaButton", "КАРТА");
+	PdaButton = MakeTouchButton(PdaSettings, ETouchCorner::TopRight, TEXT("PdaButton"), PdaText);
 	PauseButton = MakeTouchButton(Config.PauseButton, ETouchCorner::TopLeft,
 		TEXT("PauseButton"), PauseText);
 
@@ -436,6 +425,10 @@ void UTouchControlsWidget::UpdateMeleeButton(bool bForceHide)
 
 void UTouchControlsWidget::BindButtonHandlers()
 {
+	if (PdaButton)
+	{
+		PdaButton->OnClicked.AddDynamic(this, &UTouchControlsWidget::HandlePdaClicked);
+	}
 	if (MeleeButton)
 	{
 		MeleeButton->OnPressed.AddDynamic(this, &UTouchControlsWidget::HandleMeleePressed);
@@ -1233,6 +1226,14 @@ void UTouchControlsWidget::HandleWeaponPressed()
 	if (OwnerPC)
 	{
 		OwnerPC->TouchSwitchWeapon();
+	}
+}
+
+void UTouchControlsWidget::HandlePdaClicked()
+{
+	if (OwnerPC)
+	{
+		OwnerPC->TouchTogglePda();
 	}
 }
 
