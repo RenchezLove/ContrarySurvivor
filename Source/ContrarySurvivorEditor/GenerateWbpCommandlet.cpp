@@ -51,6 +51,7 @@
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h" // -hudslots: слоты UMG-классов HUD (ADR-048)
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // -hudslots 08-07: слоты окон контроллера
 #include "ContrarySurvivor/UI/TouchControlsTypes.h"
+#include "ContrarySurvivor/UI/TouchControlsWidget.h" // во сколько раз вырастает кнопка сумки при мигании
 #include "ContrarySurvivor/UI/IntroObjectiveWidget.h" // строка задачи вступления: вид берём у самого окна
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h"
 #include "ContrarySurvivor/UI/SettingsScreenWidget.h" // родительский класс окна настроек
@@ -1269,10 +1270,11 @@ namespace
 		Plate->SetPadding(FMargin(8.0f, 4.0f));
 		if (UCanvasPanelSlot* PlateSlot = Root->AddChildToCanvas(Plate))
 		{
-			// Правый-верх, отступ 28/28 px и плашка по размеру текста — как Canvas.
+			// Правый-верх под кнопкой сумки (212 сверху — ниже сумки в наибольшем размере), плашка
+			// по размеру текста.
 			PlateSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
 			PlateSlot->SetAlignment(FVector2D(1.0f, 0.0f));
-			PlateSlot->SetPosition(FVector2D(-28.0f, 28.0f));
+			PlateSlot->SetPosition(FVector2D(-28.0f, 212.0f));
 			PlateSlot->SetAutoSize(true);
 		}
 
@@ -5743,6 +5745,257 @@ namespace
 		}
 	}
 
+	// WBP_Inventory: слоты оружия видны всегда (Ринат 11.10.2026: «игрок открывая инвентарь не
+	// совсем понимает где находятся слоты под оружие и есть ли они вообще. Обозначь их… квадратной
+	// областью или как там у нас обозначаются слоты для экипировки»). Под значком каждого слота
+	// (пистолет, длинное, нож) встаёт рамка вида слота экипировки — кисть и цвет взяты с кнопки
+	// «Голова» владельца; пустой слот — рамка с названием под ней. Заодно: название оружия стоит
+	// в ширину своей колонки и переносится (раньше длинное название заходило на рюкзак), а
+	// подложка окна, вылезавшая за правый край экрана 16:9, сдвинута внутрь. Каждая часть
+	// делается ОДИН раз и со своей проверкой «уже сделано».
+	void AugmentInventoryWeaponSlotFrames(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Inventory");
+		constexpr float NameGap = 4.0f;     // от значка до названия
+		constexpr float NameHeight = 48.0f; // две строки кеглем 15
+		constexpr int32 NameFontSize = 15;
+
+		const UButton* SampleButton = Cast<UButton>(Tree->FindWidget(TEXT("HeadSlotButton")));
+
+		struct FSlotNames { const TCHAR* Icon; const TCHAR* Text; const TCHAR* Frame; };
+		static const FSlotNames Slots[] =
+		{
+			{ TEXT("RangedSlotIcon"), TEXT("RangedSlotText"), TEXT("RangedSlotFrame") },
+			{ TEXT("LongSlotIcon"),   TEXT("LongSlotText"),   TEXT("LongSlotFrame") },
+			{ TEXT("MeleeSlotIcon"),  TEXT("MeleeSlotText"),  TEXT("MeleeSlotFrame") },
+		};
+
+		TArray<const UWidget*> Own;
+		for (const FSlotNames& Names : Slots)
+		{
+			Own.Add(Tree->FindWidget(Names.Icon));
+			Own.Add(Tree->FindWidget(Names.Text));
+		}
+
+		for (const FSlotNames& Names : Slots)
+		{
+			UImage* Icon = Cast<UImage>(Tree->FindWidget(Names.Icon));
+			UCanvasPanelSlot* IconSlot = Icon ? Cast<UCanvasPanelSlot>(Icon->Slot) : nullptr;
+			UCanvasPanel* Column = Icon ? Cast<UCanvasPanel>(Icon->GetParent()) : nullptr;
+			if (!IconSlot || !Column || IconSlot->GetAutoSize())
+			{
+				UE_LOG(LogGenerateWbp, Warning,
+					TEXT("AUGMENT %s: значок %s не в канвас-слоте с размером — слот не обозначен."), Name, Names.Icon);
+				continue;
+			}
+			const FAnchorData IconLayout = IconSlot->GetLayout();
+
+			// --- Рамка слота: под значком, нажатий не ловит ---
+			if (!Tree->FindWidget(Names.Frame))
+			{
+				UImage* Frame = Tree->ConstructWidget<UImage>(UImage::StaticClass(), Names.Frame);
+				if (SampleButton)
+				{
+					Frame->SetBrush(SampleButton->GetStyle().Normal);
+					Frame->SetColorAndOpacity(SampleButton->GetBackgroundColor());
+				}
+				else
+				{
+					Frame->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 0.12f));
+				}
+				Frame->SetVisibility(ESlateVisibility::HitTestInvisible);
+				if (UCanvasPanelSlot* FrameSlot = Column->AddChildToCanvas(Frame))
+				{
+					FrameSlot->SetLayout(IconLayout);
+					FrameSlot->SetAutoSize(false);
+					FrameSlot->SetZOrder(IconSlot->GetZOrder() - 1);
+				}
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: рамка слота %s по месту значка (%.0f, %.0f) %.0fx%.0f, вид %s."),
+					Name, Names.Frame, IconLayout.Offsets.Left, IconLayout.Offsets.Top,
+					IconLayout.Offsets.Right, IconLayout.Offsets.Bottom,
+					SampleButton ? TEXT("с кнопки «Голова»") : TEXT("запасной"));
+			}
+
+			// --- Название: в ширину колонки, с переносом; признак «уже сделано» — свой размер ---
+			UTextBlock* Text = Cast<UTextBlock>(Tree->FindWidget(Names.Text));
+			UCanvasPanelSlot* TextSlot = Text ? Cast<UCanvasPanelSlot>(Text->Slot) : nullptr;
+			if (!TextSlot || Text->GetParent() != Column || !TextSlot->GetAutoSize())
+			{
+				continue;
+			}
+			FAnchorData TextLayout = IconLayout;
+			TextLayout.Offsets.Top = IconLayout.Offsets.Top + IconLayout.Offsets.Bottom + NameGap;
+			TextLayout.Offsets.Bottom = NameHeight;
+			TextSlot->SetLayout(TextLayout);
+			TextSlot->SetAutoSize(false);
+			FSlateFontInfo Font = Text->GetFont();
+			Font.Size = NameFontSize;
+			Text->SetFont(Font);
+			Text->SetAutoWrapText(true);
+			Text->SetJustification(ETextJustify::Center);
+			Text->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+			bChanged = true;
+			const float TextTop = TextLayout.Offsets.Top;
+			const float TextBottom = TextTop + NameHeight;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: название %s в ширину колонки: (%.0f, %.0f) %.0fx%.0f, кегль %d, с переносом."),
+				Name, Names.Text, TextLayout.Offsets.Left, TextTop, TextLayout.Offsets.Right, NameHeight, NameFontSize);
+
+			// Чужая подпись колонки, попавшая под название, опускается под него.
+			for (int32 Index = 0; Index < Column->GetChildrenCount(); ++Index)
+			{
+				UWidget* Child = Column->GetChildAt(Index);
+				UCanvasPanelSlot* ChildSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+				if (!ChildSlot || Own.Contains(Child) || !Child->IsA<UTextBlock>()
+					|| ChildSlot->GetAnchors().Minimum != IconLayout.Anchors.Minimum
+					|| ChildSlot->GetAnchors().Minimum != ChildSlot->GetAnchors().Maximum)
+				{
+					continue;
+				}
+				const FVector2D Pos = ChildSlot->GetPosition();
+				if (Pos.X >= IconLayout.Offsets.Left - 1.0f && Pos.X < IconLayout.Offsets.Left + IconLayout.Offsets.Right
+					&& Pos.Y >= TextTop && Pos.Y < TextBottom + 2.0f)
+				{
+					ChildSlot->SetPosition(FVector2D(Pos.X, TextBottom + 2.0f));
+					UE_LOG(LogGenerateWbp, Display,
+						TEXT("AUGMENT %s: подпись %s опущена под название: было (%.0f, %.0f), стало (%.0f, %.0f)."),
+						Name, *Child->GetName(), Pos.X, Pos.Y, Pos.X, TextBottom + 2.0f);
+				}
+			}
+		}
+
+		// --- Подложка окна: правый край внутрь экрана 16:9 (1920 единиц при высоте 1080) ---
+		constexpr float HalfNarrowScreen = 960.0f;
+		constexpr float EdgeMargin = 8.0f;
+		UWidget* Plate = Tree->FindWidget(TEXT("PanelPlate"));
+		UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (PlateSlot && !PlateSlot->GetAutoSize()
+			&& PlateSlot->GetAnchors().Minimum == FVector2D(0.5, 0.5) && PlateSlot->GetAnchors().Maximum == FVector2D(0.5, 0.5))
+		{
+			const FVector2D Pos = PlateSlot->GetPosition();
+			const float Right = Pos.X + PlateSlot->GetSize().X * (1.0f - PlateSlot->GetAlignment().X);
+			if (Right > HalfNarrowScreen)
+			{
+				const float NewX = Pos.X - (Right - HalfNarrowScreen) - EdgeMargin;
+				PlateSlot->SetPosition(FVector2D(NewX, Pos.Y));
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: подложка выходила за правый край экрана 16:9 на %.1f — сдвинута: было X=%.1f, стало X=%.1f."),
+					Name, Right - HalfNarrowScreen, Pos.X, NewX);
+			}
+		}
+	}
+
+	// WBP_TouchControls: кнопка ножа крупнее и не теснит соседей (Ринат 11.10.2026: «сейчас они
+	// маленькие и частично перекрывают другие кнопки. Игроку должно быть удобно их нажимать…
+	// что-то подвинешь, что-то сделаешь побольше»). Нож — не меньше кнопки перезарядки, по
+	// диагонали вверх-влево от кнопки ОГОНЬ; кнопка бега, если новая кнопка ножа её задевает,
+	// встаёт слева от ножа вровень с ним. Значки и подписи владельца не трогаются. Признак
+	// «уже сделано» — размер кнопки ножа отличается от первого, поставленного генератором (96).
+	void AugmentTouchMeleeButtonComfort(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_TouchControls");
+		constexpr float OldSize = 96.0f;
+		constexpr float NewSize = 130.0f;
+		constexpr float GapToFire = 10.0f;
+		constexpr float GapToInteract = 18.0f;
+		constexpr float GapToSprint = 35.0f;
+
+		auto SlotOf = [Tree](const TCHAR* WidgetName) -> UCanvasPanelSlot*
+		{
+			UWidget* Widget = Tree->FindWidget(WidgetName);
+			return Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+		};
+		auto BoxOf = [](const UCanvasPanelSlot* InSlot)
+		{
+			const FVector2D Min = InSlot->GetPosition() - InSlot->GetSize() * InSlot->GetAlignment();
+			return FBox2D(Min, Min + InSlot->GetSize());
+		};
+
+		UCanvasPanelSlot* MeleeSlot = SlotOf(TEXT("MeleeButton"));
+		UCanvasPanelSlot* FireSlot = SlotOf(TEXT("FireButton"));
+		if (!MeleeSlot || !FireSlot || MeleeSlot->GetAnchors() != FireSlot->GetAnchors()
+			|| !MeleeSlot->GetSize().Equals(FVector2D(OldSize, OldSize), 0.5))
+		{
+			return; // кнопки нет либо её уже двигали (мы или владелец)
+		}
+
+		const FBox2D FireBox = BoxOf(FireSlot);
+		FVector2D Center(FireBox.Min.X - GapToFire - NewSize * 0.5f, FireBox.Min.Y - NewSize * 0.5f);
+		if (const UCanvasPanelSlot* InteractSlot = SlotOf(TEXT("InteractButton")))
+		{
+			if (InteractSlot->GetAnchors() == FireSlot->GetAnchors())
+			{
+				Center.Y = BoxOf(InteractSlot).Min.Y - GapToInteract - NewSize * 0.5f;
+			}
+		}
+		const FVector2D OldCenter = MeleeSlot->GetPosition();
+		MeleeSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		MeleeSlot->SetPosition(Center);
+		MeleeSlot->SetSize(FVector2D(NewSize, NewSize));
+		if (UImage* Icon = Cast<UImage>(Tree->FindWidget(TEXT("MeleeButtonIcon"))))
+		{
+			FSlateBrush Brush = Icon->GetBrush();
+			Brush.SetImageSize(FVector2D(NewSize * 0.62f, NewSize * 0.62f));
+			Icon->SetBrush(Brush);
+		}
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: кнопка ножа увеличена с %.0f до %.0f и переставлена: центр был (%.1f, %.1f), стал (%.1f, %.1f)."),
+			Name, OldSize, NewSize, OldCenter.X, OldCenter.Y, Center.X, Center.Y);
+
+		UCanvasPanelSlot* SprintSlot = SlotOf(TEXT("SprintButton"));
+		const FBox2D MeleeBox = BoxOf(MeleeSlot);
+		if (SprintSlot && SprintSlot->GetAnchors() == FireSlot->GetAnchors()
+			&& BoxOf(SprintSlot).ExpandBy(GapToFire).Intersect(MeleeBox))
+		{
+			const FVector2D SprintSize = SprintSlot->GetSize();
+			const FVector2D OldPos = SprintSlot->GetPosition();
+			// Новый левый-верхний угол: слева от ножа, середина по высоте — как у ножа.
+			const FVector2D NewMin(MeleeBox.Min.X - GapToSprint - SprintSize.X, Center.Y - SprintSize.Y * 0.5f);
+			const FVector2D NewPos = NewMin + SprintSize * SprintSlot->GetAlignment();
+			SprintSlot->SetPosition(NewPos);
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: кнопка бега задевала новую кнопку ножа — переставлена левее ножа: было (%.1f, %.1f), стало (%.1f, %.1f)."),
+				Name, OldPos.X, OldPos.Y, NewPos.X, NewPos.Y);
+		}
+	}
+
+	// WBP_QuestTracker: строка отслеживаемого задания стояла в правом верхнем углу (28 от края)
+	// и при двух строках задевала кнопки сумки и смартфона. Опускается под кнопку сумки в её
+	// наибольшем размере (при мигании). Двигается, только пока стоит на прежнем месте генератора.
+	constexpr float QuestTrackerTopBelowBag = 212.0f;
+
+	void AugmentQuestTrackerBelowBag(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_QuestTracker");
+		UWidget* Plate = Tree->FindWidget(TEXT("TrackerPlate"));
+		UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (!PlateSlot || !PlateSlot->GetPosition().Equals(FVector2D(-28.0, 28.0), 0.5))
+		{
+			return;
+		}
+
+		float NewTop = QuestTrackerTopBelowBag;
+		const UWidgetBlueprint* Touch = LoadObject<UWidgetBlueprint>(nullptr, TEXT("/Game/UI/WBP_TouchControls.WBP_TouchControls"));
+		const UWidget* Bag = Touch && Touch->WidgetTree ? Touch->WidgetTree->FindWidget(TEXT("InventoryButton")) : nullptr;
+		const UCanvasPanelSlot* BagSlot = Bag ? Cast<UCanvasPanelSlot>(Bag->Slot) : nullptr;
+		if (BagSlot && BagSlot->GetAnchors().Minimum == PlateSlot->GetAnchors().Minimum
+			&& BagSlot->GetAnchors().Minimum == BagSlot->GetAnchors().Maximum)
+		{
+			const float Scale = GetDefault<UTouchControlsWidget>()->GetInventoryBlinkScale();
+			const FVector2D BagSize = BagSlot->GetSize();
+			const float BagCenterY = BagSlot->GetPosition().Y + BagSize.Y * (0.5f - BagSlot->GetAlignment().Y);
+			NewTop = FMath::CeilToFloat(BagCenterY + BagSize.Y * 0.5f * Scale + 8.0f);
+		}
+		PlateSlot->SetPosition(FVector2D(-28.0f, NewTop));
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: строка задания опущена под кнопку сумки: верх был 28, стал %.0f."), Name, NewTop);
+	}
+
 	// WBP_Pda: элемент черноты неизведанного на карте (Ринат 10.10.2026 — карта открывается по
 	// мере исследования). Встаёт в поле карты между картинкой и отметками и растянут на всё
 	// поле, как они; картинку-маску в него кладёт код игры, в файле элемент спрятан. Остальное
@@ -6967,6 +7220,11 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventoryWeaponSlots },
 		// Ринат 10.10.2026: карта КПК открывается по мере исследования — элемент черноты.
 		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaMapFog },
+		// Ринат 11.10.2026: слоты оружия в сумке обозначены рамками; кнопка ножа крупнее и не
+		// теснит соседей; строка задания не задевает кнопки сумки и смартфона.
+		{ TEXT("/Game/UI/WBP_Inventory"),     TEXT("WBP_Inventory"),     &AugmentInventoryWeaponSlotFrames },
+		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchMeleeButtonComfort },
+		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerBelowBag },
 	};
 
 	int32 FailCount = 0;
