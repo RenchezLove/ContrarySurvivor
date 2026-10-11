@@ -6297,9 +6297,14 @@ namespace
 		};
 		static const FDetailMove Moves[] =
 		{
-			{ TEXT("DetailDescriptionText"), 100.0f, 220.0f, 100.0f, 208.0f },
-			{ TEXT("DetailObjectivesText"), 332.0f, 170.0f, 320.0f, 150.0f },
-			{ TEXT("DetailRewardText"), 514.0f, 120.0f, 482.0f, 108.0f },
+			{ TEXT("DetailDescriptionText"), 100.0f, 220.0f, 100.0f, 236.0f },
+			{ TEXT("DetailObjectivesText"), 332.0f, 170.0f, 346.0f, 130.0f },
+			{ TEXT("DetailRewardText"), 514.0f, 120.0f, 486.0f, 94.0f },
+			// Первый заход этой правки (коммит ab9757c) ставил блоки иначе; описание задания
+			// охранника с тех пор выросло до восьми строк.
+			{ TEXT("DetailDescriptionText"), 100.0f, 208.0f, 100.0f, 236.0f },
+			{ TEXT("DetailObjectivesText"), 320.0f, 150.0f, 346.0f, 130.0f },
+			{ TEXT("DetailRewardText"), 482.0f, 108.0f, 486.0f, 94.0f },
 		};
 		for (const FDetailMove& Move : Moves)
 		{

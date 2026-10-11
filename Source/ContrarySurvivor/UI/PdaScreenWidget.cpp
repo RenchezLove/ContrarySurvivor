@@ -306,15 +306,15 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 
 	UTextBlock* Description = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Description->SetAutoWrapText(true);
-	PlaceDetail(Description, 100.0f, 208.0f);
+	PlaceDetail(Description, 100.0f, 236.0f);
 
 	UTextBlock* Objectives = NewText(Tree, TEXT("DetailObjectivesText"), FText::GetEmpty(), PdaTextColor, 18, TEXT("Bold"));
 	Objectives->SetAutoWrapText(true);
-	PlaceDetail(Objectives, 320.0f, 150.0f);
+	PlaceDetail(Objectives, 346.0f, 130.0f);
 
 	UTextBlock* Reward = NewText(Tree, TEXT("DetailRewardText"), FText::GetEmpty(), PdaGoldColor, 18, TEXT("Bold"));
 	Reward->SetAutoWrapText(true);
-	PlaceDetail(Reward, 482.0f, 108.0f);
+	PlaceDetail(Reward, 486.0f, 94.0f);
 
 	UButton* Track = NewCaptionButton(Tree, TEXT("TrackButton"), TEXT("TrackText"),
 		Defaults->TrackLabel, FLinearColor(0.16f, 0.36f, 0.16f, 1.0f), 20);
