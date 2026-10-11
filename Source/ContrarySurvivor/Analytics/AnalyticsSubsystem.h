@@ -58,6 +58,10 @@ public:
 	// Сдача квеста.
 	void RecordQuestTurnedIn(FName QuestId);
 
+	// Шаг внутри задания (11.10.2026, подготовка к заданию на бандитов): quest:step:{QuestId}:{шаг},
+	// шаги prep_buy_shown, prep_bought_discount, prep_bought_debt, prep_equipped.
+	void RecordQuestStep(FName QuestId, const FString& StepId);
+
 	// Покупка в магазине: имя позиции + итоговая цена (value события).
 	void RecordPurchase(const FString& ItemName, float TotalPrice);
 
@@ -205,6 +209,7 @@ public:
 
 	static FString MakeFirstLaunchEventId();
 	static FString MakeTutorialStepEventId(const FString& StepId);
+	static FString MakeQuestStepEventId(FName QuestId, const FString& StepId);
 	static FString MakeTutorialCompletedEventId();
 
 	// GA разрешает в id событий только латиницу/цифры/немного знаков — русские имена

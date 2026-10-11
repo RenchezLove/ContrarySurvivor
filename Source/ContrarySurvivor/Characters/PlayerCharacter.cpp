@@ -43,6 +43,7 @@
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h" // «Новая игра» сбрасывает память баз (баг Рината 23.08)
 #include "ContrarySurvivor/Actors/StashChest.h"      // личный сундук: общее хранилище в сохранении
 #include "ContrarySurvivor/Actors/ElderNPC.h"        // правило ожидания старосты после сценки про ноутбук
+#include "ContrarySurvivor/Data/ContraryItemRow.h"   // класс строки предмета подготовительного шага
 #include "EngineUtils.h"                        // TActorIterator: поиск костра по классу
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h" // CloseAllUI / экран смерти
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D6: реестр врагов для боевой камеры (ADR-035)
@@ -1453,6 +1454,102 @@ int32 APlayerCharacter::GiveItemFromRow(FName RowName, int32 Count)
 // Магазин торговца (Фаза 4, экономика) — вызываются из HUD по клику
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Подготовительный шаг задания: купить предмет и поставить в слот (11.10.2026)
+// ---------------------------------------------------------------------------
+
+float APlayerCharacter::GetShopBuyPrice(const FShopEntry& Entry, const FQuest** OutDeal) const
+{
+    const FQuest* Deal = (Quests && Entry.Kind == EShopEntryKind::Item) ? Quests->FindPrepDeal(Entry.ItemRow) : nullptr;
+    if (Deal && Deal->PrepDealPrice >= Entry.Price)
+    {
+        Deal = nullptr; // «скидка» не дешевле обычной цены — её нет
+    }
+    if (OutDeal)
+    {
+        *OutDeal = Deal;
+    }
+    return Deal ? Deal->PrepDealPrice : Entry.Price;
+}
+
+bool APlayerCharacter::DoesItemMatchRow(const AMasterInventoryItem* Item, FName ItemRow)
+{
+    if (!Item || ItemRow.IsNone())
+    {
+        return false;
+    }
+    if (!Item->SourceItemRow.IsNone())
+    {
+        return Item->SourceItemRow == ItemRow;
+    }
+    // Вещь без строки (выдана по-старому): сверяем по классу строки таблицы.
+    const FContraryItemRow* Row = ContraryItems::FindRow(ItemRow);
+    const UClass* RowClass = Row ? Row->ItemClass.LoadSynchronous() : nullptr;
+    return RowClass && (Item->IsA(RowClass) || RowClass->IsChildOf(Item->GetClass()));
+}
+
+EQuestPrepPossession APlayerCharacter::GetItemPossession(FName ItemRow) const
+{
+    for (const EFirearmSlot Slot : { EFirearmSlot::Sidearm, EFirearmSlot::Long })
+    {
+        if (DoesItemMatchRow(GetFirearmInSlot(Slot), ItemRow))
+        {
+            return EQuestPrepPossession::InSlot;
+        }
+    }
+    if (Inventory)
+    {
+        for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+        {
+            if (DoesItemMatchRow(Item, ItemRow))
+            {
+                return EQuestPrepPossession::InBag;
+            }
+        }
+    }
+    return EQuestPrepPossession::None;
+}
+
+bool APlayerCharacter::IsQuestPrepItemToEquip(const AMasterInventoryItem* Item) const
+{
+    if (!Quests || !Item)
+    {
+        return false;
+    }
+    for (const FQuest& Quest : Quests->GetQuests())
+    {
+        if (UQuestComponent::IsPrepStepShown(Quest) && Quest.PrepStep == EQuestPrepStep::Equip
+            && DoesItemMatchRow(Item, Quest.PrepItemRow))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void APlayerCharacter::UpdateQuestPrepSteps()
+{
+    if (!Quests || !Quests->HasPendingPrep())
+    {
+        return;
+    }
+    // Задание из сохранения, записанного до 11.10.2026, описания шага не несёт — его знает
+    // тот, кто задание выдал (староста).
+    if (Quests->HasUncheckedPrep())
+    {
+        if (UWorld* World = GetWorld())
+        {
+            for (TActorIterator<AElderNPC> It(World); It; ++It)
+            {
+                Quests->MergePrepDefinition(It->GetOfferedQuest());
+                Quests->MergePrepDefinition(It->GetSecondQuest());
+                Quests->MergePrepDefinition(It->GetThirdQuest());
+            }
+        }
+    }
+    Quests->UpdatePrepSteps([this](FName ItemRow) { return GetItemPossession(ItemRow); });
+}
+
 bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
 {
     return Shop_BuyEntryQty(Entry, 1);
@@ -1466,10 +1563,18 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
     }
 
     Qty = FMath::Max(1, Qty);
-    const float TotalPrice = Entry.Price * static_cast<float>(Qty);
+
+    // Скидка по заданию (11.10.2026): первая штука — по цене задания; не хватает монет на
+    // одну такую покупку — торговец отдаёт в долг, остаток спишется с награды за задание.
+    const FQuest* Deal = nullptr;
+    const float FirstUnitPrice = GetShopBuyPrice(Entry, &Deal);
+    const FName DealQuestId = Deal ? Deal->QuestId : NAME_None;
+    const float TotalPrice = FirstUnitPrice + Entry.Price * static_cast<float>(Qty - 1);
+    const bool bOnCredit = Deal && Qty == 1 && Stats->GetMoney() < TotalPrice;
+    const float DealDebt = bOnCredit ? TotalPrice - Stats->GetMoney() : 0.0f;
 
     // Проверяем платёжеспособность ДО выдачи товара (clamp >=0: нельзя купить без денег).
-    if (Stats->GetMoney() < TotalPrice)
+    if (!bOnCredit && Stats->GetMoney() < TotalPrice)
     {
         UE_LOG(LogTemp, Log, TEXT("Shop: not enough money for '%s' x%d (%.0f < %.0f)"),
             *Entry.DisplayName, Qty, Stats->GetMoney(), TotalPrice);
@@ -1554,8 +1659,12 @@ bool APlayerCharacter::Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty)
         }
     }
 
-    // Списываем итоговую цену (SpendMoney clamp >=0 + бродкаст HUD).
-    Stats->SpendMoney(TotalPrice);
+    // Списываем итоговую цену (SpendMoney clamp >=0 + бродкаст HUD); взятое в долг — за заданием.
+    Stats->SpendMoney(TotalPrice - DealDebt);
+    if (!DealQuestId.IsNone() && Quests)
+    {
+        Quests->NotePrepPurchase(DealQuestId, DealDebt);
+    }
     UE_LOG(LogTemp, Log, TEXT("Shop: bought '%s' x%d for %.0f. Money left %.0f"),
         *Entry.DisplayName, Qty, TotalPrice, Stats->GetMoney());
     UE_LOG(LogQA, Display, TEXT("QA: BUY '%s' x%d for %.0f, balance %.0f"),

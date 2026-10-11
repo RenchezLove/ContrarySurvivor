@@ -2,6 +2,8 @@
 
 #include "ContrarySurvivor/UI/QuestTargets.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
+#include "ContrarySurvivor/Actors/ShopTypes.h"
+#include "ContrarySurvivor/Characters/MasterTrader.h" // цель шага покупки
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
 #include "ContrarySurvivor/Actors/TalkerNPC.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
@@ -19,6 +21,26 @@ namespace QuestTargets
 	{
 		if (!World || Quest.MapMarkerTag.IsNone() || !UQuestComponent::IsInActivePhase(Quest))
 		{
+			return nullptr;
+		}
+
+		// Подготовительный шаг (11.10.2026): на шаге покупки задание ведёт к торговцу, у
+		// которого этот предмет есть в продаже; на шаге «поставь в слот» вести некуда.
+		if (UQuestComponent::IsPrepStepShown(Quest))
+		{
+			if (Quest.PrepStep == EQuestPrepStep::Buy)
+			{
+				for (TActorIterator<AMasterTrader> It(World); It; ++It)
+				{
+					for (const FShopEntry& Entry : It->GetCatalog())
+					{
+						if (Entry.ItemRow == Quest.PrepItemRow)
+						{
+							return *It;
+						}
+					}
+				}
+			}
 			return nullptr;
 		}
 

@@ -20,6 +20,13 @@ namespace QuestObjectiveText
 {
 	FText BuildObjectives(const FQuest& Quest, const FText& ObjectiveFormat, const FText& Separator)
 	{
+		// Подготовительный шаг (купить пистолет, поставить в слот) показывается вместо целей
+		// задания, пока он идёт: текст — из данных задания.
+		if (UQuestComponent::IsPrepStepShown(Quest))
+		{
+			return UQuestComponent::GetPrepObjectiveText(Quest);
+		}
+
 		TArray<FText> Parts;
 
 		// Цель на убийство: человеческая подпись, служебный тег — только как откат.

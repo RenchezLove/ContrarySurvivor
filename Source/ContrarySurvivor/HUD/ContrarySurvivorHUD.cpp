@@ -2698,16 +2698,20 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 	// квест ГОТОВ К СДАЧЕ (Completed: все убиты/собрано) — метка ведёт к квестодателю (старосте).
 	const bool bToGiver = (Tracked->State == EQuestState::Completed);
 
+	// Подготовительный шаг задания меняет цель (торговец вместо базы) — он тоже ключ кэша.
+	const uint8 PrepStepKey = UQuestComponent::IsPrepStepShown(*Tracked) ? static_cast<uint8>(Tracked->PrepStep) : 0;
 	// Кэш цели (qa-фикс): мир сканируется только при инвалидации кэша (смена тега/фазы, гибель
 	// актора), НЕ каждый кадр; повторный поиск ненайденной цели дросселируется по времени.
 	AActor* Target = QuestMarkerTargetCache.Get();
 	if (!Target || QuestMarkerCachedQuestId != Tracked->QuestId
-		|| QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver)
+		|| QuestMarkerCachedTag != Tracked->MapMarkerTag || bQuestMarkerCachedToGiver != bToGiver
+		|| QuestMarkerCachedPrepStep != PrepStepKey)
 	{
 		const float Now = World->GetTimeSeconds();
 		const bool bSameSearch = (QuestMarkerCachedQuestId == Tracked->QuestId
 			&& QuestMarkerCachedTag == Tracked->MapMarkerTag
-			&& bQuestMarkerCachedToGiver == bToGiver);
+			&& bQuestMarkerCachedToGiver == bToGiver
+			&& QuestMarkerCachedPrepStep == PrepStepKey);
 		if (!Target && bSameSearch && Now < QuestMarkerNextSearchTime)
 		{
 			return; // недавно искали и не нашли (цель не размещена/тег не проставлен) — ждём
@@ -2721,6 +2725,7 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 		QuestMarkerCachedQuestId = Tracked->QuestId;
 		QuestMarkerCachedTag = Tracked->MapMarkerTag;
 		bQuestMarkerCachedToGiver = bToGiver;
+		QuestMarkerCachedPrepStep = PrepStepKey;
 		QuestMarkerNextSearchTime = Now + 0.5f; // дроссель следующего поиска, если не нашли
 	}
 
@@ -2740,6 +2745,10 @@ void AContrarySurvivorHUD::DrawQuestTargetMarker(APlayerCharacter* Player)
 			ZOff = NPC->GetNPCMarkerZOffset() + 120.0f;
 		}
 		Label = FString::Printf(TEXT("%s%s"), *QuestTurnInMarkerPrefix, *Tracked->Title.ToString());
+	}
+	else if (PrepStepKey != 0)
+	{
+		Label = UQuestComponent::GetPrepObjectiveText(*Tracked).ToString(); // «Купи пистолет у торговца»
 	}
 	else
 	{

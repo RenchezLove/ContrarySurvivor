@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"
+#include "ContrarySurvivor/Components/QuestComponent.h" // скидка по заданию: подписи плитки
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/UI/InventoryScreenWidget.h" // ADR-082: окно-напарник (правая панель, Trade)
 #include "ContrarySurvivor/HUD/ContrarySurvivorHUD.h"  // ADR-082: поиск напарника через HUD владельца
@@ -455,8 +456,11 @@ int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 				SoftIcon = GetDefault<AMasterInventoryItem>(E.ItemClass)->GetItemIcon();
 			}
 
+			// Цена для этого героя: обычная либо со скидкой по заданию (тогда Deal — это задание).
+			const FQuest* Deal = nullptr;
+			const float BuyPrice = Player ? Player->GetShopBuyPrice(E, &Deal) : E.Price;
 			FFormatNamedArguments PriceArgs;
-			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(E.Price)));
+			PriceArgs.Add(TEXT("Price"), FText::AsNumber(FMath::RoundToInt32(BuyPrice)));
 
 			if (UItemTileWidget* Tile = CreateWidget<UItemTileWidget>(PC, TileWidgetClass))
 			{
@@ -465,9 +469,14 @@ int32 UShopScreenWidget::RebuildList(bool bBuyList, int32 Columns)
 					Name, /*InCount=*/1);
 				Tile->SetTileSize(TileSize, TileIconSize);
 				Tile->SetPriceText(FText::Format(BuyPriceFormat, PriceArgs));
-				const bool bAffordable = Money >= E.Price;
+				// Товар по заданию (пистолет со скидкой от старосты) мигает, как подарок в сумке,
+				// и продаётся даже без монет — в долг; подписи — из данных задания.
+				const bool bEnoughMoney = Money >= BuyPrice;
+				const bool bAffordable = bEnoughMoney || Deal != nullptr;
 				Tile->SetActionEnabled(bAffordable);
-				Tile->SetStatusText(bAffordable ? FText::GetEmpty() : NotEnoughMoneyText);
+				Tile->SetStatusText(Deal ? (bEnoughMoney ? Deal->PrepDealText : Deal->PrepDebtText)
+					: (bAffordable ? FText::GetEmpty() : NotEnoughMoneyText));
+				Tile->SetAttentionBlink(Deal != nullptr);
 				Tile->OnTileClicked.AddUObject(this, &UShopScreenWidget::HandleTileAction);
 				AddTileToGrid(Tile);
 			}
@@ -560,17 +569,18 @@ void UShopScreenWidget::ArmBuyTransaction(int32 CatalogIndex)
 	bTransactionIsBuy = true;
 	TransactionCatalogIndex = CatalogIndex;
 	TransactionItem = nullptr;
-	TransactionUnitPrice = E.Price;
+	const FQuest* Deal = nullptr; // скидка по заданию — на одну штуку
+	TransactionUnitPrice = Player ? Player->GetShopBuyPrice(E, &Deal) : E.Price;
 	TransactionUnitAmmo = (E.Kind == EShopEntryKind::Ammo) ? FMath::Max(0, E.AmmoAmount) : 0;
 	TransactionTitle = E.DisplayText.IsEmpty() ? FText::FromString(E.DisplayName) : E.DisplayText;
 
 	// Потолок по деньгам (минимум 1) — как Canvas ArmBuySlider.
 	int32 ByMoney = 999;
-	if (E.Price > 0.0f)
+	if (TransactionUnitPrice > 0.0f)
 	{
-		ByMoney = FMath::FloorToInt(GetPlayerMoney() / E.Price);
+		ByMoney = FMath::FloorToInt(GetPlayerMoney() / TransactionUnitPrice);
 	}
-	TransactionQtyMax = FMath::Clamp(ByMoney, 1, 999);
+	TransactionQtyMax = Deal ? 1 : FMath::Clamp(ByMoney, 1, 999);
 	TransactionQty = 1;
 
 	if (SliderPanel)

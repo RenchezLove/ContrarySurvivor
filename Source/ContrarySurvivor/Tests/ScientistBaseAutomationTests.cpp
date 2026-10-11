@@ -31,6 +31,8 @@
 #include "ContrarySurvivor/Debug/QADebug.h"            // CONTRARY_WITH_QA_CHEATS
 #include "ContrarySurvivor/Debug/ContraryDebugMenu.h"  // сюжетные кнопки меню отладки
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
+#include "ContrarySurvivor/Actors/ShopTypes.h"
+#include "ContrarySurvivor/Characters/MasterTrader.h"  // шаг «купи пистолет» ведёт к торговцу
 #include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // строка ожидания старосты
 #include "ContrarySurvivor/UI/QuestTargets.h"           // цель задания для карты
 #include "Components/BoxComponent.h"
@@ -149,6 +151,13 @@ namespace ScientistTest
 		Shotgun.MaxStackCount = 1;
 		Shotgun.Price = 300.0f;
 		Table->AddRow(ShotgunItemRow, Shotgun);
+		FContraryItemRow Pistol; // его просит купить задание на бандитов (подготовительный шаг)
+		Pistol.DisplayText = FText::FromString(TEXT("QA пистолет"));
+		Pistol.ItemClass = APistol::StaticClass();
+		Pistol.Category = EItemCategory::Weapon;
+		Pistol.MaxStackCount = 1;
+		Pistol.Price = 150.0f;
+		Table->AddRow(FName(TEXT("pistol")), Pistol);
 
 		FContraryItemRow Shells;
 		Shells.DisplayText = FText::FromString(TEXT("QA дробь"));
@@ -1272,6 +1281,7 @@ bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
 	AScientistQuestNPC* Scientist = ScientistTest::Spawn<AScientistQuestNPC>(World, FVector(9231.0, -16562.0, 91.0));
 	AQuestItemSpawner* RadioSpot = ScientistTest::Spawn<AQuestItemSpawner>(World, FVector(-5280.0, -13440.0, 0.0));
 	AQuestBarrier* Barrier = ScientistTest::Spawn<AQuestBarrier>(World, BarrierLoc);
+	AMasterTrader* Trader = ScientistTest::Spawn<AMasterTrader>(World, FVector(-3000.0, -3960.0, 91.0));
 	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
 	UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
 	if (!Player || !Elder || !WolfDen || !BanditBase || !Guard || !Scientist || !RadioSpot || !Barrier
@@ -1344,6 +1354,32 @@ bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("После первого староста даёт второе задание"), Q2, Elder->GetSecondQuest().QuestId);
 	Quests->OfferQuest(Second);
 	TestTrue(TEXT("Второе задание берётся"), Quests->AcceptQuest(Q2));
+	// Подготовительный шаг: купить пистолет у торговца со скидкой и поставить его в слот.
+	Player->UpdateQuestPrepSteps();
+	TestEqual(TEXT("После взятия второго задания идёт шаг покупки пистолета"),
+		Quests->FindQuest(Q2)->PrepStep, EQuestPrepStep::Buy);
+	TestTrue(TEXT("На шаге покупки второе задание ведёт к торговцу"), Trader && TargetOf(Q2) == Trader);
+	const FShopEntry* PistolEntry = Trader ? Trader->GetCatalog().FindByPredicate(
+		[&Second](const FShopEntry& Entry) { return Entry.ItemRow == Second.PrepItemRow; }) : nullptr;
+	if (TestNotNull(TEXT("У торговца в продаже есть пистолет"), PistolEntry))
+	{
+		const float MoneyBeforePistol = Player->GetStats()->GetMoney();
+		TestTrue(TEXT("Награды за волков хватает на пистолет со скидкой"), MoneyBeforePistol >= Second.PrepDealPrice);
+		TestTrue(TEXT("Пистолет покупается"), Player->Shop_BuyEntryQty(*PistolEntry, 1));
+		TestEqual(TEXT("За пистолет взята цена со скидкой"), Player->GetStats()->GetMoney(), MoneyBeforePistol - Second.PrepDealPrice);
+		TestEqual(TEXT("После покупки идёт шаг «поставь в слот»"), Quests->FindQuest(Q2)->PrepStep, EQuestPrepStep::Equip);
+		AMasterInventoryItem* BoughtPistol = nullptr;
+		for (AMasterInventoryItem* Item : Inv->GetInventoryItems())
+		{
+			if (APlayerCharacter::DoesItemMatchRow(Item, Second.PrepItemRow))
+			{
+				BoughtPistol = Item;
+			}
+		}
+		TestTrue(TEXT("Купленный пистолет встаёт в слот"), BoughtPistol && Player->TryAdoptRangedWeapon(BoughtPistol));
+		Player->UpdateQuestPrepSteps();
+		TestEqual(TEXT("Пистолет в слоте — шаги пройдены"), Quests->FindQuest(Q2)->PrepStep, EQuestPrepStep::Done);
+	}
 	TestTrue(TEXT("Второе задание ведёт к лагерю бандитов"), TargetOf(Q2) == BanditBase);
 	for (int32 Kill = 0; Kill < Second.TargetCount; ++Kill)
 	{

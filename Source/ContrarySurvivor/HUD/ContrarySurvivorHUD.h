@@ -1136,6 +1136,7 @@ private:
 	TWeakObjectPtr<AActor> QuestMarkerTargetCache;
 	FName QuestMarkerCachedQuestId = NAME_None; // отслеживаемое задание сменилось — цель ищем заново
 	FName QuestMarkerCachedTag = NAME_None;
+	uint8 QuestMarkerCachedPrepStep = 0; // подготовительный шаг, для которого искали цель
 	bool bQuestMarkerCachedToGiver = false;
 	float QuestMarkerNextSearchTime = 0.0f;
 

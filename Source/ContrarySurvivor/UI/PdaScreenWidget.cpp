@@ -758,7 +758,7 @@ FText UPdaScreenWidget::BuildRewardText(const FQuest& Quest) const
 {
 	TArray<FText> Parts;
 
-	const int32 Money = FMath::RoundToInt32(Quest.RewardMoney);
+	const int32 Money = FMath::RoundToInt32(Quest.GetPayoutMoney()); // за вычетом долга торговцу
 	if (Money > 0)
 	{
 		FFormatNamedArguments Args;

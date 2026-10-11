@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Templates/FunctionFwd.h"
 #include "QuestComponent.generated.h"
 
 class UStatsComponent;
@@ -54,6 +55,30 @@ enum class EQuestKind : uint8
 {
 	Main UMETA(DisplayName = "Основное (сюжет)"),
 	Side UMETA(DisplayName = "Побочное")
+};
+
+/**
+ * Подготовительный шаг задания (11.10.2026, слова Рината: «Перед тем как игрок пойдет на
+ * бандитов - надо как-то явно намекнуть, что бы он купил пистолет у торговца. Может вообще это
+ * сделать частью квеста»). Шаг ВЕДЁТ, а не запирает: убийства и предметы засчитываются в любом
+ * шаге, задание сдаётся как раньше. Какой предмет нужен, цена со скидкой и подписи — данные
+ * задания (FQuest::Prep*), а не код.
+ */
+UENUM(BlueprintType)
+enum class EQuestPrepStep : uint8
+{
+	NotChecked UMETA(DisplayName = "Ещё не проверялось"), // так читаются и задания из старых сохранений
+	Buy        UMETA(DisplayName = "Купить предмет"),
+	Equip      UMETA(DisplayName = "Поставить предмет в слот"),
+	Done       UMETA(DisplayName = "Шаги пройдены или не нужны"),
+};
+
+/** Где у героя предмет подготовительного шага. */
+enum class EQuestPrepPossession : uint8
+{
+	None,   // нет нигде
+	InBag,  // лежит в сумке
+	InSlot, // стоит в слоте оружия
 };
 
 /**
@@ -202,6 +227,46 @@ struct FQuest
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	FName GiverNpcTag = NAME_None;
 
+	// --- Подготовительный шаг (11.10.2026): купить предмет у торговца и поставить его в слот ---
+
+	// Строка таблицы предметов, которую герою советуют купить перед заданием (пистолет).
+	// Пусто — у задания подготовительных шагов нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FName PrepItemRow = NAME_None;
+
+	// Цена этого предмета со скидкой, пока идёт шаг покупки (одна покупка). 0 — скидки нет.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка", meta = (ClampMin = "0.0"))
+	float PrepDealPrice = 0.0f;
+
+	// Цель на экране на шаге покупки («Купи пистолет у торговца») и на шаге слота.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FText PrepBuyObjectiveText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FText PrepEquipObjectiveText;
+
+	// Подпись на плитке товара у торговца: скидка и — когда монет не хватает — продажа в долг.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FText PrepDealText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Подготовка")
+	FText PrepDebtText;
+
+	// Ход подготовки (пишется в сохранение вместе с журналом).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest|Подготовка")
+	EQuestPrepStep PrepStep = EQuestPrepStep::NotChecked;
+
+	// Скидкой уже воспользовались (она на одну покупку).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest|Подготовка")
+	bool bPrepDealUsed = false;
+
+	// Долг торговцу за предмет, взятый без денег: спишется с денежной награды при сдаче.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest|Подготовка")
+	float PrepDebt = 0.0f;
+
+	// Сколько монет герой получит при сдаче: награда минус долг, не меньше нуля.
+	float GetPayoutMoney() const { return FMath::Max(0.0f, RewardMoney - FMath::Max(0.0f, PrepDebt)); }
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	EQuestState State = EQuestState::NotStarted;
 };
@@ -336,6 +401,41 @@ public:
 	// «первого боя»: замедление волка и выкуп шкур торговцем (решения Рината 05–06.10.2026).
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool IsQuestTurnedIn(FName QuestId) const;
+
+	// --- Подготовительный шаг задания (11.10.2026) ---
+
+	// Чистое правило шага: что должно стоять у задания при таком положении дел с предметом.
+	static EQuestPrepStep ComputePrepStep(const FQuest& Quest, EQuestPrepPossession Possession);
+
+	// Показывается ли сейчас игроку подготовительный шаг (вместо обычных целей задания).
+	static bool IsPrepStepShown(const FQuest& Quest)
+	{
+		return Quest.State == EQuestState::Active && !Quest.PrepItemRow.IsNone()
+			&& (Quest.PrepStep == EQuestPrepStep::Buy || Quest.PrepStep == EQuestPrepStep::Equip);
+	}
+
+	// Цель подготовительного шага для строки на экране (пусто — шага сейчас нет).
+	static FText GetPrepObjectiveText(const FQuest& Quest);
+
+	// Есть ли идущее задание, у которого шаг ещё не пройден / ещё ни разу не проверялся.
+	bool HasPendingPrep() const;
+	bool HasUncheckedPrep() const;
+
+	// Сверить шаги всех заданий с тем, где сейчас предмет (GetPossession — по строке предмета).
+	void UpdatePrepSteps(TFunctionRef<EQuestPrepPossession(FName)> GetPossession);
+
+	// Задание, по которому на эту строку предмета сейчас действует скидка (иначе null).
+	const FQuest* FindPrepDeal(FName ItemRow) const;
+
+	// Предмет куплен по скидке задания; Debt — сколько монет не хватило (взято в долг).
+	bool NotePrepPurchase(FName QuestId, float Debt);
+
+	// Донести описание подготовительного шага заданию, которое уже лежит в журнале без него
+	// (сохранение записано до 11.10.2026). true — задание дополнено.
+	bool MergePrepDefinition(const FQuest& Definition);
+
+	// Идёт ли у какого-нибудь задания такой шаг.
+	bool IsAnyPrepStepShown(EQuestPrepStep Step) const;
 
 	// Выполнены ли ОБЕ цели квеста (kill + item). Цель с нулевым требованием считается выполненной.
 	static bool AreObjectivesMet(const FQuest& Quest);

@@ -20,6 +20,8 @@
 
 class UStatsComponent;
 class UQuestComponent;
+struct FQuest;
+enum class EQuestPrepPossession : uint8;
 class UContrarySaveGame;
 class AMasterInventoryItem;
 enum class EConsumableType : uint8; // тип расходника (AConsumableItem.h) — параметр GiveConsumableToBackpack
@@ -1021,6 +1023,25 @@ public:
     // в рюкзак стаком; предметы — Qty копий в рюкзак) и списывает цену. Слайдер магазина зовёт
     // это с выбранным количеством (Фаза 5, STALKER 2-стиль). Возвращает true при успехе.
     bool Shop_BuyEntryQty(const FShopEntry& Entry, int32 Qty);
+
+    // --- Подготовительный шаг задания: купить предмет и поставить в слот (11.10.2026) ---
+
+    // Цена покупки позиции для этого героя: обычная либо со скидкой по заданию (тогда
+    // OutDeal — это задание; у него же подписи для плитки товара).
+    float GetShopBuyPrice(const FShopEntry& Entry, const FQuest** OutDeal = nullptr) const;
+
+    // Где у героя предмет такой строки таблицы: в слоте оружия, в сумке или нигде.
+    EQuestPrepPossession GetItemPossession(FName ItemRow) const;
+
+    // Тот ли это предмет, что строка таблицы (у вещей без строки — по классу строки).
+    static bool DoesItemMatchRow(const AMasterInventoryItem* Item, FName ItemRow);
+
+    // Предмет, который задание сейчас просит поставить в слот (плитка в сумке мигает).
+    bool IsQuestPrepItemToEquip(const AMasterInventoryItem* Item) const;
+
+    // Сверить шаги заданий с сумкой и слотами. Зовёт контроллер каждый кадр; дёшево, пока
+    // ни одно задание шагов не ждёт.
+    void UpdateQuestPrepSteps();
 
     // Продать предмет рюкзака за SellPrice (целиком): экип. броню сначала снимает, удаляет
     // предмет, начисляет деньги. Для нестакающихся предметов.

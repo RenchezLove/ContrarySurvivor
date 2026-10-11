@@ -2919,6 +2919,18 @@ void AContrarySurvivorPlayerController::CloseShop()
 		return;
 	}
 	bShopOpen = false;
+
+	// Купленный по заданию предмет лежит в сумке и ждёт слота (11.10.2026): мигает кнопка
+	// сумки — тем же миганием, что после подарка старосты; плитка мигает уже в самой сумке.
+	if (APlayerCharacter* ShopPlayer = Cast<APlayerCharacter>(GetPawn()))
+	{
+		ShopPlayer->UpdateQuestPrepSteps();
+		if (TouchControlsLayer && ShopPlayer->GetQuests()
+			&& ShopPlayer->GetQuests()->IsAnyPrepStepShown(EQuestPrepStep::Equip))
+		{
+			TouchControlsLayer->StartInventoryAttentionBlink();
+		}
+	}
 	bUIClickConsumed = false;
 	ResetShopTouchState(); // G2: палец мог остаться «в жесте» — не тащить его в закрытый экран
 	SetAdBannerForScreen(AdPlacements::BannerShop, false);
@@ -3246,6 +3258,8 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 		if (UQuestComponent* PlayerQuests = PlayerChar->GetQuests())
 		{
 			PlayerQuests->SyncInventoryQuests(PlayerChar->GetInventory());
+			// Подготовительный шаг задания (купить пистолет, поставить в слот) — по сумке и слотам.
+			PlayerChar->UpdateQuestPrepSteps();
 		}
 	}
 
