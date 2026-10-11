@@ -132,6 +132,11 @@ void AContrarySurvivorPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Уход приложения в фон и закрытие: записать ход игры (на Android эти события приходят
+	// в игровом потоке — LaunchAndroid.cpp, APP_EVENT_RUN_CALLBACK).
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
+	FCoreDelegates::ApplicationWillTerminateDelegate.AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
+
 	// На каком уровне мы оказались — узнаём ОДИН раз и запоминаем (ADR-067 п.5). Имя карты
 	// берём без служебной приставки редактора, иначе запуск из редактора не узнал бы сам себя.
 	bOnBootLevel = IsSameLevel(
@@ -262,6 +267,13 @@ void AContrarySurvivorPlayerController::BeginPlay()
 
 void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.RemoveAll(this);
+	FCoreDelegates::ApplicationWillTerminateDelegate.RemoveAll(this);
+	if (EndPlayReason == EEndPlayReason::Quit)
+	{
+		HandleAppGoingAway(); // окно игры закрыли на ПК
+	}
+
 #if CONTRARY_WITH_QA_CHEATS
 	// Меню отладки снимаем с экрана вместе с контроллером.
 	if (DebugMenuWidget.IsValid())
@@ -3135,6 +3147,14 @@ void AContrarySurvivorPlayerController::OnTogglePda()
 	}
 }
 
+void AContrarySurvivorPlayerController::HandleAppGoingAway()
+{
+	if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+	{
+		PlayerChar->AutoSaveNow(TEXT("app going away"));
+	}
+}
+
 void AContrarySurvivorPlayerController::QaShowPda()
 {
 #if CONTRARY_WITH_QA_CHEATS
@@ -3260,6 +3280,8 @@ void AContrarySurvivorPlayerController::Tick(float DeltaTime)
 			PlayerQuests->SyncInventoryQuests(PlayerChar->GetInventory());
 			// Подготовительный шаг задания (купить пистолет, поставить в слот) — по сумке и слотам.
 			PlayerChar->UpdateQuestPrepSteps();
+			// Ход задания изменился — пишем сохранение (несколько изменений за кадр — одна запись).
+			PlayerChar->FlushAutoSave();
 		}
 	}
 

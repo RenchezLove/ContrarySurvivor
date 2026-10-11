@@ -16,6 +16,7 @@
 #include "ContrarySurvivor/UI/LimpIndicatorWidget.h" // ULimpIndicatorWidget + FLimpFirstHintState (индикатор хромоты, Build 1)
 #include "ContrarySurvivor/Ads/DeathLossLogic.h" // DeathLoss::FPlan (потери при смерти, Build 1.2)
 #include "ContrarySurvivor/Debug/QADebug.h"      // CONTRARY_WITH_QA_CHEATS: отладочной клавиши нет в Shipping
+#include "ContrarySurvivor/Components/QuestComponent.h" // FQuest в обработчике события журнала
 #include "PlayerCharacter.generated.h"
 
 class UStatsComponent;
@@ -1042,6 +1043,34 @@ public:
     // Сверить шаги заданий с сумкой и слотами. Зовёт контроллер каждый кадр; дёшево, пока
     // ни одно задание шагов не ждёт.
     void UpdateQuestPrepSteps();
+
+    // --- Запись хода игры без костра (11.10.2026) ---
+    // Журнал заданий, сумка и память баз должны лежать в сохранении согласованно: зачистка
+    // базы пишется в сохранение сразу, поэтому и ход задания пишется сразу — при засчитанном
+    // убийстве, подобранном предмете задания, взятии и сдаче, а ещё когда приложение уходит
+    // в фон или закрывается.
+
+    // Попросить запись при ближайшем удобном кадре (несколько просьб подряд — одна запись).
+    void RequestAutoSave(const TCHAR* Reason);
+    bool HasPendingAutoSave() const { return bAutoSavePending; }
+    // Записать, если просили и сейчас можно. Зовёт контроллер каждый кадр.
+    bool FlushAutoSave();
+    // Записать прямо сейчас (уход приложения в фон). false — сейчас писать нельзя или нечего.
+    bool AutoSaveNow(const TCHAR* Reason);
+    // Можно ли сейчас писать: герой жив, не идёт восстановление, игра уже начата.
+    bool CanAutoSave() const;
+
+    // После загрузки: база, которую сохранение помнит зачищенной, а идущее задание — нет,
+    // взводится заново (страховка для сохранений, записанных до 11.10.2026).
+    int32 RepairQuestTargetsAfterLoad();
+
+    UFUNCTION()
+    void HandleQuestChangedForAutoSave(const FQuest& Quest);
+
+private:
+    bool bAutoSavePending = false;
+
+public:
 
     // Продать предмет рюкзака за SellPrice (целиком): экип. броню сначала снимает, удаляет
     // предмет, начисляет деньги. Для нестакающихся предметов.

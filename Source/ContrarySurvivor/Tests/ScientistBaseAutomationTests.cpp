@@ -1488,6 +1488,422 @@ bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ===========================================================================
+// Выход из игры в любой точке цепочки заданий не даёт тупика (ошибка Рината 11.10.2026:
+// «перебил бандитов и шел в деревню и по пути вышел из игры… Я пошел в лагерь бандитов, а их
+// там уже не было. И ноутбука тоже не было. Таким образом квест стал непроходимым»).
+// Причина была в том, что зачистка базы писалась в сохранение сразу, а журнал заданий и сумка —
+// только у костра. Здесь после каждого шага цепочки приложение «уходит в фон» (та же запись,
+// что на телефоне), мир создаётся заново, герой загружается из сохранения — журнал и сумка
+// обязаны совпасть с тем, что было, и цепочка обязана дойти до конца.
+// ===========================================================================
+namespace SaveChainTest
+{
+	struct FSession
+	{
+		FString Slot;
+		UWorld* World = nullptr;
+		ASaveTestPlayerCharacter* Player = nullptr;
+		AElderNPC* Elder = nullptr;
+		AMasterEnemyBase* WolfDen = nullptr;
+		AMasterEnemyBase* BanditBase = nullptr;
+		AScientistGuardNPC* Guard = nullptr;
+		AScientistQuestNPC* Scientist = nullptr;
+		AQuestItemSpawner* RadioSpot = nullptr;
+		AQuestBarrier* Barrier = nullptr;
+		AMasterTrader* Trader = nullptr;
+		UQuestComponent* Quests = nullptr;
+		UInventoryComponent* Inv = nullptr;
+
+		bool Build()
+		{
+			World = ScientistTest::Create();
+			if (!World)
+			{
+				return false;
+			}
+			Player = ScientistTest::Spawn<ASaveTestPlayerCharacter>(World, FVector(-3880.0, -4320.0, 100.0));
+			Elder = ScientistTest::Spawn<AElderNPC>(World, FVector(-4530.0, -4100.0, 91.0));
+			WolfDen = ScientistTest::Spawn<AMasterEnemyBase>(World, FVector(13943.0, -5998.0, 0.0));
+			BanditBase = ScientistTest::Spawn<AMasterEnemyBase>(World, FVector(6940.0, 9070.0, 0.0));
+			Guard = ScientistTest::Spawn<AScientistGuardNPC>(World, FVector(7250.0, -15740.0, 91.0));
+			Scientist = ScientistTest::Spawn<AScientistQuestNPC>(World, FVector(9231.0, -16562.0, 91.0));
+			RadioSpot = ScientistTest::Spawn<AQuestItemSpawner>(World, FVector(-5280.0, -13440.0, 0.0));
+			Barrier = ScientistTest::Spawn<AQuestBarrier>(World, FVector(7378.0, -16040.0, 0.0));
+			Trader = ScientistTest::Spawn<AMasterTrader>(World, FVector(-3000.0, -3960.0, 91.0));
+			if (!Player || !Elder || !WolfDen || !BanditBase || !Guard || !Scientist || !RadioSpot || !Barrier || !Trader)
+			{
+				return false;
+			}
+			Player->UseTestSaveSlot(Slot);
+			Quests = Player->GetQuests();
+			Inv = Player->GetInventory();
+			// Базы — как на уровне: метки целей и ноутбук у лагеря бандитов.
+			if (const FNameProperty* MarkerProp = FindFProperty<FNameProperty>(AMasterEnemyBase::StaticClass(), TEXT("QuestMarkerTag")))
+			{
+				MarkerProp->SetPropertyValue_InContainer(WolfDen, FName(TEXT("WolfDen")));
+				MarkerProp->SetPropertyValue_InContainer(BanditBase, FName(TEXT("BanditBase")));
+			}
+			if (const FBoolProperty* LaptopProp = FindFProperty<FBoolProperty>(AMasterEnemyBase::StaticClass(), TEXT("bSpawnQuestItem")))
+			{
+				LaptopProp->SetPropertyValue_InContainer(BanditBase, true);
+			}
+			return Quests && Inv && Player->GetStats();
+		}
+
+		void Teardown()
+		{
+			ScientistTest::Destroy(World);
+			World = nullptr;
+		}
+
+		FString Describe() const
+		{
+			FString Out;
+			for (const FQuest& Quest : Quests->GetQuests())
+			{
+				Out += FString::Printf(TEXT("[%s state=%d kills=%d items=%d prep=%d debt=%.0f]"), *Quest.QuestId.ToString(),
+					static_cast<int32>(Quest.State), Quest.Progress, Quest.ItemProgress, static_cast<int32>(Quest.PrepStep), Quest.PrepDebt);
+			}
+			TMap<FString, int32> Bag;
+			for (const AMasterInventoryItem* Item : Inv->GetInventoryItems())
+			{
+				if (Item)
+				{
+					Bag.FindOrAdd(Item->ItemName) += FMath::Max(1, Item->GetStackCount());
+				}
+			}
+			Bag.KeySort([](const FString& A, const FString& B) { return A < B; });
+			for (const TPair<FString, int32>& Pair : Bag)
+			{
+				Out += FString::Printf(TEXT("{%s x%d}"), *Pair.Key, Pair.Value);
+			}
+			Out += FString::Printf(TEXT(" money=%.0f"), Player->GetStats()->GetMoney());
+			return Out;
+		}
+
+		// Приложение ушло в фон, игру закрыли, запустили заново и нажали «Продолжить».
+		bool ExitAndContinue(FAutomationTestBase& Test, const TCHAR* Where)
+		{
+			Quests->SyncInventoryQuests(Inv);
+			const FString Before = Describe();
+			if (!Test.TestTrue(*FString::Printf(TEXT("%s: уход в фон записал сохранение"), Where), Player->AutoSaveNow(TEXT("QA exit"))))
+			{
+				return false;
+			}
+			Teardown();
+			if (!Build() || !Test.TestTrue(*FString::Printf(TEXT("%s: сохранение загрузилось"), Where), Player->LoadGameForContinue()))
+			{
+				Test.AddError(FString::Printf(TEXT("%s: мир после выхода не собран"), Where));
+				return false;
+			}
+			Quests->SyncInventoryQuests(Inv);
+			Test.TestEqual(*FString::Printf(TEXT("%s: журнал, сумка и монеты после выхода те же"), Where), Describe(), Before);
+			return true;
+		}
+
+		void Give(const FString& ItemKey, int32 Count)
+		{
+			for (int32 Index = 0; Index < Count; ++Index)
+			{
+				if (AQuestItem* Item = ScientistTest::Spawn<AQuestItem>(World, Player->GetActorLocation()))
+				{
+					Item->ItemName = ItemKey;
+					Inv->AddItem(Item);
+				}
+			}
+			Quests->SyncInventoryQuests(Inv);
+		}
+
+		EQuestState StateOf(FName QuestId) const { return ScientistTest::StateOf(Player, QuestId); }
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSaveChainExitAnywhereTest,
+	"ContrarySurvivor.Story.ExitAtAnyPointKeepsChainPassable", ScientistTestFlags)
+
+bool FSaveChainExitAnywhereTest::RunTest(const FString& Parameters)
+{
+	ScientistTest::FScopedTables Tables;
+	SaveChainTest::FSession S;
+	S.Slot = TEXT("ContrarySaveChainQA");
+	ScientistTest::DeleteSlot(S.Slot);
+	if (!TestTrue(TEXT("Мир собран"), S.Build()))
+	{
+		S.Teardown();
+		return false;
+	}
+
+	TestFalse(TEXT("Свежая игра без заданий и без сохранения в фон не пишется"), S.Player->AutoSaveNow(TEXT("QA fresh")));
+
+	bool bOk = true;
+	FNpcTalkView View;
+
+	// --- Задание 1: шкуры ---
+	const FQuest First = S.Elder->GetOfferedQuest();
+	S.Quests->OfferQuest(First);
+	TestTrue(TEXT("Первое задание берётся"), S.Quests->AcceptQuest(First.QuestId));
+	TestTrue(TEXT("Взятие задания просит запись сохранения"), S.Player->HasPendingAutoSave());
+	bOk = bOk && S.ExitAndContinue(*this, TEXT("Первое задание взято"));
+	if (bOk)
+	{
+		S.Give(First.RequiredItemName, First.RequiredItemCount - 1);
+		bOk = S.ExitAndContinue(*this, TEXT("Собрана часть шкур"));
+	}
+	if (bOk)
+	{
+		S.Give(First.RequiredItemName, 1);
+		TestEqual(TEXT("Шкуры собраны — задание готово"), S.StateOf(First.QuestId), EQuestState::Completed);
+		bOk = S.ExitAndContinue(*this, TEXT("Шкуры собраны"));
+	}
+	if (bOk)
+	{
+		TestEqual(TEXT("После выхода первое задание по-прежнему готово к сдаче"), S.StateOf(First.QuestId), EQuestState::Completed);
+		TestTrue(TEXT("Первое задание сдаётся"), S.Quests->TurnInQuest(First.QuestId));
+		bOk = S.ExitAndContinue(*this, TEXT("Первое задание сдано"));
+	}
+
+	// --- Задание 2: бандиты и ноутбук, с покупкой пистолета ---
+	const FQuest Second = bOk ? S.Elder->GetSecondQuest() : FQuest();
+	if (bOk)
+	{
+		TestEqual(TEXT("После выхода староста даёт второе задание"), S.Elder->GetQuestForPlayer(S.Quests).QuestId, Second.QuestId);
+		S.Quests->OfferQuest(Second);
+		TestTrue(TEXT("Второе задание берётся"), S.Quests->AcceptQuest(Second.QuestId));
+		S.Player->UpdateQuestPrepSteps();
+		bOk = S.ExitAndContinue(*this, TEXT("Второе задание взято, шаг покупки пистолета"));
+	}
+	if (bOk)
+	{
+		const FShopEntry* PistolEntry = S.Trader->GetCatalog().FindByPredicate(
+			[&Second](const FShopEntry& Entry) { return Entry.ItemRow == Second.PrepItemRow; });
+		if (TestNotNull(TEXT("У торговца есть пистолет"), PistolEntry))
+		{
+			TestEqual(TEXT("После выхода скидка на пистолет действует"), S.Player->GetShopBuyPrice(*PistolEntry), Second.PrepDealPrice);
+			TestTrue(TEXT("Пистолет куплен"), S.Player->Shop_BuyEntryQty(*PistolEntry, 1));
+		}
+		bOk = S.ExitAndContinue(*this, TEXT("Пистолет куплен, шаг слота"));
+	}
+	if (bOk)
+	{
+		AMasterInventoryItem* Pistol = nullptr;
+		for (AMasterInventoryItem* Item : S.Inv->GetInventoryItems())
+		{
+			if (APlayerCharacter::DoesItemMatchRow(Item, Second.PrepItemRow))
+			{
+				Pistol = Item;
+			}
+		}
+		TestTrue(TEXT("После выхода купленный пистолет в сумке и встаёт в слот"), Pistol && S.Player->TryAdoptRangedWeapon(Pistol));
+		S.Player->UpdateQuestPrepSteps();
+		TestEqual(TEXT("Шаги пистолета пройдены"), S.Quests->FindQuest(Second.QuestId)->PrepStep, EQuestPrepStep::Done);
+		bOk = S.ExitAndContinue(*this, TEXT("Пистолет в слоте"));
+	}
+	if (bOk)
+	{
+		S.Quests->NotifyKill(Second.KillTargetTag);
+		S.Quests->NotifyKill(Second.KillTargetTag);
+		TestTrue(TEXT("Засчитанное убийство просит запись сохранения"), S.Player->HasPendingAutoSave());
+		bOk = S.ExitAndContinue(*this, TEXT("Убиты двое бандитов из трёх"));
+	}
+	if (bOk)
+	{
+		TestEqual(TEXT("После выхода счёт убийств на месте"), S.Quests->FindQuest(Second.QuestId)->Progress, 2);
+		S.Quests->NotifyKill(Second.KillTargetTag);
+		bOk = S.ExitAndContinue(*this, TEXT("Бандиты перебиты, ноутбук не взят"));
+	}
+	if (bOk)
+	{
+		// Мир помнит зачищенную базу (её память пишется в сохранение сразу).
+		S.BanditBase->MarkClearedForQA();
+		TestEqual(TEXT("Бандитов возвращать незачем — убийства засчитаны"), S.Player->RepairQuestTargetsAfterLoad(), 0);
+		S.BanditBase->RefreshQuestItem();
+		TestNotNull(TEXT("Ноутбук лежит и на зачищенной базе, пока он нужен заданию"), S.BanditBase->GetSpawnedQuestPickupForQA());
+		S.Give(Second.RequiredItemName, Second.RequiredItemCount);
+		TestTrue(TEXT("Подобранный предмет задания просит запись сохранения"), S.Player->HasPendingAutoSave());
+		S.BanditBase->RefreshQuestItem();
+		TestNull(TEXT("Ноутбук в сумке — второго на базе нет"), S.BanditBase->GetSpawnedQuestPickupForQA());
+		TestEqual(TEXT("Второе задание готово к сдаче"), S.StateOf(Second.QuestId), EQuestState::Completed);
+		// Тот самый случай Рината: перебил бандитов, взял ноутбук, по пути в деревню вышел.
+		bOk = S.ExitAndContinue(*this, TEXT("Бандиты перебиты, ноутбук в сумке, по пути в деревню"));
+	}
+	if (bOk)
+	{
+		S.BanditBase->MarkClearedForQA();
+		TestEqual(TEXT("После выхода задание в состоянии «вернись к старосте»"), S.StateOf(Second.QuestId), EQuestState::Completed);
+		TestEqual(TEXT("После выхода ноутбук в сумке"), ScientistTest::CountInBag(S.Player, ScientistTest::LaptopKey), 1);
+		const FQuest* InLog = S.Quests->FindQuest(Second.QuestId);
+		TestTrue(TEXT("После выхода задание ведёт к старосте"), InLog && QuestTargets::FindTargetActor(S.World, *InLog) == S.Elder);
+		TestTrue(TEXT("Второе задание сдаётся"), S.Quests->TurnInQuest(Second.QuestId));
+		bOk = S.ExitAndContinue(*this, TEXT("Второе задание сдано"));
+	}
+
+	// --- Ожидание старосты, охранник и рация ---
+	const FName QGuard = bOk ? S.Guard->GetOfferedQuest().QuestId : NAME_None;
+	if (bOk)
+	{
+		S.Player->MarkElderNotebookHintShown(S.Elder->GetNotebookWaitSeconds());
+		bOk = S.ExitAndContinue(*this, TEXT("Идёт ожидание старосты"));
+	}
+	if (bOk)
+	{
+		TestTrue(TEXT("После выхода ожидание старосты продолжается"), S.Player->GetElderNotebookWaitRemaining() > 0.0f);
+		TestFalse(TEXT("После выхода третье задание раньше времени не открывается"), S.Elder->TryUnlockThirdQuest(S.Player));
+		S.Guard->OnTalkOpened(S.Player);
+		S.Guard->BuildTalkView(S.Player, View);
+		S.Guard->HandleTalkPrimary(S.Player);
+		TestEqual(TEXT("Задание охранника взято"), S.StateOf(QGuard), EQuestState::Active);
+		bOk = S.ExitAndContinue(*this, TEXT("Задание охранника взято"));
+	}
+	if (bOk)
+	{
+		S.RadioSpot->RefreshNow();
+		TestNotNull(TEXT("После выхода рация лежит на месте"), S.RadioSpot->GetSpawnedPickup());
+		TestTrue(TEXT("Рация подобрана"), S.Player->GiveItemFromRow(ScientistTest::RadioRow, 1) > 0);
+		S.Quests->SyncInventoryQuests(S.Inv);
+		bOk = S.ExitAndContinue(*this, TEXT("Рация подобрана"));
+	}
+	if (bOk)
+	{
+		TestEqual(TEXT("После выхода задание охранника готово к сдаче"), S.StateOf(QGuard), EQuestState::Completed);
+		S.RadioSpot->RefreshNow();
+		TestNull(TEXT("Рация в сумке — второй на месте нет"), S.RadioSpot->GetSpawnedPickup());
+	}
+
+	// --- Задание 3: ноутбук учёным ---
+	const FName Q3 = bOk ? S.Elder->GetThirdQuest().QuestId : NAME_None;
+	if (bOk)
+	{
+		ScientistTest::SetNotebookHintShown(S.Player, true); // ожидание кончилось
+		TestTrue(TEXT("Третье задание открывается"), S.Elder->TryUnlockThirdQuest(S.Player));
+		TestTrue(TEXT("Третье задание берётся"), S.Quests->AcceptQuest(Q3));
+		bOk = S.ExitAndContinue(*this, TEXT("Третье задание взято, ноутбук выдан"));
+	}
+	if (bOk)
+	{
+		TestEqual(TEXT("После выхода выданный ноутбук в сумке"), ScientistTest::CountInBag(S.Player, ScientistTest::LaptopKey), 1);
+		S.Barrier->RefreshNow();
+		TestTrue(TEXT("После выхода шлагбаум открыт"), S.Barrier->IsOpen());
+		S.Scientist->OnTalkOpened(S.Player);
+		S.Scientist->BuildTalkView(S.Player, View);
+		S.Scientist->HandleTalkPrimary(S.Player);
+		TestEqual(TEXT("Третье задание сдано учёному"), S.StateOf(Q3), EQuestState::TurnedIn);
+		bOk = S.ExitAndContinue(*this, TEXT("Третье задание сдано"));
+	}
+	if (bOk)
+	{
+		S.Guard->OnTalkOpened(S.Player);
+		S.Guard->BuildTalkView(S.Player, View);
+		S.Guard->HandleTalkPrimary(S.Player);
+		TestEqual(TEXT("Задание охранника сдано"), S.StateOf(QGuard), EQuestState::TurnedIn);
+		bOk = S.ExitAndContinue(*this, TEXT("Все задания сданы"));
+	}
+	if (bOk)
+	{
+		TestEqual(TEXT("После всех выходов сданы все четыре задания"), S.Quests->GetTurnedInQuestCount(), 4);
+	}
+
+	S.Teardown();
+	ScientistTest::DeleteSlot(S.Slot);
+	return true;
+}
+
+// ===========================================================================
+// Причина ошибки и страховка для уже испорченных сохранений. «Так было»: сохранение записано
+// у костра до боя, бандиты перебиты и ноутбук взят, запись хода не сделана — после выхода
+// журнал откатывается, а мир помнит зачищенную базу. Страховка при загрузке взводит такую
+// базу заново, а ноутбук кладётся по журналу; награду дважды получить нельзя — задание в
+// журнале не выполнено, его проходят заново.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSaveBrokenQuestRepairTest,
+	"ContrarySurvivor.Story.BrokenSaveWithClearedBaseIsRepaired", ScientistTestFlags)
+
+bool FSaveBrokenQuestRepairTest::RunTest(const FString& Parameters)
+{
+	ScientistTest::FScopedTables Tables;
+	SaveChainTest::FSession S;
+	S.Slot = TEXT("ContrarySaveRepairQA");
+	ScientistTest::DeleteSlot(S.Slot);
+	if (!TestTrue(TEXT("Мир собран"), S.Build()))
+	{
+		S.Teardown();
+		return false;
+	}
+	const FQuest First = S.Elder->GetOfferedQuest();
+	const FQuest Second = S.Elder->GetSecondQuest();
+
+	// До взятия задания ноутбука на базе нет.
+	S.BanditBase->RefreshQuestItem();
+	TestNull(TEXT("Задание на бандитов не взято — ноутбука на базе нет"), S.BanditBase->GetSpawnedQuestPickupForQA());
+
+	FQuest FirstDone = First;
+	FirstDone.State = EQuestState::TurnedIn;
+	S.Quests->RestoreQuests({ FirstDone });
+	S.Quests->OfferQuest(Second);
+	S.BanditBase->RefreshQuestItem();
+	TestNull(TEXT("Задание только предложено — ноутбука на базе нет"), S.BanditBase->GetSpawnedQuestPickupForQA());
+	TestTrue(TEXT("Второе задание берётся"), S.Quests->AcceptQuest(Second.QuestId));
+	S.BanditBase->RefreshQuestItem();
+	TestNotNull(TEXT("Задание взято — ноутбук лежит на базе"), S.BanditBase->GetSpawnedQuestPickupForQA());
+
+	// «Так было»: запись только у костра, до боя.
+	TestTrue(TEXT("Сохранение у костра до боя"), S.Player->SaveGame());
+	for (int32 Kill = 0; Kill < Second.TargetCount; ++Kill)
+	{
+		S.Quests->NotifyKill(Second.KillTargetTag);
+	}
+	S.Give(Second.RequiredItemName, Second.RequiredItemCount);
+	TestEqual(TEXT("В игре задание готово к сдаче"), S.StateOf(Second.QuestId), EQuestState::Completed);
+	TestTrue(TEXT("Теперь убийства и ноутбук просят запись сохранения"), S.Player->HasPendingAutoSave());
+
+	// Выход БЕЗ записи хода — как в сборке 0.4.0 (8).
+	S.Teardown();
+	if (!TestTrue(TEXT("Мир после выхода собран"), S.Build()) || !TestTrue(TEXT("Сохранение загрузилось"), S.Player->LoadGameForContinue()))
+	{
+		S.Teardown();
+		return false;
+	}
+	S.BanditBase->MarkClearedForQA(); // память базы писалась в сохранение сразу — база пуста
+	const FQuest* Rolled = S.Quests->FindQuest(Second.QuestId);
+	if (TestNotNull(TEXT("Задание на бандитов в журнале"), Rolled))
+	{
+		TestEqual(TEXT("Так было: журнал откатился к «идти в лагерь бандитов»"), Rolled->State, EQuestState::Active);
+		TestEqual(TEXT("Так было: счёт убийств потерян"), Rolled->Progress, 0);
+	}
+	TestEqual(TEXT("Так было: ноутбука в сумке нет"), ScientistTest::CountInBag(S.Player, ScientistTest::LaptopKey), 0);
+	TestEqual(TEXT("Так было: база стоит пустой"), S.BanditBase->GetOccupancyForQA(), EEnemyBaseOccupancy::Cleared);
+
+	// Страховка при загрузке.
+	TestEqual(TEXT("Страховка взводит одну базу"), S.Player->RepairQuestTargetsAfterLoad(), 1);
+	TestEqual(TEXT("База бандитов снова ждёт героя"), S.BanditBase->GetOccupancyForQA(), EEnemyBaseOccupancy::Dormant);
+	TestEqual(TEXT("Повторная страховка ничего не делает"), S.Player->RepairQuestTargetsAfterLoad(), 0);
+	S.BanditBase->RefreshQuestItem();
+	TestNotNull(TEXT("Ноутбук снова лежит на базе"), S.BanditBase->GetSpawnedQuestPickupForQA());
+	const float MoneyBefore = S.Player->GetStats()->GetMoney();
+	TestFalse(TEXT("Несделанное задание сдать нельзя — награды дважды не будет"), S.Quests->TurnInQuest(Second.QuestId));
+	TestEqual(TEXT("Монеты не изменились"), S.Player->GetStats()->GetMoney(), MoneyBefore);
+
+	// Логово волков: шкуры собраны не все, а логово зачищено — взводится тоже.
+	S.Quests->RestoreQuests({ First });
+	TestTrue(TEXT("Первое задание берётся"), S.Quests->AcceptQuest(First.QuestId));
+	S.WolfDen->MarkClearedForQA();
+	TestEqual(TEXT("Логово при несобранных шкурах взводится заново"), S.Player->RepairQuestTargetsAfterLoad(), 1);
+	TestEqual(TEXT("Логово снова ждёт героя"), S.WolfDen->GetOccupancyForQA(), EEnemyBaseOccupancy::Dormant);
+
+	// Сданное задание базу не трогает и ноутбук не кладёт.
+	FQuest SecondDone = Second;
+	SecondDone.State = EQuestState::TurnedIn;
+	S.Quests->RestoreQuests({ FirstDone, SecondDone });
+	S.BanditBase->MarkClearedForQA();
+	TestEqual(TEXT("Сданное задание базу не взводит"), S.Player->RepairQuestTargetsAfterLoad(), 0);
+	S.BanditBase->RefreshQuestItem();
+	TestNull(TEXT("Задание сдано — ноутбука на базе нет"), S.BanditBase->GetSpawnedQuestPickupForQA());
+
+	S.Teardown();
+	ScientistTest::DeleteSlot(S.Slot);
+	return true;
+}
+
 #endif // CONTRARY_WITH_QA_CHEATS
 
 #endif // WITH_DEV_AUTOMATION_TESTS

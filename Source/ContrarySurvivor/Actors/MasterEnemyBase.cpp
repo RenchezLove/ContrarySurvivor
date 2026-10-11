@@ -13,6 +13,10 @@
 #include "ContrarySurvivor/Subsystems/SpawnPlacementUtils.h" // floor-trace/ResolveSpawnZ (переиспользуем)
 #include "Pickup.h"        // пикап-носитель квест-предмета (тот же каталог Actors/)
 #include "AQuestItem.h"    // дефолтный класс квест-предмета «Ноутбук»
+#include "ContrarySurvivor/Actors/QuestItemSpawner.h" // правило «предмет задания лежит, пока задание взято»
+#include "ContrarySurvivor/Components/QuestComponent.h"
+#include "UInventoryComponent.h"
+#include "EngineUtils.h"
 #include "EnemySpawnPointComponent.h" // видимые/перемещаемые в BP точки спавна
 #include "ContrarySurvivor/Controllers/EnemyAIController.h" // D7: SetLeash заспавненным врагам
 #include "ContrarySurvivor/Actors/EnemyBaseTierLogic.h"     // ТЗ 22.08: чистые правила ступеней
@@ -170,6 +174,8 @@ void AMasterEnemyBase::CheckActivation()
 		return; // игрок ещё не заспавнен — ждём следующего тика таймера
 	}
 
+	RefreshQuestItem(); // предмет задания — по журналу и сумке героя
+
 	// Горизонтальная (XY) дистанция игрока до центра зоны: Z игнорируем (рельеф/высота
 	// игрока не влияют). Грань ВХОДА в радиус — момент показа надписи (ТЗ §5).
 	const float DistSqXY = FVector::DistSquaredXY(PlayerPawn->GetActorLocation(), GetActorLocation());
@@ -241,12 +247,6 @@ void AMasterEnemyBase::DoSpawn()
 	SpawnedEnemies.Reset();
 	SpawnEnemies();
 
-	// Квест-предмет (ноутбук кв.2) — только пока базу ни разу не зачищали: возрождённая
-	// база не плодит вторые ноутбуки (допущение, доложено лиду).
-	if (bSpawnQuestItem && LastClearUtc.GetTicks() == 0)
-	{
-		SpawnQuestItem();
-	}
 
 	// Занята — только если кто-то реально заспавнился (без EnemyClass база остаётся пустой,
 	// как раньше: спавн не переигрывается, лог уже написан в SpawnEnemies).
@@ -390,6 +390,92 @@ void AMasterEnemyBase::SpawnEnemies()
 	}
 	UE_LOG(LogTemp, Log, TEXT("EnemyBase '%s': activated, spawned %d enemies (fallback circle, no spawn points)"),
 		*GetName(), Count);
+}
+
+void AMasterEnemyBase::RefreshQuestItem()
+{
+	if (!bSpawnQuestItem || QuestItemName.IsEmpty())
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	const APlayerCharacter* Player = nullptr;
+	if (World)
+	{
+		for (TActorIterator<APlayerCharacter> It(World); It; ++It)
+		{
+			Player = *It;
+			break;
+		}
+	}
+	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	const UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
+	if (!Quests || !Inv)
+	{
+		return; // героя ещё нет — решать рано
+	}
+
+	// Задание, которому нужен этот предмет (первое по журналу).
+	const FQuest* Quest = Quests->GetQuests().FindByPredicate([this](const FQuest& Q)
+	{
+		return Q.RequiredItemCount > 0 && Q.RequiredItemName.Equals(QuestItemName, ESearchCase::CaseSensitive);
+	});
+	bool bPlayerHasItem = false;
+	for (const AMasterInventoryItem* Item : Inv->GetInventoryItems())
+	{
+		if (Item && Item->ItemName.Equals(QuestItemName, ESearchCase::CaseSensitive))
+		{
+			bPlayerHasItem = true;
+			break;
+		}
+	}
+	// Правило то же, что у места рации (AQuestItemSpawner): только пока задание взято.
+	const bool bShould = AQuestItemSpawner::ShouldItemLie(Quest != nullptr,
+		Quest ? Quest->State : EQuestState::NotStarted, bPlayerHasItem, /*bOnlyWhileQuestTaken=*/true);
+
+	APickup* Live = SpawnedQuestPickup.Get();
+	if (IsValid(Live) && !Live->HasLoot())
+	{
+		Live = nullptr; // пустой мешок исчезает сам — лежащим его не считаем
+	}
+	if (bShould && !Live)
+	{
+		SpawnQuestItem();
+	}
+	else if (!bShould && Live)
+	{
+		Live->Destroy();
+		SpawnedQuestPickup.Reset();
+		UE_LOG(LogQA, Display, TEXT("QA: база '%s' — предмет задания '%s' убран (задание его не ждёт)"), *GetName(), *QuestItemName);
+	}
+}
+
+bool AMasterEnemyBase::RearmForQuestRetry()
+{
+	if (Occupancy != EEnemyBaseOccupancy::Cleared)
+	{
+		return false;
+	}
+	// Ступень — та, что была зачищена: игрок переигрывает тот же бой, а не следующий.
+	if (LastClearedTier > 0)
+	{
+		CurrentTier = EnemyBaseTierLogic::ClampTier(LastClearedTier);
+	}
+	Occupancy = EEnemyBaseOccupancy::Dormant;
+	bSpawnScheduled = false;
+	UE_LOG(LogQA, Display,
+		TEXT("QA: база '%s' взведена заново на ступени %d — сохранение помнит зачистку, а журнал задания нет"),
+		*GetName(), CurrentTier);
+	return true;
+}
+
+void AMasterEnemyBase::MarkClearedForQA()
+{
+	LastClearedTier = EnemyBaseTierLogic::ClampTier(CurrentTier);
+	LastClearUtc = FDateTime::UtcNow();
+	CurrentTier = EnemyBaseTierLogic::NextTierAfterClear(LastClearedTier);
+	Occupancy = EEnemyBaseOccupancy::Cleared;
+	SpawnedEnemies.Reset();
 }
 
 void AMasterEnemyBase::SpawnQuestItem()
@@ -597,6 +683,16 @@ void AMasterEnemyBase::HandleBaseCleared()
 	SpawnedEnemies.Reset();
 
 	WriteTierStateToSave();
+
+	// Зачистка записана в сохранение сразу — журнал и сумка героя должны лечь туда же, иначе
+	// после выхода из игры сохранение помнит пустую базу, а задание — нет (ошибка 11.10.2026).
+	if (UWorld* ClearWorld = GetWorld())
+	{
+		for (TActorIterator<APlayerCharacter> It(ClearWorld); It; ++It)
+		{
+			It->RequestAutoSave(TEXT("base cleared"));
+		}
+	}
 	FillBaseStash(ClearedTier);
 	UpdateAmbientForState(); // база опустела — тишина
 

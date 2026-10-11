@@ -299,6 +299,10 @@ public:
 	// смартфона (в выпускной сборке ничего не делает).
 	UFUNCTION(Exec)
 	void QaShowPda();
+
+	// Приложение уходит в фон или закрывается (на телефоне игру смахивают без выхода через
+	// меню) — ход игры пишется в сохранение сразу (11.10.2026).
+	void HandleAppGoingAway();
 	void OpenPda();
 	void ClosePda();
 	bool IsPdaOpen() const { return bPdaOpen; }

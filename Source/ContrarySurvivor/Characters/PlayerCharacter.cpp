@@ -193,6 +193,12 @@ void APlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
+    // Ход задания пишется в сохранение сразу, не дожидаясь костра (11.10.2026).
+    if (Quests)
+    {
+        Quests->OnQuestChanged.AddUniqueDynamic(this, &APlayerCharacter::HandleQuestChangedForAutoSave);
+    }
+
     // Камера НЕ настраивается в BeginPlay: knob-параметры применяются один раз в OnConstruction
     // (см. ApplyCameraSettings). Это убирает анти-паттерн «BeginPlay перетирает правки камеры».
 
@@ -1550,6 +1556,104 @@ void APlayerCharacter::UpdateQuestPrepSteps()
     Quests->UpdatePrepSteps([this](FName ItemRow) { return GetItemPossession(ItemRow); });
 }
 
+// ---------------------------------------------------------------------------
+// Запись хода игры без костра и страховка после загрузки (11.10.2026)
+// ---------------------------------------------------------------------------
+
+bool APlayerCharacter::CanAutoSave() const
+{
+    if (!Stats || Stats->IsDead() || bRestoringSaveState)
+    {
+        return false; // на экране смерти пишет сам Respawn, при восстановлении писать нельзя
+    }
+    const UWorld* World = GetWorld();
+    if (!World || !World->IsGameWorld())
+    {
+        return false;
+    }
+    if (const AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(GetController()))
+    {
+        if (PC->IsIntroMoveInputLocked())
+        {
+            return false; // вступление ещё идёт — игра не начата
+        }
+    }
+    // Свежая игра без единого задания и без сохранения: писать нечего, а слот с данными
+    // включил бы в меню «Продолжить» у игрока, который ещё не играл.
+    const bool bHasJournal = Quests && Quests->GetQuests().Num() > 0;
+    return bHasJournal || HasSaveGame();
+}
+
+void APlayerCharacter::RequestAutoSave(const TCHAR* Reason)
+{
+    if (!bAutoSavePending)
+    {
+        UE_LOG(LogQA, Verbose, TEXT("QA: autosave requested (%s)"), Reason);
+    }
+    bAutoSavePending = true;
+}
+
+bool APlayerCharacter::FlushAutoSave()
+{
+    if (!bAutoSavePending || !CanAutoSave())
+    {
+        return false; // просьба остаётся в силе до удобного кадра
+    }
+    bAutoSavePending = false;
+    return SaveGame();
+}
+
+bool APlayerCharacter::AutoSaveNow(const TCHAR* Reason)
+{
+    if (!CanAutoSave())
+    {
+        return false;
+    }
+    bAutoSavePending = false;
+    const bool bOk = SaveGame();
+    UE_LOG(LogQA, Display, TEXT("QA: autosave (%s): %s"), Reason, bOk ? TEXT("OK") : TEXT("FAIL"));
+    return bOk;
+}
+
+void APlayerCharacter::HandleQuestChangedForAutoSave(const FQuest& Quest)
+{
+    RequestAutoSave(TEXT("quest changed"));
+}
+
+int32 APlayerCharacter::RepairQuestTargetsAfterLoad()
+{
+    UWorld* World = GetWorld();
+    if (!World || !Quests)
+    {
+        return 0;
+    }
+    Quests->SyncInventoryQuests(Inventory); // счёт предметов — по сумке из сохранения
+    int32 Rearmed = 0;
+    for (const FQuest& Quest : Quests->GetQuests())
+    {
+        if (Quest.State != EQuestState::Active || Quest.MapMarkerTag.IsNone())
+        {
+            continue;
+        }
+        const bool bKillsLeft = Quest.TargetCount > 0 && Quest.Progress < Quest.TargetCount;
+        const bool bItemsLeft = Quest.RequiredItemCount > 0 && Quest.ItemProgress < Quest.RequiredItemCount;
+        for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+        {
+            if (It->GetQuestMarkerTag() != Quest.MapMarkerTag)
+            {
+                continue;
+            }
+            // Предмет, который база кладёт сама (ноутбук), вернётся и на пустую базу; врагов
+            // и добычу с них (шкуры) возвращает только новая зачистка.
+            if (bKillsLeft || (bItemsLeft && !It->LaysQuestItem(Quest.RequiredItemName)))
+            {
+                Rearmed += It->RearmForQuestRetry() ? 1 : 0;
+            }
+        }
+    }
+    return Rearmed;
+}
+
 bool APlayerCharacter::Shop_BuyEntry(const FShopEntry& Entry)
 {
     return Shop_BuyEntryQty(Entry, 1);
@@ -2654,6 +2758,10 @@ bool APlayerCharacter::LoadGameForContinue()
     }
 
     bRestoringSaveState = false;
+
+    // Сохранение, записанное до 11.10.2026, могло помнить зачищенную базу при несделанном
+    // задании — такую базу взводим заново, иначе задание не пройти.
+    RepairQuestTargetsAfterLoad();
 
     // Живое состояние теперь совпадает с содержимым слота: сразу после «Продолжить»
     // несохранённого прогресса нет, и меню паузы не должно спрашивать лишнего.
