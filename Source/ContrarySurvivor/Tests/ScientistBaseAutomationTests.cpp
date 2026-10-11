@@ -506,51 +506,15 @@ bool FScientistGuardQuestTest::RunTest(const FString& Parameters)
 	Spot->RefreshNow();
 	TestNull(TEXT("До взятия задания рации на месте нет"), Spot->GetSpawnedPickup());
 
-	// Пока задание на бандитов не сдано старосте, охранник своё задание не предлагает (слова
-	// Рината 11.10.2026: «должен говорить что староста на ГГ не поручился»).
+	// Разговор: героя на базу ещё не пускают — отказ, «помоги — пропущу», просьба и кнопка.
 	FNpcTalkView View;
-	Guard->OnTalkOpened(Player);
-	Guard->BuildTalkView(Player, View);
-	TestFalse(TEXT("Без поручительства задания охранника в журнале нет"), ScientistTest::InJournal(Player, QuestId));
-	TestTrue(TEXT("Без поручительства кнопки взять задание нет"), View.PrimaryLabel.IsEmpty());
-	TestEqual(TEXT("Без поручительства охранник отказывает"), View.Replica.ToString(), Guard->GetNotVouchedText().ToString());
-	TestFalse(TEXT("У отказа есть текст"), Guard->GetNotVouchedText().IsEmpty());
-	TestTrue(TEXT("Без поручительства основной ответ просто закрывает разговор"), Guard->HandleTalkPrimary(Player));
-	TestFalse(TEXT("Без поручительства задание охранника не берётся"), ScientistTest::InJournal(Player, QuestId));
-	Spot->RefreshNow();
-	TestNull(TEXT("Без взятого задания рации на месте нет"), Spot->GetSpawnedPickup());
-	{
-		FQuest BanditsActive;
-		BanditsActive.QuestId = ContraryQuestIds::ClearBanditBase;
-		BanditsActive.State = EQuestState::Completed;
-		Quests->RestoreQuests({ BanditsActive });
-		Guard->OnTalkOpened(Player);
-		Guard->BuildTalkView(Player, View);
-		TestTrue(TEXT("Задание на бандитов готово, но не сдано — охранник всё ещё отказывает"),
-			View.PrimaryLabel.IsEmpty() && !ScientistTest::InJournal(Player, QuestId));
-		FQuest BanditsDone = BanditsActive;
-		BanditsDone.State = EQuestState::TurnedIn;
-		Quests->RestoreQuests({ BanditsDone });
-	}
-	TestTrue(TEXT("Правило: без записи о бандитах поручительства нет"),
-		!AScientistGuardNPC::IsVouchedFor({}, ContraryQuestIds::ClearBanditBase, QuestId));
-	{
-		// Старое сохранение: задание про рацию взято до сдачи бандитов — остаётся взятым.
-		FQuest OwnTaken = GuardQuest;
-		OwnTaken.State = EQuestState::Active;
-		TestTrue(TEXT("Правило: уже взятое задание охранника остаётся в силе"),
-			AScientistGuardNPC::IsVouchedFor({ OwnTaken }, ContraryQuestIds::ClearBanditBase, QuestId));
-		OwnTaken.State = EQuestState::NotStarted;
-		TestFalse(TEXT("Правило: только предложенное задание поручительства не заменяет"),
-			AScientistGuardNPC::IsVouchedFor({ OwnTaken }, ContraryQuestIds::ClearBanditBase, QuestId));
-	}
-
-	// Разговор после сдачи бандитов: предложение -> взятие.
 	Guard->OnTalkOpened(Player);
 	TestEqual(TEXT("После первого разговора задание в журнале"), ScientistTest::InJournal(Player, QuestId), true);
 	Guard->BuildTalkView(Player, View);
 	TestFalse(TEXT("Охранник предлагает задание кнопкой"), View.PrimaryLabel.IsEmpty());
-	TestEqual(TEXT("Реплика предложения — описание задания"), View.Replica.ToString(), GuardQuest.Description.ToString());
+	TestTrue(TEXT("Реплика предложения начинается с отказа: староста не поручился"),
+		View.Replica.ToString().StartsWith(Guard->GetNotVouchedText().ToString()));
+	TestTrue(TEXT("После отказа идёт просьба про рацию"), View.Replica.ToString().Contains(TEXT("рацию")));
 	TestFalse(TEXT("После взятия разговор не закрывается сам"), Guard->HandleTalkPrimary(Player));
 	TestEqual(TEXT("Задание взято"), ScientistTest::StateOf(Player, QuestId), EQuestState::Active);
 	Guard->BuildTalkView(Player, View);
@@ -599,11 +563,7 @@ bool FScientistGuardQuestTest::RunTest(const FString& Parameters)
 	TestNull(TEXT("После сдачи рация на месте не появляется"), Spot->GetSpawnedPickup());
 
 	// Новая игра в живом мире: журнал пуст — всё возвращается к началу.
-	// Староста снова поручился (задание на бандитов сдано) — иначе охранник о деле не говорит.
-	FQuest BanditsDoneAgain;
-	BanditsDoneAgain.QuestId = ContraryQuestIds::ClearBanditBase;
-	BanditsDoneAgain.State = EQuestState::TurnedIn;
-	Quests->RestoreQuests({ BanditsDoneAgain });
+	Quests->RestoreQuests(TArray<FQuest>());
 	Spot->RefreshNow();
 	TestNull(TEXT("Новая игра: до взятия задания рации нет"), Spot->GetSpawnedPickup());
 	Guard->OnTalkOpened(Player);
@@ -1390,14 +1350,14 @@ bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Первое задание сдаётся старосте"), Quests->TurnInQuest(Q1));
 	ExpectBarrier(false, TEXT("Первое задание сдано"));
 	{
-		// Герой пришёл к базе учёных, не сдав бандитов: охранник отказывает, рации нет.
+		// Герой пришёл к базе учёных, не сдав бандитов: охранник отказывает, но предлагает
+		// помочь — задание про рацию взять можно; рации на месте нет, пока оно не взято.
 		FNpcTalkView EarlyView;
 		Guard->OnTalkOpened(Player);
 		Guard->BuildTalkView(Player, EarlyView);
-		TestTrue(TEXT("До сдачи бандитов охранник своё задание не даёт"),
-			EarlyView.PrimaryLabel.IsEmpty() && !ScientistTest::InJournal(Player, Guard->GetOfferedQuest().QuestId));
-		TestEqual(TEXT("До сдачи бандитов охранник говорит, что староста не поручился"),
-			EarlyView.Replica.ToString(), Guard->GetNotVouchedText().ToString());
+		TestTrue(TEXT("До поручительства охранник начинает с отказа"),
+			EarlyView.Replica.ToString().StartsWith(Guard->GetNotVouchedText().ToString()));
+		TestFalse(TEXT("До поручительства задание про рацию всё равно можно взять"), EarlyView.PrimaryLabel.IsEmpty());
 		RadioSpot->RefreshNow();
 		TestNull(TEXT("До взятия задания рации на месте нет"), RadioSpot->GetSpawnedPickup());
 	}

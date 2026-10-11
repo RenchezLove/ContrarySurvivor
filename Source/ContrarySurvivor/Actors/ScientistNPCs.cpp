@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ScientistNPCs.h"
+#include "ContrarySurvivor/Actors/QuestBarrier.h" // правило «шлагбаум открыт» — одно на шлагбаум и охранника
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"          // плата за просмотр зеркалится в сохранение
@@ -25,9 +26,9 @@ namespace
 
 AScientistGuardNPC::AScientistGuardNPC()
 {
-	// Пока задание на бандитов не сдано старосте. Черновик, утверждает Ринат.
+	// Вступление, пока героя на базу не пускают. Черновик, утверждает Ринат.
 	NotVouchedText = NSLOCTEXT("Scientists", "GuardNotVouched",
-		"Стой, дальше база учёных. Староста за тебя не поручился — пропустить не могу. Заслужишь его слово — приходи.");
+		"Стой. Дальше — база учёных. Староста за тебя не поручился, пропустить не могу. Хотя… поможешь мне — пропущу.");
 	NpcTag = ScientistBaseTags::Guard;
 	DialogueDisplayName = NSLOCTEXT("Scientists", "GuardName", "ОХРАННИК");
 	NPCMarkerLabel = NSLOCTEXT("Scientists", "GuardMarker", "Охранник");
@@ -91,44 +92,16 @@ bool AScientistGuardNPC::IsCarryingLaptop(const TArray<FQuest>& Journal, FName L
 		{ return Q.QuestId == LaptopQuestId && UQuestComponent::IsInActivePhase(Q); });
 }
 
-bool AScientistGuardNPC::IsVouchedFor(const TArray<FQuest>& Journal, FName VouchQuestId, FName OwnQuestId)
+bool AScientistGuardNPC::ShouldStartWithRefusal(const TArray<FQuest>& Journal, FName LaptopQuestId, FName OwnQuestId)
 {
-	if (VouchQuestId.IsNone())
-	{
-		return true;
-	}
 	for (const FQuest& Quest : Journal)
 	{
-		if (Quest.QuestId == VouchQuestId && Quest.State == EQuestState::TurnedIn)
+		if (Quest.QuestId == OwnQuestId && Quest.State != EQuestState::NotStarted)
 		{
-			return true;
-		}
-		// Своё задание уже взято или сдано (сохранение, записанное до 11.10.2026) — не отбираем.
-		if (!OwnQuestId.IsNone() && Quest.QuestId == OwnQuestId && Quest.State != EQuestState::NotStarted)
-		{
-			return true;
+			return false; // задание про рацию уже взято — уговор есть
 		}
 	}
-	return false;
-}
-
-bool AScientistGuardNPC::IsHeroVouchedFor(const APlayerCharacter* Player) const
-{
-	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
-	return !Quests || IsVouchedFor(Quests->GetQuests(), VouchQuestId, OfferedQuest.QuestId);
-}
-
-void AScientistGuardNPC::OnTalkOpened(APlayerCharacter* Player)
-{
-	if (IsHeroVouchedFor(Player))
-	{
-		Super::OnTalkOpened(Player); // своё задание предлагается только тому, за кого поручились
-	}
-}
-
-bool AScientistGuardNPC::HandleTalkPrimary(APlayerCharacter* Player)
-{
-	return IsHeroVouchedFor(Player) ? Super::HandleTalkPrimary(Player) : true; // брать нечего — разговор окончен
+	return !AQuestBarrier::ShouldBeOpen(Journal, LaptopQuestId, OwnQuestId);
 }
 
 void AScientistGuardNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const
@@ -136,12 +109,18 @@ void AScientistGuardNPC::BuildTalkView(APlayerCharacter* Player, FNpcTalkView& O
 	// Кнопки и ветки своего задания — как у любого собеседника с заданием; меняется только реплика.
 	Super::BuildTalkView(Player, OutView);
 
-	// Староста за героя не поручился: отказ и никакой кнопки «взять задание».
-	if (!IsHeroVouchedFor(Player))
+	// Героя на базу ещё не пускают и задание про рацию не взято: сначала отказ («староста за
+	// тебя не поручился… хотя, поможешь — пропущу»), затем просьба про рацию. Кнопка взять
+	// задание остаётся — её ставит общая ветка выше.
+	if (const UQuestComponent* GateQuests = Player ? Player->GetQuests() : nullptr)
 	{
-		OutView.Replica = NotVouchedText;
-		OutView.PrimaryLabel = FText::GetEmpty();
-		return;
+		if (OffersQuest() && !NotVouchedText.IsEmpty()
+			&& ShouldStartWithRefusal(GateQuests->GetQuests(), LaptopQuestId, OfferedQuest.QuestId))
+		{
+			const FText Ask = LaptopPassOfferText.IsEmpty() ? OutView.Replica : LaptopPassOfferText;
+			OutView.Replica = FText::Format(INVTEXT("{0}\n{1}"), NotVouchedText, Ask);
+			return;
+		}
 	}
 
 	const UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;

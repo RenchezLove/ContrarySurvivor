@@ -388,8 +388,6 @@ bool FBarrierGuardLaptopLineTest::RunTest(const FString& Parameters)
 	auto SetJournal = [&](bool bLaptopInJournal, EQuestState LaptopState, bool bRadioInJournal, EQuestState RadioState)
 	{
 		TArray<FQuest> Journal;
-		// Староста за героя поручился (задание на бандитов сдано) — иначе охранник о деле не говорит.
-		Journal.Add(BarrierTest::MakeQuest(ContraryQuestIds::ClearBanditBase, EQuestState::TurnedIn));
 		if (bLaptopInJournal)
 		{
 			Journal.Add(BarrierTest::MakeQuest(Laptop, LaptopState));
@@ -409,16 +407,31 @@ bool FBarrierGuardLaptopLineTest::RunTest(const FString& Parameters)
 		Guard->BuildTalkView(Player, View);
 	};
 
-	// Без ноутбука — всё как раньше.
+	// Без ноутбука и без взятого задания про рацию героя не пускают: сначала отказ («староста
+	// не поручился… хотя, поможешь — пропущу»), затем просьба про рацию; кнопка взять — на месте.
+	const FString Refusal = Guard->GetNotVouchedText().ToString();
+	TestFalse(TEXT("У охранника есть вступление-отказ"), Refusal.IsEmpty());
 	SetJournal(false, EQuestState::NotStarted, false, EQuestState::NotStarted);
 	Talk();
-	TestEqual(TEXT("Без ноутбука охранник говорит описание задания"), View.Replica.ToString(), GuardQuest.Description.ToString());
+	TestTrue(TEXT("Без ноутбука охранник начинает с отказа"), View.Replica.ToString().StartsWith(Refusal));
+	TestTrue(TEXT("Без ноутбука после отказа идёт просьба про рацию"), View.Replica.ToString().EndsWith(PassOffer));
 	TestFalse(TEXT("Без ноутбука охранник предлагает задание"), View.PrimaryLabel.IsEmpty());
 
 	// Задание про ноутбук только предложено старостой — ноутбука у героя ещё нет.
 	SetJournal(true, EQuestState::NotStarted, false, EQuestState::NotStarted);
 	Talk();
-	TestEqual(TEXT("Ноутбук ещё не взят — охранник о нём молчит"), View.Replica.ToString(), GuardQuest.Description.ToString());
+	TestTrue(TEXT("Ноутбук ещё не взят — охранник начинает с отказа"), View.Replica.ToString().StartsWith(Refusal));
+
+	// Задание про рацию уже взято — отказа больше нет, хотя шлагбаум ещё закрыт.
+	SetJournal(false, EQuestState::NotStarted, true, EQuestState::Active);
+	Talk();
+	TestEqual(TEXT("Рация в поиске — обычная реплика без отказа"), View.Replica.ToString(), ActiveLine);
+	TestTrue(TEXT("Правило: пустой журнал — вступление с отказом"),
+		AScientistGuardNPC::ShouldStartWithRefusal({}, Laptop, Radio));
+	TestFalse(TEXT("Правило: ноутбук учёным несут — без отказа"),
+		AScientistGuardNPC::ShouldStartWithRefusal({ BarrierTest::MakeQuest(Laptop, EQuestState::Active) }, Laptop, Radio));
+	TestFalse(TEXT("Правило: рация сдана — без отказа"),
+		AScientistGuardNPC::ShouldStartWithRefusal({ BarrierTest::MakeQuest(Radio, EQuestState::TurnedIn) }, Laptop, Radio));
 
 	// Герой несёт ноутбук, задание охранника не взято: пропускает и просит про рацию.
 	SetJournal(true, EQuestState::Completed, false, EQuestState::NotStarted);
@@ -452,7 +465,7 @@ bool FBarrierGuardLaptopLineTest::RunTest(const FString& Parameters)
 	// Ноутбук уже у учёных: охранник снова говорит только о своём.
 	SetJournal(true, EQuestState::TurnedIn, false, EQuestState::NotStarted);
 	Talk();
-	TestEqual(TEXT("Ноутбук сдан: охранник говорит описание задания"), View.Replica.ToString(), GuardQuest.Description.ToString());
+	TestEqual(TEXT("Ноутбук сдан, шлагбаум открыт: охранник говорит описание задания без отказа"), View.Replica.ToString(), GuardQuest.Description.ToString());
 
 	// Пустая реплика пропуска выключает ветку целиком.
 	if (FTextProperty* PassProp = FindFProperty<FTextProperty>(Guard->GetClass(), TEXT("LaptopPassText")))
@@ -460,7 +473,7 @@ bool FBarrierGuardLaptopLineTest::RunTest(const FString& Parameters)
 		PassProp->SetPropertyValue_InContainer(Guard, FText::GetEmpty());
 		SetJournal(true, EQuestState::Active, false, EQuestState::NotStarted);
 		Talk();
-		TestEqual(TEXT("Реплика пропуска стёрта — охранник говорит описание задания"),
+		TestEqual(TEXT("Реплика пропуска стёрта, шлагбаум открыт — охранник говорит описание задания"),
 			View.Replica.ToString(), GuardQuest.Description.ToString());
 	}
 	else

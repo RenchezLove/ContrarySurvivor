@@ -40,30 +40,23 @@ public:
 	AScientistGuardNPC();
 
 	virtual void BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const override;
-	virtual bool HandleTalkPrimary(APlayerCharacter* Player) override;
-	virtual void OnTalkOpened(APlayerCharacter* Player) override;
 
-	// Поручился ли староста за героя (11.10.2026, слова Рината: «Охранник… должен говорить что
-	// староста на ГГ не поручился, поэтому он не может пропустить ГГ внутрь»): задание-поручительство
-	// сдано. Своё задание, уже взятое или сданное раньше (старое сохранение), остаётся в силе.
-	// Чистое правило для автопроверки.
-	static bool IsVouchedFor(const TArray<FQuest>& Journal, FName VouchQuestId, FName OwnQuestId);
-	bool IsHeroVouchedFor(const APlayerCharacter* Player) const;
+	// Начинает ли охранник с отказа (11.10.2026, слова Рината: «охранник говорит что староста за
+	// ГГ не поручился и он не может его пропустить. После чего… хотя если ты сможешь мне помочь,
+	// то пропущу»): шлагбаум для героя закрыт и задание про рацию ещё не взято. Чистое правило
+	// для автопроверки; условие шлагбаума — то же, что у самого шлагбаума (AQuestBarrier).
+	static bool ShouldStartWithRefusal(const TArray<FQuest>& Journal, FName LaptopQuestId, FName OwnQuestId);
 	const FText& GetNotVouchedText() const { return NotVouchedText; }
 
 	// Несёт ли герой ноутбук учёным: задание взято и ещё не сдано. Чистое правило для автотеста.
 	static bool IsCarryingLaptop(const TArray<FQuest>& Journal, FName LaptopQuestId);
 
 protected:
-	// Задание старосты, после сдачи которого охранник начинает разговаривать о деле. Пусто —
-	// охранник говорит с любым, как раньше.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "1",
-		DisplayName = "Задание-поручительство (идентификатор)"))
-	FName VouchQuestId = ContraryQuestIds::ClearBanditBase;
-
-	// Что охранник говорит, пока староста за героя не поручился. Кнопки взять задание нет. Черновик.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "2", MultiLine = "true",
-		DisplayName = "Реплика: староста не поручился"))
+	// Вступление, пока героя на базу не пускают: отказ и «хотя, если поможешь…». За ним идёт
+	// просьба про рацию («Реплика: просьба про рацию после пропуска») и кнопка взять задание.
+	// Пусто — охранник сразу говорит обычное описание задания. Черновик.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Поручительство старосты", meta = (DisplayPriority = "1", MultiLine = "true",
+		DisplayName = "Реплика: староста не поручился, но помоги — пропущу"))
 	FText NotVouchedText;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Talker|Пропуск с ноутбуком", meta = (DisplayPriority = "1",
