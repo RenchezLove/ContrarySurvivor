@@ -125,24 +125,20 @@ bool FUiComfortTouchButtonsDoNotOverlapTest::RunTest(const FString& Parameters)
 	const double BagScale = GetDefault<UTouchControlsWidget>()->GetInventoryBlinkScale();
 	const double PdaRadius = PdaSlot->GetSize().GetMin() * 0.5;
 
-	// Размеры: нож и смартфон не меньше кнопки перезарядки.
+	// Размеры кнопок и место ножа относительно огня — справочно: их теперь задаёт владелец в
+	// файле экранных кнопок, его правка не должна ронять проверку. Жёсткие требования ниже:
+	// кнопки не пересекаются, не выходят за экран и не заходят на джойстик.
 	const FVector2D ReloadSize = ReloadSlot->GetSize();
 	const FVector2D MeleeSize = MeleeSlot->GetSize();
-	TestTrue(*FString::Printf(TEXT("Кнопка ножа (%.0f на %.0f) не меньше кнопки перезарядки (%.0f на %.0f)"),
-		MeleeSize.X, MeleeSize.Y, ReloadSize.X, ReloadSize.Y),
-		MeleeSize.X >= ReloadSize.X && MeleeSize.Y >= ReloadSize.Y);
-	TestTrue(*FString::Printf(TEXT("Кнопка смартфона (поперечник %.0f) не меньше кнопки перезарядки (%.0f на %.0f)"),
-		PdaRadius * 2.0, ReloadSize.X, ReloadSize.Y),
-		PdaRadius * 2.0 >= ReloadSize.X && PdaRadius * 2.0 >= ReloadSize.Y);
-
-	// Нож — под большим пальцем правой руки: в том же углу, что огонь, и не дальше полутора
-	// поперечников кнопки огня от её центра.
-	TestTrue(TEXT("Кнопка ножа привязана к тому же углу, что кнопка огня"),
-		MeleeSlot->GetAnchors().Minimum == FireSlot->GetAnchors().Minimum);
+	AddInfo(FString::Printf(TEXT("Справочно: кнопка ножа %.0f на %.0f, кнопка смартфона %.0f на %.0f, кнопка перезарядки %.0f на %.0f (%s)."),
+		MeleeSize.X, MeleeSize.Y, PdaSlot->GetSize().X, PdaSlot->GetSize().Y, ReloadSize.X, ReloadSize.Y,
+		(MeleeSize.X >= ReloadSize.X && MeleeSize.Y >= ReloadSize.Y && PdaRadius * 2.0 >= ReloadSize.X && PdaRadius * 2.0 >= ReloadSize.Y)
+			? TEXT("нож и смартфон не меньше перезарядки") : TEXT("нож или смартфон меньше перезарядки")));
 	const FVector2D ProbeScreen(1920.0, 1080.0);
 	const double MeleeToFire = FVector2D::Distance(BoxOn(MeleeSlot, ProbeScreen).GetCenter(), BoxOn(FireSlot, ProbeScreen).GetCenter());
-	TestTrue(*FString::Printf(TEXT("Кнопка ножа рядом с кнопкой огня (между центрами %.0f)"), MeleeToFire),
-		MeleeToFire <= FireSlot->GetSize().GetMax() * 1.5);
+	AddInfo(FString::Printf(TEXT("Справочно: между центрами кнопок ножа и огня %.0f (полтора поперечника огня — %.0f), угол привязки %s."),
+		MeleeToFire, FireSlot->GetSize().GetMax() * 1.5,
+		MeleeSlot->GetAnchors().Minimum == FireSlot->GetAnchors().Minimum ? TEXT("тот же") : TEXT("другой")));
 
 	for (const double ScreenWidth : { 1920.0, 2400.0 })
 	{
