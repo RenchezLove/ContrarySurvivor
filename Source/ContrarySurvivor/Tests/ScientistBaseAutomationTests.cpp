@@ -32,9 +32,12 @@
 #include "ContrarySurvivor/Debug/ContraryDebugMenu.h"  // сюжетные кнопки меню отладки
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
 #include "ContrarySurvivor/UI/QuestTrackerWidget.h"    // строка ожидания старосты
+#include "ContrarySurvivor/UI/QuestTargets.h"           // цель задания для карты
+#include "Components/BoxComponent.h"
 #include "ContrarySurvivor/Actors/Campfire.h"
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/Pickup.h"
+#include "ContrarySurvivor/Actors/QuestBarrier.h"
 #include "ContrarySurvivor/Actors/QuestItemSpawner.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/TalkerNPC.h"
@@ -1225,6 +1228,224 @@ bool FDebugMenuStoryButtonsTest::RunTest(const FString& Parameters)
 	Quests->OfferQuest(Elder->GetQuestForPlayer(Quests));
 	TestTrue(TEXT("Задание на бандитов берётся"), Quests->AcceptQuest(Q2));
 	TestEqual(TEXT("Задание на бандитов взято и не выполнено"), ScientistTest::StateOf(Player, Q2), EQuestState::Active);
+
+	ScientistTest::Destroy(World);
+	ScientistTest::DeleteSlot(Slot);
+	return true;
+}
+
+
+// ===========================================================================
+// Сквозная проходимость сюжета без боёв (слова Рината 11.10.2026: «Проверь проходимость всех
+// квестов (имей ввиду, что телепорт на базу ученых телепортирует сразу внутрь базы, т.е. за
+// шлагбаум…)»). Персонажи, шлагбаум и место рации стоят там же, где на уровне (снято с уровня
+// 11.10.2026), задания идут в том порядке, в каком их встречает игрок: волки, бандиты,
+// ожидание старосты, охранник у закрытого шлагбаума, ноутбук учёным, рация. Убийства и подбор
+// засчитываются прямыми вызовами. На каждом шаге у задания есть цель для карты, шлагбаум
+// закрыт до взятия задания про ноутбук и открыт после.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FScientistWholeStoryWalkthroughTest,
+	"ContrarySurvivor.Story.WholeChainIsPassableWithoutFights", ScientistTestFlags)
+
+bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
+{
+	const FString Slot = TEXT("ContraryWholeStoryQA");
+	ScientistTest::DeleteSlot(Slot);
+	ScientistTest::FScopedTables Tables;
+
+	UWorld* World = ScientistTest::Create();
+	if (!TestNotNull(TEXT("Тестовый мир создан"), World))
+	{
+		return false;
+	}
+
+	// Места — как на уровне.
+	const FVector BarrierLoc(7378.0, -16040.0, 0.0);
+	const FVector GuardLoc(7250.0, -15740.0, 91.0);
+	const double TalkRadius = 220.0;
+
+	ASaveTestPlayerCharacter* Player = ScientistTest::Spawn<ASaveTestPlayerCharacter>(World, FVector(-7088.0, -6672.0, 100.0));
+	AElderNPC* Elder = ScientistTest::Spawn<AElderNPC>(World, FVector(-4530.0, -4100.0, 91.0));
+	AMasterEnemyBase* WolfDen = ScientistTest::Spawn<AMasterEnemyBase>(World, FVector(13943.0, -5998.0, 0.0));
+	AMasterEnemyBase* BanditBase = ScientistTest::Spawn<AMasterEnemyBase>(World, FVector(6940.0, 9070.0, 0.0));
+	AScientistGuardNPC* Guard = ScientistTest::Spawn<AScientistGuardNPC>(World, GuardLoc);
+	AScientistQuestNPC* Scientist = ScientistTest::Spawn<AScientistQuestNPC>(World, FVector(9231.0, -16562.0, 91.0));
+	AQuestItemSpawner* RadioSpot = ScientistTest::Spawn<AQuestItemSpawner>(World, FVector(-5280.0, -13440.0, 0.0));
+	AQuestBarrier* Barrier = ScientistTest::Spawn<AQuestBarrier>(World, BarrierLoc);
+	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	UInventoryComponent* Inv = Player ? Player->GetInventory() : nullptr;
+	if (!Player || !Elder || !WolfDen || !BanditBase || !Guard || !Scientist || !RadioSpot || !Barrier
+		|| !Barrier->GetBlocker() || !Quests || !Inv || !Player->GetStats())
+	{
+		AddError(TEXT("Не заспавнены участники сюжета"));
+		ScientistTest::Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+
+	// Метки целей у баз — те же, что стоят у баз на уровне.
+	if (const FNameProperty* MarkerProp = FindFProperty<FNameProperty>(AMasterEnemyBase::StaticClass(), TEXT("QuestMarkerTag")))
+	{
+		MarkerProp->SetPropertyValue_InContainer(WolfDen, FName(TEXT("WolfDen")));
+		MarkerProp->SetPropertyValue_InContainer(BanditBase, FName(TEXT("BanditBase")));
+	}
+	else
+	{
+		AddError(TEXT("У базы врагов нет поля метки цели"));
+	}
+
+	auto GiveQuestItems = [&](const FString& ItemKey, int32 Count)
+	{
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			AQuestItem* Item = ScientistTest::Spawn<AQuestItem>(World, Player->GetActorLocation());
+			if (Item)
+			{
+				Item->ItemName = ItemKey;
+				Inv->AddItem(Item);
+			}
+		}
+		Quests->SyncInventoryQuests(Inv);
+	};
+	auto TargetOf = [&](FName QuestId) -> AActor*
+	{
+		const FQuest* Quest = Quests->FindQuest(QuestId);
+		return Quest ? QuestTargets::FindTargetActor(World, *Quest) : nullptr;
+	};
+	auto ExpectBarrier = [&](bool bOpen, const TCHAR* When)
+	{
+		Barrier->RefreshNow();
+		TestEqual(*FString::Printf(TEXT("%s: шлагбаум %s"), When, bOpen ? TEXT("открыт") : TEXT("закрыт")), Barrier->IsOpen(), bOpen);
+	};
+
+	ExpectBarrier(false, TEXT("Начало игры"));
+
+	// --- Задание 1: шкуры волков ---
+	const FQuest First = Elder->GetQuestForPlayer(Quests);
+	const FName Q1 = First.QuestId;
+	TestEqual(TEXT("Первым староста даёт своё первое задание"), Q1, Elder->GetOfferedQuest().QuestId);
+	Quests->OfferQuest(First);
+	TestTrue(TEXT("Первое задание берётся"), Quests->AcceptQuest(Q1));
+	TestTrue(TEXT("Первое задание ведёт к логову волков"), TargetOf(Q1) == WolfDen);
+	TestTrue(TEXT("Первому заданию нужны предметы"), First.RequiredItemCount > 0 && !First.RequiredItemName.IsEmpty());
+	for (int32 Kill = 0; Kill < First.TargetCount; ++Kill)
+	{
+		Quests->NotifyKill(First.KillTargetTag);
+	}
+	GiveQuestItems(First.RequiredItemName, First.RequiredItemCount);
+	TestEqual(TEXT("Первое задание готово к сдаче"), ScientistTest::StateOf(Player, Q1), EQuestState::Completed);
+	TestTrue(TEXT("Готовое первое задание ведёт к старосте"), TargetOf(Q1) == Elder);
+	TestTrue(TEXT("Первое задание сдаётся старосте"), Quests->TurnInQuest(Q1));
+	ExpectBarrier(false, TEXT("Первое задание сдано"));
+
+	// --- Задание 2: лагерь бандитов и ноутбук ---
+	const FQuest Second = Elder->GetQuestForPlayer(Quests);
+	const FName Q2 = Second.QuestId;
+	TestEqual(TEXT("После первого староста даёт второе задание"), Q2, Elder->GetSecondQuest().QuestId);
+	Quests->OfferQuest(Second);
+	TestTrue(TEXT("Второе задание берётся"), Quests->AcceptQuest(Q2));
+	TestTrue(TEXT("Второе задание ведёт к лагерю бандитов"), TargetOf(Q2) == BanditBase);
+	for (int32 Kill = 0; Kill < Second.TargetCount; ++Kill)
+	{
+		Quests->NotifyKill(Second.KillTargetTag);
+	}
+	GiveQuestItems(Second.RequiredItemName, Second.RequiredItemCount);
+	TestEqual(TEXT("Второе задание готово к сдаче"), ScientistTest::StateOf(Player, Q2), EQuestState::Completed);
+	TestTrue(TEXT("Готовое второе задание ведёт к старосте"), TargetOf(Q2) == Elder);
+	TestTrue(TEXT("Второе задание сдаётся старосте"), Quests->TurnInQuest(Q2));
+	TestEqual(TEXT("Ноутбук бандитов у старосты, в сумке его нет"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 0);
+	ExpectBarrier(false, TEXT("Второе задание сдано"));
+
+	// --- Ожидание старосты: третье задание не открывается, пока он разбирается с ноутбуком ---
+	const FName Q3 = Elder->GetThirdQuest().QuestId;
+	Player->MarkElderNotebookHintShown(Elder->GetNotebookWaitSeconds());
+	TestTrue(TEXT("После сценки про ноутбук идёт ожидание"), Player->GetElderNotebookWaitRemaining() > 0.0f);
+	TestFalse(TEXT("Пока староста занят, третье задание не открывается"), Elder->TryUnlockThirdQuest(Player));
+
+	// --- Охранник у закрытого шлагбаума: точка телепорта снаружи, разговор через шлагбаум ---
+	TArray<FContraryDebugTeleportPoint> Points;
+	ContraryDebugTools::CollectTeleportPoints(World, Points);
+	const FContraryDebugTeleportPoint* Outside = Points.FindByPredicate([](const FContraryDebugTeleportPoint& Point)
+	{
+		return Point.Label == TEXT("База учёных — перед шлагбаумом");
+	});
+	const double BlockerHalfDepth = Barrier->GetBlocker()->GetScaledBoxExtent().X;
+	const double GuardSide = FMath::Sign(GuardLoc.X - BarrierLoc.X);
+	TestTrue(TEXT("Охранник стоит снаружи, не в створе шлагбаума"), FMath::Abs(GuardLoc.X - BarrierLoc.X) > BlockerHalfDepth);
+	if (TestNotNull(TEXT("В меню отладки есть точка «перед шлагбаумом»"), Outside))
+	{
+		TestTrue(TEXT("Точка «перед шлагбаумом» ставит героя ровно в неё"), Outside->bExact);
+		TestTrue(TEXT("Телепорт «перед шлагбаумом» прошёл"),
+			ContraryDebugTools::TeleportPawnNear(Player, Outside->Location, Outside->bExact));
+		const FVector HeroLoc = Player->GetActorLocation();
+		TestTrue(*FString::Printf(TEXT("Герой после телепорта стоит с той же стороны шлагбаума, что охранник (герой X=%.0f, шлагбаум X=%.0f)"),
+			HeroLoc.X, BarrierLoc.X), (HeroLoc.X - BarrierLoc.X) * GuardSide > BlockerHalfDepth);
+		TestTrue(*FString::Printf(TEXT("Герой стоит недалеко от шлагбаума (%.0f)"), FVector::Dist2D(HeroLoc, BarrierLoc)),
+			FVector::Dist2D(HeroLoc, BarrierLoc) <= ContraryDebugTools::BarrierTeleportOutsideDistance + 50.0);
+
+		// Место разговора: на прямой от охранника к герою, в радиусе разговора; шлагбаум
+		// при этом пересекать не нужно.
+		const FVector ToHero = (HeroLoc - GuardLoc).GetSafeNormal2D();
+		const FVector TalkSpot = GuardLoc + ToHero * (TalkRadius - 40.0);
+		TestTrue(TEXT("К охраннику можно подойти на расстояние разговора, не заходя за шлагбаум"),
+			(TalkSpot.X - BarrierLoc.X) * GuardSide > BlockerHalfDepth
+			&& FVector::Dist2D(TalkSpot, GuardLoc) <= TalkRadius);
+		Player->SetActorLocation(FVector(TalkSpot.X, TalkSpot.Y, HeroLoc.Z));
+	}
+	ExpectBarrier(false, TEXT("Герой у охранника до задания про ноутбук"));
+
+	const FName QGuard = Guard->GetOfferedQuest().QuestId;
+	FNpcTalkView View;
+	Guard->OnTalkOpened(Player);
+	Guard->BuildTalkView(Player, View);
+	TestFalse(TEXT("Охранник предлагает своё задание"), View.PrimaryLabel.IsEmpty());
+	Guard->HandleTalkPrimary(Player);
+	TestEqual(TEXT("Задание охранника взято"), ScientistTest::StateOf(Player, QGuard), EQuestState::Active);
+	RadioSpot->RefreshNow();
+	TestTrue(TEXT("Задание охранника ведёт к месту рации"), TargetOf(QGuard) == RadioSpot);
+	TestNotNull(TEXT("Рация лежит на месте"), RadioSpot->GetSpawnedPickup());
+	ExpectBarrier(false, TEXT("Задание охранника взято, но не сдано"));
+
+	// --- Задание 3: ноутбук учёным. Берётся у старосты — шлагбаум открывается ---
+	ScientistTest::SetNotebookHintShown(Player, true); // ожидание кончилось
+	TestTrue(TEXT("После ожидания третье задание открывается"), Elder->TryUnlockThirdQuest(Player));
+	TestEqual(TEXT("Староста говорит о третьем задании"), Elder->GetQuestForPlayer(Quests).QuestId, Q3);
+	TestTrue(TEXT("Третье задание берётся"), Quests->AcceptQuest(Q3));
+	TestEqual(TEXT("При взятии герой получил ноутбук"), ScientistTest::CountInBag(Player, ScientistTest::LaptopKey), 1);
+	Quests->SyncInventoryQuests(Inv);
+	TestTrue(TEXT("Третье задание ведёт к квестовому учёному"), TargetOf(Q3) == Scientist);
+	ExpectBarrier(true, TEXT("Задание про ноутбук взято"));
+	TestTrue(TEXT("Квестовый учёный стоит за шлагбаумом, внутри базы"),
+		(Scientist->GetActorLocation().X - BarrierLoc.X) * GuardSide < -BlockerHalfDepth);
+
+	Scientist->OnTalkOpened(Player);
+	Scientist->BuildTalkView(Player, View);
+	TestFalse(TEXT("С ноутбуком у учёного есть кнопка сдачи"), View.PrimaryLabel.IsEmpty());
+	Scientist->HandleTalkPrimary(Player);
+	TestEqual(TEXT("Третье задание сдано учёному"), ScientistTest::StateOf(Player, Q3), EQuestState::TurnedIn);
+	TestTrue(TEXT("После приёма ноутбука объявляется конец сюжета"), Scientist->ShouldAnnounceStoryEndOnClose());
+	Scientist->OnTalkClosed(Player);
+	ExpectBarrier(true, TEXT("Ноутбук сдан"));
+
+	// --- Рация охраннику ---
+	TestTrue(TEXT("Рация подбирается"), Player->GiveItemFromRow(ScientistTest::RadioRow, 1) > 0);
+	Quests->SyncInventoryQuests(Inv);
+	TestEqual(TEXT("Задание охранника готово к сдаче"), ScientistTest::StateOf(Player, QGuard), EQuestState::Completed);
+	TestTrue(TEXT("Готовое задание охранника ведёт к охраннику"), TargetOf(QGuard) == Guard);
+	Guard->OnTalkOpened(Player);
+	Guard->BuildTalkView(Player, View);
+	TestFalse(TEXT("С рацией у охранника есть кнопка сдачи"), View.PrimaryLabel.IsEmpty());
+	Guard->HandleTalkPrimary(Player);
+	TestEqual(TEXT("Задание охранника сдано"), ScientistTest::StateOf(Player, QGuard), EQuestState::TurnedIn);
+	TestTrue(TEXT("Награда охранника — двустволка в сумке или в слоте длинного оружия"),
+		ScientistTest::FindShotgunInBag(Player) != nullptr || Player->GetFirearmInSlot(EFirearmSlot::Long) != nullptr);
+	ExpectBarrier(true, TEXT("Все задания сданы"));
+
+	TestEqual(TEXT("Сданы все четыре задания"), Quests->GetTurnedInQuestCount(), 4);
+	for (const FQuest& Quest : Quests->GetQuests())
+	{
+		TestEqual(*FString::Printf(TEXT("Задание %s сдано"), *Quest.QuestId.ToString()), Quest.State, EQuestState::TurnedIn);
+	}
 
 	ScientistTest::Destroy(World);
 	ScientistTest::DeleteSlot(Slot);

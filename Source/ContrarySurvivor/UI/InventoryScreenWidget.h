@@ -142,6 +142,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
 	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Ружьё — пусто");
 
+	// Пустой слот ножа называет себя сам, как слоты огнестрела.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "4"))
+	FText EmptyMeleeSlotText = NSLOCTEXT("Inventory", "EmptyMeleeSlot", "Нож — пусто");
+
 	// Подписи «Использовать»/«Надеть» и формат «{ItemName} x{Count}» строкового рюкзака
 	// УДАЛЕНЫ (Build 1.2.2, тайлы): действие теперь — клик по самой плитке, а количество —
 	// цифра в правом нижнем углу иконки (UItemTileWidget::CountFormat).

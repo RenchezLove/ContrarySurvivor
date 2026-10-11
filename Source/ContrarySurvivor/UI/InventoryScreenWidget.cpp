@@ -230,7 +230,7 @@ void UInventoryScreenWidget::RefreshAll()
 	const AMasterWeapon* Melee = Player->GetMeleeWeaponInstance();
 	RefreshWeaponSlot(Ranged, Ranged && Ranged == InHands, RangedSlotText, RangedSlotIcon, EmptySidearmSlotText);
 	RefreshWeaponSlot(Long, Long && Long == InHands, LongSlotText, LongSlotIcon, EmptyLongSlotText);
-	RefreshWeaponSlot(Melee, Melee && Melee == InHands, MeleeSlotText, MeleeSlotIcon, EmptySlotText);
+	RefreshWeaponSlot(Melee, Melee && Melee == InHands, MeleeSlotText, MeleeSlotIcon, EmptyMeleeSlotText);
 
 	// --- Рюкзак: СЕТКА ПЛИТОК (Build 1.2.2, Ринат: «иконки в сетке, как в сталкере или
 	// LDoE») внутри прежнего ScrollBox-кубика. Плитки — динамика (как раньше строки):

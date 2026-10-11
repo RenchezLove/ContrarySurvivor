@@ -7,6 +7,8 @@
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Actors/ElderNPC.h"
 #include "ContrarySurvivor/Actors/MasterEnemyBase.h"
+#include "ContrarySurvivor/Actors/QuestBarrier.h"
+#include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h"
@@ -48,6 +50,7 @@ namespace ContraryDebugTools
 {
 
 const TCHAR* const TeleportTagPrefix = TEXT("DebugTP_");
+const float BarrierTeleportOutsideDistance = 450.0f;
 
 void CollectTeleportPoints(UWorld* World, TArray<FContraryDebugTeleportPoint>& OutPoints)
 {
@@ -132,9 +135,37 @@ void CollectTeleportPoints(UWorld* World, TArray<FContraryDebugTeleportPoint>& O
 			}
 		}
 	}
+	// 4) Перед шлагбаумом задания: снаружи, на стороне ближайшего охранника (он и говорит с
+	// героем через закрытый шлагбаум). Ось X шлагбаума — поперёк забора.
+	for (TActorIterator<AQuestBarrier> It(World); It; ++It)
+	{
+		const FVector BarrierLocation = It->GetActorLocation();
+		const AScientistGuardNPC* NearestGuard = nullptr;
+		double NearestDistSq = FMath::Square(2000.0);
+		for (TActorIterator<AScientistGuardNPC> GuardIt(World); GuardIt; ++GuardIt)
+		{
+			const double DistSq = FVector::DistSquared2D(GuardIt->GetActorLocation(), BarrierLocation);
+			if (DistSq < NearestDistSq)
+			{
+				NearestDistSq = DistSq;
+				NearestGuard = *GuardIt;
+			}
+		}
+		if (!NearestGuard)
+		{
+			continue;
+		}
+		const FVector Across = It->GetActorForwardVector().GetSafeNormal2D();
+		const double Side = FVector::DotProduct(NearestGuard->GetActorLocation() - BarrierLocation, Across) >= 0.0 ? 1.0 : -1.0;
+		FContraryDebugTeleportPoint Point;
+		Point.Label = TEXT("База учёных — перед шлагбаумом");
+		Point.Location = BarrierLocation + Across * Side * BarrierTeleportOutsideDistance;
+		Point.bExact = true;
+		OutPoints.Add(Point);
+	}
 }
 
-bool TeleportPawnNear(APawn* Pawn, const FVector& Point)
+bool TeleportPawnNear(APawn* Pawn, const FVector& Point, bool bExactFirst)
 {
 	UWorld* World = Pawn ? Pawn->GetWorld() : nullptr;
 	if (!World)
@@ -150,8 +181,11 @@ bool TeleportPawnNear(APawn* Pawn, const FVector& Point)
 		FVector2D(450.0, 450.0), FVector2D(-450.0, -450.0), FVector2D(0.0, 0.0)
 	};
 	const float HalfHeight = Pawn->GetSimpleCollisionHalfHeight();
-	for (const FVector2D& Offset : Offsets)
+	const int32 OffsetCount = UE_ARRAY_COUNT(Offsets);
+	for (int32 Step = 0; Step < OffsetCount; ++Step)
 	{
+		// Точное место: последняя запись списка (сама точка) пробуется первой.
+		const FVector2D& Offset = Offsets[bExactFirst ? (Step + OffsetCount - 1) % OffsetCount : Step];
 		const float X = Point.X + Offset.X;
 		const float Y = Point.Y + Offset.Y;
 		const float Z = SpawnPlacement::ResolveSpawnZ(World, X, Y, HalfHeight + 10.0f, TEXT("DebugTP"), Pawn);
@@ -684,9 +718,10 @@ void SContraryDebugMenu::RebuildContent()
 	{
 		const FVector Location = Point.Location;
 		const FString Label = Point.Label;
-		AddButton(Label, [WeakPC, PlayerOf, Location, Label]()
+		const bool bExact = Point.bExact;
+		AddButton(Label, [WeakPC, PlayerOf, Location, Label, bExact]()
 		{
-			const bool bOk = ContraryDebugTools::TeleportPawnNear(PlayerOf(WeakPC), Location);
+			const bool bOk = ContraryDebugTools::TeleportPawnNear(PlayerOf(WeakPC), Location, bExact);
 			FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: TELEPORT '%s' %s"), *Label, bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
 		});
 	}

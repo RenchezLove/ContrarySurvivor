@@ -1291,10 +1291,11 @@ private:
 	// Запасное место — отступ ЦЕНТРА кнопки «КПК» от правого-верхнего угла экрана. Работает,
 	// только если кнопку сумки в слое найти не удалось.
 	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: запасной отступ от правого-верхнего угла"))
-	FVector2D PdaTouchButtonMargin = FVector2D(330.0, 114.0);
+	FVector2D PdaTouchButtonMargin = FVector2D(360.0, 114.0);
 
+	// Не меньше кнопок перезарядки и сумки (Ринат 11.10.2026: кнопки были мелкими).
 	UPROPERTY(EditAnywhere, Category = "Pda", meta = (ClampMin = "15.0", DisplayName = "Кнопка КПК: радиус"))
-	float PdaTouchButtonRadius = 44.0f;
+	float PdaTouchButtonRadius = 65.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Pda", meta = (DisplayName = "Кнопка КПК: подпись"))
 	FText PdaTouchButtonLabel = NSLOCTEXT("ContrarySurvivorPlayerController", "TouchPda", "КПК");
