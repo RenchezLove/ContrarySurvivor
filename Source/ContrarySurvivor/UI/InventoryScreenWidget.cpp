@@ -292,8 +292,9 @@ void UInventoryScreenWidget::RefreshAll()
 					}
 				}
 				// Предмет, который задание просит поставить в слот (купленный пистолет), мигает
-				// тем же миганием, пока лежит в сумке (11.10.2026).
-				if (Player && Player->IsQuestPrepItemToEquip(Item))
+				// тем же миганием, пока лежит в сумке (11.10.2026). Только в обычной сумке:
+				// при открытой торговле нажатие на плитку продаёт вещь, а не ставит в слот.
+				if (Player && IsEquipHintAllowed(PanelMode) && Player->IsQuestPrepItemToEquip(Item))
 				{
 					Tile->SetAttentionBlink(true);
 				}

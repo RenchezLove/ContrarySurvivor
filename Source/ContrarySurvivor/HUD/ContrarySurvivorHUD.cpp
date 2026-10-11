@@ -108,6 +108,14 @@ void AContrarySurvivorHUD::BeginPlay()
 	}
 }
 
+void AContrarySurvivorHUD::StartHealthAttentionBlink()
+{
+	if (PlayerStatsWidgetInstance)
+	{
+		PlayerStatsWidgetInstance->StartHealthAttentionBlink();
+	}
+}
+
 void AContrarySurvivorHUD::ApplyMainMenuGateToStatsPanel()
 {
 	const AContrarySurvivorPlayerController* CSPC =

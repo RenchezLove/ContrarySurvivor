@@ -20,6 +20,7 @@
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
+#include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Data/ContraryPdaSettings.h"
 #include "ContrarySurvivor/UI/ItemTileWidget.h"
 #include "ContrarySurvivor/UI/PdaMapMath.h"
@@ -728,6 +729,51 @@ bool FPolishUiSearchAreaTest::RunTest(const FString& Parameters)
 		Destroy(World);
 	}
 
+	DeleteSlot(Slot);
+	return true;
+}
+
+// ===========================================================================
+// Разговор со старостой после сдачи ноутбука включает отметку на карте: шаг, который
+// контроллер делает при закрытии того разговора (CloseDialog -> NotifyElderMarkedSouthDen),
+// ставит район южного логова и сообщает подписчикам.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPolishUiElderDialogMarksAreaTest,
+	"ContrarySurvivor.PolishUi.ElderDialogAfterNotebookMarksSouthDenOnMap", PolishUiTestFlags)
+
+bool FPolishUiElderDialogMarksAreaTest::RunTest(const FString& Parameters)
+{
+	using namespace PolishUiTest;
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	const FString Slot(TEXT("ContraryPolishUiElderMarkQA"));
+	DeleteSlot(Slot);
+
+	UWorld* World = Create();
+	ASaveTestPlayerCharacter* Player = Spawn<ASaveTestPlayerCharacter>(World, FVector(-4000.0, -4600.0, 100.0));
+	AContrarySurvivorPlayerController* PC = Spawn<AContrarySurvivorPlayerController>(World, FVector::ZeroVector);
+	AMasterEnemyBase* SouthDen = Spawn<AMasterEnemyBase>(World, FVector(-6000.0, -14000.0, 0.0));
+	const FNameProperty* MarkerProp = FindFProperty<FNameProperty>(AMasterEnemyBase::StaticClass(), TEXT("QuestMarkerTag"));
+	UMapExplorationComponent* Exploration = Player ? Player->GetMapExploration() : nullptr;
+	if (!TestTrue(TEXT("Мир, герой, контроллер и южное логово созданы"), World && Player && PC && SouthDen && MarkerProp && Exploration))
+	{
+		Destroy(World);
+		return false;
+	}
+	Player->UseTestSaveSlot(Slot);
+	PC->Possess(Player);
+	MarkerProp->SetPropertyValue_InContainer(SouthDen, Settings->SouthWolfDenMarkerTag);
+
+	int32 Fired = 0;
+	PC->OnElderMarkedSouthDen.AddLambda([&Fired]() { ++Fired; });
+	TestFalse(TEXT("До разговора района на карте нет"), Exploration->IsSearchAreaMarked());
+
+	PC->NotifyElderMarkedSouthDen();
+	TestEqual(TEXT("Событие «староста отметил логово» сработало один раз"), Fired, 1);
+	TestTrue(TEXT("После разговора район южного логова отмечен на карте"), Exploration->IsSearchAreaMarked());
+	TestTrue(TEXT("Середина района — южное логово"), Exploration->GetSearchAreaCenter().Equals(FVector2D(-6000.0, -14000.0), 0.5));
+	TestTrue(TEXT("Кнопка смартфона и вкладка «Карта» мигают"), Exploration->IsPhoneAttentionOn() && Exploration->IsMapTabAttentionOn());
+
+	Destroy(World);
 	DeleteSlot(Slot);
 	return true;
 }

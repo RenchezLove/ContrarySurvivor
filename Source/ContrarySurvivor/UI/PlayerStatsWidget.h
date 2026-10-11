@@ -83,6 +83,32 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Texts", meta = (DisplayPriority = "6"))
 	FText MoneyFormat = NSLOCTEXT("PlayerStatsWidget", "MoneyFormat", "{Amount}");
 
+	// --- Мигание полоски здоровья (11.10.2026, слова Рината: «если у него маленькое хп… ХП
+	// будет мигать»). Тот же приём, что мигание экранных кнопок: полоска и число здоровья
+	// плавно гаснут и разгораются; цвет и вид полоски остаются теми, что заданы в окне. ---
+
+	// Сколько секунд мигает полоска здоровья после предупреждения. 0 — мигание выключено.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Health Blink", meta = (ClampMin = "0.0", DisplayPriority = "1",
+		DisplayName = "Мигание полоски здоровья, сек"))
+	float HealthBlinkDuration = 6.0f;
+
+	// Период мигания: сколько секунд занимает один полный цикл «пригасла — разгорелась».
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Health Blink", meta = (ClampMin = "0.05", DisplayPriority = "2",
+		DisplayName = "Период мигания, сек"))
+	float HealthBlinkPeriod = 0.5f;
+
+	// Глубина мигания: 0 — не гаснет вовсе, 1 — в нижней точке исчезает полностью.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Health Blink", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "3",
+		DisplayName = "Глубина мигания (0 — не гаснет, 1 — исчезает полностью)"))
+	float HealthBlinkDepth = 0.85f;
+
+	// Запустить мигание полоски здоровья на HealthBlinkDuration секунд. Повторный вызов
+	// начинает отсчёт заново.
+	void StartHealthAttentionBlink();
+
+	// Мигает ли полоска здоровья прямо сейчас.
+	bool IsHealthAttentionBlinking() const { return HealthBlinkRemaining > 0.0f; }
+
 protected:
 	// Всё обновляется каждый кадр (лёгкие SetText/SetPercent — как ежекадровый Canvas-путь).
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -125,6 +151,15 @@ protected:
 	TObjectPtr<UTextBlock> MoneyText;     // значение «150»
 
 private:
+	// Мигание полоски здоровья (см. StartHealthAttentionBlink). Зовётся каждый кадр.
+	void UpdateHealthAttentionVisual(float DeltaTime);
+
+	float HealthBlinkRemaining = 0.0f;   // сколько секунд мигания осталось (0 — не мигает)
+	float HealthBlinkTime = 0.0f;        // накопитель фазы мигания
+	bool bHealthBlinkVisualActive = false;
+	float HealthBarIdleOpacity = 1.0f;   // прозрачность покоя, снятая с кубиков перед миганием
+	float HealthTextIdleOpacity = 1.0f;
+
 	// Флаг «Warning рассинхрона оружия уже написан» (WeaponUiSyncLog::ShouldLogDesyncOnce):
 	// одна строка на эпизод рассинхрона вместо спама каждый кадр.
 	bool bWeaponDesyncLogged = false;
