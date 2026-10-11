@@ -549,6 +549,9 @@ public:
 
 	// На кнопке значок из настроек (true) или текст (false).
 	bool IsIconShown() const { return LoadedIcon != nullptr; }
+	// Размер значка на кнопке радиуса InRadius: ширина — доля Scale поперечника кнопки,
+	// высота — по пропорциям картинки (PictureSize — её размер в точках).
+	static FVector2D ComputeIconSize(float InRadius, float Scale, const FIntPoint& PictureSize);
 
 protected:
 	virtual void NativeOnInitialized() override;

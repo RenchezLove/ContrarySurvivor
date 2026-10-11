@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/Texture2D.h"
 #include "Layout/Margin.h"
 
 /**
@@ -54,6 +55,20 @@ namespace PdaMap
 	// сделай побольше… подложка виджета должна быть похожа на смартфон»): высота — доля высоты
 	// экрана, ширина — по соотношению сторон подложки; если такой смартфон шире экрана с
 	// полями, он уменьшается целиком, сохраняя соотношение. Вырожденные входы — весь экран.
+	// Размер картинки в точках — тот, с которым её завели в проект. Спрашивать у картинки
+	// «размер сейчас» нельзя: в редакторе в первый кадр после загрузки она ещё готовится и
+	// отвечает размером заглушки 32 на 32 (11.10.2026: из-за этого смартфон вставал квадратом).
+	// У картинки, созданной кодом, исходного размера нет — берётся нынешний.
+	inline FIntPoint GetPictureSize(const UTexture2D* Texture)
+	{
+		if (!Texture)
+		{
+			return FIntPoint::ZeroValue;
+		}
+		const FIntPoint Imported = Texture->GetImportedSize();
+		return (Imported.X > 0 && Imported.Y > 0) ? Imported : FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+	}
+
 	inline FVector2D ComputePhoneSize(const FVector2D& Screen, double HeightFraction, double Aspect, double SideMargin)
 	{
 		if (Screen.X <= KINDA_SMALL_NUMBER || Screen.Y <= KINDA_SMALL_NUMBER || Aspect <= KINDA_SMALL_NUMBER)

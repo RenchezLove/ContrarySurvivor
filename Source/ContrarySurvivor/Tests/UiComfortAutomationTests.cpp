@@ -16,6 +16,7 @@
 
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
 #include "ContrarySurvivor/Data/ContraryPdaSettings.h"
+#include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"
 #include "Blueprint/UserWidget.h"
@@ -27,7 +28,9 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
+#include "Engine/World.h"
 
 static constexpr EAutomationTestFlags UiComfortTestFlags =
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter;
@@ -303,6 +306,99 @@ bool FUiComfortPhonePicturesConfiguredTest::RunTest(const FString& Parameters)
 		Insets.Left, Insets.Top, Insets.Right, Insets.Bottom),
 		FMath::IsNearlyEqual(Insets.Left, 0.0911f, 0.001f) && FMath::IsNearlyEqual(Insets.Top, 0.1165f, 0.001f)
 		&& FMath::IsNearlyEqual(Insets.Right, 0.0788f, 0.001f) && FMath::IsNearlyEqual(Insets.Bottom, 0.1274f, 0.001f));
+	return true;
+}
+
+// ===========================================================================
+// Смартфон на экране не сужен (замечание Рината 11.10.2026: «смартфон… сужено сильно… Иконка
+// смартфона слишком маленькая»). У окна, созданного из настоящего WBP_Pda при настоящих
+// настройках, подложка имеет пропорции картинки корпуса на экранах 1920 и 2400 и не выходит
+// за экран. Причина сужения была в том, что размер спрашивали у картинки «сейчас»: в
+// редакторе в первый кадр после загрузки она отвечает размером заглушки 32 на 32.
+// Значок на кнопке: рисунок без прозрачных полей, занимает 85% поперечника кнопки.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUiComfortPhoneIsNotNarrowTest,
+	"ContrarySurvivor.UiComfort.PhoneKeepsPictureProportions", UiComfortTestFlags)
+
+bool FUiComfortPhoneIsNotNarrowTest::RunTest(const FString& Parameters)
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	const UTexture2D* Phone = Settings->PhoneTexture.LoadSynchronous();
+	const FIntPoint Picture = PdaMap::GetPictureSize(Phone);
+	if (!TestTrue(*FString::Printf(TEXT("Размер картинки смартфона известен сразу после загрузки (%d на %d)"), Picture.X, Picture.Y),
+		Picture.X > Picture.Y && Picture.Y > 0))
+	{
+		return false;
+	}
+	const double PictureAspect = static_cast<double>(Picture.X) / Picture.Y;
+	TestTrue(*FString::Printf(TEXT("Запасные пропорции без картинки (%.3f) те же, что у картинки (%.3f)"),
+		Settings->PhoneAspectRatio, PictureAspect), FMath::Abs(Settings->PhoneAspectRatio / PictureAspect - 1.0) <= 0.01);
+
+	UClass* WindowClass = StaticLoadClass(UPdaScreenWidget::StaticClass(), nullptr, TEXT("/Game/UI/WBP_Pda.WBP_Pda_C"));
+	UWorld* World = nullptr;
+	if (GEngine)
+	{
+		World = UWorld::CreateWorld(EWorldType::Game, /*bInformEngineOfWorld=*/false);
+		if (World)
+		{
+			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+			World->InitializeActorsForPlay(FURL());
+			World->BeginPlay();
+		}
+	}
+	UPdaScreenWidget* Window = (World && WindowClass) ? CreateWidget<UPdaScreenWidget>(World, WindowClass) : nullptr;
+	if (TestNotNull(TEXT("Окно создано из готового файла WBP_Pda"), Window))
+	{
+		// Пропорции подложки в самом файле окна (то, что видно до первой подгонки).
+		const UWidget* Plate = Window->WidgetTree ? Window->WidgetTree->FindWidget(TEXT("PanelPlate")) : nullptr;
+		const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		if (TestNotNull(TEXT("Подложка окна лежит в холсте"), PlateSlot))
+		{
+			const FVector2D Stored = PlateSlot->GetSize();
+			TestTrue(*FString::Printf(TEXT("Подложка в файле окна имеет пропорции картинки (%.0f на %.0f)"), Stored.X, Stored.Y),
+				Stored.Y > 1.0 && FMath::Abs(Stored.X / Stored.Y / PictureAspect - 1.0) <= 0.01);
+		}
+
+		Window->InitPda(nullptr);
+		for (const double ScreenWidth : { 1920.0, 2400.0 })
+		{
+			const FVector2D Screen(ScreenWidth, 1080.0);
+			Window->ApplyPhoneLayout(Screen);
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: картинка смартфона подложена"), ScreenWidth), Window->IsPhoneTextureShown());
+			const FVector2D Size = PlateSlot ? PlateSlot->GetSize() : FVector2D::ZeroVector;
+			AddInfo(FString::Printf(TEXT("Экран %.0f на 1080: подложка %.1f на %.1f, пропорции %.3f (у картинки %.3f)."),
+				ScreenWidth, Size.X, Size.Y, Size.Y > 0.0 ? Size.X / Size.Y : 0.0, PictureAspect));
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: подложка имеет пропорции картинки с допуском 1%% (%.1f на %.1f)"), ScreenWidth, Size.X, Size.Y),
+				Size.Y > 1.0 && FMath::Abs(Size.X / Size.Y / PictureAspect - 1.0) <= 0.01);
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: подложка не выходит за экран"), ScreenWidth),
+				Size.X <= Screen.X && Size.Y <= Screen.Y);
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон занимает не меньше 85%% высоты или ширины экрана"), ScreenWidth),
+				Size.Y >= Screen.Y * 0.85 || Size.X >= Screen.X * 0.85);
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: размер, который помнит окно, тот же, что у подложки"), ScreenWidth),
+				Window->GetPhoneSize().Equals(Size, 0.5));
+		}
+	}
+	if (World && GEngine)
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(/*bInformEngineOfWorld=*/false);
+	}
+
+	// Значок кнопки.
+	const UTexture2D* Icon = Settings->PdaButtonIcon.LoadSynchronous();
+	const FIntPoint IconPicture = PdaMap::GetPictureSize(Icon);
+	if (TestTrue(*FString::Printf(TEXT("Картинка значка обрезана по рисунку, без прозрачных полей сверху и снизу (%d на %d)"),
+		IconPicture.X, IconPicture.Y), IconPicture.Y > 0 && static_cast<double>(IconPicture.X) / IconPicture.Y >= 1.7))
+	{
+		const double Diameter = GetDefault<AContrarySurvivorPlayerController>()->GetPdaTouchButtonRadius() * 2.0;
+		const FVector2D IconSize = UPdaTouchButtonWidget::ComputeIconSize(Diameter * 0.5, Settings->PdaButtonIconScale, IconPicture);
+		AddInfo(FString::Printf(TEXT("Кнопка смартфона %.0f, значок %.1f на %.1f."), Diameter, IconSize.X, IconSize.Y));
+		TestTrue(*FString::Printf(TEXT("Рисунок значка занимает около 85%% поперечника кнопки (%.1f из %.0f)"), IconSize.X, Diameter),
+			FMath::Abs(IconSize.X / Diameter - 0.85) <= 0.02);
+		TestTrue(TEXT("Пропорции значка не искажены"),
+			FMath::Abs((IconSize.X / IconSize.Y) / (static_cast<double>(IconPicture.X) / IconPicture.Y) - 1.0) <= 0.01);
+		TestTrue(TEXT("Значок целиком помещается в круг кнопки"), IconSize.Size() <= Diameter);
+	}
 	return true;
 }
 

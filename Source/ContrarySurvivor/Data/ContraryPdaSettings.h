@@ -111,7 +111,7 @@ public:
 	// Действует, пока картинки нет; с картинкой соотношение берётся с неё.
 	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.5", ClampMax = "3.0",
 		DisplayName = "Соотношение сторон смартфона без картинки (ширина к высоте)"))
-	float PhoneAspectRatio = 1.5f;
+	float PhoneAspectRatio = 1.864f;
 
 	// Смартфон, который не помещается по ширине, уменьшается целиком.
 	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.0",
@@ -131,7 +131,7 @@ public:
 
 	UPROPERTY(config, EditAnywhere, Category = "Смартфон", meta = (ClampMin = "0.2", ClampMax = "1.0",
 		DisplayName = "Размер значка (доля поперечника кнопки)"))
-	float PdaButtonIconScale = 0.7f;
+	float PdaButtonIconScale = 0.85f;
 
 	// --- Приближение карты (слова Рината: «дай игроку возможность приближать и отдалять её как
 	// кнопками (+ и −), так и пальцами (раздвигая)») ---

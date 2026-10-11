@@ -1367,9 +1367,10 @@ void UPdaScreenWidget::ApplyPhoneLayout(const FVector2D& ScreenSize)
 
 	// Соотношение сторон — с картинки, а без неё — из настроек.
 	double Aspect = Settings->PhoneAspectRatio;
-	if (PhoneTexture && PhoneTexture->GetSizeX() > 0 && PhoneTexture->GetSizeY() > 0)
+	const FIntPoint PictureSize = PdaMap::GetPictureSize(PhoneTexture);
+	if (PictureSize.X > 0 && PictureSize.Y > 0)
 	{
-		Aspect = static_cast<double>(PhoneTexture->GetSizeX()) / PhoneTexture->GetSizeY();
+		Aspect = static_cast<double>(PictureSize.X) / PictureSize.Y;
 	}
 	PhoneSize = PdaMap::ComputePhoneSize(ScreenSize, Settings->PhoneHeightFraction, Aspect, Settings->PhoneSideMargin);
 	PhonePadding = PdaMap::ComputePhoneScreenPadding(PhoneSize, Settings->PhoneScreenInsets);
@@ -1389,6 +1390,16 @@ void UPdaScreenWidget::ApplyPhoneLayout(const FVector2D& ScreenSize)
 		}
 	}
 	LoadedPhoneTexture = PhoneTexture;
+
+	// Одна строка на каждую подгонку (открытие окна, смена размера экрана): по ней видно, с
+	// какими числами смартфон встал на экран.
+	const UCanvasPanelSlot* LoggedSlot = PanelPlate ? Cast<UCanvasPanelSlot>(PanelPlate->Slot) : nullptr;
+	const FVector2D SlotSize = LoggedSlot ? LoggedSlot->GetSize() : FVector2D::ZeroVector;
+	UE_LOG(LogQA, Display,
+		TEXT("QA: pda phone layout: screen=%.0fx%.0f, picture=%dx%d (ready now: %dx%d), aspect=%.3f, phone=%.1fx%.1f, plate slot=%s %.1fx%.1f"),
+		ScreenSize.X, ScreenSize.Y, PictureSize.X, PictureSize.Y,
+		PhoneTexture ? PhoneTexture->GetSizeX() : 0, PhoneTexture ? PhoneTexture->GetSizeY() : 0,
+		Aspect, PhoneSize.X, PhoneSize.Y, LoggedSlot ? TEXT("canvas") : TEXT("NOT CANVAS"), SlotSize.X, SlotSize.Y);
 }
 
 // ===========================================================================
@@ -1718,12 +1729,8 @@ void UPdaTouchButtonWidget::Setup(const FVector2D& InMargin, float InRadius, con
 				PdaIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("PdaIcon"));
 				PdaIcon->SetVisibility(ESlateVisibility::HitTestInvisible); // нажатие ловит кнопка
 			}
-			// Ширина значка — доля поперечника кнопки, высота — по пропорциям картинки.
-			const float IconWidth = Radius * 2.0f * FMath::Clamp(Settings->PdaButtonIconScale, 0.2f, 1.0f);
-			const float IconAspect = LoadedIcon->GetSizeX() > 0
-				? static_cast<float>(LoadedIcon->GetSizeY()) / LoadedIcon->GetSizeX() : 1.0f;
 			PdaIcon->SetBrushFromTexture(LoadedIcon);
-			PdaIcon->SetDesiredSizeOverride(FVector2D(IconWidth, IconWidth * IconAspect));
+			PdaIcon->SetDesiredSizeOverride(ComputeIconSize(Radius, Settings->PdaButtonIconScale, PdaMap::GetPictureSize(LoadedIcon)));
 			PdaIcon->SetColorAndOpacity(Settings->PdaButtonIconColor);
 			if (PdaButton->GetContent() != PdaIcon)
 			{
@@ -1752,6 +1759,13 @@ void UPdaTouchButtonWidget::SetupAt(const FAnchors& InAnchors, const FVector2D& 
 		ButtonSlot->SetAnchors(InAnchors);
 		ButtonSlot->SetPosition(InCenter);
 	}
+}
+
+FVector2D UPdaTouchButtonWidget::ComputeIconSize(float InRadius, float Scale, const FIntPoint& PictureSize)
+{
+	const double Width = InRadius * 2.0 * FMath::Clamp(Scale, 0.2f, 1.0f);
+	const double Aspect = PictureSize.X > 0 ? static_cast<double>(PictureSize.Y) / PictureSize.X : 1.0;
+	return FVector2D(Width, Width * Aspect);
 }
 
 FVector2D UPdaTouchButtonWidget::ComputeCenterBeside(const FVector2D& NeighborCenter, const FVector2D& NeighborSize,

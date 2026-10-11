@@ -3146,6 +3146,18 @@ void AContrarySurvivorPlayerController::OnTogglePda()
 	}
 }
 
+void AContrarySurvivorPlayerController::QaShowPda()
+{
+#if CONTRARY_WITH_QA_CHEATS
+	if (StartScreenWidget)
+	{
+		CloseStartScreen();
+	}
+	OpenPda();
+	UE_LOG(LogQA, Display, TEXT("QA: QaShowPda -> pda open: %s"), bPdaOpen ? TEXT("yes") : TEXT("no"));
+#endif
+}
+
 void AContrarySurvivorPlayerController::OpenPda()
 {
 	// Открывается только в игре и только когда не открыто ничего другого: окна проекта

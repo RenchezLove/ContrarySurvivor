@@ -296,6 +296,10 @@ public:
 		return bHasPlayerPawn && !bOnBootLevelNow && !bIntroLocked && !bAnyModalOpen;
 	}
 	void OnTogglePda();
+	// Консольная команда для проб без рук: убрать главное меню поверх мира и открыть окно
+	// смартфона (в выпускной сборке ничего не делает).
+	UFUNCTION(Exec)
+	void QaShowPda();
 	void OpenPda();
 	void ClosePda();
 	bool IsPdaOpen() const { return bPdaOpen; }
