@@ -47,6 +47,7 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/WorldSettings.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 static constexpr EAutomationTestFlags PolishGameTestFlags =
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter;
@@ -394,6 +395,27 @@ bool FPolishWeaponNoticeRulesTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("По умолчанию «мало» — четверть магазина"), Audio->LowAmmoClipFraction, 0.25f);
 		TestTrue(TEXT("Щелчок — не чаще четырёх раз в секунду"), Audio->DryFireMinInterval >= 0.25f);
+
+		// Ссылки из настроек проекта обязаны указывать на настоящие звуковые файлы: опечатка в
+		// пути дала бы в игре молчание без единой ошибки.
+		const TPair<const TCHAR*, const TSoftObjectPtr<USoundBase>*> Sounds[] = {
+			{ TEXT("«мало патронов»"), &Audio->LowAmmoSound }, { TEXT("«пустой магазин»"), &Audio->DryFireSound } };
+		for (const auto& Entry : Sounds)
+		{
+			if (!TestFalse(*FString::Printf(TEXT("Звук %s назначен в настройках проекта"), Entry.Key), Entry.Value->IsNull()))
+			{
+				continue;
+			}
+			const USoundBase* Sound = Entry.Value->LoadSynchronous();
+			if (TestNotNull(*FString::Printf(TEXT("Звук %s загружается по ссылке %s"), Entry.Key, *Entry.Value->ToString()), Sound))
+			{
+				TestTrue(*FString::Printf(TEXT("Звук %s не пустой"), Entry.Key), Sound->GetDuration() > 0.0f);
+				AddInfo(FString::Printf(TEXT("Звук %s: %s, класс %s, длительность %.3f с"), Entry.Key, *Sound->GetPathName(),
+					*Sound->GetClass()->GetName(), Sound->GetDuration()));
+			}
+		}
+		TestTrue(TEXT("Громкость предупреждения настраивается и не нулевая"), Audio->LowAmmoVolume > 0.0f);
+		TestTrue(TEXT("Громкость щелчка настраивается и не нулевая"), Audio->DryFireVolume > 0.0f);
 	}
 	return true;
 }
