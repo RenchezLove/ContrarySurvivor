@@ -15,7 +15,10 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "ContrarySurvivor/Controllers/ContrarySurvivorPlayerController.h"
+#include "ContrarySurvivor/Actors/ElderNPC.h"
+#include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Data/ContraryPdaSettings.h"
+#include "ContrarySurvivor/Data/ContraryQuestLibrary.h"
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"
@@ -401,6 +404,250 @@ bool FUiComfortPhoneIsNotNarrowTest::RunTest(const FString& Parameters)
 	const FIntPoint IconPicture = PdaMap::GetPictureSize(Icon);
 	TestTrue(*FString::Printf(TEXT("Картинка значка обрезана по рисунку, без прозрачных полей сверху и снизу (%d на %d)"),
 		IconPicture.X, IconPicture.Y), IconPicture.Y > 0 && static_cast<double>(IconPicture.X) / IconPicture.Y >= 1.7);
+	return true;
+}
+
+// ===========================================================================
+// Окно смартфона под палец (замечания Рината с телефона 11.10.2026: «Сделай кнопки в смартфоне
+// игрока побольше… Убери желтую рамку вокруг смартфона. Смотри чтоб надписи не поехали.
+// Надписям поставь шрифт - жирный»). Проверяется файл окна WBP_Pda, как он лежит в проекте:
+// размеры и просветы кнопок, жирное начертание всех надписей, подложка-картинка без рамки,
+// и что после этого ничего не налезает и не выходит за экран смартфона на 1920 и 2400.
+// Высота строк текста оценивается по кеглю (живого окна в прогоне нет): строка занимает 1,6
+// кегля, знак в среднем 0,8 кегля в ширину — с запасом для жирного шрифта.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUiComfortPhoneWindowUnderFingerTest,
+	"ContrarySurvivor.UiComfort.PhoneWindowButtonsFontAndFrame", UiComfortTestFlags)
+
+bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
+{
+	using namespace UiComfortTest;
+	const UWidgetTree* Tree = LoadTree(TEXT("/Game/UI/WBP_Pda.WBP_Pda_C"));
+	if (!TestNotNull(TEXT("Готовый файл окна смартфона загружен"), Tree))
+	{
+		return false;
+	}
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+
+	// --- Подложка: картинка смартфона чистой кистью, без рамки запасной плашки ---
+	const UBorder* Plate = Cast<UBorder>(Tree->FindWidget(TEXT("PanelPlate")));
+	if (TestNotNull(TEXT("Подложка окна"), Plate))
+	{
+		TestTrue(TEXT("Подложка рисуется картинкой смартфона"),
+			Plate->Background.GetResourceObject() != nullptr && Plate->Background.GetResourceObject() == Settings->PhoneTexture.LoadSynchronous());
+		TestTrue(TEXT("У подложки нет скруглённой плашки с контуром (жёлтой рамки)"),
+			Plate->Background.DrawAs == ESlateBrushDrawType::Image);
+	}
+
+	// --- Все надписи файла окна — жирным ---
+	int32 TextCount = 0;
+	Tree->ForEachWidget([this, &TextCount](UWidget* Widget)
+	{
+		if (const UTextBlock* Text = Cast<UTextBlock>(Widget))
+		{
+			++TextCount;
+			TestEqual(*FString::Printf(TEXT("Надпись %s — жирным начертанием"), *Text->GetName()),
+				Text->GetFont().TypefaceFontName, FName(TEXT("Bold")));
+		}
+	});
+	TestTrue(*FString::Printf(TEXT("В окне есть надписи (нашлось %d)"), TextCount), TextCount >= 12);
+
+	// --- Раскладка внутри экрана смартфона на двух экранах ---
+	for (const double ScreenWidth : { 1920.0, 2400.0 })
+	{
+		const FVector2D Screen(ScreenWidth, 1080.0);
+		const FIntPoint Picture = PdaMap::GetPictureSize(Settings->PhoneTexture.LoadSynchronous());
+		const double Aspect = Picture.Y > 0 ? static_cast<double>(Picture.X) / Picture.Y : Settings->PhoneAspectRatio;
+		const FVector2D Phone = PdaMap::ComputePhoneSize(Screen, Settings->PhoneHeightFraction, Aspect, Settings->PhoneSideMargin);
+		const FMargin Pad = PdaMap::ComputePhoneScreenPadding(Phone, Settings->PhoneScreenInsets);
+		const FVector2D Inner(Phone.X - Pad.Left - Pad.Right, Phone.Y - Pad.Top - Pad.Bottom);
+		AddInfo(FString::Printf(TEXT("Экран %.0f: смартфон %.0f на %.0f, его экран %.0f на %.0f."), ScreenWidth, Phone.X, Phone.Y, Inner.X, Inner.Y));
+
+		// Прямоугольник элемента в своей канве; у растянутых якорей отступы — от краёв.
+		auto BoxIn = [](const UWidget* Widget, const FVector2D& Area, double AutoHeight) -> FBox2D
+		{
+			const UCanvasPanelSlot* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+			if (!CanvasSlot)
+			{
+				return FBox2D(FVector2D::ZeroVector, FVector2D::ZeroVector);
+			}
+			const FAnchors Anchors = CanvasSlot->GetAnchors();
+			const FMargin Offsets = CanvasSlot->GetOffsets();
+			const FVector2D AnchorMin = FVector2D(Anchors.Minimum) * Area;
+			const FVector2D AnchorMax = FVector2D(Anchors.Maximum) * Area;
+			const bool bStretchX = Anchors.Minimum.X != Anchors.Maximum.X;
+			const bool bStretchY = Anchors.Minimum.Y != Anchors.Maximum.Y;
+			const double W = bStretchX ? (AnchorMax.X - Offsets.Right) - (AnchorMin.X + Offsets.Left) : (CanvasSlot->GetAutoSize() ? 0.0 : Offsets.Right);
+			const double H = bStretchY ? (AnchorMax.Y - Offsets.Bottom) - (AnchorMin.Y + Offsets.Top) : (CanvasSlot->GetAutoSize() ? AutoHeight : Offsets.Bottom);
+			const FVector2D Align = CanvasSlot->GetAlignment();
+			const FVector2D Min(bStretchX ? AnchorMin.X + Offsets.Left : AnchorMin.X + Offsets.Left - W * Align.X,
+				bStretchY ? AnchorMin.Y + Offsets.Top : AnchorMin.Y + Offsets.Top - H * Align.Y);
+			return FBox2D(Min, Min + FVector2D(W, H));
+		};
+		auto LineHeight = [](const UWidget* Widget)
+		{
+			const UTextBlock* Text = Cast<UTextBlock>(Widget);
+			return Text ? FMath::CeilToDouble(Text->GetFont().Size * 1.6) : 0.0;
+		};
+		auto Find = [Tree](const TCHAR* WidgetName) { return Tree->FindWidget(WidgetName); };
+
+		// Левый столбец: заголовок, две вкладки, подсказка, «Закрыть».
+		const UWidget* Title = Find(TEXT("TitleText"));
+		const UWidget* QuestsTab = Find(TEXT("QuestsTabButton"));
+		const UWidget* MapTab = Find(TEXT("MapTabButton"));
+		const UWidget* Hint = Find(TEXT("MapHintText"));
+		const UWidget* Close = Find(TEXT("CloseButton"));
+		const UWidget* QuestsPanel = Find(TEXT("QuestsPanel"));
+		const UWidget* MapPanel = Find(TEXT("MapPanel"));
+		if (!TestTrue(TEXT("Элементы левого столбца и вкладки на месте"), Title && QuestsTab && MapTab && Hint && Close && QuestsPanel && MapPanel))
+		{
+			return false;
+		}
+		TArray<FNamedBox> Column;
+		Column.Add({ TEXT("заголовок"), BoxIn(Title, Inner, LineHeight(Title)) });
+		Column.Add({ TEXT("вкладка «Задания»"), BoxIn(QuestsTab, Inner, 0.0) });
+		Column.Add({ TEXT("вкладка «Карта»"), BoxIn(MapTab, Inner, 0.0) });
+		Column.Add({ TEXT("подсказка карты"), BoxIn(Hint, Inner, 0.0) });
+		Column.Add({ TEXT("кнопка «Закрыть»"), BoxIn(Close, Inner, 0.0) });
+		const FBox2D ContentBox = BoxIn(QuestsPanel, Inner, 0.0);
+		for (int32 A = 0; A < Column.Num(); ++A)
+		{
+			const FBox2D& Box = Column[A].Box;
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри экрана смартфона и левее вкладки: (%.0f, %.0f) — (%.0f, %.0f)"),
+				ScreenWidth, *Column[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
+				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y && Box.Max.X <= ContentBox.Min.X);
+			for (int32 B = A + 1; B < Column.Num(); ++B)
+			{
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Column[A].Name, *Column[B].Name),
+					Box.Max.Y <= Column[B].Box.Min.Y || Column[B].Box.Max.Y <= Box.Min.Y);
+			}
+		}
+		for (int32 Index = 1; Index <= 4; Index += (Index == 2 ? 2 : 1)) // вкладки и «Закрыть»
+		{
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s высотой не меньше 96 (вышло %.0f)"), ScreenWidth, *Column[Index].Name, Column[Index].Box.GetSize().Y),
+				Column[Index].Box.GetSize().Y >= 96.0);
+		}
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: между вкладками просвет не меньше 12 (вышло %.0f)"), ScreenWidth, Column[2].Box.Min.Y - Column[1].Box.Max.Y),
+			Column[2].Box.Min.Y - Column[1].Box.Max.Y >= 12.0);
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: между подсказкой и «Закрыть» просвет не меньше 12 (вышло %.0f)"), ScreenWidth, Column[4].Box.Min.Y - Column[3].Box.Max.Y),
+			Column[4].Box.Min.Y - Column[3].Box.Max.Y >= 12.0);
+		// Подсказка карты помещается в свой блок.
+		if (const UTextBlock* HintText = Cast<UTextBlock>(Hint))
+		{
+			const double CharsPerLine = FMath::FloorToDouble(Column[3].Box.GetSize().X / (HintText->GetFont().Size * 0.8));
+			const double Lines = FMath::CeilToDouble(HintText->GetText().ToString().Len() / FMath::Max(1.0, CharsPerLine)) + 1.0;
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: подсказка карты (около %.0f строк) помещается в свой блок высотой %.0f"), ScreenWidth, Lines, Column[3].Box.GetSize().Y),
+				Lines * LineHeight(Hint) <= Column[3].Box.GetSize().Y);
+		}
+
+		// Вкладка «Задания»: список слева, сведения справа, «Отслеживать» внизу.
+		const FVector2D Content = ContentBox.GetSize();
+		const UWidget* List = Find(TEXT("QuestList"));
+		const UWidget* DTitle = Find(TEXT("DetailTitleText"));
+		const UWidget* DGiver = Find(TEXT("DetailGiverText"));
+		const UWidget* DDesc = Find(TEXT("DetailDescriptionText"));
+		const UWidget* DObj = Find(TEXT("DetailObjectivesText"));
+		const UWidget* DReward = Find(TEXT("DetailRewardText"));
+		const UWidget* Track = Find(TEXT("TrackButton"));
+		if (TestTrue(TEXT("Элементы вкладки «Задания» на месте"), List && DTitle && DGiver && DDesc && DObj && DReward && Track))
+		{
+			const FBox2D ListBox = BoxIn(List, Content, 0.0);
+			TArray<FNamedBox> Detail;
+			Detail.Add({ TEXT("название задания"), BoxIn(DTitle, Content, LineHeight(DTitle)) });
+			Detail.Add({ TEXT("кто выдал и кому сдать"), BoxIn(DGiver, Content, LineHeight(DGiver) * 2.0) });
+			Detail.Add({ TEXT("описание"), BoxIn(DDesc, Content, 0.0) });
+			Detail.Add({ TEXT("цели"), BoxIn(DObj, Content, 0.0) });
+			Detail.Add({ TEXT("награда"), BoxIn(DReward, Content, 0.0) });
+			Detail.Add({ TEXT("кнопка «Отслеживать»"), BoxIn(Track, Content, 0.0) });
+			for (int32 A = 0; A < Detail.Num(); ++A)
+			{
+				const FBox2D& Box = Detail[A].Box;
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s правее списка и внутри экрана смартфона: (%.0f, %.0f) — (%.0f, %.0f)"),
+					ScreenWidth, *Detail[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
+					Box.Min.X >= ListBox.Max.X && Box.Min.Y >= 0.0 && Box.Max.Y <= Content.Y && Box.Max.X <= Content.X + 0.5);
+				if (A + 1 < Detail.Num())
+				{
+					TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Detail[A].Name, *Detail[A + 1].Name),
+						Box.Max.Y <= Detail[A + 1].Box.Min.Y);
+				}
+			}
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: кнопка «Отслеживать» высотой не меньше 96 (вышло %.0f)"), ScreenWidth, Detail[5].Box.GetSize().Y),
+				Detail[5].Box.GetSize().Y >= 96.0);
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: между наградой и кнопкой «Отслеживать» просвет не меньше 12"), ScreenWidth),
+				Detail[5].Box.Min.Y - Detail[4].Box.Max.Y >= 12.0);
+
+			// Самое длинное описание задания помещается в блок описания.
+			TArray<FQuest> AllQuests;
+			const AElderNPC* Elder = GetDefault<AElderNPC>();
+			for (const FQuest* Def : { &Elder->GetOfferedQuest(), &Elder->GetSecondQuest(), &Elder->GetThirdQuest() })
+			{
+				FQuest FromTable;
+				AllQuests.Add(ContraryQuests::BuildQuestFromRow(Def->QuestId, FromTable) ? FromTable : *Def);
+			}
+			AllQuests.Add(GetDefault<AScientistGuardNPC>()->GetOfferedQuest());
+			int32 Longest = 0;
+			FString LongestTitle;
+			for (const FQuest& Quest : AllQuests)
+			{
+				if (Quest.Description.ToString().Len() > Longest)
+				{
+					Longest = Quest.Description.ToString().Len();
+					LongestTitle = Quest.Title.ToString();
+				}
+			}
+			if (const UTextBlock* DescText = Cast<UTextBlock>(DDesc))
+			{
+				const double CharsPerLine = FMath::FloorToDouble(Detail[2].Box.GetSize().X / (DescText->GetFont().Size * 0.8));
+				const double Lines = FMath::CeilToDouble(Longest / FMath::Max(1.0, CharsPerLine)) + 1.0;
+				AddInfo(FString::Printf(TEXT("Экран %.0f: самое длинное описание — «%s», %d знаков, около %.0f строк по %.0f знаков; блок вмещает %.0f строк."),
+					ScreenWidth, *LongestTitle, Longest, Lines, CharsPerLine, FMath::FloorToDouble(Detail[2].Box.GetSize().Y / LineHeight(DDesc))));
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: самое длинное описание задания помещается в свой блок"), ScreenWidth),
+					Lines * LineHeight(DDesc) <= Detail[2].Box.GetSize().Y);
+			}
+		}
+
+		// Вкладка «Карта»: три кнопки столбиком, под палец; подписи мест не выходят за поле.
+		const FBox2D MapBox = BoxIn(MapPanel, Inner, 0.0);
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: поле карты внутри экрана смартфона"), ScreenWidth),
+			MapBox.Min.X >= 0.0 && MapBox.Min.Y >= 0.0 && MapBox.Max.X <= Inner.X + 0.5 && MapBox.Max.Y <= Inner.Y + 0.5);
+		TestTrue(TEXT("Поле карты обрезает всё, что выходит за него (подписи мест за экран не вылезут)"),
+			MapPanel->GetClipping() == EWidgetClipping::ClipToBounds);
+		TArray<FNamedBox> MapButtons;
+		for (const TCHAR* ButtonName : { TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton") })
+		{
+			if (const UWidget* Button = Find(ButtonName))
+			{
+				MapButtons.Add({ ButtonName, BoxIn(Button, MapBox.GetSize(), 0.0) });
+			}
+		}
+		if (TestEqual(TEXT("На поле карты три кнопки"), MapButtons.Num(), 3))
+		{
+			for (int32 A = 0; A < 3; ++A)
+			{
+				const FBox2D& Box = MapButtons[A].Box;
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не меньше 96 на 96 (вышло %.0f на %.0f)"), ScreenWidth, *MapButtons[A].Name, Box.GetSize().X, Box.GetSize().Y),
+					Box.GetSize().X >= 96.0 && Box.GetSize().Y >= 96.0);
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри поля карты"), ScreenWidth, *MapButtons[A].Name),
+					Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.X <= MapBox.GetSize().X && Box.Max.Y <= MapBox.GetSize().Y);
+				if (A + 1 < 3)
+				{
+					TestTrue(*FString::Printf(TEXT("Экран %.0f: между %s и %s просвет не меньше 12 (вышло %.0f)"), ScreenWidth,
+						*MapButtons[A].Name, *MapButtons[A + 1].Name, MapButtons[A + 1].Box.Min.Y - Box.Max.Y),
+						MapButtons[A + 1].Box.Min.Y - Box.Max.Y >= 12.0);
+				}
+			}
+		}
+	}
+
+	// --- Строки списка заданий (их строит код, размер — в настройках окна) ---
+	const UWidgetBlueprintGeneratedClass* WindowClass = Cast<UWidgetBlueprintGeneratedClass>(
+		StaticLoadClass(UPdaScreenWidget::StaticClass(), nullptr, TEXT("/Game/UI/WBP_Pda.WBP_Pda_C")));
+	if (const UPdaScreenWidget* WindowDefaults = WindowClass ? Cast<UPdaScreenWidget>(WindowClass->GetDefaultObject()) : nullptr)
+	{
+		const double RowHeight = WindowDefaults->QuestRowPadding.Top + WindowDefaults->QuestRowPadding.Bottom + FMath::CeilToDouble(17.0 * 1.6);
+		TestTrue(*FString::Printf(TEXT("Строка задания в списке высотой не меньше 96 (вышло около %.0f)"), RowHeight), RowHeight >= 96.0);
+		TestTrue(TEXT("Между строками заданий просвет не меньше 12"), WindowDefaults->QuestRowGap >= 12.0f);
+	}
 	return true;
 }
 
