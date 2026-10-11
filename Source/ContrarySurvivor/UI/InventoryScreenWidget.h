@@ -140,7 +140,7 @@ public:
 
 	// Короткое слово: слот стоит в узкой колонке оружия, длинная надпись залезла бы на рюкзак.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "9"))
-	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Ружьё — пусто");
+	FText EmptyLongSlotText = NSLOCTEXT("Inventory", "EmptyLongSlot", "Основное оружие — пусто");
 
 	// Пустой слот ножа называет себя сам, как слоты огнестрела.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Texts", meta = (DisplayPriority = "4"))
