@@ -48,6 +48,12 @@ public:
 	// [Отказаться]/[Закрыть] нажаты — подписан контроллер (CloseDialog).
 	FSimpleMulticastDelegate OnCloseRequested;
 
+	// QA-доступ (паттерн *ForQA): автопроверка проходит первую встречу со старостой настоящим
+	// окном, без кнопок на экране. В игровом коде не вызывается.
+	void PressPrimaryForQA() { HandleAcceptClicked(); }
+	bool IsInIntroForQA() const { return bInIntroSequence; }
+	int32 GetIntroStepForQA() const { return IntroStep; }
+
 	// --- Настройки (Class Defaults WBP_Dialog; владение переехало из HUD — ADR-048) ---
 
 	// Подпись кнопки сдачи: {Reward} — награда монетами. Квадратные скобки вокруг всей
