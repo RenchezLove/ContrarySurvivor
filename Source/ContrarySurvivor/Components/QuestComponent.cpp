@@ -271,15 +271,12 @@ bool UQuestComponent::AcceptQuest(FName QuestId)
 		return false;
 	}
 
-	// Отслеживание (10.10.2026): основное задание становится отслеживаемым само, побочное —
-	// только если сейчас не отслеживается ничего. Спрашиваем ДО смены состояния.
-	const bool bNothingTracked = (GetTrackedQuest() == nullptr);
-
+	// Отслеживание: взятое задание сразу становится отслеживаемым — и основное, и побочное
+	// (Ринат 11.10.2026 про задание охранника: «Предлагаю сразу ставить в отслеживаемое этот
+	// квест»). Метка основного задания при этом с экрана не уходит: меток две, по одной на
+	// вид задания (QuestTargets::PickMarkerQuest).
 	Q->State = EQuestState::Active;
-	if (Q->Kind == EQuestKind::Main || bNothingTracked)
-	{
-		TrackedQuestId = QuestId;
-	}
+	TrackedQuestId = QuestId;
 
 	// Копия списка: выдача меняет рюкзак, а указатель на задание после неё перечитываем.
 	const TArray<FQuestItemGrant> GiveCopy = Q->GiveOnAccept;

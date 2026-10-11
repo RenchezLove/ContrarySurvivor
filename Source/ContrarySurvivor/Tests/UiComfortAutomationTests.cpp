@@ -74,7 +74,7 @@ namespace UiComfortTest
 // ===========================================================================
 // Ни одна экранная кнопка не перекрывает другую и не выходит за экран на 16:9 и 20:9; кнопки
 // ножа и смартфона не меньше кнопки перезарядки; кнопки не заходят на джойстик; строка задания
-// стоит ниже кнопок сумки и смартфона.
+// стоит выше кнопок сумки и смартфона и не перекрывает их.
 // ===========================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUiComfortTouchButtonsDoNotOverlapTest,
 	"ContrarySurvivor.UiComfort.TouchButtonsDoNotOverlap", UiComfortTestFlags)
@@ -182,8 +182,11 @@ bool FUiComfortTouchButtonsDoNotOverlapTest::RunTest(const FString& Parameters)
 		TestFalse(*FString::Printf(TEXT("Мигающая кнопка сумки не задевает кнопку смартфона на экране шириной %.0f"), ScreenWidth),
 			BoxOn(BagSlot, Screen, BagScale).Intersect(PdaBox));
 
-		// Строка отслеживаемого задания: её верх ниже сумки в наибольшем размере и ниже
-		// кнопки смартфона, поэтому сколько бы строк в ней ни было, кнопок она не коснётся.
+		// Строка отслеживаемого задания стоит НАД кнопками сумки и смартфона (Ринат 11.10.2026:
+		// «Она отображается ниже кнопок инвентаря и смартфона, а должна быть над ними») и не
+		// перекрывает их: три строки текста (задание и две строки про старосту) кончаются выше
+		// обеих кнопок, две строки — выше кнопки сумки в наибольшем размере (при мигании).
+		// Строка текста кеглем 16 берётся с запасом в 30 единиц, поля плашки — 8.
 		const UWidgetTree* TrackerTree = LoadTree(TEXT("/Game/UI/WBP_QuestTracker.WBP_QuestTracker_C"));
 		const UWidget* Plate = TrackerTree ? TrackerTree->FindWidget(TEXT("TrackerPlate")) : nullptr;
 		const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
@@ -192,16 +195,15 @@ bool FUiComfortTouchButtonsDoNotOverlapTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Строка задания привязана к тому же углу, что кнопка сумки, и растёт вниз"),
 				PlateSlot->GetAnchors().Minimum == BagSlot->GetAnchors().Minimum && PlateSlot->GetAlignment().Y == 0.0);
 			const double PlateTop = PlateSlot->GetAnchors().Minimum.Y * Screen.Y + PlateSlot->GetPosition().Y;
-			const double ButtonsBottom = FMath::Max(BoxOn(BagSlot, Screen, BagScale).Max.Y, PdaBox.Max.Y);
-			TestTrue(*FString::Printf(TEXT("Верх строки задания (%.0f) ниже кнопок сумки и смартфона (%.0f)"), PlateTop, ButtonsBottom),
-				PlateTop > ButtonsBottom);
-			// Ниже строки в правой колонке стоит кнопка смены оружия — две строки до неё не достают.
-			if (const UCanvasPanelSlot* WeaponSlot = PointSlot(Tree->FindWidget(TEXT("WeaponButton"))))
-			{
-				const double TwoLinesBottom = PlateTop + 2.0 * 30.0 + 8.0;
-				TestTrue(*FString::Printf(TEXT("Две строки задания (низ около %.0f) не достают до кнопки смены оружия (верх %.0f)"),
-					TwoLinesBottom, BoxOn(WeaponSlot, Screen).Min.Y), TwoLinesBottom < BoxOn(WeaponSlot, Screen).Min.Y);
-			}
+			const double ButtonsTop = FMath::Min(BoxOn(BagSlot, Screen).Min.Y, PdaBox.Min.Y);
+			const double BlinkingBagTop = BoxOn(BagSlot, Screen, BagScale).Min.Y;
+			const double ThreeLinesBottom = PlateTop + 3.0 * 30.0 + 8.0;
+			const double TwoLinesBottom = PlateTop + 2.0 * 30.0 + 8.0;
+			TestTrue(*FString::Printf(TEXT("Верх строки задания (%.0f) не выше края экрана"), PlateTop), PlateTop >= 0.0);
+			TestTrue(*FString::Printf(TEXT("Три строки задания (низ около %.0f) кончаются выше кнопок сумки и смартфона (верх %.0f)"),
+				ThreeLinesBottom, ButtonsTop), ThreeLinesBottom <= ButtonsTop);
+			TestTrue(*FString::Printf(TEXT("Две строки задания (низ около %.0f) кончаются выше мигающей кнопки сумки (верх %.0f)"),
+				TwoLinesBottom, BlinkingBagTop), TwoLinesBottom <= BlinkingBagTop);
 		}
 	}
 	return true;
@@ -318,8 +320,10 @@ bool FUiComfortPhonePicturesConfiguredTest::RunTest(const FString& Parameters)
 	const FMargin Insets = Settings->PhoneScreenInsets;
 	TestTrue(*FString::Printf(TEXT("Отступы экрана внутри картинки заданы под эту картинку (%.4f, %.4f, %.4f, %.4f)"),
 		Insets.Left, Insets.Top, Insets.Right, Insets.Bottom),
-		FMath::IsNearlyEqual(Insets.Left, 0.0911f, 0.001f) && FMath::IsNearlyEqual(Insets.Top, 0.1165f, 0.001f)
-		&& FMath::IsNearlyEqual(Insets.Right, 0.0788f, 0.001f) && FMath::IsNearlyEqual(Insets.Bottom, 0.1274f, 0.001f));
+		// Сняты с картинки 1536 на 824 по светящейся части стекла, внутрь от её скруглённых
+		// углов: точки (160, 112) и (1385, 706).
+		FMath::IsNearlyEqual(Insets.Left, 0.1042f, 0.001f) && FMath::IsNearlyEqual(Insets.Top, 0.1359f, 0.001f)
+		&& FMath::IsNearlyEqual(Insets.Right, 0.0983f, 0.001f) && FMath::IsNearlyEqual(Insets.Bottom, 0.1432f, 0.001f));
 	return true;
 }
 
@@ -503,19 +507,35 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 		{
 			return false;
 		}
-		TArray<FNamedBox> Column;
-		Column.Add({ TEXT("заголовок"), BoxIn(Title, Inner, LineHeight(Title)) });
-		Column.Add({ TEXT("вкладка «Задания»"), BoxIn(QuestsTab, Inner, 0.0) });
-		Column.Add({ TEXT("вкладка «Карта»"), BoxIn(MapTab, Inner, 0.0) });
-		Column.Add({ TEXT("подсказка карты"), BoxIn(Hint, Inner, 0.0) });
-		Column.Add({ TEXT("кнопка «Закрыть»"), BoxIn(Close, Inner, 0.0) });
+		// Столбец лежит в меню вкладок SideMenu; меню занимает всё место слева от открытой
+		// вкладки, поэтому на вкладке «Карта» оно шире. Подсказка карты видна только с картой —
+		// столбец меряется при ширине меню на вкладке «Карта»; уже — меню на вкладке «Задания».
+		const UWidget* SideMenu = Find(TEXT("SideMenu"));
+		if (!TestNotNull(TEXT("Меню вкладок SideMenu"), SideMenu)
+			|| !TestTrue(TEXT("Заголовок, вкладки, подсказка и «Закрыть» лежат в меню вкладок"),
+				Title->GetParent() == SideMenu && QuestsTab->GetParent() == SideMenu && MapTab->GetParent() == SideMenu
+				&& Hint->GetParent() == SideMenu && Close->GetParent() == SideMenu))
+		{
+			return false;
+		}
 		const FBox2D ContentBox = BoxIn(QuestsPanel, Inner, 0.0);
+		const double MenuGap = GetDefault<UPdaScreenWidget>()->SideMenuGap;
+		const FVector2D QuestsMenu(ContentBox.Min.X - MenuGap, Inner.Y);
+		const FVector2D MapMenu(BoxIn(MapPanel, Inner, 0.0).Min.X - MenuGap, Inner.Y);
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: меню вкладок на вкладке «Карта» (%.0f) не уже, чем на вкладке «Задания» (%.0f)"),
+			ScreenWidth, MapMenu.X, QuestsMenu.X), MapMenu.X >= QuestsMenu.X && QuestsMenu.X >= 200.0);
+		TArray<FNamedBox> Column;
+		Column.Add({ TEXT("заголовок"), BoxIn(Title, MapMenu, LineHeight(Title)) });
+		Column.Add({ TEXT("вкладка «Задания»"), BoxIn(QuestsTab, MapMenu, 0.0) });
+		Column.Add({ TEXT("вкладка «Карта»"), BoxIn(MapTab, MapMenu, 0.0) });
+		Column.Add({ TEXT("подсказка карты"), BoxIn(Hint, MapMenu, 0.0) });
+		Column.Add({ TEXT("кнопка «Закрыть»"), BoxIn(Close, MapMenu, 0.0) });
 		for (int32 A = 0; A < Column.Num(); ++A)
 		{
 			const FBox2D& Box = Column[A].Box;
-			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри экрана смартфона и левее вкладки: (%.0f, %.0f) — (%.0f, %.0f)"),
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри меню вкладок: (%.0f, %.0f) — (%.0f, %.0f)"),
 				ScreenWidth, *Column[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
-				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y && Box.Max.X <= ContentBox.Min.X);
+				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y && Box.Max.X <= MapMenu.X + 0.5);
 			for (int32 B = A + 1; B < Column.Num(); ++B)
 			{
 				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Column[A].Name, *Column[B].Name),

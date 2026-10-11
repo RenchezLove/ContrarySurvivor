@@ -59,10 +59,48 @@ public:
 	void WriteToSave(UContrarySaveGame* Save) const;
 	void RestoreFromSave(const UContrarySaveGame* Save);
 
+	// --- Район поиска на карте (слова Рината 11.10.2026: староста говорит «Я отметил на твоей
+	// карте», после разговора мигает кнопка смартфона, в смартфоне — вкладка «Карта», на карте
+	// зелёный круг района южного логова с подписью; «по приходу игрока в логово и (или) по
+	// прошествии 3 минут пропадает и отметка района поиска, и подпись»). Здесь только состояние:
+	// круг и подпись лежат в файле окна смартфона, мигание — в файлах окон. ---
+
+	// Отметить район южного логова волков. ЭТУ функцию зовёт код разговора со старостой после
+	// реплики про логово. Логово ищется на уровне по метке из настроек
+	// (UContraryPdaSettings::SouthWolfDenMarkerTag); false — такого логова на уровне нет.
+	UFUNCTION(BlueprintCallable, Category = "Map")
+	bool MarkSouthWolfDenArea();
+
+	// Отметить район вокруг точки мира на столько секунд игрового времени.
+	void MarkSearchArea(const FVector2D& WorldCenter, float Seconds);
+	void ClearSearchArea();
+
+	bool IsSearchAreaMarked() const { return SearchAreaRemaining > 0.0f; }
+	FVector2D GetSearchAreaCenter() const { return SearchAreaCenter; }
+	float GetSearchAreaRemaining() const { return SearchAreaRemaining; }
+
+	// Мигать ли кнопке смартфона на экране и вкладке «Карта» в окне смартфона.
+	bool IsPhoneAttentionOn() const { return IsSearchAreaMarked() && bSearchAreaPhoneUnseen; }
+	bool IsMapTabAttentionOn() const { return IsSearchAreaMarked() && bSearchAreaMapUnseen; }
+
+	// Игрок открыл смартфон — кнопка на экране больше не мигает.
+	void NotePhoneOpened();
+	// Игрок увидел вкладку «Карта» — не мигает ни вкладка, ни кнопка.
+	void NoteMapTabShown();
+
+	// Шаг отсчёта и проверка «герой пришёл». В игре зовёт сам компонент; автопроверки — напрямую.
+	void AdvanceSearchArea(float DeltaSeconds);
+
 private:
 	// Сетка нужного размера есть? Нет — заводим и открываем деревню.
 	void EnsureFog();
 
 	FPdaMapFog Fog;
 	int32 Revision = 0;
+
+	// Район поиска: сколько секунд осталось (0 — отметки нет), середина в мире, что ещё мигает.
+	float SearchAreaRemaining = 0.0f;
+	FVector2D SearchAreaCenter = FVector2D::ZeroVector;
+	bool bSearchAreaPhoneUnseen = false;
+	bool bSearchAreaMapUnseen = false;
 };

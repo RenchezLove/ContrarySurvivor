@@ -1,7 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "ContrarySurvivor/Components/MapExplorationComponent.h"
+#include "ContrarySurvivor/Actors/MasterEnemyBase.h" // южное логово для района поиска
 #include "ContrarySurvivor/Actors/VillageZone.h"
+#include "ContrarySurvivor/Characters/PlayerCharacter.h" // просьба записать игру после отметки района
+#include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "ContrarySurvivor/Data/ContraryPdaSettings.h"
 #include "ContrarySurvivor/Save/ContrarySaveGame.h"
 #include "ContrarySurvivor/UI/PdaMapMath.h"
@@ -39,6 +42,7 @@ void UMapExplorationComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	RevealAroundOwner();
+	AdvanceSearchArea(DeltaTime);
 }
 
 void UMapExplorationComponent::EnsureFog()
@@ -79,6 +83,7 @@ void UMapExplorationComponent::ResetToVillage()
 		PdaMap::WorldToMapUV(Center, Settings->MapWorldTopLeft, Settings->MapWorldBottomRight),
 		RadiusToMapUV(Settings->VillageRevealRadius, Settings));
 	++Revision;
+	ClearSearchArea(); // новая игра или запись без карты: района поиска нет
 }
 
 bool UMapExplorationComponent::RevealAroundWorld(const FVector2D& WorldLocation, float RadiusWorld)
@@ -130,6 +135,10 @@ void UMapExplorationComponent::WriteToSave(UContrarySaveGame* Save) const
 	Save->MapFogWidth = Fog.IsValid() ? Fog.GetWidth() : 0;
 	Save->MapFogHeight = Fog.IsValid() ? Fog.GetHeight() : 0;
 	Fog.Pack(Save->MapFogRuns);
+	Save->MapSearchAreaRemaining = SearchAreaRemaining;
+	Save->MapSearchAreaCenter = SearchAreaCenter;
+	Save->bMapSearchAreaPhoneUnseen = bSearchAreaPhoneUnseen;
+	Save->bMapSearchAreaMapUnseen = bSearchAreaMapUnseen;
 }
 
 void UMapExplorationComponent::RestoreFromSave(const UContrarySaveGame* Save)
@@ -141,10 +150,111 @@ void UMapExplorationComponent::RestoreFromSave(const UContrarySaveGame* Save)
 		Fog = MoveTemp(Loaded);
 		++Revision;
 		EnsureFog(); // размер сетки в настройках мог смениться после записи
+	}
+	else
+	{
+		// Сохранение записано до появления карты-исследования (или запись испорчена): деревня
+		// и место, где герой стоит сейчас.
+		ResetToVillage();
+		RevealAroundOwner();
+	}
+
+	// Район поиска: отметка, отсчёт и мигания продолжаются с того, на чём записаны.
+	SearchAreaRemaining = Save ? FMath::Max(0.0f, Save->MapSearchAreaRemaining) : 0.0f;
+	SearchAreaCenter = Save ? Save->MapSearchAreaCenter : FVector2D::ZeroVector;
+	bSearchAreaPhoneUnseen = Save && Save->bMapSearchAreaPhoneUnseen && SearchAreaRemaining > 0.0f;
+	bSearchAreaMapUnseen = Save && Save->bMapSearchAreaMapUnseen && SearchAreaRemaining > 0.0f;
+}
+
+// ===========================================================================
+// Район поиска на карте
+// ===========================================================================
+
+bool UMapExplorationComponent::MarkSouthWolfDenArea()
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	if (const UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AMasterEnemyBase> It(World); It; ++It)
+		{
+			if (It->GetQuestMarkerTag() == Settings->SouthWolfDenMarkerTag)
+			{
+				const FVector Location = It->GetActorLocation();
+				MarkSearchArea(FVector2D(Location.X, Location.Y), Settings->SearchAreaSeconds);
+				return true;
+			}
+		}
+	}
+	UE_LOG(LogQA, Warning, TEXT("QA: map search area NOT marked - на уровне нет базы с меткой '%s'"),
+		*Settings->SouthWolfDenMarkerTag.ToString());
+	return false;
+}
+
+void UMapExplorationComponent::MarkSearchArea(const FVector2D& WorldCenter, float Seconds)
+{
+	if (Seconds <= 0.0f)
+	{
 		return;
 	}
-	// Сохранение записано до появления карты-исследования (или запись испорчена): деревня и
-	// место, где герой стоит сейчас.
-	ResetToVillage();
-	RevealAroundOwner();
+	SearchAreaCenter = WorldCenter;
+	SearchAreaRemaining = Seconds;
+	bSearchAreaPhoneUnseen = true;
+	bSearchAreaMapUnseen = true;
+	UE_LOG(LogQA, Display, TEXT("QA: map search area MARKED at (%.0f, %.0f) for %.0f s"),
+		WorldCenter.X, WorldCenter.Y, Seconds);
+	// Отметка должна пережить выход из игры сразу после разговора.
+	if (APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner()))
+	{
+		Player->RequestAutoSave(TEXT("район поиска отмечен на карте"));
+	}
+}
+
+void UMapExplorationComponent::ClearSearchArea()
+{
+	SearchAreaRemaining = 0.0f;
+	bSearchAreaPhoneUnseen = false;
+	bSearchAreaMapUnseen = false;
+}
+
+void UMapExplorationComponent::NotePhoneOpened()
+{
+	bSearchAreaPhoneUnseen = false;
+}
+
+void UMapExplorationComponent::NoteMapTabShown()
+{
+	bSearchAreaPhoneUnseen = false;
+	bSearchAreaMapUnseen = false;
+}
+
+void UMapExplorationComponent::AdvanceSearchArea(float DeltaSeconds)
+{
+	if (!IsSearchAreaMarked())
+	{
+		return;
+	}
+	const TCHAR* Why = nullptr;
+	SearchAreaRemaining -= FMath::Max(0.0f, DeltaSeconds);
+	if (SearchAreaRemaining <= 0.0f)
+	{
+		Why = TEXT("время вышло");
+	}
+	else if (const AActor* Owner = GetOwner())
+	{
+		const FVector Location = Owner->GetActorLocation();
+		if (FVector2D::Distance(FVector2D(Location.X, Location.Y), SearchAreaCenter)
+			<= UContraryPdaSettings::Get()->SearchAreaArrivalRadius)
+		{
+			Why = TEXT("герой пришёл");
+		}
+	}
+	if (Why)
+	{
+		ClearSearchArea();
+		UE_LOG(LogQA, Display, TEXT("QA: map search area CLEARED (%s)"), Why);
+		if (APlayerCharacter* Player = Cast<APlayerCharacter>(GetOwner()))
+		{
+			Player->RequestAutoSave(TEXT("район поиска снят с карты"));
+		}
+	}
 }

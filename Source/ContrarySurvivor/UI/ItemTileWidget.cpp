@@ -104,7 +104,10 @@ void UItemTileWidget::BuildFallbackTree()
 	TileIconBox->SetContent(TileIcon);
 
 	TileCountText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TileCountText"));
-	TileCountText->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 14));
+	// Крупнее и с чёрной обводкой — число штук читается на любой иконке (Ринат 11.10.2026).
+	FSlateFontInfo CountFont = FCoreStyle::GetDefaultFontStyle("Bold", 17);
+	CountFont.OutlineSettings = FFontOutlineSettings(2, FLinearColor::Black);
+	TileCountText->SetFont(CountFont);
 	TileCountText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.3f, 1.0f)));
 	TileCountText->SetShadowOffset(FVector2D(1.0f, 1.0f));
 	TileCountText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
