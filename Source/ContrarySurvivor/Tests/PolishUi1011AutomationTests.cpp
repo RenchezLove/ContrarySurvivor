@@ -37,6 +37,8 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/Texture2D.h"
@@ -263,16 +265,46 @@ bool FPolishUiPhoneContentInsideScreenTest::RunTest(const FString& Parameters)
 					TabBox = Box;
 				}
 
-				// Надпись на кнопке не шире и не выше самой кнопки.
+				// Надпись на кнопке не шире и не выше самой кнопки. С 20.10.2026 подпись кнопки меню
+				// стоит в строке справа от значка (образец Рината) — место под значок и отступы
+				// строки вычитается из ширины кнопки.
 				const UButton* Button = Cast<UButton>(Item.Widget);
 				const UTextBlock* Caption = Button ? Cast<UTextBlock>(Button->GetContent()) : nullptr;
+				FMargin CaptionPad(0.0f);
+				double Taken = 0.0;
+				if (Caption)
+				{
+					const UButtonSlot* CaptionSlot = Cast<UButtonSlot>(Caption->Slot);
+					CaptionPad = CaptionSlot ? CaptionSlot->GetPadding() : FMargin(0.0f);
+				}
+				else if (const UHorizontalBox* Row = Button ? Cast<UHorizontalBox>(Button->GetContent()) : nullptr)
+				{
+					const UButtonSlot* RowSlot = Cast<UButtonSlot>(Row->Slot);
+					CaptionPad = RowSlot ? RowSlot->GetPadding() : FMargin(0.0f);
+					for (const UWidget* Child : Row->GetAllChildren())
+					{
+						if (!Child || Child->GetVisibility() == ESlateVisibility::Collapsed)
+						{
+							continue;
+						}
+						const UHorizontalBoxSlot* ChildSlot = Cast<UHorizontalBoxSlot>(Child->Slot);
+						const FMargin ChildPad = ChildSlot ? ChildSlot->GetPadding() : FMargin(0.0f);
+						Taken += ChildPad.Left + ChildPad.Right;
+						if (const UTextBlock* Text = Cast<UTextBlock>(Child))
+						{
+							Caption = Text;
+						}
+						else if (const UImage* Icon = Cast<UImage>(Child))
+						{
+							Taken += Icon->GetBrush().ImageSize.X;
+						}
+					}
+				}
 				if (Caption)
 				{
 					++ButtonCount;
-					const UButtonSlot* CaptionSlot = Cast<UButtonSlot>(Caption->Slot);
-					const FMargin CaptionPad = CaptionSlot ? CaptionSlot->GetPadding() : FMargin(0.0f);
 					const FVector2D TextSize = EstimateTextSize(Caption);
-					const FVector2D Room(Box.GetSize().X - CaptionPad.Left - CaptionPad.Right, Box.GetSize().Y - CaptionPad.Top - CaptionPad.Bottom);
+					const FVector2D Room(Box.GetSize().X - CaptionPad.Left - CaptionPad.Right - Taken, Box.GetSize().Y - CaptionPad.Top - CaptionPad.Bottom);
 					TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: надпись «%s» (около %.0f на %.0f) помещается на кнопке %s (место %.0f на %.0f)"),
 						ScreenWidth, TabName, *Caption->GetText().ToString().Replace(TEXT("\n"), TEXT(" ")), TextSize.X, TextSize.Y,
 						*Button->GetName(), Room.X, Room.Y), TextSize.X <= Room.X && TextSize.Y <= Room.Y);

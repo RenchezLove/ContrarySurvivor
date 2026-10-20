@@ -23,6 +23,9 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Misc/PackageName.h" // есть ли картинка в проекте — до загрузки, без предупреждений
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/TextBlock.h"
@@ -132,6 +135,79 @@ namespace
 		return Button;
 	}
 
+
+	// --- Вид кнопок по образцу Рината 20.10.2026 ---
+
+	// Высота кнопок меню и карты в раскладке: под неё масштабируется картинка плашки, чтобы её
+	// нерастягиваемые углы были соразмерны кнопке, а не исходному размеру картинки.
+	constexpr float PlateDesignHeight = 96.0f;
+	// Высота значка на кнопке меню и значков у заголовка (размер картинки элемента в окне).
+	constexpr float MenuIconHeight = 32.0f; // на вкладке «Задания» меню узкое (около 190): значок и отступы оставляют подписи кегля 24 не меньше 136
+	constexpr float TitleIconHeight = 22.0f;
+
+	// Запасной вид без картинок: бирюзовые скруглённые плашки с рамкой, выбранная — ярче.
+	const FLinearColor MenuPlateFill(0.035f, 0.13f, 0.15f, 0.96f);
+	const FLinearColor MenuPlateOutline(0.32f, 0.66f, 0.70f, 0.95f);
+	const FLinearColor MenuPlateActiveFill(0.07f, 0.42f, 0.47f, 1.0f);
+	const FLinearColor MenuPlateActiveOutline(0.55f, 1.0f, 1.0f, 1.0f);
+	const FLinearColor MapPlateFill(0.02f, 0.08f, 0.09f, 0.92f);
+	const FLinearColor MapPlateOutline(0.25f, 0.70f, 0.72f, 0.95f);
+	const FLinearColor TitleLineColor(0.78f, 0.86f, 0.88f, 0.55f);
+
+	FLinearColor ScaleRgb(const FLinearColor& Color, float Scale)
+	{
+		return FLinearColor(Color.R * Scale, Color.G * Scale, Color.B * Scale, Color.A);
+	}
+
+	FButtonStyle OutlinedButtonStyle(const FLinearColor& Fill, const FLinearColor& Outline, float OutlineWidth, float Radius)
+	{
+		FButtonStyle Style;
+		Style.Normal = RoundedBrush(Fill, Radius, Outline, OutlineWidth);
+		Style.Hovered = RoundedBrush(ScaleRgb(Fill, 1.3f), Radius, Outline, OutlineWidth);
+		Style.Pressed = RoundedBrush(ScaleRgb(Fill, 0.75f), Radius, Outline, OutlineWidth);
+		Style.Disabled = RoundedBrush(FLinearColor(Fill.R, Fill.G, Fill.B, Fill.A * 0.5f), Radius, Outline, OutlineWidth);
+		Style.NormalPadding = FMargin(0.0f);
+		Style.PressedPadding = FMargin(0.0f);
+		return Style;
+	}
+
+	// Плашка-картинка, растянутая девятью кусками (Margin — нерастягиваемые края в долях).
+	FButtonStyle PictureButtonStyle(UTexture2D* Picture, const FMargin& Margin)
+	{
+		const FIntPoint Size = PdaMap::GetPictureSize(Picture);
+		const double Aspect = (Size.X > 0 && Size.Y > 0) ? static_cast<double>(Size.X) / Size.Y : 1.0;
+		auto MakeBrush = [&](float Shade, float Alpha)
+		{
+			FSlateBrush Brush;
+			Brush.SetResourceObject(Picture);
+			Brush.DrawAs = ESlateBrushDrawType::Box;
+			Brush.Tiling = ESlateBrushTileType::NoTile;
+			Brush.Margin = Margin;
+			Brush.ImageSize = FVector2D(PlateDesignHeight * Aspect, PlateDesignHeight);
+			Brush.TintColor = FSlateColor(FLinearColor(Shade, Shade, Shade, Alpha));
+			return Brush;
+		};
+		FButtonStyle Style;
+		Style.Normal = MakeBrush(0.92f, 1.0f);
+		Style.Hovered = MakeBrush(1.0f, 1.0f);
+		Style.Pressed = MakeBrush(0.72f, 1.0f);
+		Style.Disabled = MakeBrush(0.92f, 0.5f);
+		Style.NormalPadding = FMargin(0.0f);
+		Style.PressedPadding = FMargin(0.0f);
+		return Style;
+	}
+
+	UImage* NewIcon(UWidgetTree* Tree, const FName& Name, const FVector2D& Size)
+	{
+		UImage* Icon = Tree->ConstructWidget<UImage>(UImage::StaticClass(), Name);
+		FSlateBrush Brush;
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.ImageSize = Size;
+		Icon->SetBrush(Brush);
+		Icon->SetVisibility(ESlateVisibility::Collapsed); // без картинки значок спрятан
+		Icon->bIsVariable = true;
+		return Icon;
+	}
 	void PlaceAt(UCanvasPanel* Canvas, UWidget* Widget, const FVector2D& Pos, const FVector2D& Size)
 	{
 		if (UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget))
@@ -255,9 +331,9 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 
 	const FLinearColor TabColor(0.18f, 0.20f, 0.24f, 1.0f);
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("QuestsTabButton"), TEXT("QuestsTabText"),
-		Defaults->QuestsTabLabel, TabColor, 20), FVector2D(0.0f, 56.0f), FVector2D(SideW, SideButtonH));
+		Defaults->QuestsTabLabel, TabColor, 24), FVector2D(0.0f, 56.0f), FVector2D(SideW, SideButtonH));
 	PlaceAt(Panel, NewCaptionButton(Tree, TEXT("MapTabButton"), TEXT("MapTabText"),
-		Defaults->MapTabLabel, TabColor, 20), FVector2D(0.0f, 56.0f + SideButtonH + SideButtonGap), FVector2D(SideW, SideButtonH));
+		Defaults->MapTabLabel, TabColor, 24), FVector2D(0.0f, 56.0f + SideButtonH + SideButtonGap), FVector2D(SideW, SideButtonH));
 
 	// Подсказка вкладки карты — в столбце под вкладками (на самой карте она отнимала бы место).
 	UTextBlock* Hint = NewText(Tree, TEXT("MapHintText"), Defaults->MapHintLabel, PdaDimTextColor, 14, TEXT("Bold"));
@@ -265,7 +341,7 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	PlaceAt(Panel, Hint, FVector2D(4.0f, 56.0f + 2.0f * (SideButtonH + SideButtonGap) + 4.0f), FVector2D(SideW - 8.0f, 220.0f));
 
 	UButton* Close = NewCaptionButton(Tree, TEXT("CloseButton"), TEXT("CloseText"),
-		Defaults->CloseLabel, FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), 20);
+		Defaults->CloseLabel, FLinearColor(0.3f, 0.3f, 0.34f, 1.0f), 24);
 	if (UCanvasPanelSlot* CloseSlot = Panel->AddChildToCanvas(Close))
 	{
 		CloseSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
@@ -387,11 +463,32 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	PlaceMapButton(TEXT("MapZoomOutButton"), TEXT("MapZoomOutText"), Defaults->ZoomOutLabel, 34, 1);
 	PlaceMapButton(TEXT("MapZoomInButton"), TEXT("MapZoomInText"), Defaults->ZoomInLabel, 34, 2);
 
+	// Вид кнопок по образцу Рината 20.10.2026: плашки меню и карты — картинки из настроек либо
+	// запасной вид кодом (бирюзовые скруглённые плашки с рамкой).
+	for (const TCHAR* ButtonName : { TEXT("QuestsTabButton"), TEXT("MapTabButton"), TEXT("CloseButton") })
+	{
+		if (UButton* Button = Cast<UButton>(Tree->FindWidget(ButtonName)))
+		{
+			Button->SetStyle(MakeMenuPlateStyle(false));
+		}
+	}
+	for (const TCHAR* ButtonName : { TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton") })
+	{
+		if (UButton* Button = Cast<UButton>(Tree->FindWidget(ButtonName)))
+		{
+			Button->SetStyle(MakeMapPlateStyle());
+		}
+	}
+
 	// Шаги, общие с дополнением готового файла окна: меню вкладок, поле карты под саму карту,
 	// круг района поиска.
 	MoveMenuIntoSideMenu(Tree);
 	FitMapPanelToMap(Tree);
 	AddSearchAreaMark(Tree);
+	// Значки на кнопках меню, значки сигнала и батареи у заголовка, линия под ним (20.10.2026).
+	AddMenuButtonIcons(Tree);
+	AddTitleStatusBar(Tree);
+	FillEmptyIcons(Tree);
 }
 
 float UPdaScreenWidget::ComputeDesignMapPanelWidth()
@@ -539,6 +636,320 @@ bool UPdaScreenWidget::AddSearchAreaMark(UWidgetTree* Tree)
 }
 
 // ===========================================================================
+// Вид кнопок и заголовка по образцу Рината 20.10.2026
+// ===========================================================================
+
+UTexture2D* UPdaScreenWidget::LoadPdaPicture(const TSoftObjectPtr<UTexture2D>& Picture)
+{
+	if (Picture.IsNull())
+	{
+		return nullptr;
+	}
+	if (UTexture2D* Loaded = Picture.Get())
+	{
+		return Loaded; // уже в памяти (в том числе проверочная картинка автопроверок)
+	}
+	const FString PackageName = Picture.GetLongPackageName();
+	if (PackageName.IsEmpty() || !FPackageName::IsValidLongPackageName(PackageName) || !FPackageName::DoesPackageExist(PackageName))
+	{
+		return nullptr; // картинку ещё не импортировали — запасной вид
+	}
+	return Picture.LoadSynchronous();
+}
+
+FButtonStyle UPdaScreenWidget::MakeFallbackMenuStyle(bool bActive)
+{
+	return bActive
+		? OutlinedButtonStyle(MenuPlateActiveFill, MenuPlateActiveOutline, 3.0f, 10.0f)
+		: OutlinedButtonStyle(MenuPlateFill, MenuPlateOutline, 2.0f, 10.0f);
+}
+
+FButtonStyle UPdaScreenWidget::MakeFallbackMapStyle()
+{
+	return OutlinedButtonStyle(MapPlateFill, MapPlateOutline, 2.0f, 8.0f);
+}
+
+FButtonStyle UPdaScreenWidget::MakeMenuPlateStyle(bool bActive)
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	UTexture2D* Picture = LoadPdaPicture(bActive ? Settings->MenuButtonPlateActive : Settings->MenuButtonPlate);
+	return Picture ? PictureButtonStyle(Picture, Settings->MenuButtonPlateMargin) : MakeFallbackMenuStyle(bActive);
+}
+
+FButtonStyle UPdaScreenWidget::MakeMapPlateStyle()
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	UTexture2D* Picture = LoadPdaPicture(Settings->MapButtonPlate);
+	return Picture ? PictureButtonStyle(Picture, Settings->MapButtonPlateMargin) : MakeFallbackMapStyle();
+}
+
+bool UPdaScreenWidget::AddMenuButtonIcons(UWidgetTree* Tree)
+{
+	if (!Tree)
+	{
+		return false;
+	}
+	struct FMenuButtonNames
+	{
+		const TCHAR* Button;
+		const TCHAR* Text;
+		const TCHAR* Icon;
+		const TCHAR* Row;
+	};
+	static const FMenuButtonNames Items[] =
+	{
+		{ TEXT("QuestsTabButton"), TEXT("QuestsTabText"), TEXT("QuestsTabIcon"), TEXT("QuestsTabRow") },
+		{ TEXT("MapTabButton"),    TEXT("MapTabText"),    TEXT("MapTabIcon"),    TEXT("MapTabRow") },
+		{ TEXT("CloseButton"),     TEXT("CloseText"),     TEXT("CloseIcon"),     TEXT("CloseRow") },
+	};
+	bool bChanged = false;
+	for (const FMenuButtonNames& Item : Items)
+	{
+		if (Tree->FindWidget(Item.Icon))
+		{
+			continue; // значок уже есть
+		}
+		UButton* Button = Cast<UButton>(Tree->FindWidget(Item.Button));
+		UTextBlock* Text = Cast<UTextBlock>(Tree->FindWidget(Item.Text));
+		if (!Button || !Text || Text->GetParent() != Button)
+		{
+			continue; // подпись не лежит прямо в кнопке — раскладку владельца не трогаем
+		}
+		// Строка внутри кнопки: значок слева, подпись справа от него (как в образце).
+		Button->RemoveChild(Text);
+		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), Item.Row);
+		UImage* Icon = NewIcon(Tree, Item.Icon, FVector2D(MenuIconHeight, MenuIconHeight));
+		if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(Icon))
+		{
+			IconSlot->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
+			IconSlot->SetHorizontalAlignment(HAlign_Left);
+			IconSlot->SetVerticalAlignment(VAlign_Center);
+			IconSlot->SetPadding(FMargin(10.0f, 0.0f, 0.0f, 0.0f));
+		}
+		Text->SetJustification(ETextJustify::Left);
+		if (UHorizontalBoxSlot* TextSlot = Row->AddChildToHorizontalBox(Text))
+		{
+			TextSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			TextSlot->SetHorizontalAlignment(HAlign_Left);
+			TextSlot->SetVerticalAlignment(VAlign_Center);
+			TextSlot->SetPadding(FMargin(8.0f, 0.0f, 4.0f, 0.0f));
+		}
+		if (UButtonSlot* RowSlot = Cast<UButtonSlot>(Button->SetContent(Row)))
+		{
+			RowSlot->SetPadding(FMargin(0.0f));
+			RowSlot->SetHorizontalAlignment(HAlign_Fill);
+			RowSlot->SetVerticalAlignment(VAlign_Fill);
+		}
+		bChanged = true;
+	}
+	return bChanged;
+}
+
+bool UPdaScreenWidget::AddTitleStatusBar(UWidgetTree* Tree)
+{
+	UTextBlock* Title = Tree ? Cast<UTextBlock>(Tree->FindWidget(TEXT("TitleText"))) : nullptr;
+	UCanvasPanel* Menu = Title ? Cast<UCanvasPanel>(Title->GetParent()) : nullptr;
+	const UCanvasPanelSlot* TitleSlot = Title ? Cast<UCanvasPanelSlot>(Title->Slot) : nullptr;
+	if (!Menu || !TitleSlot)
+	{
+		return false;
+	}
+	// Высота строки заголовка — по его кеглю (элемент стоит по размеру текста).
+	const float TitleTop = TitleSlot->GetPosition().Y;
+	const float TitleHeight = Title->GetFont().Size * 1.3f;
+	bool bChanged = false;
+
+	if (!Tree->FindWidget(TEXT("TitleStatusIcons")))
+	{
+		// Значки сигнала и батареи — у правого края меню, по середине строки заголовка.
+		UHorizontalBox* Icons = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("TitleStatusIcons"));
+		Icons->SetVisibility(ESlateVisibility::HitTestInvisible);
+		UImage* Signal = NewIcon(Tree, TEXT("TitleSignalIcon"), FVector2D(TitleIconHeight, TitleIconHeight));
+		UImage* Battery = NewIcon(Tree, TEXT("TitleBatteryIcon"), FVector2D(TitleIconHeight, TitleIconHeight));
+		if (UHorizontalBoxSlot* SignalSlot = Icons->AddChildToHorizontalBox(Signal))
+		{
+			SignalSlot->SetVerticalAlignment(VAlign_Center);
+			SignalSlot->SetPadding(FMargin(0.0f, 0.0f, 6.0f, 0.0f));
+		}
+		if (UHorizontalBoxSlot* BatterySlot = Icons->AddChildToHorizontalBox(Battery))
+		{
+			BatterySlot->SetVerticalAlignment(VAlign_Center);
+		}
+		if (UCanvasPanelSlot* IconsSlot = Menu->AddChildToCanvas(Icons))
+		{
+			IconsSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
+			IconsSlot->SetAlignment(FVector2D(1.0f, 0.5f));
+			IconsSlot->SetPosition(FVector2D(-6.0f, TitleTop + TitleHeight * 0.5f));
+			IconsSlot->SetAutoSize(true);
+			IconsSlot->SetZOrder(TitleSlot->GetZOrder());
+		}
+		bChanged = true;
+	}
+
+	if (!Tree->FindWidget(TEXT("TitleUnderline")))
+	{
+		// Тонкая светлая линия под заголовком на всю ширину меню.
+		UBorder* Line = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("TitleUnderline"));
+		Line->SetBrushColor(TitleLineColor);
+		Line->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Line->bIsVariable = true;
+		if (UCanvasPanelSlot* LineSlot = Menu->AddChildToCanvas(Line))
+		{
+			// По ширине растянута (правый отступ — от края меню), по высоте одна точка привязки
+			// (нижний отступ — толщина линии).
+			LineSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 0.0f));
+			LineSlot->SetOffsets(FMargin(0.0f, TitleTop + TitleHeight + 4.0f, 0.0f, 2.0f));
+			LineSlot->SetZOrder(TitleSlot->GetZOrder());
+		}
+		bChanged = true;
+	}
+	return bChanged;
+}
+
+bool UPdaScreenWidget::FillEmptyIcons(UWidgetTree* Tree)
+{
+	if (!Tree)
+	{
+		return false;
+	}
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	struct FIconPicture
+	{
+		const TCHAR* Icon;
+		const TSoftObjectPtr<UTexture2D>* Picture;
+		float Shade; // значки «Задания» и «Назад» насыщеннее образца — чуть приглушены
+	};
+	const FIconPicture Items[] =
+	{
+		{ TEXT("QuestsTabIcon"),    &Settings->QuestsTabIcon, 0.85f },
+		{ TEXT("MapTabIcon"),       &Settings->MapTabIcon,    1.0f },
+		{ TEXT("CloseIcon"),        &Settings->CloseIcon,     0.85f },
+		{ TEXT("TitleSignalIcon"),  &Settings->SignalIcon,    1.0f },
+		{ TEXT("TitleBatteryIcon"), &Settings->BatteryIcon,   1.0f },
+	};
+	bool bChanged = false;
+	for (const FIconPicture& Item : Items)
+	{
+		UImage* Icon = Cast<UImage>(Tree->FindWidget(Item.Icon));
+		if (!Icon || Icon->GetBrush().GetResourceObject())
+		{
+			continue; // картинка уже стоит (из настроек либо поставлена в файле окна)
+		}
+		UTexture2D* Picture = LoadPdaPicture(*Item.Picture);
+		if (!Picture)
+		{
+			continue;
+		}
+		FSlateBrush Brush = Icon->GetBrush();
+		const float Height = Brush.ImageSize.Y > 1.0f ? static_cast<float>(Brush.ImageSize.Y) : MenuIconHeight;
+		const FIntPoint Size = PdaMap::GetPictureSize(Picture);
+		const float Aspect = (Size.X > 0 && Size.Y > 0) ? static_cast<float>(Size.X) / Size.Y : 1.0f;
+		Brush.SetResourceObject(Picture);
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.Tiling = ESlateBrushTileType::NoTile;
+		Brush.ImageSize = FVector2D(Height * Aspect, Height);
+		Brush.TintColor = FSlateColor(FLinearColor(Item.Shade, Item.Shade, Item.Shade, 1.0f));
+		Icon->SetBrush(Brush);
+		Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
+		bChanged = true;
+	}
+	return bChanged;
+}
+
+void UPdaScreenWidget::ApplySkin()
+{
+	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
+	LoadedSkinTextures.Reset();
+	auto Keep = [this](UTexture2D* Picture)
+	{
+		if (Picture)
+		{
+			LoadedSkinTextures.Add(Picture);
+		}
+		return Picture;
+	};
+	UTexture2D* Plate = Keep(LoadPdaPicture(Settings->MenuButtonPlate));
+	UTexture2D* PlateActive = Keep(LoadPdaPicture(Settings->MenuButtonPlateActive));
+	UTexture2D* MapPlate = Keep(LoadPdaPicture(Settings->MapButtonPlate));
+
+	// Вид кнопок из файла окна запоминается один раз, до первой подмены: к нему окно
+	// возвращается, если картинки в настройках нет.
+	UButton* const MenuButtons[] = { QuestsTabButton.Get(), MapTabButton.Get(), CloseButton.Get() };
+	UButton* const MapButtons[] = { MapZoomInButton.Get(), MapZoomOutButton.Get(), MapFindHeroButton.Get() };
+	for (UButton* Button : MenuButtons)
+	{
+		if (Button && !FileButtonStyles.Contains(Button))
+		{
+			FileButtonStyles.Add(Button, Button->GetStyle());
+		}
+	}
+	for (UButton* Button : MapButtons)
+	{
+		if (Button && !FileButtonStyles.Contains(Button))
+		{
+			FileButtonStyles.Add(Button, Button->GetStyle());
+		}
+	}
+	auto FileStyle = [this](UButton* Button)
+	{
+		const FButtonStyle* Found = FileButtonStyles.Find(Button);
+		return Found ? *Found : FButtonStyle();
+	};
+
+	const FButtonStyle MenuPicture = Plate ? PictureButtonStyle(Plate, Settings->MenuButtonPlateMargin) : FButtonStyle();
+	QuestsTabIdleStyle = Plate ? MenuPicture : FileStyle(QuestsTabButton);
+	MapTabIdleStyle = Plate ? MenuPicture : FileStyle(MapTabButton);
+	ActiveTabStyle = PlateActive ? PictureButtonStyle(PlateActive, Settings->MenuButtonPlateMargin) : MakeFallbackMenuStyle(true);
+	if (CloseButton)
+	{
+		CloseButton->SetStyle(Plate ? MenuPicture : FileStyle(CloseButton));
+	}
+	const FButtonStyle MapPicture = MapPlate ? PictureButtonStyle(MapPlate, Settings->MapButtonPlateMargin) : FButtonStyle();
+	for (UButton* Button : MapButtons)
+	{
+		if (Button)
+		{
+			Button->SetStyle(MapPlate ? MapPicture : FileStyle(Button));
+		}
+	}
+	bSkinApplied = true;
+
+	// Значки: картинка из настроек встаёт в пустой значок; значок без картинки спрятан.
+	FillEmptyIcons(WidgetTree);
+	for (UImage* Icon : { QuestsTabIcon.Get(), MapTabIcon.Get(), CloseIcon.Get(), TitleSignalIcon.Get(), TitleBatteryIcon.Get() })
+	{
+		if (Icon)
+		{
+			Icon->SetVisibility(Icon->GetBrush().GetResourceObject() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	}
+	ApplyTabPlates();
+}
+
+void UPdaScreenWidget::ApplyTabPlates()
+{
+	if (!bSkinApplied)
+	{
+		return;
+	}
+	// Выбранная вкладка — яркой плашкой, вторая — обычной.
+	if (QuestsTabButton)
+	{
+		QuestsTabButton->SetStyle(bMapTab ? QuestsTabIdleStyle : ActiveTabStyle);
+	}
+	if (MapTabButton)
+	{
+		MapTabButton->SetStyle(bMapTab ? ActiveTabStyle : MapTabIdleStyle);
+	}
+}
+
+bool UPdaScreenWidget::IsTabPlateActive(bool bMapTabButton) const
+{
+	const UButton* Button = bMapTabButton ? MapTabButton.Get() : QuestsTabButton.Get();
+	return bSkinApplied && Button && Button->GetStyle().Normal == ActiveTabStyle.Normal;
+}
+
+// ===========================================================================
 // Запуск и привязки
 // ===========================================================================
 
@@ -595,6 +1006,8 @@ void UPdaScreenWidget::EnsureSetup()
 	{
 		MapFindHeroButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleFindHeroClicked);
 	}
+	// Плашки кнопок и значки по настройкам (образец Рината 20.10.2026).
+	ApplySkin();
 	// Приближенная карта больше своего поля — лишнее обрезается по его краям.
 	if (MapPanel)
 	{
@@ -636,6 +1049,12 @@ void UPdaScreenWidget::BindCodeTree()
 	PDA_BIND(SideMenu, UCanvasPanel);
 	PDA_BIND(MapAreaMark, UBorder);
 	PDA_BIND(MapAreaMarkText, UTextBlock);
+	PDA_BIND(QuestsTabIcon, UImage);
+	PDA_BIND(MapTabIcon, UImage);
+	PDA_BIND(CloseIcon, UImage);
+	PDA_BIND(TitleSignalIcon, UImage);
+	PDA_BIND(TitleBatteryIcon, UImage);
+	PDA_BIND(TitleUnderline, UBorder);
 #undef PDA_BIND
 }
 
@@ -699,15 +1118,9 @@ void UPdaScreenWidget::RefreshTabLook()
 	{
 		MapHintText->SetVisibility(bMapTab ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
-	// Открытая вкладка подписана золотым, вторая — приглушённым.
-	if (QuestsTabText)
-	{
-		QuestsTabText->SetColorAndOpacity(FSlateColor(bMapTab ? PdaDimTextColor : PdaGoldColor));
-	}
-	if (MapTabText)
-	{
-		MapTabText->SetColorAndOpacity(FSlateColor(bMapTab ? PdaGoldColor : PdaDimTextColor));
-	}
+	// Открытая вкладка — своей яркой плашкой (образец Рината 20.10.2026); подписи обеих вкладок
+	// белые, их цвет задаёт файл окна.
+	ApplyTabPlates();
 	UpdateSideMenuWidth();
 	// Игрок на вкладке «Карта» — район поиска он увидел: мигания гаснут.
 	if (bMapTab)
@@ -1128,6 +1541,11 @@ void UPdaScreenWidget::AddMapDot(const FVector& WorldLocation, float Size, const
 		UTextBlock* Text = NewText(WidgetTree, NAME_None, Label, Color, 13, TEXT("Bold"));
 		Text->SetShadowOffset(FVector2D(1.0f, 1.0f));
 		Text->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
+		// Тёмная обводка вокруг букв, чтобы подпись читалась на картинке карты (образец Рината
+		// 20.10.2026); тень остаётся под обводкой.
+		FSlateFontInfo LabelFont = Text->GetFont();
+		LabelFont.OutlineSettings = FFontOutlineSettings(1, FLinearColor(0.0f, 0.0f, 0.0f, 0.85f));
+		Text->SetFont(LabelFont);
 		Text->SetVisibility(ESlateVisibility::HitTestInvisible);
 		if (UCanvasPanelSlot* TextSlot = MapMarkers->AddChildToCanvas(Text))
 		{

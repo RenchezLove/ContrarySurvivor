@@ -6327,6 +6327,103 @@ namespace
 		}
 	}
 
+	// ======================================================================
+	// Новый вид окна смартфона по образцу Рината 20.10.2026
+	// ======================================================================
+
+	// WBP_Pda: кнопки меню — плашки-картинки со значком слева и крупной белой подписью справа;
+	// у заголовка значки сигнала и батареи и линия под ним; кнопки карты — квадратные плашки с
+	// бирюзовой рамкой. Шаги со значками — те же, что строят дерево без файла (UPdaScreenWidget).
+	// Вид кнопки меняется, только если у неё прежний плоский вид генератора (его цвет известен):
+	// вид, поставленный владельцем, не трогается. Повторный прогон ничего не меняет.
+	void AugmentPdaRestyle(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Pda");
+		struct FOldLook
+		{
+			const TCHAR* Button;
+			FLinearColor OldColor; // плоский цвет прежнего генератора
+			bool bMenu;
+		};
+		static const FOldLook Buttons[] =
+		{
+			{ TEXT("QuestsTabButton"),   FLinearColor(0.18f, 0.20f, 0.24f, 1.0f),  true },
+			{ TEXT("MapTabButton"),      FLinearColor(0.18f, 0.20f, 0.24f, 1.0f),  true },
+			{ TEXT("CloseButton"),       FLinearColor(0.3f, 0.3f, 0.34f, 1.0f),    true },
+			{ TEXT("MapZoomInButton"),   FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
+			{ TEXT("MapZoomOutButton"),  FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
+			{ TEXT("MapFindHeroButton"), FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
+		};
+		for (const FOldLook& Item : Buttons)
+		{
+			UButton* Button = Cast<UButton>(AugFind(Tree, Name, Item.Button));
+			if (!Button)
+			{
+				continue;
+			}
+			const FSlateBrush& Normal = Button->GetStyle().Normal;
+			const FLinearColor Tint = Normal.TintColor.GetSpecifiedColor();
+			const bool bOldLook = Normal.GetResourceObject() == nullptr
+				&& Normal.DrawAs == ESlateBrushDrawType::RoundedBox
+				&& Tint.Equals(Item.OldColor, 0.002f);
+			if (!bOldLook)
+			{
+				UE_LOG(LogGenerateWbp, Display,
+					TEXT("AUGMENT %s: вид кнопки %s не прежний генераторный (картинка %s, цвет %s) — оставлен как есть."),
+					Name, Item.Button, Normal.GetResourceObject() ? *Normal.GetResourceObject()->GetName() : TEXT("нет"), *Tint.ToString());
+				continue;
+			}
+			const FButtonStyle NewStyle = Item.bMenu ? UPdaScreenWidget::MakeMenuPlateStyle(false) : UPdaScreenWidget::MakeMapPlateStyle();
+			Button->SetStyle(NewStyle);
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: кнопке %s поставлена плашка %s."),
+				Name, Item.Button, NewStyle.Normal.GetResourceObject() ? *NewStyle.Normal.GetResourceObject()->GetName() : TEXT("запасного вида (без картинки)"));
+		}
+
+		// Подписи кнопок меню — крупнее, как в образце. Меняется только прежний кегль генератора.
+		for (const TCHAR* TextName : { TEXT("QuestsTabText"), TEXT("MapTabText"), TEXT("CloseText") })
+		{
+			UTextBlock* Text = Cast<UTextBlock>(AugFind(Tree, Name, TextName));
+			if (Text && Text->GetFont().Size == 20)
+			{
+				FSlateFontInfo Font = Text->GetFont();
+				Font.Size = 24;
+				Text->SetFont(Font);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: подпись %s — кегль 20 -> 24."), Name, TextName);
+			}
+		}
+
+		if (UPdaScreenWidget::AddMenuButtonIcons(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: в кнопки меню добавлены значки QuestsTabIcon, MapTabIcon, CloseIcon (подпись — справа от значка)."), Name);
+		}
+		if (UPdaScreenWidget::AddTitleStatusBar(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: у заголовка добавлены значки сигнала и батареи (TitleStatusIcons) и линия TitleUnderline."), Name);
+		}
+		if (UPdaScreenWidget::FillEmptyIcons(Tree))
+		{
+			bChanged = true;
+			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: в пустые значки вложены картинки из настроек."), Name);
+		}
+		// Значок с картинкой виден и в редакторе окон (без картинки — спрятан, как в игре).
+		for (const TCHAR* IconName : { TEXT("QuestsTabIcon"), TEXT("MapTabIcon"), TEXT("CloseIcon"), TEXT("TitleSignalIcon"), TEXT("TitleBatteryIcon") })
+		{
+			UImage* Icon = Cast<UImage>(Tree->FindWidget(IconName));
+			if (Icon && Icon->GetBrush().GetResourceObject() && Icon->GetVisibility() == ESlateVisibility::Collapsed)
+			{
+				Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
+				bChanged = true;
+				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: значок %s с картинкой показан."), Name, IconName);
+			}
+		}
+	}
+
 	// WBP_ItemTile: цифра количества крупнее и с чёрной обводкой (Ринат 11.10.2026: «Сделай
 	// шрифт чуть больше. Ты можешь добавить черную обводку этим символам?»). Кегль растёт
 	// только с прежнего значения генератора; обводка ставится, только если её нет.
@@ -7682,6 +7779,9 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerSideMarker },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopGapToInventory },
 		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentSearchGapToInventory },
+		// Ринат 20.10.2026: новый вид окна смартфона по образцу (плашки, значки, линия заголовка).
+		// Стоит ПОСЛЕ AugmentPdaPolish: значки заголовка встают в меню вкладок SideMenu.
+		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaRestyle },
 	};
 
 	int32 FailCount = 0;

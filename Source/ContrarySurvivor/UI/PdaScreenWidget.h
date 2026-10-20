@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Components/Button.h"
 #include "Widgets/Layout/Anchors.h"
+#include "UObject/SoftObjectPtr.h"
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/SelfHidingWidget.h"
 #include "PdaScreenWidget.generated.h"
@@ -318,6 +319,25 @@ public:
 	FMargin GetPhoneScreenPadding() const { return PhonePadding; }
 	bool IsPhoneTextureShown() const { return LoadedPhoneTexture != nullptr; }
 
+	// --- Вид кнопок и заголовка (образец Рината 20.10.2026). Картинки плашек и значков — в
+	// настройках UContraryPdaSettings; пока их нет — запасной вид кодом (бирюзовые скруглённые
+	// плашки с рамкой, без значков). ---
+
+	// Поставить плашки кнопок и значки по настройкам. В игре зовёт само окно при настройке;
+	// автопроверки зовут напрямую после смены настроек.
+	void ApplySkin();
+	// Горит ли у вкладки яркая плашка выбранной (false — «Задания», true — «Карта»).
+	bool IsTabPlateActive(bool bMapTabButton) const;
+	// Плашки кнопок меню и карты: картинка из настроек, если она есть, иначе запасной вид.
+	static FButtonStyle MakeMenuPlateStyle(bool bActive);
+	static FButtonStyle MakeMapPlateStyle();
+	// Запасной вид без картинки (по нему автопроверки и генератор узнают, что картинки нет).
+	static FButtonStyle MakeFallbackMenuStyle(bool bActive);
+	static FButtonStyle MakeFallbackMapStyle();
+	// Загрузить картинку из настроек, только если она есть в проекте (иначе nullptr без
+	// предупреждений в журнале: картинки художника приходят позже кода).
+	static UTexture2D* LoadPdaPicture(const TSoftObjectPtr<UTexture2D>& Picture);
+
 	// --- Раскладка, общая для нового дерева и для дополнения готового файла окна (генератор
 	// окон зовёт те же шаги; каждый шаг повторно ничего не меняет и возвращает false) ---
 
@@ -332,6 +352,15 @@ public:
 	// Ширина поля карты в файле окна: карта, вписанная по высоте экрана смартфона на экране
 	// высотой 1080 единиц раскладки при нынешних настройках.
 	static float ComputeDesignMapPanelWidth();
+	// Значки на кнопках меню: подпись кнопки встаёт в строку справа от значка
+	// (QuestsTabIcon, MapTabIcon, CloseIcon). Значок без картинки спрятан.
+	static bool AddMenuButtonIcons(UWidgetTree* Tree);
+	// Значки сигнала и батареи справа от заголовка (TitleStatusIcons: TitleSignalIcon,
+	// TitleBatteryIcon) и тонкая светлая линия под ним (TitleUnderline).
+	static bool AddTitleStatusBar(UWidgetTree* Tree);
+	// Вложить картинки из настроек в значки окна, у которых картинки ещё нет. Высота значка
+	// остаётся, какой стоит в окне, ширина — по пропорциям картинки. Чужую картинку не меняет.
+	static bool FillEmptyIcons(UWidgetTree* Tree);
 
 	// Ширина меню вкладок при нынешней вкладке и размере смартфона (0 — размер ещё неизвестен).
 	double GetSideMenuWidth() const { return SideMenuWidth; }
@@ -413,6 +442,8 @@ private:
 	void RefreshDetails();
 	void RebuildMap();
 	void RefreshTabLook();
+	// Поставить выбранной вкладке яркую плашку, второй — обычную.
+	void ApplyTabPlates();
 
 	// Растянуть меню вкладок до открытой вкладки (её место берётся из файла окна).
 	void UpdateSideMenuWidth();
@@ -553,6 +584,27 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> MapAreaMarkText;
 
+	// Значки кнопок меню (слева от подписи) и строка значков у заголовка. Картинки — из
+	// настроек либо поставленные в файле окна; без картинки значок спрятан.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> QuestsTabIcon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> MapTabIcon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> CloseIcon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> TitleSignalIcon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> TitleBatteryIcon;
+
+	// Тонкая светлая линия под заголовком.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> TitleUnderline;
+
 	// --- Состояние ---
 
 	TWeakObjectPtr<APlayerCharacter> Player;
@@ -607,6 +659,27 @@ private:
 	bool bMapTabAttentionActive = false;
 	float MapTabAttentionTime = 0.0f;
 	FLinearColor MapTabIdleColor = FLinearColor::White;
+
+	// Плашки вкладок: обычная (картинка из настроек либо вид из файла окна) и яркая выбранная.
+	// Вид из файла запоминается один раз, до первой подмены.
+	UPROPERTY(Transient)
+	FButtonStyle QuestsTabIdleStyle;
+
+	UPROPERTY(Transient)
+	FButtonStyle MapTabIdleStyle;
+
+	UPROPERTY(Transient)
+	FButtonStyle ActiveTabStyle;
+
+	bool bSkinApplied = false;
+
+	// Вид кнопок «Закрыть» и карты из файла окна (к нему возвращаемся, если картинки нет).
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<UButton>, FButtonStyle> FileButtonStyles;
+
+	// Картинки плашек и значков, пока окно живо (мягкие ссылки настроек их не удержат).
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTexture2D>> LoadedSkinTextures;
 
 	int32 QuestRowCount = 0;
 	int32 QuestMapMarkerCount = 0;

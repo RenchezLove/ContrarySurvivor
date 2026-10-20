@@ -118,6 +118,61 @@ public:
 		DisplayName = "Поля слева и справа от смартфона, единиц раскладки"))
 	float PhoneSideMargin = 24.0f;
 
+	// --- Вид кнопок и заголовка смартфона (образец Рината 20.10.2026: кнопки меню — плашки-
+	// картинки со значком слева и крупной белой подписью справа; выбранная вкладка — своя, яркая
+	// плашка; у заголовка значки сигнала и батареи и тонкая светлая линия под ним; кнопки карты —
+	// квадратные плашки с бирюзовой рамкой). Пусто или картинка ещё не импортирована — окно
+	// рисует запасной вид кодом: бирюзовые скруглённые плашки с рамкой, без значков. ---
+
+	// Плашка кнопок меню (вкладки и «Закрыть»). Растягивается девятью кусками: углы не
+	// тянутся, края тянутся вдоль, середина — во все стороны.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Плашка кнопки меню"))
+	TSoftObjectPtr<UTexture2D> MenuButtonPlate;
+
+	// Плашка выбранной вкладки (яркая).
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Плашка выбранной вкладки"))
+	TSoftObjectPtr<UTexture2D> MenuButtonPlateActive;
+
+	// Какая часть картинки плашки меню не тянется: доли её ширины (слева, справа) и высоты
+	// (сверху, снизу). Действует на обе плашки меню.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Плашка меню: нерастягиваемые края (доли: слева, сверху, справа, снизу)"))
+	FMargin MenuButtonPlateMargin = FMargin(0.061f, 0.222f, 0.061f, 0.222f);
+
+	// Квадратная плашка кнопок карты «+», «−», «Моя позиция».
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Плашка кнопки карты"))
+	TSoftObjectPtr<UTexture2D> MapButtonPlate;
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Плашка карты: нерастягиваемые края (доли: слева, сверху, справа, снизу)"))
+	FMargin MapButtonPlateMargin = FMargin(0.125f, 0.125f, 0.125f, 0.125f);
+
+	// Значки слева от подписей кнопок меню. Высоту значка задаёт файл окна (размер картинки у
+	// элемента значка), ширина берётся по пропорциям картинки.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок вкладки «Задания»"))
+	TSoftObjectPtr<UTexture2D> QuestsTabIcon;
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок вкладки «Карта»"))
+	TSoftObjectPtr<UTexture2D> MapTabIcon;
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок кнопки «Закрыть»"))
+	TSoftObjectPtr<UTexture2D> CloseIcon;
+
+	// Значки справа от заголовка «Смартфон».
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок сигнала у заголовка"))
+	TSoftObjectPtr<UTexture2D> SignalIcon;
+
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок батареи у заголовка"))
+	TSoftObjectPtr<UTexture2D> BatteryIcon;
+
 	// --- Приближение карты (слова Рината: «дай игроку возможность приближать и отдалять её как
 	// кнопками (+ и −), так и пальцами (раздвигая)») ---
 
