@@ -18,6 +18,8 @@ class APlayerCharacter;
  * Правило открытия — одно, чистая функция ShouldBeOpen (решение лида 10.10.2026): открыт, если
  * задание «открывает взятием» принято (идёт, выполнено или сдано) ИЛИ задание «открывает сдачей»
  * сдано. Иначе закрыт.
+ * Кроме того, закрытый шлагбаум выпускает героя изнутри (21.10.2026, отзыв игрока «заперт на
+ * базе учёных»): ShouldLetHeroOut — снаружи по-прежнему не пускает.
  *
  * Состояние не хранит и в сохранение ничего не пишет — выводит его из журнала заданий героя:
  * подписан на события журнала (смена задания и замена журнала целиком) и, как раскладчик
@@ -42,6 +44,14 @@ public:
 
 	// Правило открытия — чистая функция, проверяется автотестом без мира.
 	static bool ShouldBeOpen(const TArray<FQuest>& Journal, FName TakenQuestId, FName TurnedInQuestId);
+
+	// Выпуск героя изнутри (21.10.2026, отзыв «заперт на базе учёных»): закрытый шлагбаум не
+	// впускает, но и не запирает. InsideDepth — насколько герой зашёл внутрь от оси проезда
+	// (см, отрицательно — снаружи), Distance — расстояние до шлагбаума по земле. Открыть, если
+	// герой внутри дальше половины преграды и не дальше радиуса; уже открытый для выпуска
+	// держится, пока герой не отошёл наружу на запас (не закрывается у него на голове).
+	static bool ShouldLetHeroOut(float InsideDepth, float Distance, bool bWasLettingOut,
+		float HalfThickness, float Radius, float OutsideClearance);
 
 	// Сверить состояние с журналом героя прямо сейчас (её же зовут события журнала и таймер).
 	void RefreshNow();
@@ -110,6 +120,28 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier|Правило", meta = (DisplayPriority = "3", ClampMin = "0.1"))
 	float CheckInterval = 0.5f;
 
+	// --- Выпуск изнутри (21.10.2026: герой, возродившийся у костра базы, не мог выйти) ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier|Выпуск", meta = (DisplayPriority = "1",
+		DisplayName = "Выпускать героя изнутри",
+		ToolTip = "Закрытый шлагбаум открывается, когда герой подходит к нему изнутри, и закрывается, когда герой вышел. Снаружи по-прежнему не пускает."))
+	bool bLetHeroOutFromInside = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier|Выпуск", meta = (DisplayPriority = "2",
+		DisplayName = "Внутри — по направлению актора",
+		ToolTip = "Включено: внутренняя сторона там, куда смотрит стрелка актора (+X). Выключено: с обратной стороны."))
+	bool bInsideIsForward = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier|Выпуск", meta = (DisplayPriority = "3", ClampMin = "100.0",
+		DisplayName = "Радиус выпуска (см)",
+		ToolTip = "Шлагбаум открывается для выпуска, когда герой изнутри ближе этого расстояния."))
+	float LetOutRadius = 1500.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier|Выпуск", meta = (DisplayPriority = "4", ClampMin = "0.0",
+		DisplayName = "Запас снаружи до закрытия (см)",
+		ToolTip = "Открытый для выпуска шлагбаум закрывается, когда герой отошёл наружу дальше половины преграды плюс этот запас."))
+	float LetOutClearance = 200.0f;
+
 	// --- Части ---
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Barrier")
@@ -154,6 +186,12 @@ private:
 
 	// Первая сверка с журналом уже была — дальше смена состояния идёт с движением стрелы.
 	bool bResolvedOnce = false;
+
+	// Шлагбаум сейчас открыт ради выпуска героя изнутри (задания его не открывают).
+	bool bLettingHeroOut = false;
+
+	// Пересчитать выпуск по месту героя; возвращает новое значение bLettingHeroOut.
+	bool UpdateLetHeroOut(const APlayerCharacter* Player);
 
 	TWeakObjectPtr<UQuestComponent> BoundJournal;
 	FDelegateHandle JournalRestoredHandle;

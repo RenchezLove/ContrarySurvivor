@@ -2451,6 +2451,8 @@ bool APlayerCharacter::SaveGame()
     Save->Money = Stats->GetMoney();
     Save->PlayerLocation = GetActorLocation();
     Save->PlayerRotation = GetActorRotation();
+    Save->bHasLastCampfire = bHasLastCampfire;
+    Save->LastCampfireLocation = LastCampfireLocation;
 
     // Б3: рюкзак + экипированная броня — единый список (FSavedInventoryEntry), см. комментарий
     // в ContrarySaveGame.h. GetInventoryItems() уже включает экипированные предметы (Фаза 4:
@@ -2819,7 +2821,8 @@ bool APlayerCharacter::LoadGameForContinue()
     // костра и пере-сейв смерти (после перестановки к костру), поэтому точка вдали от костров —
     // всегда испорченный слот старой сборки (петля смерти ADR-061 закрепила точку поля).
     // Смертельный путь лечится в Respawn(); «Продолжить» обязан лечиться так же, иначе
-    // игрок продолжает игру посреди поля рядом с врагами.
+    // игрок продолжает игру посреди поля рядом с врагами. С 11.10 точку в поле пишут и
+    // автосохранения по ходу задания; костёр — последний, у которого герой сохранялся (21.10).
     RelocateToCampfireIfSavedPointFar(TEXT("CONTINUE"));
 
     // Открытая часть карты КПК — после переноса героя: старое сохранение без этих данных
@@ -2896,6 +2899,10 @@ void APlayerCharacter::ResetToNewGame()
         MapExploration->ResetToVillage();
     }
 
+    // Костра возрождения в новой игре ещё нет — до первого сохранения у костра это костёр старта.
+    bHasLastCampfire = false;
+    LastCampfireLocation = FVector::ZeroVector;
+
     // Позиция — стартовый спавн (сейв в живого персонажа ещё не грузился, откатывать нечего).
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
@@ -2917,6 +2924,11 @@ void APlayerCharacter::ApplySaveData(const UContrarySaveGame* Save)
     {
         Stats->RestoreState(Save->Health, Save->Hunger, Save->Thirst, Save->Money);
     }
+
+    // Костёр возрождения — ДО телепорта: телепорт в зону костра синхронно зовёт его сохранение,
+    // и оно должно перекрыть значение слота, а не наоборот.
+    bHasLastCampfire = Save->bHasLastCampfire;
+    LastCampfireLocation = Save->LastCampfireLocation;
 
     // Телепорт в точку респауна (последний костёр/сейв). Гасим скорость.
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
@@ -3240,18 +3252,34 @@ void APlayerCharacter::ApplyDeathMoneyLoss(const DeathLoss::FPlan& Plan)
         MoneyAtDeath, Plan.LostMoney, Plan.DroppedMoney, Stats->GetMoney());
 }
 
-void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag)
+void APlayerCharacter::RememberRespawnCampfire(const ACampfire* Campfire)
+{
+    if (!Campfire || !Campfire->IsSavePoint())
+    {
+        return;
+    }
+    bHasLastCampfire = true;
+    LastCampfireLocation = Campfire->GetActorLocation();
+}
+
+ACampfire* APlayerCharacter::FindRespawnCampfire() const
 {
     UWorld* World = GetWorld();
     if (!World)
     {
-        return;
+        return nullptr;
     }
 
-    // Ближайший костёр — по классу: имя экземпляра в уровне может уехать при пересохранении.
-    ACampfire* NearestCampfire = nullptr;
+    // 21.10.2026 (отзыв игрока на 0.4.0): раньше брался костёр, ближайший к точке из слота. Но
+    // точку в слот пишут и автосохранения по ходу задания (ae36e06, 11.10) — у логова волков
+    // первого задания ближайшим оказывался костёр ВНУТРИ базы учёных, куда до задания про
+    // ноутбук не пускает шлагбаум: герой возрождался запертым. Теперь — последний костёр, у
+    // которого герой сохранялся (GDD §7.8), а до первого такого — костёр у места старта.
+    const FVector Anchor = bHasLastCampfire ? LastCampfireLocation : InitialSpawnTransform.GetLocation();
+
+    // Костёр ищется по классу и месту: имя экземпляра в уровне может уехать при пересохранении.
+    ACampfire* Best = nullptr;
     float BestDistSq = TNumericLimits<float>::Max();
-    const FVector CurrentLoc = GetActorLocation();
     for (TActorIterator<ACampfire> It(World); It; ++It)
     {
         // Костёр без галочки «Точка сохранения» (у автобусной остановки) точкой возрождения
@@ -3260,14 +3288,25 @@ void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag
         {
             continue;
         }
-        const float DistSq = FVector::DistSquared2D(It->GetActorLocation(), CurrentLoc);
+        const float DistSq = FVector::DistSquared2D(It->GetActorLocation(), Anchor);
         if (DistSq < BestDistSq)
         {
             BestDistSq = DistSq;
-            NearestCampfire = *It;
+            Best = *It;
         }
     }
+    return Best;
+}
 
+void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag)
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    ACampfire* NearestCampfire = FindRespawnCampfire();
     if (!NearestCampfire)
     {
         // Мир без костра-точки сохранения (служебный/тестовый) — переставлять некуда, точка
@@ -3276,9 +3315,10 @@ void APlayerCharacter::RelocateToCampfireIfSavedPointFar(const TCHAR* ContextTag
         return;
     }
 
+    const float BestDistSq = FVector::DistSquared2D(NearestCampfire->GetActorLocation(), GetActorLocation());
     if (BestDistSq <= FMath::Square(RespawnNearCampfireRadius))
     {
-        return; // точка настоящего сейва у костра — валидна, не трогаем
+        return; // точка настоящего сейва у костра возрождения — валидна, не трогаем
     }
 
     // Точка «у костра, но не в огне»: полрадиуса зоны вперёд от костра, лицом к огню, Z по полу.

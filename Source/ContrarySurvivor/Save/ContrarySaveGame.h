@@ -143,6 +143,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Transform")
 	FRotator PlayerRotation = FRotator::ZeroRotator;
 
+	// Костёр, у которого герой сохранялся последним (21.10.2026, отзыв «заперт на базе учёных»):
+	// точка возрождения после смерти и «Продолжить» — он (GDD §7.8 «респаун на последней точке
+	// сейва»), а не костёр, ближайший к PlayerLocation: автосохранения по ходу задания пишут
+	// PlayerLocation в поле. Хранится место костра (не имя — имя экземпляра может уехать).
+	// Сохранения старых версий поля не знают (false) — возрождение у костра старта (деревня).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Transform")
+	bool bHasLastCampfire = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Transform")
+	FVector LastCampfireLocation = FVector::ZeroVector;
+
 	// --- Рюкзак + экипированная броня (Б3, GDD §7.8) ---
 	// Единый список: содержит и обычные предметы рюкзака, и надетую броню (bEquipped=true) —
 	// у брони в рюкзаке (UInventoryComponent) и так один список на экипированное/неэкипированное

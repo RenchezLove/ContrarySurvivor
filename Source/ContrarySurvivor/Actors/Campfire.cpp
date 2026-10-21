@@ -109,6 +109,9 @@ void ACampfire::OnSafeZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AAct
 	// показывает игроку короткую надпись «Прогресс сохранён» (спека glavnoe-menu-spec.md).
 	// В журнал пишем только провал: успешный автосейв повторяется при каждом входе в зону
 	// и засорял журнал (Ринат 26.09).
+	// Этот костёр становится точкой возрождения (21.10.2026: возрождение — у последнего костра,
+	// у которого герой сохранялся, а не у ближайшего к автосохранению в поле).
+	Player->RememberRespawnCampfire(this);
 	if (!Player->SaveGameAtCampfire())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Campfire '%s' autosave for player: FAIL"), *GetName());
@@ -122,5 +125,6 @@ bool ACampfire::SaveAtCampfire(APlayerCharacter* Player)
 		return false;
 	}
 	// Ручное сохранение у костра — тот же путь с надписью, что и автосейв по входу в зону.
+	Player->RememberRespawnCampfire(this);
 	return Player->SaveGameAtCampfire();
 }

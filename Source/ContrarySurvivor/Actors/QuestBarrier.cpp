@@ -126,6 +126,43 @@ bool AQuestBarrier::ShouldBeOpen(const TArray<FQuest>& Journal, FName TakenQuest
 	return false;
 }
 
+bool AQuestBarrier::ShouldLetHeroOut(float InsideDepth, float Distance, bool bWasLettingOut,
+	float HalfThickness, float Radius, float OutsideClearance)
+{
+	if (Distance > Radius)
+	{
+		return false; // далеко от шлагбаума — выпускать некого
+	}
+	if (InsideDepth > HalfThickness)
+	{
+		return true; // герой внутри, преграда между ним и выездом
+	}
+	// В проезде или только что вышел: держим открытым, пока не отошёл наружу на запас.
+	return bWasLettingOut && InsideDepth > -(HalfThickness + OutsideClearance);
+}
+
+bool AQuestBarrier::UpdateLetHeroOut(const APlayerCharacter* Player)
+{
+	if (!bLetHeroOutFromInside || !Player)
+	{
+		bLettingHeroOut = false;
+		return false;
+	}
+	const FVector Offset = Player->GetActorLocation() - GetActorLocation();
+	const FVector Inward = GetActorForwardVector().GetSafeNormal2D() * (bInsideIsForward ? 1.0f : -1.0f);
+	const float InsideDepth = FVector::DotProduct(FVector(Offset.X, Offset.Y, 0.0f), Inward);
+	const float Distance = FVector(Offset.X, Offset.Y, 0.0f).Size();
+	const bool bNow = ShouldLetHeroOut(InsideDepth, Distance, bLettingHeroOut,
+		BlockerThickness * 0.5f, LetOutRadius, LetOutClearance);
+	if (bNow != bLettingHeroOut)
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: barrier %s let-hero-out %s (depth %.0f, dist %.0f)"),
+			*GetName(), bNow ? TEXT("ON") : TEXT("OFF"), InsideDepth, Distance);
+	}
+	bLettingHeroOut = bNow;
+	return bNow;
+}
+
 void AQuestBarrier::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
@@ -244,8 +281,10 @@ void AQuestBarrier::RefreshNow()
 		return; // героя ещё нет — решать рано, шлагбаум остаётся закрытым
 	}
 
-	const bool bShouldOpen = ShouldBeOpen(Journal->GetQuests(), OpenWhenTakenQuestId, OpenWhenTurnedInQuestId);
-	SetOpen(bShouldOpen, /*bInstant=*/!bResolvedOnce);
+	const bool bByQuests = ShouldBeOpen(Journal->GetQuests(), OpenWhenTakenQuestId, OpenWhenTurnedInQuestId);
+	// Выпуск изнутри считается и при открытом по заданиям — чтобы латч не залип со старым значением.
+	const bool bLetOut = UpdateLetHeroOut(Player);
+	SetOpen(bByQuests || bLetOut, /*bInstant=*/!bResolvedOnce);
 	bResolvedOnce = true;
 }
 
