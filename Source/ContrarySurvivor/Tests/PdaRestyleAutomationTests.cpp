@@ -21,6 +21,7 @@
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Engine/Engine.h"
@@ -403,8 +404,8 @@ bool FPdaRestyleSettingsPictureTest::RunTest(const FString& Parameters)
 			const UImage* MapIcon = Find<UImage>(Window, TEXT("MapTabIcon"));
 			TestTrue(TEXT("Значок «Карта» получил картинку и виден"),
 				MapIcon && MapIcon->GetBrush().GetResourceObject() == Icon && MapIcon->GetVisibility() != ESlateVisibility::Collapsed);
-			TestTrue(TEXT("Высота значка — из окна (32), ширина — по пропорциям картинки (64)"),
-				MapIcon && FMath::IsNearlyEqual(MapIcon->GetBrush().ImageSize.Y, 32.0, 0.01) && FMath::IsNearlyEqual(MapIcon->GetBrush().ImageSize.X, 64.0, 0.01));
+			TestTrue(TEXT("Высота значка — из окна (58, около 60 % кнопки), ширина — по пропорциям картинки (116)"),
+				MapIcon && FMath::IsNearlyEqual(MapIcon->GetBrush().ImageSize.Y, 58.0, 0.01) && FMath::IsNearlyEqual(MapIcon->GetBrush().ImageSize.X, 116.0, 0.01));
 			const UImage* QuestsIcon = Find<UImage>(Window, TEXT("QuestsTabIcon"));
 			TestTrue(TEXT("Значок без картинки в настройках по-прежнему спрятан"),
 				QuestsIcon && QuestsIcon->GetVisibility() == ESlateVisibility::Collapsed);
@@ -422,6 +423,174 @@ bool FPdaRestyleSettingsPictureTest::RunTest(const FString& Parameters)
 			Icon->RemoveFromRoot();
 		}
 	}
+	Destroy(World);
+	DeleteSlot();
+	return true;
+}
+
+// ===========================================================================
+// 4. Код не двигает элементы, расставленные владельцем в файле окна (Ринат 21.10.2026: «в
+//    WBP_Pda я должен иметь возможность свободно двигать элементы (кнопки, тексты и т д)»).
+//    Окно из готового файла; «владелец» сдвигает и растягивает меню, вкладки, кнопки, значок
+//    и подпись; затем окно открывается, подгоняется под четыре экрана, переключает вкладки и
+//    ставит карту. Место, размер и якоря КАЖДОГО элемента в холсте должны остаться как были.
+//    Исключения — живые данные: картинка карты в поле (MapArea), круг района с подписью и
+//    отметки на карте. Масштаб под экран — только у подложки целиком.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPdaLayoutCodeKeepsOwnerLayoutTest,
+	"ContrarySurvivor.Pda.Layout.CodeKeepsOwnerLayout", PdaRestyleTestFlags)
+
+bool FPdaLayoutCodeKeepsOwnerLayoutTest::RunTest(const FString& Parameters)
+{
+	using namespace PdaRestyleTest;
+	struct FSlotState
+	{
+		FAnchors Anchors;
+		FMargin Offsets;
+		FVector2D Alignment;
+		bool bAutoSize;
+		int32 ZOrder;
+	};
+	auto Snapshot = [](UWidgetTree* Tree)
+	{
+		TMap<FName, FSlotState> Out;
+		Tree->ForEachWidget([&Out](UWidget* Widget)
+		{
+			const UCanvasPanelSlot* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+			if (!CanvasSlot)
+			{
+				return;
+			}
+			const FName Name = Widget->GetFName();
+			// Живые данные — их ставит код: картинка карты в поле со всем, что на ней (круг
+			// района, отметки), и строки списка заданий.
+			for (const UWidget* Up = Widget; Up; Up = Up->GetParent())
+			{
+				if (Up->GetFName() == TEXT("MapArea") || Up->GetFName() == TEXT("QuestList"))
+				{
+					return;
+				}
+			}
+			Out.Add(Name, { CanvasSlot->GetAnchors(), CanvasSlot->GetOffsets(), CanvasSlot->GetAlignment(),
+				CanvasSlot->GetAutoSize(), CanvasSlot->GetZOrder() });
+		});
+		return Out;
+	};
+
+	DeleteSlot();
+	UWorld* World = Create();
+	UClass* WidgetClass = StaticLoadClass(UPdaScreenWidget::StaticClass(), nullptr, TEXT("/Game/UI/WBP_Pda.WBP_Pda_C"));
+	UPdaScreenWidget* Window = (World && WidgetClass) ? CreateWidget<UPdaScreenWidget>(World, WidgetClass) : nullptr;
+	if (!TestNotNull(TEXT("Окно создано из готового файла WBP_Pda"), Window) || !Window->WidgetTree)
+	{
+		Destroy(World);
+		return false;
+	}
+
+	// «Владелец» передвинул и растянул элементы (как мышкой в редакторе окна).
+	struct FOwnerMove
+	{
+		const TCHAR* Name;
+		FVector2D Pos;
+		FVector2D Size;
+	};
+	const FOwnerMove Moves[] =
+	{
+		{ TEXT("SideMenu"),          FVector2D(13.0, 7.0),    FVector2D(301.0, 611.0) },
+		{ TEXT("QuestsPanel"),       FVector2D(333.0, 21.0),  FVector2D(517.0, 603.0) },
+		{ TEXT("MapPanel"),          FVector2D(347.0, 11.0),  FVector2D(509.0, 577.0) },
+		{ TEXT("QuestsTabButton"),   FVector2D(9.0, 71.0),    FVector2D(257.0, 83.0) },
+		{ TEXT("QuestsTabIcon"),     FVector2D(5.0, 3.0),     FVector2D(41.0, 39.0) },
+		{ TEXT("QuestsTabText"),     FVector2D(61.0, 17.0),   FVector2D(171.0, 43.0) },
+		{ TEXT("TitleSignalIcon"),   FVector2D(201.0, 5.0),   FVector2D(19.0, 17.0) },
+		{ TEXT("MapZoomInButton"),   FVector2D(23.0, 29.0),   FVector2D(77.0, 71.0) },
+		{ TEXT("MapFindHeroText"),   FVector2D(3.0, 4.0),     FVector2D(70.0, 50.0) },
+	};
+	for (const FOwnerMove& Move : Moves)
+	{
+		UWidget* Widget = Window->WidgetTree->FindWidget(FName(Move.Name));
+		UCanvasPanelSlot* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+		if (!TestNotNull(*FString::Printf(TEXT("%s лежит в холсте (его можно двигать мышкой)"), Move.Name), CanvasSlot))
+		{
+			continue;
+		}
+		CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f));
+		CanvasSlot->SetAlignment(FVector2D::ZeroVector);
+		CanvasSlot->SetPosition(Move.Pos);
+		CanvasSlot->SetSize(Move.Size);
+	}
+	const TMap<FName, FSlotState> Before = Snapshot(Window->WidgetTree);
+	TestTrue(*FString::Printf(TEXT("Элементов в холстах не меньше тридцати (нашлось %d)"), Before.Num()), Before.Num() >= 30);
+
+	// Окно живёт, как в игре: открыто героем, подогнано под экраны, вкладки переключаются,
+	// карта ставится в поле, приближается и встаёт на героя.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ASaveTestPlayerCharacter* Player = World->SpawnActor<ASaveTestPlayerCharacter>(
+		ASaveTestPlayerCharacter::StaticClass(), FVector(0.0, 0.0, 100.0), FRotator::ZeroRotator, Params);
+	if (Player)
+	{
+		Player->UseTestSaveSlot(SaveSlot);
+	}
+	Window->InitPda(Player);
+	const UBorder* Plate = Find<UBorder>(Window, TEXT("PanelPlate"));
+	for (const double ScreenWidth : { 1920.0, 2400.0, 2340.0, 1728.0 })
+	{
+		Window->ApplyPhoneLayout(FVector2D(ScreenWidth, 1080.0));
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон масштабирован целиком (масштаб подложки %.3f, подгонка %.3f)"),
+			ScreenWidth, Plate ? Plate->GetRenderTransform().Scale.X : -1.0, Window->GetPhoneScale()),
+			Plate && FMath::IsNearlyEqual(Plate->GetRenderTransform().Scale.X, Window->GetPhoneScale(), 0.001)
+				&& FMath::IsNearlyEqual(Plate->GetRenderTransform().Scale.Y, Window->GetPhoneScale(), 0.001));
+		Window->ShowTab(true);
+		Window->SetMapViewportSize(FVector2D(509.0, 577.0));
+		Window->ZoomMapAt(FVector2D(250.0, 280.0), 2.0);
+		Window->CenterMapOnHero();
+		Window->ShowTab(false);
+		Window->RefreshNow();
+	}
+	Window->ShowTab(true);
+
+	const TMap<FName, FSlotState> After = Snapshot(Window->WidgetTree);
+	for (const TPair<FName, FSlotState>& Pair : Before)
+	{
+		const FSlotState* Now = After.Find(Pair.Key);
+		const FSlotState& Was = Pair.Value;
+		const bool bSame = Now && Now->Anchors.Minimum.Equals(Was.Anchors.Minimum) && Now->Anchors.Maximum.Equals(Was.Anchors.Maximum)
+			&& Now->Offsets == Was.Offsets && Now->Alignment.Equals(Was.Alignment) && Now->bAutoSize == Was.bAutoSize
+			&& Now->ZOrder == Was.ZOrder;
+		TestTrue(*FString::Printf(TEXT("%s: место, размер и якоря как в файле (было (%.0f, %.0f, %.0f, %.0f), стало (%.0f, %.0f, %.0f, %.0f))"),
+			*Pair.Key.ToString(), Was.Offsets.Left, Was.Offsets.Top, Was.Offsets.Right, Was.Offsets.Bottom,
+			Now ? Now->Offsets.Left : -1.0f, Now ? Now->Offsets.Top : -1.0f, Now ? Now->Offsets.Right : -1.0f, Now ? Now->Offsets.Bottom : -1.0f),
+			bSame);
+	}
+
+	// Внутри кнопок меню — холст со значком и подписью; вокруг элементов окна нет контейнеров,
+	// которые сами расставляют детей (рядов, обёрток размера).
+	for (const TCHAR* ButtonName : { TEXT("QuestsTabButton"), TEXT("MapTabButton"), TEXT("CloseButton") })
+	{
+		const UButton* Button = Find<UButton>(Window, ButtonName);
+		TestTrue(*FString::Printf(TEXT("%s: внутри кнопки холст"), ButtonName), Button && Cast<UCanvasPanel>(Button->GetContent()) != nullptr);
+	}
+	int32 Arrangers = 0;
+	Window->WidgetTree->ForEachWidget([&Arrangers, this](UWidget* Widget)
+	{
+		// Список заданий и строки в нём строит код (живые данные) — их не считаем.
+		for (const UWidget* Up = Widget; Up; Up = Up->GetParent())
+		{
+			if (Up->GetFName() == TEXT("QuestList") || Up->GetFName() == TEXT("MapArea"))
+			{
+				return;
+			}
+		}
+		const UPanelWidget* Panel = Cast<UPanelWidget>(Widget);
+		if (Panel && !Panel->IsA<UCanvasPanel>() && !Panel->IsA<UButton>() && !Panel->IsA<UBorder>())
+		{
+			++Arrangers;
+			AddError(FString::Printf(TEXT("В окне есть раскладывающий контейнер %s (%s)"), *Widget->GetName(), *Widget->GetClass()->GetName()));
+		}
+	});
+	TestEqual(TEXT("Раскладывающих контейнеров вокруг элементов окна нет"), Arrangers, 0);
+
 	Destroy(World);
 	DeleteSlot();
 	return true;

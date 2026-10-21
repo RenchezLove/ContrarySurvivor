@@ -189,8 +189,16 @@ namespace PolishUiTest
 // Смартфон (слова Рината 11.10.2026: «у смартфона есть экран… некоторые кнопки на смартфоне
 // выходят за пределы экрана. Такого быть не должно… Слева - меню вкладок смартфона. Справа -
 // содержимое активной вкладки… ни одна вкладка и ни одна кнопка и ни один текст не должны
-// выходить за пределы экрана смартфона»). Окно создаётся из готового файла WBP_Pda и ставится
-// так же, как в игре, на трёх экранах; проверяются обе вкладки.
+// выходить за пределы экрана смартфона»).
+// С 21.10.2026 (Ринат: «в WBP_Pda я должен иметь возможность свободно двигать элементы») код
+// элементы файла окна не двигает: на любом экране смартфон масштабируется целиком, расстановка
+// внутри — как в файле. Поэтому:
+//  - у файла окна проверяется, что на обеих вкладках всё лежит внутри экрана смартфона и
+//    подписи помещаются в свои места на кнопках, а подгонка под четыре экрана — масштаб
+//    подложки целиком, смартфон целиком на экране;
+//  - форма раскладки по умолчанию (меню от левого края одной ширины на обеих вкладках, вкладка
+//    до правого края, поле карты ровно под карту) проверяется на дереве BuildDefaultTree: файл
+//    после создания принадлежит владельцу, его форма — его дело.
 // ===========================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPolishUiPhoneContentInsideScreenTest,
 	"ContrarySurvivor.PolishUi.PhoneContentStaysInsidePhoneScreen", PolishUiTestFlags)
@@ -199,51 +207,48 @@ bool FPolishUiPhoneContentInsideScreenTest::RunTest(const FString& Parameters)
 {
 	using namespace PolishUiTest;
 	const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
-	UClass* WindowClass = StaticLoadClass(UPdaScreenWidget::StaticClass(), nullptr, TEXT("/Game/UI/WBP_Pda.WBP_Pda_C"));
-	UWorld* World = Create();
-	UPdaScreenWidget* Window = (World && WindowClass) ? CreateWidget<UPdaScreenWidget>(World, WindowClass) : nullptr;
-	if (!TestNotNull(TEXT("Окно создано из готового файла WBP_Pda"), Window) || !Window->WidgetTree)
-	{
-		Destroy(World);
-		return false;
-	}
-	Window->InitPda(nullptr);
 
-	const UWidgetTree* Tree = Window->WidgetTree;
-	const UBorder* Plate = Cast<UBorder>(Tree->FindWidget(TEXT("PanelPlate")));
-	const UWidget* Canvas = Plate ? Plate->GetContent() : nullptr;
-	const UWidget* SideMenu = Tree->FindWidget(TEXT("SideMenu"));
-	const UWidget* QuestsPanel = Tree->FindWidget(TEXT("QuestsPanel"));
-	const UWidget* MapPanel = Tree->FindWidget(TEXT("MapPanel"));
-	if (!TestTrue(TEXT("Подложка, её холст, меню вкладок и обе вкладки на месте"), Plate && Canvas && SideMenu && QuestsPanel && MapPanel))
+	// Экран смартфона в единицах окна: размер подложки в холсте минус её отступы экрана.
+	auto InnerOf = [](const UBorder* Plate)
 	{
-		Destroy(World);
-		return false;
-	}
-	TestTrue(TEXT("Поле карты обрезает всё, что выходит за него"), MapPanel->GetClipping() == EWidgetClipping::ClipToBounds);
+		const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+		const FVector2D Size = PlateSlot ? PlateSlot->GetSize() : FVector2D::ZeroVector;
+		const FMargin Pad = Plate ? Plate->GetPadding() : FMargin(0.0f);
+		return FVector2D(Size.X - Pad.Left - Pad.Right, Size.Y - Pad.Top - Pad.Bottom);
+	};
 
-	// 16:9, телефонные 20:9 и 19,5:9, планшетное 16:10 (экран в единицах раскладки всегда 1080 в высоту).
-	for (const double ScreenWidth : { 1920.0, 2400.0, 2340.0, 1728.0 })
+	// Обе вкладки дерева: всё внутри экрана смартфона, подписи на кнопках помещаются, значки
+	// у заголовка не налезают на него. bShape — ещё и форма раскладки по умолчанию.
+	auto CheckTree = [this, Settings, &InnerOf](const UWidgetTree* Tree, const TCHAR* What, bool bShape)
 	{
-		const FVector2D Screen(ScreenWidth, 1080.0);
-		Window->ApplyPhoneLayout(Screen);
-		const FVector2D Phone = Window->GetPhoneSize();
-		const FMargin Pad = Window->GetPhoneScreenPadding();
-		const FVector2D Inner(Phone.X - Pad.Left - Pad.Right, Phone.Y - Pad.Top - Pad.Bottom);
+		const UBorder* Plate = Cast<UBorder>(Tree->FindWidget(TEXT("PanelPlate")));
+		const UWidget* Canvas = Plate ? Plate->GetContent() : nullptr;
+		const UWidget* SideMenu = Tree->FindWidget(TEXT("SideMenu"));
+		const UWidget* QuestsPanel = Tree->FindWidget(TEXT("QuestsPanel"));
+		const UWidget* MapPanel = Tree->FindWidget(TEXT("MapPanel"));
+		if (!TestTrue(*FString::Printf(TEXT("%s: подложка, её холст, меню вкладок и обе вкладки на месте"), What),
+			Plate && Canvas && SideMenu && QuestsPanel && MapPanel))
+		{
+			return;
+		}
+		TestTrue(*FString::Printf(TEXT("%s: поле карты обрезает всё, что выходит за него"), What),
+			MapPanel->GetClipping() == EWidgetClipping::ClipToBounds);
+		const FVector2D Inner = InnerOf(Plate);
+		TestTrue(*FString::Printf(TEXT("%s: экран смартфона %.0f на %.0f не меньше 600 на 400"), What, Inner.X, Inner.Y),
+			Inner.X > 600.0 && Inner.Y > 400.0);
 		const FBox2D InnerBox(FVector2D::ZeroVector, Inner);
-		TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон %.0f на %.0f целиком на экране"), ScreenWidth, Phone.X, Phone.Y),
-			Phone.X <= Screen.X && Phone.Y <= Screen.Y && Inner.X > 600.0 && Inner.Y > 400.0);
 
+		FBox2D MenuOnTab[2] = { FBox2D(ForceInit), FBox2D(ForceInit) };
 		for (const bool bMapTab : { false, true })
 		{
-			Window->ShowTab(bMapTab);
 			const TCHAR* TabName = bMapTab ? TEXT("«Карта»") : TEXT("«Задания»");
 			TArray<FPlaced> Placed;
 			Collect(Canvas, InnerBox, bMapTab ? QuestsPanel : MapPanel, Placed);
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: элементов в окне не меньше десяти (нашлось %d)"), ScreenWidth, TabName, Placed.Num()),
+			TestTrue(*FString::Printf(TEXT("%s, вкладка %s: элементов в окне не меньше десяти (нашлось %d)"), What, TabName, Placed.Num()),
 				Placed.Num() >= 10);
 
-			FBox2D MenuBox(ForceInit), TabBox(ForceInit);
+			FBox2D MenuBox(ForceInit), TabBox(ForceInit), TitleBox(ForceInit), SignalBox(ForceInit);
+			const UTextBlock* Title = nullptr;
 			int32 ButtonCount = 0;
 			for (const FPlaced& Item : Placed)
 			{
@@ -253,8 +258,8 @@ bool FPolishUiPhoneContentInsideScreenTest::RunTest(const FString& Parameters)
 				{
 					continue;
 				}
-				TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: %s внутри экрана смартфона — (%.0f, %.0f) — (%.0f, %.0f) при экране %.0f на %.0f"),
-					ScreenWidth, TabName, *Item.Widget->GetName(), Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y, Inner.X, Inner.Y),
+				TestTrue(*FString::Printf(TEXT("%s, вкладка %s: %s внутри экрана смартфона — (%.0f, %.0f) — (%.0f, %.0f) при экране %.0f на %.0f"),
+					What, TabName, *Item.Widget->GetName(), Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y, Inner.X, Inner.Y),
 					Box.Min.X >= -0.5 && Box.Min.Y >= -0.5 && Box.Max.X <= Inner.X + 0.5 && Box.Max.Y <= Inner.Y + 0.5);
 				if (Item.Widget == SideMenu)
 				{
@@ -264,80 +269,133 @@ bool FPolishUiPhoneContentInsideScreenTest::RunTest(const FString& Parameters)
 				{
 					TabBox = Box;
 				}
-
-				// Надпись на кнопке не шире и не выше самой кнопки. С 20.10.2026 подпись кнопки меню
-				// стоит в строке справа от значка (образец Рината) — место под значок и отступы
-				// строки вычитается из ширины кнопки.
-				const UButton* Button = Cast<UButton>(Item.Widget);
-				const UTextBlock* Caption = Button ? Cast<UTextBlock>(Button->GetContent()) : nullptr;
-				FMargin CaptionPad(0.0f);
-				double Taken = 0.0;
-				if (Caption)
+				if (Item.Widget->GetFName() == FName(TEXT("TitleText")))
 				{
-					const UButtonSlot* CaptionSlot = Cast<UButtonSlot>(Caption->Slot);
-					CaptionPad = CaptionSlot ? CaptionSlot->GetPadding() : FMargin(0.0f);
+					TitleBox = Box;
+					Title = Cast<UTextBlock>(Item.Widget);
 				}
-				else if (const UHorizontalBox* Row = Button ? Cast<UHorizontalBox>(Button->GetContent()) : nullptr)
+				if (Item.Widget->GetFName() == FName(TEXT("TitleSignalIcon")))
 				{
-					const UButtonSlot* RowSlot = Cast<UButtonSlot>(Row->Slot);
-					CaptionPad = RowSlot ? RowSlot->GetPadding() : FMargin(0.0f);
-					for (const UWidget* Child : Row->GetAllChildren())
+					SignalBox = Box;
+				}
+
+				// С 21.10.2026 внутри кнопки — холст: значок и подпись стоят в нём со своим местом
+				// и размером. Каждая подпись — внутри кнопки, и текст помещается в её место.
+				const UButton* Button = Cast<UButton>(Item.Widget);
+				const UCanvasPanel* Content = Button ? Cast<UCanvasPanel>(Button->GetContent()) : nullptr;
+				if (Button)
+				{
+					TestNotNull(*FString::Printf(TEXT("%s: внутри кнопки %s холст"), What, *Button->GetName()), Content);
+				}
+				if (!Content)
+				{
+					continue;
+				}
+				const FVector2D ButtonSize = Box.GetSize();
+				for (const UWidget* Child : Content->GetAllChildren())
+				{
+					if (!Child || Child->GetVisibility() == ESlateVisibility::Collapsed)
 					{
-						if (!Child || Child->GetVisibility() == ESlateVisibility::Collapsed)
-						{
-							continue;
-						}
-						const UHorizontalBoxSlot* ChildSlot = Cast<UHorizontalBoxSlot>(Child->Slot);
-						const FMargin ChildPad = ChildSlot ? ChildSlot->GetPadding() : FMargin(0.0f);
-						Taken += ChildPad.Left + ChildPad.Right;
-						if (const UTextBlock* Text = Cast<UTextBlock>(Child))
-						{
-							Caption = Text;
-						}
-						else if (const UImage* Icon = Cast<UImage>(Child))
-						{
-							Taken += Icon->GetBrush().ImageSize.X;
-						}
+						continue;
+					}
+					const FBox2D ChildBox = BoxIn(Child, ButtonSize);
+					TestTrue(*FString::Printf(TEXT("%s, вкладка %s: %s внутри кнопки %s — (%.0f, %.0f) — (%.0f, %.0f) при кнопке %.0f на %.0f"),
+						What, TabName, *Child->GetName(), *Button->GetName(), ChildBox.Min.X, ChildBox.Min.Y, ChildBox.Max.X, ChildBox.Max.Y,
+						ButtonSize.X, ButtonSize.Y),
+						ChildBox.Min.X >= -0.5 && ChildBox.Min.Y >= -0.5 && ChildBox.Max.X <= ButtonSize.X + 0.5 && ChildBox.Max.Y <= ButtonSize.Y + 0.5);
+					if (const UTextBlock* Caption = Cast<UTextBlock>(Child))
+					{
+						++ButtonCount;
+						const FVector2D TextSize = EstimateTextSize(Caption);
+						TestTrue(*FString::Printf(TEXT("%s, вкладка %s: надпись «%s» (около %.0f на %.0f) помещается на кнопке %s (место %.0f на %.0f)"),
+							What, TabName, *Caption->GetText().ToString().Replace(TEXT("\n"), TEXT(" ")), TextSize.X, TextSize.Y,
+							*Button->GetName(), ChildBox.GetSize().X, ChildBox.GetSize().Y),
+							TextSize.X <= ChildBox.GetSize().X + 0.5 && TextSize.Y <= ChildBox.GetSize().Y + 0.5);
 					}
 				}
-				if (Caption)
-				{
-					++ButtonCount;
-					const FVector2D TextSize = EstimateTextSize(Caption);
-					const FVector2D Room(Box.GetSize().X - CaptionPad.Left - CaptionPad.Right - Taken, Box.GetSize().Y - CaptionPad.Top - CaptionPad.Bottom);
-					TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: надпись «%s» (около %.0f на %.0f) помещается на кнопке %s (место %.0f на %.0f)"),
-						ScreenWidth, TabName, *Caption->GetText().ToString().Replace(TEXT("\n"), TEXT(" ")), TextSize.X, TextSize.Y,
-						*Button->GetName(), Room.X, Room.Y), TextSize.X <= Room.X && TextSize.Y <= Room.Y);
-				}
 			}
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: кнопок с надписями не меньше четырёх (нашлось %d)"), ScreenWidth, TabName, ButtonCount),
+			TestTrue(*FString::Printf(TEXT("%s, вкладка %s: кнопок с надписями не меньше четырёх (нашлось %d)"), What, TabName, ButtonCount),
 				ButtonCount >= 4);
 
-			// Весь экран смартфона занят: меню начинается у левого края, вкладка кончается у
-			// правого, между ними один просвет.
-			const double Gap = Window->SideMenuGap;
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: меню вкладок начинается у левого края и занимает всю высоту (%.0f, %.0f) — (%.0f, %.0f)"),
-				ScreenWidth, TabName, MenuBox.Min.X, MenuBox.Min.Y, MenuBox.Max.X, MenuBox.Max.Y),
-				MenuBox.bIsValid && FMath::Abs(MenuBox.Min.X) <= 0.5 && FMath::Abs(MenuBox.Min.Y) <= 0.5 && FMath::Abs(MenuBox.Max.Y - Inner.Y) <= 0.5);
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: вкладка кончается у правого края экрана смартфона и занимает всю высоту"), ScreenWidth, TabName),
-				TabBox.bIsValid && FMath::Abs(TabBox.Max.X - Inner.X) <= 0.5 && FMath::Abs(TabBox.Min.Y) <= 0.5 && FMath::Abs(TabBox.Max.Y - Inner.Y) <= 0.5);
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: между меню (до %.0f) и вкладкой (от %.0f) ровно просвет %.0f"),
-				ScreenWidth, TabName, MenuBox.Max.X, TabBox.Min.X, Gap), FMath::Abs(TabBox.Min.X - MenuBox.Max.X - Gap) <= 0.5);
-			TestTrue(*FString::Printf(TEXT("Экран %.0f, вкладка %s: окно помнит ту же ширину меню (%.0f)"), ScreenWidth, TabName, Window->GetSideMenuWidth()),
-				FMath::Abs(Window->GetSideMenuWidth() - MenuBox.GetSize().X) <= 0.5);
-			AddInfo(FString::Printf(TEXT("Экран %.0f, вкладка %s: экран смартфона %.0f на %.0f, меню %.0f, вкладка %.0f."),
-				ScreenWidth, TabName, Inner.X, Inner.Y, MenuBox.GetSize().X, TabBox.GetSize().X));
+			// Значки сигнала и батареи не налезают на «Смартфон» (замечание лида 20.10 по кадру).
+			if (Title && TitleBox.bIsValid && SignalBox.bIsValid)
+			{
+				const double TextEnd = TitleBox.Min.X + EstimateTextSize(Title).X;
+				TestTrue(*FString::Printf(TEXT("%s, вкладка %s: значки у заголовка (от %.0f) правее текста «%s» (до %.0f)"),
+					What, TabName, SignalBox.Min.X, *Title->GetText().ToString(), TextEnd), SignalBox.Min.X >= TextEnd);
+			}
+			MenuOnTab[bMapTab ? 1 : 0] = MenuBox;
 
-			// Карта не растянута и не уменьшена: на экранах от 16:9 поле карты — ровно под
-			// карту, вписанную по высоте (тёмных полос по бокам нет, пропорции мира целы).
-			if (bMapTab && ScreenWidth >= 1920.0)
+			if (!bShape)
+			{
+				continue;
+			}
+			// Форма раскладки по умолчанию: весь экран смартфона занят, меню у левого края,
+			// вкладка до правого, между ними один просвет.
+			const double Gap = GetDefault<UPdaScreenWidget>()->SideMenuGap;
+			TestTrue(*FString::Printf(TEXT("%s, вкладка %s: меню вкладок начинается у левого края и занимает всю высоту (%.0f, %.0f) — (%.0f, %.0f)"),
+				What, TabName, MenuBox.Min.X, MenuBox.Min.Y, MenuBox.Max.X, MenuBox.Max.Y),
+				MenuBox.bIsValid && FMath::Abs(MenuBox.Min.X) <= 0.5 && FMath::Abs(MenuBox.Min.Y) <= 0.5 && FMath::Abs(MenuBox.Max.Y - Inner.Y) <= 0.5);
+			TestTrue(*FString::Printf(TEXT("%s, вкладка %s: вкладка кончается у правого края экрана смартфона и занимает всю высоту"), What, TabName),
+				TabBox.bIsValid && FMath::Abs(TabBox.Max.X - Inner.X) <= 0.5 && FMath::Abs(TabBox.Min.Y) <= 0.5 && FMath::Abs(TabBox.Max.Y - Inner.Y) <= 0.5);
+			TestTrue(*FString::Printf(TEXT("%s, вкладка %s: между меню (до %.0f) и вкладкой (от %.0f) ровно просвет %.0f"),
+				What, TabName, MenuBox.Max.X, TabBox.Min.X, Gap), FMath::Abs(TabBox.Min.X - MenuBox.Max.X - Gap) <= 0.5);
+			AddInfo(FString::Printf(TEXT("%s, вкладка %s: экран смартфона %.0f на %.0f, меню %.0f, вкладка %.0f."),
+				What, TabName, Inner.X, Inner.Y, MenuBox.GetSize().X, TabBox.GetSize().X));
+			// Карта не растянута и не уменьшена: поле карты ровно под карту, вписанную по высоте.
+			if (bMapTab)
 			{
 				const FVector2D Fitted = PdaMap::FitMapSize(FVector2D(1.0e7, TabBox.GetSize().Y), Settings->MapWorldTopLeft, Settings->MapWorldBottomRight);
-				TestTrue(*FString::Printf(TEXT("Экран %.0f: поле карты (%.0f на %.0f) совпадает с картой, вписанной по высоте (%.0f на %.0f)"),
-					ScreenWidth, TabBox.GetSize().X, TabBox.GetSize().Y, Fitted.X, Fitted.Y), FMath::Abs(TabBox.GetSize().X - Fitted.X) <= 2.0);
+				TestTrue(*FString::Printf(TEXT("%s: поле карты (%.0f на %.0f) совпадает с картой, вписанной по высоте (%.0f на %.0f)"),
+					What, TabBox.GetSize().X, TabBox.GetSize().Y, Fitted.X, Fitted.Y), FMath::Abs(TabBox.GetSize().X - Fitted.X) <= 2.0);
 			}
 		}
+		// Меню одной ширины и на одном месте на обеих вкладках (замечание лида 20.10: на
+		// «Заданиях» меню было узким). Его никто не двигает при смене вкладки.
+		TestTrue(*FString::Printf(TEXT("%s: меню на «Заданиях» (%.0f) и на «Карте» (%.0f) одной ширины и на одном месте"),
+			What, MenuOnTab[0].GetSize().X, MenuOnTab[1].GetSize().X),
+			MenuOnTab[0].bIsValid && MenuOnTab[1].bIsValid && MenuOnTab[0].Min.Equals(MenuOnTab[1].Min, 0.5) && MenuOnTab[0].Max.Equals(MenuOnTab[1].Max, 0.5));
+	};
+
+	// Раскладка по умолчанию (ею генератор создаёт файл окна и строится окно без файла).
+	UWidgetTree* DefaultTree = NewObject<UWidgetTree>(GetTransientPackage());
+	UPdaScreenWidget::BuildDefaultTree(DefaultTree);
+	CheckTree(DefaultTree, TEXT("Раскладка по умолчанию"), /*bShape=*/true);
+
+	// Готовый файл окна, открытый как в игре.
+	UClass* WindowClass = StaticLoadClass(UPdaScreenWidget::StaticClass(), nullptr, TEXT("/Game/UI/WBP_Pda.WBP_Pda_C"));
+	UWorld* World = Create();
+	UPdaScreenWidget* Window = (World && WindowClass) ? CreateWidget<UPdaScreenWidget>(World, WindowClass) : nullptr;
+	if (!TestNotNull(TEXT("Окно создано из готового файла WBP_Pda"), Window) || !Window->WidgetTree)
+	{
+		Destroy(World);
+		return false;
 	}
+	Window->InitPda(nullptr);
+	const UWidgetTree* Tree = Window->WidgetTree;
+	const UBorder* Plate = Cast<UBorder>(Tree->FindWidget(TEXT("PanelPlate")));
+	const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+	const FVector2D FileSize = PlateSlot ? PlateSlot->GetSize() : FVector2D::ZeroVector;
+
+	// 16:9, телефонные 20:9 и 19,5:9, планшетное 16:10 (экран в единицах раскладки всегда 1080
+	// в высоту): смартфон масштабируется целиком и целиком на экране.
+	for (const double ScreenWidth : { 1920.0, 2400.0, 2340.0, 1728.0 })
+	{
+		const FVector2D Screen(ScreenWidth, 1080.0);
+		Window->ApplyPhoneLayout(Screen);
+		const FVector2D Phone = Window->GetPhoneSize();
+		const double Scale = Window->GetPhoneScale();
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон %.0f на %.0f целиком на экране"), ScreenWidth, Phone.X, Phone.Y),
+			Phone.X >= 1.0 && Phone.X <= Screen.X && Phone.Y <= Screen.Y);
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон — подложка из файла (%.0f на %.0f), увеличенная в %.3f раза целиком"),
+			ScreenWidth, FileSize.X, FileSize.Y, Scale),
+			Plate && Phone.Equals(FileSize * Scale, 0.5) && FMath::IsNearlyEqual(Plate->GetRenderTransform().Scale.X, Scale, 0.001));
+		for (const bool bMapTab : { false, true })
+		{
+			Window->ShowTab(bMapTab);
+		}
+	}
+	CheckTree(Window->WidgetTree, TEXT("Файл окна"), /*bShape=*/false);
 
 	// Подпись кнопки «найти героя» (Ринат: «Замени на "моя позиция"»).
 	if (const UTextBlock* FindHero = Cast<UTextBlock>(Tree->FindWidget(TEXT("MapFindHeroText"))))

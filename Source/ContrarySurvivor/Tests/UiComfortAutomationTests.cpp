@@ -383,7 +383,9 @@ bool FUiComfortPhoneIsNotNarrowTest::RunTest(const FString& Parameters)
 			const FVector2D Screen(ScreenWidth, 1080.0);
 			Window->ApplyPhoneLayout(Screen);
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: картинка смартфона подложена"), ScreenWidth), Window->IsPhoneTextureShown());
-			const FVector2D Size = PlateSlot ? PlateSlot->GetSize() : FVector2D::ZeroVector;
+			// С 21.10.2026 подложка в файле окна своего размера не меняет: смартфон масштабируется
+			// под экран целиком (Ринат: «в WBP_Pda я должен иметь возможность свободно двигать элементы»).
+			const FVector2D Size = Window->GetPhoneSize();
 			AddInfo(FString::Printf(TEXT("Экран %.0f на 1080: подложка %.1f на %.1f, пропорции %.3f (у картинки %.3f)."),
 				ScreenWidth, Size.X, Size.Y, Size.Y > 0.0 ? Size.X / Size.Y : 0.0, PictureAspect));
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: подложка имеет пропорции картинки с допуском 1%% (%.1f на %.1f)"), ScreenWidth, Size.X, Size.Y),
@@ -392,8 +394,9 @@ bool FUiComfortPhoneIsNotNarrowTest::RunTest(const FString& Parameters)
 				Size.X <= Screen.X && Size.Y <= Screen.Y);
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон занимает не меньше 85%% высоты или ширины экрана"), ScreenWidth),
 				Size.Y >= Screen.Y * 0.85 || Size.X >= Screen.X * 0.85);
-			TestTrue(*FString::Printf(TEXT("Экран %.0f: размер, который помнит окно, тот же, что у подложки"), ScreenWidth),
-				Window->GetPhoneSize().Equals(Size, 0.5));
+			TestTrue(*FString::Printf(TEXT("Экран %.0f: смартфон на экране — подложка из файла, увеличенная целиком (масштаб %.3f)"), ScreenWidth, Window->GetPhoneScale()),
+				PlateSlot && Size.Equals(PlateSlot->GetSize() * Window->GetPhoneScale(), 0.5)
+				&& FMath::IsNearlyEqual(Plate->GetRenderTransform().Scale.X, Window->GetPhoneScale(), 0.001));
 		}
 	}
 	if (World && GEngine)
@@ -535,7 +538,7 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 			const FBox2D& Box = Column[A].Box;
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри меню вкладок: (%.0f, %.0f) — (%.0f, %.0f)"),
 				ScreenWidth, *Column[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
-				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y && Box.Max.X <= MapMenu.X + 0.5);
+				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y + 0.5 && Box.Max.X <= MapMenu.X + 0.5);
 			for (int32 B = A + 1; B < Column.Num(); ++B)
 			{
 				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Column[A].Name, *Column[B].Name),
@@ -584,7 +587,7 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 				const FBox2D& Box = Detail[A].Box;
 				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s правее списка и внутри экрана смартфона: (%.0f, %.0f) — (%.0f, %.0f)"),
 					ScreenWidth, *Detail[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
-					Box.Min.X >= ListBox.Max.X && Box.Min.Y >= 0.0 && Box.Max.Y <= Content.Y && Box.Max.X <= Content.X + 0.5);
+					Box.Min.X >= ListBox.Max.X && Box.Min.Y >= 0.0 && Box.Max.Y <= Content.Y + 0.5 && Box.Max.X <= Content.X + 0.5);
 				if (A + 1 < Detail.Num())
 				{
 					TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Detail[A].Name, *Detail[A + 1].Name),

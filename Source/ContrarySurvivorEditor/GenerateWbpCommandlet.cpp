@@ -3560,11 +3560,15 @@ namespace
 			  TEXT("SupportLinkButton"), TEXT("SupportLinkText"),
 			  TEXT("CloseButton"), TEXT("CloseText"), TEXT("ThanksText") },
 			/*bOwnerOwned=*/true },
-		// Окно КПК (10.10.2026): журнал заданий и карта. Создание: -rebuild -asset=WBP_Pda.
-		// Контроллер находит файл сам (поиск в конструкторе), слот в Blueprint не нужен.
+		// Окно КПК (10.10.2026): журнал заданий и карта. Контроллер находит файл сам (поиск в
+		// конструкторе), слот в Blueprint не нужен. С 21.10.2026 окно ОТДАНО ВЛАДЕЛЬЦУ (Ринат:
+		// «в WBP_Pda я должен иметь возможность свободно двигать элементы»): генератор только
+		// создаёт файл, если его нет, раскладкой по умолчанию BuildDefaultTree.
 		{ TEXT("/Game/UI/WBP_Pda"), TEXT("WBP_Pda"),
 			TEXT("/Script/ContrarySurvivor.PdaScreenWidget"), &BuildPda,
-			{ TEXT("TitleText"),
+			{ TEXT("TitleText"), TEXT("TitleSignalIcon"), TEXT("TitleBatteryIcon"), TEXT("TitleUnderline"),
+			  TEXT("QuestsTabIcon"), TEXT("MapTabIcon"), TEXT("CloseIcon"),
+			  TEXT("MapZoomInText"), TEXT("MapZoomOutText"), TEXT("MapFindHeroText"),
 			  TEXT("QuestsTabButton"), TEXT("QuestsTabText"), TEXT("MapTabButton"), TEXT("MapTabText"),
 			  TEXT("CloseButton"), TEXT("CloseText"),
 			  TEXT("QuestsPanel"), TEXT("QuestList"), TEXT("EmptyText"),
@@ -3575,7 +3579,8 @@ namespace
 			  TEXT("MapPanel"), TEXT("MapArea"), TEXT("MapBackground"), TEXT("MapImage"),
 			  TEXT("MapFogImage"), TEXT("MapMarkers"), TEXT("MapHintText"),
 			  TEXT("MapZoomInButton"), TEXT("MapZoomOutButton"), TEXT("MapFindHeroButton"),
-			  TEXT("SideMenu"), TEXT("MapAreaMark"), TEXT("MapAreaMarkText") } },
+			  TEXT("SideMenu"), TEXT("MapAreaMark"), TEXT("MapAreaMarkText") },
+			/*bOwnerOwned=*/true },
 	};
 
 	FString ObjectPathOf(const FWbpSpec& Spec)
@@ -6218,211 +6223,10 @@ namespace
 	// строка задания над кнопками, синяя метка побочного задания, пары окон с сумкой
 	// ======================================================================
 
-	// WBP_Pda (слова Рината: «у смартфона есть экран… некоторые кнопки на смартфоне выходят за
-	// пределы экрана. Такого быть не должно… На кнопке "где я" написано "где я". Замени на "моя
-	// позиция"… Слева - меню вкладок смартфона. Справа - содержимое активной вкладки… увеличивай
-	// меню вкладок так, чтобы весь экран смартфона был занят»; «на карте зеленым кругом
-	// отображается примерный район нахождения логова волков… и подпись»). Шаги раскладки — те же,
-	// что строят дерево без файла (UPdaScreenWidget), поэтому файл и запаска не расходятся.
-	// Каждый шаг делается один раз: повторный прогон ничего не меняет.
-	void AugmentPdaPolish(UWidgetTree* Tree, bool& bChanged)
-	{
-		const TCHAR* Name = TEXT("WBP_Pda");
-		const UContraryPdaSettings* Settings = UContraryPdaSettings::Get();
-
-		// Отступы экрана смартфона в файле — по нынешним настройкам (в игре их ставит код окна;
-		// здесь — чтобы в редакторе окон содержимое стояло там же, где в игре).
-		if (UBorder* Plate = Cast<UBorder>(AugFind(Tree, Name, TEXT("PanelPlate"))))
-		{
-			if (const UCanvasPanelSlot* PlateSlot = Cast<UCanvasPanelSlot>(Plate->Slot))
-			{
-				const FMargin Wanted = PdaMap::ComputePhoneScreenPadding(PlateSlot->GetSize(), Settings->PhoneScreenInsets);
-				const FMargin Old = Plate->GetPadding();
-				if (!FMath::IsNearlyEqual(Old.Left, Wanted.Left, 0.05f) || !FMath::IsNearlyEqual(Old.Top, Wanted.Top, 0.05f)
-					|| !FMath::IsNearlyEqual(Old.Right, Wanted.Right, 0.05f) || !FMath::IsNearlyEqual(Old.Bottom, Wanted.Bottom, 0.05f))
-				{
-					Plate->SetPadding(Wanted);
-					bChanged = true;
-					UE_LOG(LogGenerateWbp, Display,
-						TEXT("AUGMENT %s: отступы экрана смартфона (%.1f, %.1f, %.1f, %.1f) -> (%.1f, %.1f, %.1f, %.1f)."),
-						Name, Old.Left, Old.Top, Old.Right, Old.Bottom, Wanted.Left, Wanted.Top, Wanted.Right, Wanted.Bottom);
-				}
-			}
-		}
-
-		if (UPdaScreenWidget::MoveMenuIntoSideMenu(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("AUGMENT %s: заведено меню вкладок SideMenu; заголовок, вкладки, подсказка карты и «Закрыть» переложены в него."), Name);
-		}
-		if (UPdaScreenWidget::FitMapPanelToMap(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("AUGMENT %s: поле карты прижато к правому краю экрана смартфона, ширина %.0f (карта, вписанная по высоте)."),
-				Name, UPdaScreenWidget::ComputeDesignMapPanelWidth());
-		}
-		if (UPdaScreenWidget::AddSearchAreaMark(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("AUGMENT %s: добавлены круг района поиска MapAreaMark и подпись MapAreaMarkText."), Name);
-		}
-
-		// «Где я» -> «Моя позиция» в две строки. Меняется только прежняя подпись генератора:
-		// текст, который поставил владелец, не трогается.
-		if (UTextBlock* FindHero = Cast<UTextBlock>(AugFind(Tree, Name, TEXT("MapFindHeroText"))))
-		{
-			if (FindHero->GetText().ToString() == TEXT("Где я"))
-			{
-				FindHero->SetText(GetDefault<UPdaScreenWidget>()->FindHeroLabel);
-				FSlateFontInfo Font = FindHero->GetFont();
-				Font.Size = 14;
-				FindHero->SetFont(Font);
-				FindHero->SetJustification(ETextJustify::Center);
-				bChanged = true;
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT %s: подпись кнопки «Где я» заменена на «Моя позиция» в две строки, кегль 14."), Name);
-			}
-		}
-
-		// Сведения о задании: экран смартфона стал ниже (отступы сняты по скруглённым углам
-		// стекла), блоки ужаты, чтобы награда не налезала на кнопку «Отслеживать». Двигаются
-		// только блоки, стоящие на прежних местах генератора.
-		struct FDetailMove
-		{
-			const TCHAR* WidgetName;
-			float OldTop, OldHeight, NewTop, NewHeight;
-		};
-		static const FDetailMove Moves[] =
-		{
-			{ TEXT("DetailDescriptionText"), 100.0f, 220.0f, 100.0f, 236.0f },
-			{ TEXT("DetailObjectivesText"), 332.0f, 170.0f, 346.0f, 130.0f },
-			{ TEXT("DetailRewardText"), 514.0f, 120.0f, 486.0f, 94.0f },
-			// Первый заход этой правки (коммит ab9757c) ставил блоки иначе; описание задания
-			// охранника с тех пор выросло до восьми строк.
-			{ TEXT("DetailDescriptionText"), 100.0f, 208.0f, 100.0f, 236.0f },
-			{ TEXT("DetailObjectivesText"), 320.0f, 150.0f, 346.0f, 130.0f },
-			{ TEXT("DetailRewardText"), 482.0f, 108.0f, 486.0f, 94.0f },
-		};
-		for (const FDetailMove& Move : Moves)
-		{
-			UWidget* Widget = AugFind(Tree, Name, Move.WidgetName);
-			UCanvasPanelSlot* DetailSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
-			if (!DetailSlot)
-			{
-				continue;
-			}
-			FMargin Offsets = DetailSlot->GetOffsets();
-			if (FMath::IsNearlyEqual(Offsets.Top, Move.OldTop, 0.05f) && FMath::IsNearlyEqual(Offsets.Bottom, Move.OldHeight, 0.05f))
-			{
-				Offsets.Top = Move.NewTop;
-				Offsets.Bottom = Move.NewHeight;
-				DetailSlot->SetOffsets(Offsets);
-				bChanged = true;
-				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: %s — верх %.0f, высота %.0f (было %.0f и %.0f)."),
-					Name, Move.WidgetName, Move.NewTop, Move.NewHeight, Move.OldTop, Move.OldHeight);
-			}
-		}
-	}
-
-	// ======================================================================
-	// Новый вид окна смартфона по образцу Рината 20.10.2026
-	// ======================================================================
-
-	// WBP_Pda: кнопки меню — плашки-картинки со значком слева и крупной белой подписью справа;
-	// у заголовка значки сигнала и батареи и линия под ним; кнопки карты — квадратные плашки с
-	// бирюзовой рамкой. Шаги со значками — те же, что строят дерево без файла (UPdaScreenWidget).
-	// Вид кнопки меняется, только если у неё прежний плоский вид генератора (его цвет известен):
-	// вид, поставленный владельцем, не трогается. Повторный прогон ничего не меняет.
-	void AugmentPdaRestyle(UWidgetTree* Tree, bool& bChanged)
-	{
-		const TCHAR* Name = TEXT("WBP_Pda");
-		struct FOldLook
-		{
-			const TCHAR* Button;
-			FLinearColor OldColor; // плоский цвет прежнего генератора
-			bool bMenu;
-		};
-		static const FOldLook Buttons[] =
-		{
-			{ TEXT("QuestsTabButton"),   FLinearColor(0.18f, 0.20f, 0.24f, 1.0f),  true },
-			{ TEXT("MapTabButton"),      FLinearColor(0.18f, 0.20f, 0.24f, 1.0f),  true },
-			{ TEXT("CloseButton"),       FLinearColor(0.3f, 0.3f, 0.34f, 1.0f),    true },
-			{ TEXT("MapZoomInButton"),   FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
-			{ TEXT("MapZoomOutButton"),  FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
-			{ TEXT("MapFindHeroButton"), FLinearColor(0.10f, 0.12f, 0.15f, 0.88f), false },
-		};
-		for (const FOldLook& Item : Buttons)
-		{
-			UButton* Button = Cast<UButton>(AugFind(Tree, Name, Item.Button));
-			if (!Button)
-			{
-				continue;
-			}
-			const FSlateBrush& Normal = Button->GetStyle().Normal;
-			const FLinearColor Tint = Normal.TintColor.GetSpecifiedColor();
-			const bool bOldLook = Normal.GetResourceObject() == nullptr
-				&& Normal.DrawAs == ESlateBrushDrawType::RoundedBox
-				&& Tint.Equals(Item.OldColor, 0.002f);
-			if (!bOldLook)
-			{
-				UE_LOG(LogGenerateWbp, Display,
-					TEXT("AUGMENT %s: вид кнопки %s не прежний генераторный (картинка %s, цвет %s) — оставлен как есть."),
-					Name, Item.Button, Normal.GetResourceObject() ? *Normal.GetResourceObject()->GetName() : TEXT("нет"), *Tint.ToString());
-				continue;
-			}
-			const FButtonStyle NewStyle = Item.bMenu ? UPdaScreenWidget::MakeMenuPlateStyle(false) : UPdaScreenWidget::MakeMapPlateStyle();
-			Button->SetStyle(NewStyle);
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: кнопке %s поставлена плашка %s."),
-				Name, Item.Button, NewStyle.Normal.GetResourceObject() ? *NewStyle.Normal.GetResourceObject()->GetName() : TEXT("запасного вида (без картинки)"));
-		}
-
-		// Подписи кнопок меню — крупнее, как в образце. Меняется только прежний кегль генератора.
-		for (const TCHAR* TextName : { TEXT("QuestsTabText"), TEXT("MapTabText"), TEXT("CloseText") })
-		{
-			UTextBlock* Text = Cast<UTextBlock>(AugFind(Tree, Name, TextName));
-			if (Text && Text->GetFont().Size == 20)
-			{
-				FSlateFontInfo Font = Text->GetFont();
-				Font.Size = 24;
-				Text->SetFont(Font);
-				bChanged = true;
-				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: подпись %s — кегль 20 -> 24."), Name, TextName);
-			}
-		}
-
-		if (UPdaScreenWidget::AddMenuButtonIcons(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("AUGMENT %s: в кнопки меню добавлены значки QuestsTabIcon, MapTabIcon, CloseIcon (подпись — справа от значка)."), Name);
-		}
-		if (UPdaScreenWidget::AddTitleStatusBar(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display,
-				TEXT("AUGMENT %s: у заголовка добавлены значки сигнала и батареи (TitleStatusIcons) и линия TitleUnderline."), Name);
-		}
-		if (UPdaScreenWidget::FillEmptyIcons(Tree))
-		{
-			bChanged = true;
-			UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: в пустые значки вложены картинки из настроек."), Name);
-		}
-		// Значок с картинкой виден и в редакторе окон (без картинки — спрятан, как в игре).
-		for (const TCHAR* IconName : { TEXT("QuestsTabIcon"), TEXT("MapTabIcon"), TEXT("CloseIcon"), TEXT("TitleSignalIcon"), TEXT("TitleBatteryIcon") })
-		{
-			UImage* Icon = Cast<UImage>(Tree->FindWidget(IconName));
-			if (Icon && Icon->GetBrush().GetResourceObject() && Icon->GetVisibility() == ESlateVisibility::Collapsed)
-			{
-				Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
-				bChanged = true;
-				UE_LOG(LogGenerateWbp, Display, TEXT("AUGMENT %s: значок %s с картинкой показан."), Name, IconName);
-			}
-		}
-	}
+	// WBP_Pda: прежние дополнения раскладки смартфона (AugmentPdaPolish 11.10 и AugmentPdaRestyle
+	// 20.10) сняты 21.10.2026 — Ринат: «в WBP_Pda я должен иметь возможность свободно двигать
+	// элементы». Окно отдано владельцу (bOwnerOwned): раскладку по умолчанию кладёт только
+	// создание файла (BuildPda), дальше места элементов правит владелец, генератор их не трогает.
 
 	// WBP_ItemTile: цифра количества крупнее и с чёрной обводкой (Ринат 11.10.2026: «Сделай
 	// шрифт чуть больше. Ты можешь добавить черную обводку этим символам?»). Кегль растёт
@@ -7651,8 +7455,7 @@ int32 UGenerateWbpCommandlet::RebuildWindows(const FString& AssetFilter)
 		// окне нет (единственный коммит ассета — сама генерация, c4b6753), а вид и размеры
 		// живут в коде (BuildSettings).
 		{ TEXT("WBP_Settings"), false },
-		// Окно КПК (10.10.2026): создание `-rebuild -asset=WBP_Pda`; правок владельца ещё нет.
-		{ TEXT("WBP_Pda"), false },
+		// Окно КПК (WBP_Pda) отсюда убрано 21.10.2026: оно отдано владельцу, пересборке не подлежит.
 	};
 
 	int32 FailCount = 0;
@@ -7768,20 +7571,16 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerBelowBag },
 		// Ринат 11.10.2026: кнопка смартфона — обычная кнопка слоя экранных кнопок.
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchPdaButton },
-		// Ринат 11.10.2026 (вечер, после игры на телефоне): окно смартфона, цифра количества на
-		// плитке, строка задания над кнопками, синяя метка побочного задания, просвет между
-		// сумкой и окном слева. Кнопки опускаются ДО переноса строки: правка смотрит на её
-		// прежнее место.
-		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaPolish },
+		// Ринат 11.10.2026 (вечер, после игры на телефоне): цифра количества на плитке, строка
+		// задания над кнопками, синяя метка побочного задания, просвет между сумкой и окном
+		// слева. Кнопки опускаются ДО переноса строки: правка смотрит на её прежнее место.
+		// Дополнения раскладки окна смартфона сняты 21.10.2026: окно отдано владельцу.
 		{ TEXT("/Game/UI/WBP_ItemTile"),      TEXT("WBP_ItemTile"),      &AugmentItemTileCount },
 		{ TEXT("/Game/UI/WBP_TouchControls"), TEXT("WBP_TouchControls"), &AugmentTouchButtonsBelowTracker },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerAboveButtons },
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerSideMarker },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopGapToInventory },
 		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentSearchGapToInventory },
-		// Ринат 20.10.2026: новый вид окна смартфона по образцу (плашки, значки, линия заголовка).
-		// Стоит ПОСЛЕ AugmentPdaPolish: значки заголовка встают в меню вкладок SideMenu.
-		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaRestyle },
 	};
 
 	int32 FailCount = 0;

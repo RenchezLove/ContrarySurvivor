@@ -21,6 +21,9 @@
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
@@ -345,16 +348,32 @@ namespace PdaPhoneTest
 		Test.TestTrue(*Name(TEXT("после смены размера поля карта его закрывает")),
 			Offset.X <= 0.01 && Offset.Y <= 0.01 && Offset.X + Size.X >= 900.0 - 0.01 && Offset.Y + Size.Y >= 700.0 - 0.01);
 
-		// --- Смартфон без картинки: тот же размер и отступы, вид — тёмная плашка ---
+		// --- Смартфон без картинки: вид — тёмная плашка. С 21.10.2026 (Ринат: «в WBP_Pda я должен
+		// иметь возможность свободно двигать элементы») размер и отступы подложки — как в окне,
+		// под экран смартфон масштабируется целиком: на экране 1920 на 1080 подложка, вписанная
+		// в 92 % высоты, остаётся своего размера ---
+		const UBorder* PlateWidget = Window->WidgetTree ? Cast<UBorder>(Window->WidgetTree->FindWidget(TEXT("PanelPlate"))) : nullptr;
+		const UCanvasPanelSlot* PlateSlot = PlateWidget ? Cast<UCanvasPanelSlot>(PlateWidget->Slot) : nullptr;
+		const FVector2D PlateInWindow = PlateSlot ? PlateSlot->GetSize() : FVector2D::ZeroVector;
+		const FMargin PadInWindow = PlateWidget ? PlateWidget->GetPadding() : FMargin(0.0f);
 		Window->ApplyPhoneLayout(FVector2D(1920.0, 1080.0));
 		Test.TestFalse(*Name(TEXT("картинки смартфона нет — запасной вид")), Window->IsPhoneTextureShown());
-		Test.TestTrue(*Name(TEXT("смартфон без картинки 1490 на 994")), Near(Window->GetPhoneSize(), FVector2D(1490.4, 993.6)));
+		const FVector2D PhoneAtDesign = Window->GetPhoneSize();
+		Test.TestTrue(*Name(*FString::Printf(TEXT("на экране 1920 на 1080 смартфон — подложка из окна (%.1f на %.1f), высотой 994"),
+			PlateInWindow.X, PlateInWindow.Y)), Near(PhoneAtDesign, PlateInWindow) && FMath::IsNearlyEqual(PhoneAtDesign.Y, 993.6, 0.1));
 		const FMargin Padding = Window->GetPhoneScreenPadding();
-		Test.TestTrue(*Name(TEXT("отступы экрана смартфона 59,6 со всех сторон")),
-			FMath::IsNearlyEqual(Padding.Left, 59.616f, 0.01f) && FMath::IsNearlyEqual(Padding.Top, 59.616f, 0.01f)
-			&& FMath::IsNearlyEqual(Padding.Right, 59.616f, 0.01f) && FMath::IsNearlyEqual(Padding.Bottom, 59.616f, 0.01f));
+		Test.TestTrue(*Name(TEXT("отступы экрана смартфона — как у подложки в окне")),
+			FMath::IsNearlyEqual(Padding.Left, PadInWindow.Left, 0.01f) && FMath::IsNearlyEqual(Padding.Top, PadInWindow.Top, 0.01f)
+			&& FMath::IsNearlyEqual(Padding.Right, PadInWindow.Right, 0.01f) && FMath::IsNearlyEqual(Padding.Bottom, PadInWindow.Bottom, 0.01f));
+		// Экран вдвое ниже — смартфон целиком вдвое меньше, расстановка внутри та же.
+		Window->ApplyPhoneLayout(FVector2D(1920.0, 540.0));
+		Test.TestTrue(*Name(TEXT("на экране 1920 на 540 смартфон уменьшен целиком вдвое")),
+			Near(Window->GetPhoneSize(), PhoneAtDesign * 0.5) && FMath::IsNearlyEqual(Window->GetPhoneScale(), 0.5, 0.001)
+			&& PlateSlot && Near(PlateSlot->GetSize(), PlateInWindow));
+		Window->ApplyPhoneLayout(FVector2D(1920.0, 1080.0));
 
-		// --- Смартфон с картинкой: соотношение сторон берётся с неё ---
+		// --- Смартфон с картинкой: картинка подложена, размер подложки — как в окне (другие
+		// пропорции картинки владелец подгоняет размером подложки сам) ---
 		UContraryPdaSettings* Settings = GetMutableDefault<UContraryPdaSettings>();
 		UTexture2D* Phone = UTexture2D::CreateTransient(400, 200, PF_B8G8R8A8);
 		if (Test.TestNotNull(*Name(TEXT("проверочная картинка смартфона создана")), Phone))
@@ -363,9 +382,7 @@ namespace PdaPhoneTest
 			Settings->PhoneTexture = Phone;
 			Window->ApplyPhoneLayout(FVector2D(1920.0, 1080.0));
 			Test.TestTrue(*Name(TEXT("картинка смартфона подложена")), Window->IsPhoneTextureShown());
-			// Картинка 2:1 при высоте 994 была бы шириной 1987 — шире экрана с полями (1872),
-			// поэтому смартфон уменьшен целиком.
-			Test.TestTrue(*Name(TEXT("смартфон 2:1 уменьшен до ширины экрана с полями")), Near(Window->GetPhoneSize(), FVector2D(1872.0, 936.0)));
+			Test.TestTrue(*Name(TEXT("с картинкой 2:1 смартфон того же размера, что подложка в окне")), Near(Window->GetPhoneSize(), PhoneAtDesign));
 			Settings->PhoneTexture = nullptr;
 			Window->ApplyPhoneLayout(FVector2D(1920.0, 1080.0));
 			Test.TestFalse(*Name(TEXT("картинку убрали — снова запасной вид")), Window->IsPhoneTextureShown());
