@@ -215,6 +215,9 @@ protected:
 	// Вешает обработчик на крестик из ассета, ставит знак и видимость. NativeOnInitialized.
 	void BindCloseCross();
 
+	// Ставит текст реплики; новая реплика открывается с начала своего блока прокрутки.
+	void SetReplica(const FText& Text);
+
 private:
 
 	UPROPERTY()

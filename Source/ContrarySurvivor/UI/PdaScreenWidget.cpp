@@ -504,7 +504,16 @@ void UPdaScreenWidget::BuildDefaultTree(UWidgetTree* Tree)
 	const float TrackTop = InnerH - MenuButtonHeight;
 	PlaceDetail(TEXT("DetailTitleText"), PdaTextColor, 20, 0.0f, 32.0f);
 	PlaceDetail(TEXT("DetailGiverText"), PdaDimTextColor, 14, 36.0f, 46.0f);
-	PlaceDetail(TEXT("DetailDescriptionText"), PdaTextColor, 16, 88.0f, 286.0f);
+	// Описание — в блоке прокрутки (Ринат 23.10.2026: длинные описания читаются целиком,
+	// пальцем и колесом). Место в холсте занимает блок прокрутки, надпись лежит в нём.
+	{
+		UScrollBox* DescScroll = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("DetailDescriptionScroll"));
+		DescScroll->bIsVariable = true;
+		UTextBlock* Desc = NewText(Tree, TEXT("DetailDescriptionText"), FText::GetEmpty(), PdaTextColor, 16, TEXT("Bold"));
+		Desc->SetAutoWrapText(true);
+		DescScroll->AddChild(Desc);
+		PlaceAt(Quests, DescScroll, FVector2D(DetailX, 88.0f), FVector2D(DetailW, 286.0f));
+	}
 	PlaceDetail(TEXT("DetailObjectivesText"), PdaTextColor, 16, 380.0f, 78.0f);
 	PlaceDetail(TEXT("DetailRewardText"), PdaGoldColor, 16, 464.0f, FMath::Max(26.0f, TrackTop - MenuButtonGap - 464.0f));
 
@@ -1295,6 +1304,15 @@ void UPdaScreenWidget::RefreshDetails()
 		SetOrClear(DetailGiverText, FText::Join(FText::FromString(TEXT("\n")), Lines));
 	}
 
+	// Новое описание читается с начала; то же описание при обновлении целей не сбрасывает
+	// прокрутку, до которой дочитал игрок. Положение и размер блока код не трогает.
+	if (DetailDescriptionText && !DetailDescriptionText->GetText().EqualTo(Quest->Description))
+	{
+		if (UScrollBox* DescScroll = Cast<UScrollBox>(DetailDescriptionText->GetParent()))
+		{
+			DescScroll->ScrollToStart();
+		}
+	}
 	SetOrClear(DetailDescriptionText, Quest->Description);
 
 	// Цели с прогрессом — тем же сборщиком, что строка задания на экране.

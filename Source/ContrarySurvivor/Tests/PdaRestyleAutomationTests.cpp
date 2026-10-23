@@ -23,6 +23,7 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Components/ScrollBox.h"
 #include "Components/TextBlock.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
@@ -578,6 +579,15 @@ bool FPdaLayoutCodeKeepsOwnerLayoutTest::RunTest(const FString& Parameters)
 		for (const UWidget* Up = Widget; Up; Up = Up->GetParent())
 		{
 			if (Up->GetFName() == TEXT("QuestList") || Up->GetFName() == TEXT("MapArea"))
+			{
+				return;
+			}
+		}
+		// Блок прокрутки вокруг одной надписи (описание задания, Ринат 23.10.2026) — допустим:
+		// сам лежит в холсте и двигается владельцем, внутри только текст во всю его ширину.
+		if (const UScrollBox* Scroll = Cast<UScrollBox>(Widget))
+		{
+			if (Cast<UCanvasPanelSlot>(Scroll->Slot) && Scroll->GetChildrenCount() == 1 && Cast<UTextBlock>(Scroll->GetChildAt(0)))
 			{
 				return;
 			}

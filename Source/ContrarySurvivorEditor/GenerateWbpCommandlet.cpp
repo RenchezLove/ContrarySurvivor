@@ -1761,7 +1761,12 @@ namespace
 			FLinearColor::White, 16, TEXT("Regular"));
 		Replica->SetAutoWrapText(true);
 		Replica->bIsVariable = true;
-		CanvasStretch(PanelCanvas, Replica, FAnchors(0.0f, 0.0f, 1.0f, 1.0f),
+		// Длинная реплика прокручивается пальцем и колесом (Ринат 23.10.2026) — растяжка
+		// принадлежит блоку прокрутки, реплика лежит в нём.
+		UScrollBox* ReplicaScroll = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ReplicaScroll"));
+		ReplicaScroll->bIsVariable = true;
+		ReplicaScroll->AddChild(Replica);
+		CanvasStretch(PanelCanvas, ReplicaScroll, FAnchors(0.0f, 0.0f, 1.0f, 1.0f),
 			FMargin(0.0f, 36.0f, 0.0f, 56.0f));
 
 		// Кнопка-ответ в своём канвас-слоте у НИЗА панели (якорь низ-лево — при ресайзе
@@ -6176,6 +6181,122 @@ namespace
 			TEXT("AUGMENT %s: строка задания опущена под кнопку сумки: верх был 28, стал %.0f."), Name, NewTop);
 	}
 
+	// Обернуть надпись в блок прокрутки (Ринат 23.10.2026: длинные тексты не сокращаем, они
+	// читаются целиком — прокрутка пальцем и колесом). Блок прокрутки встаёт в тот же холст на
+	// место надписи и получает её якоря, отступы, выравнивание и порядок отрисовки; надпись
+	// уходит внутрь блока на всю его ширину с переносом строк. Уже обёрнута — ничего не делает.
+	// Возвращает блок прокрутки, только если обернула сейчас.
+	UScrollBox* AugWrapTextInScroll(UWidgetTree* Tree, const TCHAR* AssetName, const TCHAR* TextName,
+		const TCHAR* ScrollName, bool& bChanged)
+	{
+		UTextBlock* Text = Cast<UTextBlock>(Tree->FindWidget(FName(TextName)));
+		if (!Text)
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: надпись '%s' не найдена — прокрутка не добавлена."),
+				AssetName, TextName);
+			return nullptr;
+		}
+		if (Cast<UScrollBox>(Text->GetParent()))
+		{
+			return nullptr; // уже в прокрутке
+		}
+		UCanvasPanel* Canvas = Cast<UCanvasPanel>(Text->GetParent());
+		const UCanvasPanelSlot* TextSlot = Cast<UCanvasPanelSlot>(Text->Slot);
+		if (!Canvas || !TextSlot || Tree->FindWidget(FName(ScrollName)))
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: надпись '%s' не лежит в холсте (или имя '%s' занято) — прокрутка не добавлена."),
+				AssetName, TextName, ScrollName);
+			return nullptr;
+		}
+		const FAnchors Anchors = TextSlot->GetAnchors();
+		const FMargin Offsets = TextSlot->GetOffsets();
+		const FVector2D Alignment = TextSlot->GetAlignment();
+		const int32 ZOrder = TextSlot->GetZOrder();
+
+		UScrollBox* Scroll = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), FName(ScrollName));
+		Scroll->bIsVariable = true;
+		UCanvasPanelSlot* ScrollSlot = Cast<UCanvasPanelSlot>(Canvas->InsertChildAt(Canvas->GetChildIndex(Text), Scroll));
+		if (!ScrollSlot)
+		{
+			UE_LOG(LogGenerateWbp, Warning, TEXT("AUGMENT %s: блок прокрутки '%s' не встал в холст."), AssetName, ScrollName);
+			return nullptr;
+		}
+		ScrollSlot->SetAnchors(Anchors);
+		ScrollSlot->SetOffsets(Offsets);
+		ScrollSlot->SetAlignment(Alignment);
+		ScrollSlot->SetAutoSize(false);
+		ScrollSlot->SetZOrder(ZOrder);
+
+		Text->RemoveFromParent();
+		Text->SetAutoWrapText(true);
+		Scroll->AddChild(Text);
+
+		bChanged = true;
+		UE_LOG(LogGenerateWbp, Display,
+			TEXT("AUGMENT %s: надпись %s обёрнута в блок прокрутки %s на её прежнем месте (офсеты %.1f, %.1f, %.1f, %.1f)."),
+			AssetName, TextName, ScrollName, Offsets.Left, Offsets.Top, Offsets.Right, Offsets.Bottom);
+		return Scroll;
+	}
+
+	// WBP_Pda: описание задания на вкладке «Задания» прокручивается (Ринат 23.10.2026: описания
+	// заданий 002 и 008 длиннее блока). Окно отдано владельцу — меняется только это: надпись
+	// описания уходит в блок прокрутки на своём же месте, остальная раскладка не трогается.
+	void AugmentPdaDescriptionScroll(UWidgetTree* Tree, bool& bChanged)
+	{
+		AugWrapTextInScroll(Tree, TEXT("WBP_Pda"), TEXT("DetailDescriptionText"), TEXT("DetailDescriptionScroll"), bChanged);
+	}
+
+	// WBP_Dialog: длинная реплика прокручивается, кнопки ответов всегда видны (Ринат 23.10.2026).
+	// Реплика уходит в блок прокрутки на своё место. Если нижний край её растяжки заходил на
+	// кнопки ответов (у низа панели), низ блока прокрутки поднимается над самой высокой из них
+	// с просветом 12 — иначе текст прокручивался бы под кнопками. Короткая реплика стоит, где стояла.
+	void AugmentDialogReplicaScroll(UWidgetTree* Tree, bool& bChanged)
+	{
+		const TCHAR* Name = TEXT("WBP_Dialog");
+		UScrollBox* Scroll = AugWrapTextInScroll(Tree, Name, TEXT("ReplicaText"), TEXT("ReplicaScroll"), bChanged);
+		UCanvasPanelSlot* ScrollSlot = Scroll ? Cast<UCanvasPanelSlot>(Scroll->Slot) : nullptr;
+		if (!ScrollSlot)
+		{
+			return;
+		}
+		const FAnchors Anchors = ScrollSlot->GetAnchors();
+		if (Anchors.Minimum.Y == Anchors.Maximum.Y || Anchors.Maximum.Y != 1.0f)
+		{
+			UE_LOG(LogGenerateWbp, Warning,
+				TEXT("AUGMENT %s: реплика не растянута до низа панели — низ блока прокрутки оставлен как был."), Name);
+			return;
+		}
+		// Сколько места от низа панели занимают кнопки ответов (якорь у низа, не растянуты).
+		double ButtonsHeight = 0.0;
+		for (const TCHAR* ButtonName : { TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton") })
+		{
+			const UWidget* Button = Tree->FindWidget(FName(ButtonName));
+			const UCanvasPanelSlot* ButtonSlot = Button ? Cast<UCanvasPanelSlot>(Button->Slot) : nullptr;
+			if (!ButtonSlot || Button->GetParent() != Scroll->GetParent())
+			{
+				continue;
+			}
+			const FAnchors ButtonAnchors = ButtonSlot->GetAnchors();
+			if (ButtonAnchors.Minimum.Y != 1.0f || ButtonAnchors.Maximum.Y != 1.0f)
+			{
+				continue;
+			}
+			const double FromBottom = ButtonSlot->GetSize().Y * ButtonSlot->GetAlignment().Y - ButtonSlot->GetPosition().Y;
+			ButtonsHeight = FMath::Max(ButtonsHeight, FromBottom);
+		}
+		FMargin Offsets = ScrollSlot->GetOffsets();
+		const float NeededBottom = static_cast<float>(FMath::CeilToDouble(ButtonsHeight + 12.0));
+		if (ButtonsHeight > 0.0 && Offsets.Bottom < NeededBottom)
+		{
+			UE_LOG(LogGenerateWbp, Display,
+				TEXT("AUGMENT %s: низ блока прокрутки реплики поднят над кнопками ответов: отступ от низа был %.1f, стал %.1f."),
+				Name, Offsets.Bottom, NeededBottom);
+			Offsets.Bottom = NeededBottom;
+			ScrollSlot->SetOffsets(Offsets);
+		}
+	}
+
 	// WBP_Pda: элемент черноты неизведанного на карте (Ринат 10.10.2026 — карта открывается по
 	// мере исследования). Встаёт в поле карты между картинкой и отметками и растянут на всё
 	// поле, как они; картинку-маску в него кладёт код игры, в файле элемент спрятан. Остальное
@@ -7581,6 +7702,10 @@ int32 UGenerateWbpCommandlet::AugmentAll()
 		{ TEXT("/Game/UI/WBP_QuestTracker"),  TEXT("WBP_QuestTracker"),  &AugmentQuestTrackerSideMarker },
 		{ TEXT("/Game/UI/WBP_Shop"),          TEXT("WBP_Shop"),          &AugmentShopGapToInventory },
 		{ TEXT("/Game/UI/WBP_SearchWindow"),  TEXT("WBP_SearchWindow"),  &AugmentSearchGapToInventory },
+		// Ринат 23.10.2026: длинные тексты не сокращаем — описание задания в смартфоне и
+		// реплика в окне разговора прокручиваются пальцем и колесом.
+		{ TEXT("/Game/UI/WBP_Pda"),           TEXT("WBP_Pda"),           &AugmentPdaDescriptionScroll },
+		{ TEXT("/Game/UI/WBP_Dialog"),        TEXT("WBP_Dialog"),        &AugmentDialogReplicaScroll },
 	};
 
 	int32 FailCount = 0;
