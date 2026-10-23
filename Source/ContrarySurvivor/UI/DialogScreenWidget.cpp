@@ -12,6 +12,7 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"     // корневая канва — крестик закрытия кодом (ADR-076 п.3)
 #include "Components/CanvasPanelSlot.h" // геометрия кнопок: размер/позиция/Size to content
+#include "Components/ScrollBox.h"       // длинная реплика прокручивается (23.10.2026)
 #include "Blueprint/WidgetTree.h"       // ConstructWidget (крестик без правки ассета)
 #include "Styling/CoreStyle.h"          // шрифт знака крестика
 
@@ -152,7 +153,7 @@ void UDialogScreenWidget::RefreshTalk()
 	}
 	if (ReplicaText)
 	{
-		ReplicaText->SetText(View.Replica);
+		SetReplica(View.Replica);
 	}
 
 	// Есть основной ответ — две кнопки (ответ и «уйти»), нет — одна («уйти»).
@@ -321,7 +322,7 @@ void UDialogScreenWidget::RefreshDialog()
 	}
 	if (ReplicaText)
 	{
-		ReplicaText->SetText(NPCText);
+		SetReplica(NPCText);
 	}
 
 	// Видимость кнопок по состоянию (как набор кнопок Canvas DrawDialog).
@@ -532,7 +533,7 @@ void UDialogScreenWidget::RefreshIntroLine()
 	}
 	if (ReplicaText)
 	{
-		ReplicaText->SetText(Line.NPCText);
+		SetReplica(Line.NPCText);
 	}
 	if (AcceptText)
 	{
@@ -668,7 +669,7 @@ void UDialogScreenWidget::RefreshNotebookHintLine()
 	}
 	if (ReplicaText)
 	{
-		ReplicaText->SetText(Line.NPCText);
+		SetReplica(Line.NPCText);
 	}
 	if (AcceptText)
 	{
@@ -722,4 +723,22 @@ void UDialogScreenWidget::AdvanceNotebookHint()
 		return;
 	}
 	RefreshNotebookHintLine();
+}
+
+void UDialogScreenWidget::SetReplica(const FText& Text)
+{
+	if (!ReplicaText)
+	{
+		return;
+	}
+	// Новая реплика читается с начала (Ринат 23.10.2026: длинная реплика прокручивается в своём
+	// блоке, кнопки ответов под ней всегда видны). Положение и размер блока код не трогает.
+	if (!ReplicaText->GetText().EqualTo(Text))
+	{
+		if (UScrollBox* Scroll = Cast<UScrollBox>(ReplicaText->GetParent()))
+		{
+			Scroll->ScrollToStart();
+		}
+	}
+	ReplicaText->SetText(Text);
 }

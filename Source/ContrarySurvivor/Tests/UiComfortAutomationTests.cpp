@@ -21,6 +21,7 @@
 #include "ContrarySurvivor/Data/ContraryQuestLibrary.h"
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/PdaScreenWidget.h"
+#include "ContrarySurvivor/UI/DialogScreenWidget.h"
 #include "ContrarySurvivor/UI/TouchControlsWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
@@ -30,6 +31,8 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 #include "Components/TextBlock.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
@@ -569,16 +572,21 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 		const UWidget* DTitle = Find(TEXT("DetailTitleText"));
 		const UWidget* DGiver = Find(TEXT("DetailGiverText"));
 		const UWidget* DDesc = Find(TEXT("DetailDescriptionText"));
+		// Описание лежит в блоке прокрутки; место в холсте вкладки занимает он (Ринат 23.10.2026).
+		const UScrollBox* DescScroll = DDesc ? Cast<UScrollBox>(DDesc->GetParent()) : nullptr;
 		const UWidget* DObj = Find(TEXT("DetailObjectivesText"));
 		const UWidget* DReward = Find(TEXT("DetailRewardText"));
 		const UWidget* Track = Find(TEXT("TrackButton"));
-		if (TestTrue(TEXT("Элементы вкладки «Задания» на месте"), List && DTitle && DGiver && DDesc && DObj && DReward && Track))
+		TestNotNull(TEXT("Описание задания лежит в блоке прокрутки"), DescScroll);
+		TestTrue(TEXT("Блок прокрутки описания лежит в холсте вкладки «Задания»"),
+			DescScroll && DescScroll->GetParent() == QuestsPanel && Cast<UCanvasPanelSlot>(DescScroll->Slot) != nullptr);
+		if (TestTrue(TEXT("Элементы вкладки «Задания» на месте"), List && DTitle && DGiver && DescScroll && DObj && DReward && Track))
 		{
 			const FBox2D ListBox = BoxIn(List, Content, 0.0);
 			TArray<FNamedBox> Detail;
 			Detail.Add({ TEXT("название задания"), BoxIn(DTitle, Content, LineHeight(DTitle)) });
 			Detail.Add({ TEXT("кто выдал и кому сдать"), BoxIn(DGiver, Content, LineHeight(DGiver) * 2.0) });
-			Detail.Add({ TEXT("описание"), BoxIn(DDesc, Content, 0.0) });
+			Detail.Add({ TEXT("описание"), BoxIn(DescScroll, Content, 0.0) });
 			Detail.Add({ TEXT("цели"), BoxIn(DObj, Content, 0.0) });
 			Detail.Add({ TEXT("награда"), BoxIn(DReward, Content, 0.0) });
 			Detail.Add({ TEXT("кнопка «Отслеживать»"), BoxIn(Track, Content, 0.0) });
@@ -599,7 +607,8 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: между наградой и кнопкой «Отслеживать» просвет не меньше 12"), ScreenWidth),
 				Detail[5].Box.Min.Y - Detail[4].Box.Max.Y >= 12.0);
 
-			// Самое длинное описание задания помещается в блок описания.
+			// Самое длинное описание задания читается целиком: длиннее блока — значит, блок
+			// прокручивается по вертикали, текст переносится по ширине блока и не рисуется за его краями.
 			TArray<FQuest> AllQuests;
 			const AElderNPC* Elder = GetDefault<AElderNPC>();
 			for (const FQuest* Def : { &Elder->GetOfferedQuest(), &Elder->GetSecondQuest(), &Elder->GetThirdQuest() })
@@ -622,10 +631,20 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 			{
 				const double CharsPerLine = FMath::FloorToDouble(Detail[2].Box.GetSize().X / (DescText->GetFont().Size * 0.8));
 				const double Lines = FMath::CeilToDouble(Longest / FMath::Max(1.0, CharsPerLine)) + 1.0;
-				AddInfo(FString::Printf(TEXT("Экран %.0f: самое длинное описание — «%s», %d знаков, около %.0f строк по %.0f знаков; блок вмещает %.0f строк."),
-					ScreenWidth, *LongestTitle, Longest, Lines, CharsPerLine, FMath::FloorToDouble(Detail[2].Box.GetSize().Y / LineHeight(DDesc))));
-				TestTrue(*FString::Printf(TEXT("Экран %.0f: самое длинное описание задания помещается в свой блок"), ScreenWidth),
-					Lines * LineHeight(DDesc) <= Detail[2].Box.GetSize().Y);
+				const double Visible = FMath::FloorToDouble(Detail[2].Box.GetSize().Y / LineHeight(DDesc));
+				const bool bScrolls = Lines * LineHeight(DDesc) > Detail[2].Box.GetSize().Y;
+				AddInfo(FString::Printf(TEXT("Экран %.0f: самое длинное описание — «%s», %d знаков, около %.0f строк по %.0f знаков; блок показывает %.0f строк%s."),
+					ScreenWidth, *LongestTitle, Longest, Lines, CharsPerLine, Visible, bScrolls ? TEXT(", остальное прокручивается") : TEXT("")));
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: блок описания показывает не меньше трёх строк (вышло %.0f)"), ScreenWidth, Visible),
+					Visible >= 3.0);
+				TestTrue(TEXT("Описание переносит строки по ширине блока"), DescText->GetAutoWrapText());
+				const UScrollBoxSlot* DescSlot = Cast<UScrollBoxSlot>(DescText->Slot);
+				TestTrue(TEXT("Описание занимает всю ширину блока прокрутки (не шире его)"),
+					DescSlot && DescSlot->GetHorizontalAlignment() == HAlign_Fill);
+				TestTrue(TEXT("Блок описания прокручивается по вертикали"), DescScroll->GetOrientation() == Orient_Vertical);
+				TestTrue(TEXT("Блок описания обрезает текст по своим краям"), DescScroll->GetClipping() == EWidgetClipping::ClipToBounds);
+				TestTrue(TEXT("Блок описания прокручивается колесом мыши"), DescScroll->GetConsumeMouseWheel() != EConsumeMouseWheel::Never);
+				TestTrue(TEXT("Блок описания прокручивается пальцем"), DescScroll->GetIsTouchScrollingEnabled());
 			}
 		}
 
@@ -671,6 +690,150 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 		TestTrue(*FString::Printf(TEXT("Строка задания в списке высотой не меньше 96 (вышло около %.0f)"), RowHeight), RowHeight >= 96.0);
 		TestTrue(TEXT("Между строками заданий просвет не меньше 12"), WindowDefaults->QuestRowGap >= 12.0f);
 	}
+	return true;
+}
+
+// ===========================================================================
+// Окно разговора читает длинную реплику целиком (Ринат 23.10.2026: тексты реплик не
+// сокращаем). Проверяется файл WBP_Dialog, как он лежит в проекте: реплика лежит в блоке
+// прокрутки (пальцем и колесом), блок стоит в холсте панели, не выходит за панель и не
+// налезает на кнопки ответов; кнопки лежат вне прокрутки и потому всегда видны. Самая длинная
+// реплика — предложение задания с описанием и строкой награды, как его собирает окно;
+// длиннее блока — значит, остаток прокручивается. Высота строки — 1,6 кегля, знак — 0,8 кегля.
+// ===========================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUiComfortDialogLongReplicaScrollsTest,
+	"ContrarySurvivor.UiComfort.DialogLongReplicaScrolls", UiComfortTestFlags)
+
+bool FUiComfortDialogLongReplicaScrollsTest::RunTest(const FString& Parameters)
+{
+	using namespace UiComfortTest;
+	const TCHAR* ClassPath = TEXT("/Game/UI/WBP_Dialog.WBP_Dialog_C");
+	const UWidgetTree* Tree = LoadTree(ClassPath);
+	if (!TestNotNull(TEXT("Готовый файл окна разговора загружен"), Tree))
+	{
+		return false;
+	}
+	const UBorder* Plate = Cast<UBorder>(Tree->FindWidget(TEXT("PanelPlate")));
+	const UCanvasPanelSlot* PlateSlot = Plate ? Cast<UCanvasPanelSlot>(Plate->Slot) : nullptr;
+	const UCanvasPanel* PanelCanvas = Cast<UCanvasPanel>(Tree->FindWidget(TEXT("PanelCanvas")));
+	const UTextBlock* Replica = Cast<UTextBlock>(Tree->FindWidget(TEXT("ReplicaText")));
+	const UScrollBox* Scroll = Replica ? Cast<UScrollBox>(Replica->GetParent()) : nullptr;
+	if (!TestTrue(TEXT("Панель, холст панели и реплика на месте"), PlateSlot && PanelCanvas && Replica)
+		|| !TestNotNull(TEXT("Реплика лежит в блоке прокрутки"), Scroll)
+		|| !TestTrue(TEXT("Блок прокрутки реплики лежит в холсте панели"),
+			Scroll->GetParent() == PanelCanvas && Cast<UCanvasPanelSlot>(Scroll->Slot) != nullptr))
+	{
+		return false;
+	}
+
+	// Холст панели — внутренняя часть подложки (её размер минус внутренний отступ).
+	const FMargin Pad = Plate->GetPadding();
+	const FVector2D Inner(PlateSlot->GetSize().X - Pad.Left - Pad.Right, PlateSlot->GetSize().Y - Pad.Top - Pad.Bottom);
+	auto BoxIn = [&Inner](const UWidget* Widget) -> FBox2D
+	{
+		const UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot);
+		const FAnchors Anchors = CanvasSlot->GetAnchors();
+		const FMargin Offsets = CanvasSlot->GetOffsets();
+		const FVector2D AnchorMin = FVector2D(Anchors.Minimum) * Inner;
+		const FVector2D AnchorMax = FVector2D(Anchors.Maximum) * Inner;
+		const bool bStretchX = Anchors.Minimum.X != Anchors.Maximum.X;
+		const bool bStretchY = Anchors.Minimum.Y != Anchors.Maximum.Y;
+		const double W = bStretchX ? (AnchorMax.X - Offsets.Right) - (AnchorMin.X + Offsets.Left) : Offsets.Right;
+		const double H = bStretchY ? (AnchorMax.Y - Offsets.Bottom) - (AnchorMin.Y + Offsets.Top) : Offsets.Bottom;
+		const FVector2D Align = CanvasSlot->GetAlignment();
+		const FVector2D Min(bStretchX ? AnchorMin.X + Offsets.Left : AnchorMin.X + Offsets.Left - W * Align.X,
+			bStretchY ? AnchorMin.Y + Offsets.Top : AnchorMin.Y + Offsets.Top - H * Align.Y);
+		return FBox2D(Min, Min + FVector2D(W, H));
+	};
+
+	const FBox2D ScrollBox = BoxIn(Scroll);
+	AddInfo(FString::Printf(TEXT("Панель внутри %.0f на %.0f, блок реплики (%.0f, %.0f) — (%.0f, %.0f)."),
+		Inner.X, Inner.Y, ScrollBox.Min.X, ScrollBox.Min.Y, ScrollBox.Max.X, ScrollBox.Max.Y));
+	TestTrue(TEXT("Блок реплики внутри панели"),
+		ScrollBox.Min.X >= -0.5 && ScrollBox.Min.Y >= -0.5 && ScrollBox.Max.X <= Inner.X + 0.5 && ScrollBox.Max.Y <= Inner.Y + 0.5
+		&& ScrollBox.Max.X > ScrollBox.Min.X && ScrollBox.Max.Y > ScrollBox.Min.Y);
+
+	int32 ButtonCount = 0;
+	for (const TCHAR* ButtonName : { TEXT("AcceptButton"), TEXT("DeclineButton"), TEXT("TurnInButton"), TEXT("CloseButton") })
+	{
+		const UWidget* Button = Tree->FindWidget(ButtonName);
+		if (!Button)
+		{
+			continue;
+		}
+		++ButtonCount;
+		TestTrue(*FString::Printf(TEXT("Кнопка %s лежит вне прокрутки, в холсте панели (всегда видна)"), ButtonName),
+			Button->GetParent() == PanelCanvas && Cast<UCanvasPanelSlot>(Button->Slot) != nullptr);
+		if (Cast<UCanvasPanelSlot>(Button->Slot))
+		{
+			const FBox2D Box = BoxIn(Button);
+			TestTrue(*FString::Printf(TEXT("Блок реплики не налезает на кнопку %s: (%.0f, %.0f) — (%.0f, %.0f)"),
+				ButtonName, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
+				Box.Max.Y <= ScrollBox.Min.Y + 0.5 || ScrollBox.Max.Y <= Box.Min.Y + 0.5
+				|| Box.Max.X <= ScrollBox.Min.X + 0.5 || ScrollBox.Max.X <= Box.Min.X + 0.5);
+		}
+	}
+	TestTrue(*FString::Printf(TEXT("Кнопки ответов на месте (нашлось %d)"), ButtonCount), ButtonCount >= 2);
+
+	TestTrue(TEXT("Реплика переносит строки по ширине блока"), Replica->GetAutoWrapText());
+	const UScrollBoxSlot* ReplicaSlot = Cast<UScrollBoxSlot>(Replica->Slot);
+	TestTrue(TEXT("Реплика занимает всю ширину блока прокрутки (не шире его)"),
+		ReplicaSlot && ReplicaSlot->GetHorizontalAlignment() == HAlign_Fill);
+	TestTrue(TEXT("Блок реплики прокручивается по вертикали"), Scroll->GetOrientation() == Orient_Vertical);
+	TestTrue(TEXT("Блок реплики обрезает текст по своим краям"), Scroll->GetClipping() == EWidgetClipping::ClipToBounds);
+	TestTrue(TEXT("Блок реплики прокручивается колесом мыши"), Scroll->GetConsumeMouseWheel() != EConsumeMouseWheel::Never);
+	TestTrue(TEXT("Блок реплики прокручивается пальцем"), Scroll->GetIsTouchScrollingEnabled());
+
+	// Самая длинная реплика: предложение задания (описание из таблицы заданий + строка награды).
+	const UDialogScreenWidget* Defaults = nullptr;
+	if (UClass* DialogClass = StaticLoadClass(UDialogScreenWidget::StaticClass(), nullptr, ClassPath))
+	{
+		Defaults = Cast<UDialogScreenWidget>(DialogClass->GetDefaultObject());
+	}
+	if (!TestNotNull(TEXT("Настройки окна разговора доступны"), Defaults))
+	{
+		return false;
+	}
+	TArray<FQuest> AllQuests;
+	const AElderNPC* Elder = GetDefault<AElderNPC>();
+	for (const FQuest* Def : { &Elder->GetOfferedQuest(), &Elder->GetSecondQuest(), &Elder->GetThirdQuest() })
+	{
+		FQuest FromTable;
+		AllQuests.Add(ContraryQuests::BuildQuestFromRow(Def->QuestId, FromTable) ? FromTable : *Def);
+	}
+	AllQuests.Add(GetDefault<AScientistGuardNPC>()->GetOfferedQuest());
+	FString Longest;
+	FString LongestTitle;
+	for (const FQuest& Quest : AllQuests)
+	{
+		FText Offer = Quest.Description;
+		if (!Defaults->RewardLineFormat.IsEmpty() && Quest.RewardMoney > 0.0f)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Reward"), FText::AsNumber(FMath::RoundToInt32(Quest.RewardMoney)));
+			Offer = FText::Join(Defaults->RewardLineSeparator, Offer, FText::Format(Defaults->RewardLineFormat, Args));
+		}
+		if (Offer.ToString().Len() > Longest.Len())
+		{
+			Longest = Offer.ToString();
+			LongestTitle = Quest.Title.ToString();
+		}
+	}
+	const double LineHeight = FMath::CeilToDouble(Replica->GetFont().Size * 1.6);
+	const double CharsPerLine = FMath::FloorToDouble(ScrollBox.GetSize().X / (Replica->GetFont().Size * 0.8));
+	TArray<FString> Paragraphs;
+	Longest.ParseIntoArray(Paragraphs, TEXT("\n"), /*bCullEmpty=*/false);
+	double Lines = 0.0;
+	for (const FString& Paragraph : Paragraphs)
+	{
+		Lines += FMath::Max(1.0, FMath::CeilToDouble(Paragraph.Len() / FMath::Max(1.0, CharsPerLine)));
+	}
+	const double Visible = FMath::FloorToDouble(ScrollBox.GetSize().Y / FMath::Max(1.0, LineHeight));
+	AddInfo(FString::Printf(TEXT("Самая длинная реплика — предложение задания «%s», %d знаков, около %.0f строк по %.0f знаков при кегле %.0f; блок показывает %.0f строк%s."),
+		*LongestTitle, Longest.Len(), Lines, CharsPerLine, Replica->GetFont().Size, Visible,
+		Lines > Visible ? TEXT(", остальное прокручивается") : TEXT("")));
+	TestTrue(*FString::Printf(TEXT("Блок реплики показывает не меньше двух строк (вышло %.0f)"), Visible), Visible >= 2.0);
+	TestTrue(TEXT("Самая длинная реплика найдена"), Longest.Len() > 0);
 	return true;
 }
 

@@ -171,7 +171,7 @@ AScientistQuestNPC::AScientistQuestNPC()
 
 	// Приём ноутбука (третье задание старосты сдаётся этому учёному).
 	ForeignTurnInText = NSLOCTEXT("Scientists", "QuestScientistReceive",
-		"Ноутбук бандитов? Любопытно… Староста с ним не справился, и это неудивительно: такую защиту бандиты сами поставить не могли. Давайте его сюда, мы посмотрим.");
+		"Ноутбук бандитов? Любопытно… Староста открыл только малую часть, и это неудивительно: такую защиту бандиты сами поставить не могли. Давайте его сюда, мы посмотрим.");
 	ForeignTurnInReplyText = NSLOCTEXT("Scientists", "QuestScientistReceiveReply", "Вот ноутбук.");
 	ForeignTurnInDoneText = NSLOCTEXT("Scientists", "QuestScientistReceived",
 		"Благодарю вас. Вот {Reward} монет: нам и самим важно знать, кто здесь хозяйничает.\nНа расшифровку нужно время. Зайдите к нам позже.");
