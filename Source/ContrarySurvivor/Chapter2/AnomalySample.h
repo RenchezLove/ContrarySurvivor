@@ -10,6 +10,7 @@ class USphereComponent;
 class UStaticMeshComponent;
 class UPointLightComponent;
 class APlayerCharacter;
+class UMaterialInterface;
 
 /**
  * Аномальный образец (Ринат 23.10.2026: «В зоне три светящихся образца, подбираются касанием,
@@ -33,6 +34,9 @@ public:
 	// Показать/спрятать образец (вместе со светом и касанием).
 	void SetSampleVisible(bool bVisible);
 	bool IsSampleVisible() const { return bSampleVisible; }
+
+	// Имя и материал свечения — до появления в мире (низина ставит образцы на свои места).
+	void InitSample(FName InSampleId, UMaterialInterface* GlowMaterial);
 
 	// Попытка подбора героем (её зовёт касание; публичная — её же зовёт автопроверка).
 	bool TryCollect(APlayerCharacter* Player);

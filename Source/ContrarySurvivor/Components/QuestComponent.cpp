@@ -704,6 +704,45 @@ void UQuestComponent::SyncInventoryQuests(UInventoryComponent* Inventory)
 	}
 }
 
+bool UQuestComponent::AddActiveQuest(const FQuest& Quest)
+{
+	if (Quest.QuestId.IsNone() || FindQuest(Quest.QuestId))
+	{
+		return false;
+	}
+	FQuest Added = Quest;
+	Added.Progress = 0;
+	Added.ItemProgress = 0;
+	Added.State = EQuestState::Active;
+	Quests.Add(Added);
+	TrackedQuestId = Added.QuestId;
+	FQuest& InLog = Quests.Last();
+	RecomputeState(InLog);
+	UE_LOG(LogQA, Display, TEXT("QA: quest ADDED ACTIVE (%s)"), *InLog.QuestId.ToString());
+	OnQuestChanged.Broadcast(InLog);
+	return true;
+}
+
+bool UQuestComponent::RemoveQuest(FName QuestId)
+{
+	const int32 Index = QuestId.IsNone() ? INDEX_NONE
+		: Quests.IndexOfByPredicate([QuestId](const FQuest& Q) { return Q.QuestId == QuestId; });
+	if (Index == INDEX_NONE)
+	{
+		return false;
+	}
+	FQuest Removed = Quests[Index];
+	Quests.RemoveAt(Index);
+	if (TrackedQuestId == QuestId)
+	{
+		PickNextTrackedQuest();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: quest REMOVED (%s)"), *QuestId.ToString());
+	// Подписчики (шлагбаум, автосохранение) пересчитывают своё по всему журналу.
+	OnQuestChanged.Broadcast(Removed);
+	return true;
+}
+
 bool UQuestComponent::TurnInQuest(FName QuestId, FName ReceiverNpcTag)
 {
 	FQuest* Q = FindQuestMutable(QuestId);

@@ -10,6 +10,13 @@
 #include "ContrarySurvivor/Actors/QuestBarrier.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
+#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Component.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
+#include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
+#include "ContrarySurvivor/Chapter2/PoisonZone.h"
+#include "ContrarySurvivor/Chapter2/VeraNPC.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
@@ -27,6 +34,7 @@
 #include "APistol.h"
 #include "ARangedWeapon.h"
 #include "AShotgun.h"
+#include "Components/BoxComponent.h"
 #include "Engine/DamageEvents.h"
 #include "Engine/World.h"
 #include "EngineUtils.h" // TActorIterator
@@ -345,6 +353,11 @@ namespace
 		FirstDone.ItemProgress = First.RequiredItemCount;
 		FirstDone.State = EQuestState::TurnedIn;
 		Quests->RestoreQuests({ FirstDone });
+		// Глава 2 — как до неё: аппарат, образцы, наёмник и конец главы сбрасываются.
+		if (UChapter2Component* Chapter2 = Player->GetChapter2())
+		{
+			Chapter2->ResetForNewGame();
+		}
 
 		bool bOk = true;
 		if (bBanditQuestReady)
@@ -369,6 +382,10 @@ namespace
 			Quests->SyncInventoryQuests(Inventory);
 			const FQuest* InLog = Quests->FindQuest(Second.QuestId);
 			bOk = InLog && InLog->State == EQuestState::Completed;
+		}
+		if (UChapter2Component* Chapter2 = Player->GetChapter2())
+		{
+			Chapter2->SyncStoryState(); // снаряжение учёных и цель «Поговорить с Верой» — прочь
 		}
 
 		// 3) База бандитов — как до задания: иначе на зачищенной базе его не выполнить.
@@ -437,6 +454,277 @@ bool SetStoryReadyToTurnInBanditLaptop(APlayerCharacter* Player)
 bool SkipElderNotebookWait(APlayerCharacter* Player)
 {
 	return Player && Player->SkipElderNotebookWait();
+}
+
+// ---------------------------------------------------------------------------
+// Глава 2: точки задания учёных
+// ---------------------------------------------------------------------------
+
+namespace
+{
+	template <typename T>
+	T* FirstActorOf(UWorld* World)
+	{
+		if (!World)
+		{
+			return nullptr;
+		}
+		TActorIterator<T> It(World);
+		return It ? *It : nullptr;
+	}
+
+	// Точка снаружи отравленной низины у её края, со стороны Toward (база учёных): у края
+	// видна кнопка «Надеть дыхательный аппарат», а урона ещё нет.
+	bool PoisonZoneEdgeSpot(UWorld* World, const FVector& Toward, FVector& OutLocation)
+	{
+		const APoisonZone* Zone = FirstActorOf<APoisonZone>(World);
+		const UBoxComponent* Box = Zone ? Zone->GetVolume() : nullptr;
+		if (!Box)
+		{
+			return false;
+		}
+		const FVector Center = Box->GetComponentLocation();
+		FVector Dir = (Toward - Center).GetSafeNormal2D();
+		if (Dir.IsNearlyZero())
+		{
+			Dir = FVector(-1.0, 0.0, 0.0);
+		}
+		// Сколько идти от середины коробки до её края по этому направлению (коробка может быть
+		// повёрнута — считаем в её осях).
+		const FVector Local = Box->GetComponentTransform().InverseTransformVectorNoScale(Dir);
+		const FVector Extent = Box->GetScaledBoxExtent();
+		double ToEdge = TNumericLimits<double>::Max();
+		if (!FMath::IsNearlyZero(Local.X))
+		{
+			ToEdge = FMath::Min(ToEdge, Extent.X / FMath::Abs(Local.X));
+		}
+		if (!FMath::IsNearlyZero(Local.Y))
+		{
+			ToEdge = FMath::Min(ToEdge, Extent.Y / FMath::Abs(Local.Y));
+		}
+		if (ToEdge >= TNumericLimits<double>::Max())
+		{
+			return false;
+		}
+		const float Outside = FMath::Clamp(UChapter2Settings::Get()->MaskButtonEdgeDistance * 0.4f, 100.0f, 400.0f);
+		OutLocation = Center + Dir * (ToEdge + Outside);
+		return true;
+	}
+}
+
+FString GetChapter2DebugPointLabel(EChapter2DebugPoint Point)
+{
+	switch (Point)
+	{
+		case EChapter2DebugPoint::TalkToVera:        return TEXT("Глава 2: ноутбук сдан учёному — идти к Вере");
+		case EChapter2DebugPoint::SamplesTaken:      return TEXT("Глава 2: задание Веры взято (у края низины)");
+		case EChapter2DebugPoint::SamplesCollected:  return TEXT("Глава 2: три образца собраны (перед наёмником)");
+		case EChapter2DebugPoint::MercenaryDefeated: return TEXT("Глава 2: наёмник побеждён (сдать задание Вере)");
+	}
+	return FString();
+}
+
+bool FindChapter2DebugSpot(UWorld* World, EChapter2DebugPoint Point, FVector& OutLocation)
+{
+	const AVeraNPC* Vera = FirstActorOf<AVeraNPC>(World);
+	switch (Point)
+	{
+		case EChapter2DebugPoint::TalkToVera:
+		{
+			// У учёного, которому только что сдан ноутбук: дальше герой идёт к Вере по метке.
+			if (const AScientistQuestNPC* Scientist = FirstActorOf<AScientistQuestNPC>(World))
+			{
+				OutLocation = Scientist->GetActorLocation();
+				return true;
+			}
+			break;
+		}
+		case EChapter2DebugPoint::SamplesTaken:
+		{
+			if (PoisonZoneEdgeSpot(World, Vera ? Vera->GetActorLocation() : FVector::ZeroVector, OutLocation))
+			{
+				return true;
+			}
+			break;
+		}
+		case EChapter2DebugPoint::SamplesCollected:
+		{
+			// Чуть дальше расстояния разговора от места появления наёмника, со стороны низины:
+			// наёмник появляется сразу (герой вне низины), разговор — через пару шагов.
+			const AMercenaryEncounter* Encounter = FirstActorOf<AMercenaryEncounter>(World);
+			const APoisonZone* Zone = FirstActorOf<APoisonZone>(World);
+			if (Encounter)
+			{
+				const FVector From = Encounter->GetActorLocation();
+				FVector Dir = Zone ? (Zone->GetActorLocation() - From).GetSafeNormal2D() : FVector::ZeroVector;
+				if (Dir.IsNearlyZero())
+				{
+					Dir = FVector(1.0, 0.0, 0.0);
+				}
+				const FVector Spot = From + Dir * (Encounter->GetTalkDistance() + 500.0f);
+				if (!Zone || Zone->DistanceTo(Spot) > 0.0f)
+				{
+					OutLocation = Spot;
+					return true;
+				}
+			}
+			// Наёмника на уровне нет или точка попала в низину — у края низины.
+			if (PoisonZoneEdgeSpot(World, Vera ? Vera->GetActorLocation() : FVector::ZeroVector, OutLocation))
+			{
+				return true;
+			}
+			break;
+		}
+		case EChapter2DebugPoint::MercenaryDefeated:
+			break;
+	}
+	// Последний выбор для любой точки — у Веры.
+	if (Vera)
+	{
+		OutLocation = Vera->GetActorLocation();
+		return true;
+	}
+	return false;
+}
+
+bool SetStoryChapter2(APlayerCharacter* Player, EChapter2DebugPoint Point)
+{
+	UWorld* World = Player ? Player->GetWorld() : nullptr;
+	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
+	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	UChapter2Component* Chapter2 = Player ? Player->GetChapter2() : nullptr;
+	AElderNPC* Elder = FirstActorOf<AElderNPC>(World);
+	AVeraNPC* Vera = FirstActorOf<AVeraNPC>(World);
+	if (!Elder || !Vera || !Quests || !Inventory || !Chapter2)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: STORY chapter2 - на уровне нет старосты или Веры либо у героя нет журнала, сумки или главы 2"));
+		return false;
+	}
+
+	AContrarySurvivorPlayerController* PC = Cast<AContrarySurvivorPlayerController>(Player->GetController());
+	if (PC)
+	{
+		PC->CloseDialog(); // открытый разговор показывал бы уже несуществующее состояние
+	}
+
+	// 1) Журнал: цепочка старосты сдана целиком (третье задание — ноутбук учёным), рация
+	// охранника сдана (шлагбаум открыт). Предметы этих заданий из сумки убираются.
+	TArray<FQuest> Chain = { Elder->GetOfferedQuest(), Elder->GetSecondQuest(), Elder->GetThirdQuest() };
+	if (const AScientistGuardNPC* Guard = FirstActorOf<AScientistGuardNPC>(World))
+	{
+		Chain.Add(Guard->GetOfferedQuest());
+	}
+	TSet<FString> QuestItemKeys;
+	for (const FQuest& Quest : Quests->GetQuests())
+	{
+		if (Quest.QuestId != Elder->GetOfferedQuest().QuestId && !Quest.RequiredItemName.IsEmpty())
+		{
+			QuestItemKeys.Add(Quest.RequiredItemName);
+		}
+	}
+	TArray<FQuest> Journal;
+	for (const FQuest& Quest : Chain)
+	{
+		if (Quest.QuestId.IsNone())
+		{
+			continue;
+		}
+		if (Quest.QuestId != Elder->GetOfferedQuest().QuestId && !Quest.RequiredItemName.IsEmpty())
+		{
+			QuestItemKeys.Add(Quest.RequiredItemName); // шкуры первого задания — товар, их не трогаем
+		}
+		FQuest Done = Quest;
+		Done.Progress = Quest.TargetCount;
+		Done.ItemProgress = Quest.RequiredItemCount;
+		Done.State = EQuestState::TurnedIn;
+		Journal.Add(Done);
+	}
+	for (AMasterInventoryItem* Item : Inventory->GetInventoryItems()) // копия списка
+	{
+		if (Item && QuestItemKeys.Contains(Item->ItemName))
+		{
+			Inventory->RemoveItem(Item);
+			Item->Destroy();
+		}
+	}
+	Quests->RestoreQuests(Journal);
+
+	// 2) Глава 2 с чистого листа (наёмник убран, образцы снова на местах), затем — до точки.
+	Chapter2->ResetForNewGame();
+	bool bOk = Quests->IsQuestTurnedIn(ContraryQuestIds::DeliverLaptopToScientists);
+	if (Point != EChapter2DebugPoint::TalkToVera)
+	{
+		// Тем же путём, что в разговоре с Верой: задание предложено и взято, аппарат выдан.
+		Quests->OfferQuest(Vera->GetSamplesQuest());
+		bOk &= Quests->AcceptQuest(Chapter2Ids::SamplesQuest);
+		Chapter2->GiveApparatus();
+	}
+	if (Point == EChapter2DebugPoint::SamplesCollected || Point == EChapter2DebugPoint::MercenaryDefeated)
+	{
+		// Образцы уровня — по их именам (подбор пишется в сохранение по имени); не хватает
+		// образцов на уровне — недостающие засчитываются под запасными именами.
+		TArray<FName> Ids;
+		for (TActorIterator<AAnomalySample> It(World); It; ++It)
+		{
+			Ids.AddUnique(It->GetSampleId());
+		}
+		Ids.Sort(FNameLexicalLess());
+		for (int32 Index = 1; Index <= Chapter2->GetSamplesTotal(); ++Index)
+		{
+			Ids.AddUnique(FName(*FString::Printf(TEXT("DebugSample%d"), Index)));
+		}
+		for (const FName& Id : Ids)
+		{
+			if (Chapter2->GetSamplesDone() >= Chapter2->GetSamplesTotal())
+			{
+				break;
+			}
+			Chapter2->CollectSample(Id);
+		}
+		const FQuest* Samples = Chapter2->FindSamplesQuest();
+		bOk &= Samples && Samples->State == EQuestState::Completed;
+	}
+	if (Point == EChapter2DebugPoint::MercenaryDefeated)
+	{
+		Chapter2->NotifyMercenaryDefeated();
+	}
+	Chapter2->SyncStoryState(); // цель [230] и снаряжение в сумке — по новому журналу
+	Chapter2->RefreshSampleActors();
+
+	// 3) Признаки сюжета в сохранении: сценки старосты позади, ожидания нет, сообщение о конце
+	// сюжета не показано.
+	if (UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
+	{
+		Save->bElderNotebookHintShown = true;
+		Save->ElderNotebookWaitEndPlayTime = -1.0f;
+		Save->bEndOfStoryShown = false;
+		Save->bElderHookShown = true;
+		Save->bElderFirstGiftGiven = true;
+		Player->WriteSaveObject(Save);
+	}
+	Player->ReloadStoryStateFromSave();
+	Player->NotifyElderGiftGiven();
+	if (PC)
+	{
+		if (AContrarySurvivorHUD* CSHUD = PC->GetHUD<AContrarySurvivorHUD>())
+		{
+			CSHUD->ResetEndOfStoryState();
+		}
+	}
+
+	// 4) На место точки — и всё в сохранение, чтобы «Продолжить» дало то же самое.
+	FVector Spot;
+	if (!FindChapter2DebugSpot(World, Point, Spot) || !TeleportPawnNear(Player, Spot, /*bExactFirst=*/true))
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: STORY chapter2 - место точки не нашлось или занято, герой остался где был"));
+	}
+	if (!Player->SaveGame())
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: STORY chapter2 - состояние не записалось в сохранение"));
+		bOk = false;
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: STORY chapter2 точка '%s' %s"), *GetChapter2DebugPointLabel(Point), bOk ? TEXT("OK") : TEXT("FAIL"));
+	return bOk;
 }
 
 bool RevealWholeMap(APlayerCharacter* Player)
@@ -696,6 +984,19 @@ void SContraryDebugMenu::RebuildContent()
 		const bool bOk = ContraryDebugTools::SkipElderNotebookWait(PlayerOf(WeakPC));
 		FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY skip elder wait %s"), bOk ? TEXT("OK") : TEXT("ожидание не идёт")), /*bScreen=*/true);
 	});
+
+	// --- Глава 2: задание учёных «Образцы из аномалий» ---
+	AddHeader(TEXT("Глава 2"));
+	for (const ContraryDebugTools::EChapter2DebugPoint Point : { ContraryDebugTools::EChapter2DebugPoint::TalkToVera,
+		ContraryDebugTools::EChapter2DebugPoint::SamplesTaken, ContraryDebugTools::EChapter2DebugPoint::SamplesCollected,
+		ContraryDebugTools::EChapter2DebugPoint::MercenaryDefeated })
+	{
+		AddButton(ContraryDebugTools::GetChapter2DebugPointLabel(Point), [WeakPC, PlayerOf, Point]()
+		{
+			const bool bOk = ContraryDebugTools::SetStoryChapter2(PlayerOf(WeakPC), Point);
+			FQADebug::QA(WeakPC.Get(), FString::Printf(TEXT("QA: STORY chapter2 %d %s"), static_cast<int32>(Point), bOk ? TEXT("OK") : TEXT("FAIL")), /*bScreen=*/true);
+		});
+	}
 
 	// --- Карта КПК ---
 	AddHeader(TEXT("Карта"));

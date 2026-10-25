@@ -571,6 +571,12 @@ bool UCorpseLootWidget::TakeItemFromPlayer(AMasterInventoryItem* Item)
 		return false;
 	}
 
+	// Сюжетный предмет (снаряжение учёных главы 2) в чужое хранилище не кладётся — [235].
+	if (Player->RefuseStoryItem(Item))
+	{
+		return false;
+	}
+
 	UInventoryComponent* Inventory = Player->GetInventory();
 	if (!Inventory)
 	{

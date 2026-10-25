@@ -111,6 +111,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
 	EItemCategory ItemCategory;
 
+	// Сюжетный предмет (правка Рината 25.10.2026 про снаряжение учёных: «продать и выкинуть их
+	// нельзя»): торговец его не берёт, выбросить и переложить в чужое хранилище нельзя — игрок
+	// видит сообщение [235]. Забирает его только сам сюжет (тот, кто выдал).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item", meta = (DisplayName = "Сюжетный предмет (нельзя продать или выбросить)"))
+	bool bStoryItem = false;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item", meta = (AllowPrivateAccess = "true"))
     UStaticMeshComponent* ItemMesh;
 

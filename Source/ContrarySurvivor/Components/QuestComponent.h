@@ -407,6 +407,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool TurnInQuest(FName QuestId, FName ReceiverNpcTag = NAME_None);
 
+	// Убрать задание из журнала (глава 2: цель «Поговорить с Верой» уходит, когда взято
+	// задание Веры). Отслеживание переходит дальше. false — такого задания в журнале нет.
+	bool RemoveQuest(FName QuestId);
+
+	// Положить в журнал сразу взятое задание-цель (глава 2: «Поговорить с Верой» — его не
+	// предлагают и не принимают, оно просто появляется). Становится отслеживаемым. Датчики
+	// воронки заданий не шлются: это не поручение, а подсказка, куда идти. false — уже есть.
+	bool AddActiveQuest(const FQuest& Quest);
+
 	// Первое готовое к сдаче задание (Completed), которое принимает собеседник с этой меткой.
 	// null — такого нет. Пустая метка не ищется (это задания «сдать тому, кто выдал»).
 	const FQuest* FindCompletedQuestForReceiver(FName ReceiverNpcTag) const;

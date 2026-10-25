@@ -256,6 +256,10 @@ public:
 	// БОЛЬШЕ НЕ вызывает: после неё сюжет продолжается третьим заданием.
 	void NotifyStoryEpilogueFinished();
 
+	// Окно разговора, если оно сейчас на экране (глава 2 ставит фотографию из ноутбука так,
+	// чтобы она не заходила на реплику и кнопки). null — окна нет.
+	UDialogScreenWidget* GetDialogWidgetOnScreen() const { return IsUmgDialogActive() ? DialogWidgetInstance.Get() : nullptr; }
+
 	// Забыть запланированное или показанное сообщение о конце сюжета: снять таймер, убрать
 	// плашку, разрешить запланировать заново. Зовёт меню отладки, когда возвращает сюжет назад.
 	void ResetEndOfStoryState();

@@ -40,10 +40,14 @@ AVeraNPC::AVeraNPC()
 	LastFileText = NSLOCTEXT("Chapter2", "VeraLastFile",
 		"Значит, они знают вас лучше, чем вы сами. Тогда вам нужно это увидеть: мы вскрыли последний файл ноутбука.");
 	LastFileReplyText = NSLOCTEXT("Chapter2", "VeraLastFileReply", "Это же я. А рядом… ты?");
+	// [252] исправлена 25.10 вечер (Ринат: «Вера завершает диалог странными словами. Нужно
+	// что-то более живое»).
 	ChapterEndText = NSLOCTEXT("Chapter2", "VeraChapterEnd",
-		"Да. Мы были знакомы — раньше, до того как вы всё забыли. Я надеялась, что вы никогда этого не увидите.\n"
-		"Не сейчас. Отдохните, а завтра я расскажу всё, что смогу.");
-	AfterText = NSLOCTEXT("Chapter2", "VeraAfter", "Не сейчас. Отдохните, а завтра я расскажу всё, что смогу.");
+		"Да, это я. Мы давно знакомы, только ты этого не помнишь. Прости, что молчала: боялась, что правда сделает только хуже.\n"
+		"Иди отдохни, а утром поговорим. Я расскажу всё, что знаю, обещаю.");
+	// Следующие разговоры после конца главы — вторая половина [252] дословно: своей реплики в
+	// РЕПЛИКИ.txt нет, а прежний черновик повторял отменённые «странные слова».
+	AfterText = NSLOCTEXT("Chapter2", "VeraAfter", "Иди отдохни, а утром поговорим. Я расскажу всё, что знаю, обещаю.");
 
 	// Задание «Образцы из аномалий»: три образца — счётчик цели (событие «образец подобран»).
 	SamplesQuest.QuestId = Chapter2Ids::SamplesQuest;
@@ -69,6 +73,12 @@ AVeraNPC::AVeraNPC()
 	SamplesQuest.TurnInReplyText = NSLOCTEXT("Quest", "SamplesTurnIn", "По дороге сюда меня ждал человек Куратора. Он знал меня.");
 	SamplesQuest.GiverNpcTag = Chapter2Ids::VeraTag;
 	SamplesQuest.TurnInNpcTag = Chapter2Ids::VeraTag;
+}
+
+void AVeraNPC::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	Tags.AddUnique(NpcTag);
 }
 
 bool AVeraNPC::IsLaptopTurnedIn(const APlayerCharacter* Player)
@@ -141,7 +151,7 @@ void AVeraNPC::OnTalkClosed(APlayerCharacter* Player)
 		Chapter2->SetPhotoShown(false);
 		if (Stage == EVeraTalkStage::ChapterEnd)
 		{
-			Chapter2->StartChapterEnd(); // экран «Конец второй главы» и запись в сохранение
+			Chapter2->StartChapterEnd(); // экран «Конец первой главы» и запись в сохранение
 		}
 	}
 }
@@ -204,6 +214,7 @@ bool AVeraNPC::HandleTalkPrimary(APlayerCharacter* Player)
 				if (Chapter2)
 				{
 					Chapter2->GiveApparatus();
+					Chapter2->SyncStoryState(); // в сумку — баллон и детектор, цель «Поговорить с Верой» уходит
 					Chapter2->RefreshSampleActors();
 				}
 				UE_LOG(LogQA, Display, TEXT("QA: Вера выдала задание «Образцы из аномалий»"));
@@ -217,6 +228,7 @@ bool AVeraNPC::HandleTalkPrimary(APlayerCharacter* Player)
 				Stage = EVeraTalkStage::LastFile;
 				if (Chapter2)
 				{
+					Chapter2->SyncStoryState(); // Вера забирает баллон и детектор обратно
 					Chapter2->SetPhotoShown(true); // фотография из ноутбука на экране
 				}
 			}

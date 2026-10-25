@@ -68,6 +68,15 @@ void AAnomalySample::BeginPlay()
 	}
 }
 
+void AAnomalySample::InitSample(FName InSampleId, UMaterialInterface* GlowMaterial)
+{
+	SampleId = InSampleId;
+	if (GlowMaterial && Mesh)
+	{
+		Mesh->SetMaterial(0, GlowMaterial);
+	}
+}
+
 FName AAnomalySample::GetSampleId() const
 {
 	return SampleId.IsNone() ? GetFName() : SampleId;

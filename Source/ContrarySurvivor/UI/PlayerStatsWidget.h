@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "ContrarySurvivor/UI/SelfHidingWidget.h"
+#include "Styling/SlateTypes.h" // FProgressBarStyle: цвета полоски здоровья до вспышки урона
 #include "PlayerStatsWidget.generated.h"
 
 class UTextBlock;
@@ -109,6 +110,30 @@ public:
 	// Мигает ли полоска здоровья прямо сейчас.
 	bool IsHealthAttentionBlinking() const { return HealthBlinkRemaining > 0.0f; }
 
+	// --- Вспышка при уроне (правка Рината 25.10.2026 вечер: «при любом отнятии здоровья игрока,
+	// оно на короткое время светилось красным»). Любое уменьшение здоровья — от врага, голода,
+	// отравленной низины, пустого баллона — красит полоску и число здоровья на короткое время. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Damage Flash", meta = (ClampMin = "0.0", DisplayPriority = "1",
+		DisplayName = "Вспышка здоровья при уроне, сек"))
+	float HealthDamageFlashDuration = 0.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerStats|Damage Flash", meta = (DisplayPriority = "2",
+		DisplayName = "Цвет вспышки"))
+	FLinearColor HealthDamageFlashColor = FLinearColor(1.0f, 0.08f, 0.05f, 1.0f);
+
+	// Здоровье уменьшилось (чистое правило для автопроверки).
+	static bool IsHealthLoss(float PreviousHealth, float NewHealth)
+	{
+		return PreviousHealth >= 0.0f && NewHealth < PreviousHealth - 0.01f;
+	}
+
+	// Горит ли сейчас вспышка урона.
+	bool IsHealthDamageFlashing() const { return HealthFlashRemaining > 0.0f; }
+
+	// Одна проверка здоровья (её зовёт тик; публичная — её же зовёт автопроверка без экрана).
+	void NoteHealthForDamageFlash(float Health);
+
 protected:
 	// Всё обновляется каждый кадр (лёгкие SetText/SetPercent — как ежекадровый Canvas-путь).
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -151,6 +176,16 @@ protected:
 	TObjectPtr<UTextBlock> MoneyText;     // значение «150»
 
 private:
+	// Вспышка урона: красим полоску и число, по окончании возвращаем цвета владельца окна.
+	void UpdateHealthDamageFlash(float DeltaTime);
+
+	float LastSeenHealth = -1.0f;        // здоровье прошлого кадра (меньше нуля — ещё не видели)
+	float HealthFlashRemaining = 0.0f;
+	bool bHealthFlashVisualActive = false;
+	FProgressBarStyle HealthBarIdleStyle;
+	FLinearColor HealthBarIdleFill = FLinearColor::White;
+	FSlateColor HealthTextIdleColor;
+
 	// Мигание полоски здоровья (см. StartHealthAttentionBlink). Зовётся каждый кадр.
 	void UpdateHealthAttentionVisual(float DeltaTime);
 

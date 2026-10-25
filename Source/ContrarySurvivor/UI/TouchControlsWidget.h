@@ -112,6 +112,31 @@ public:
 	// поднимается пропорционально (прежнее соотношение 0.5 / 0.85 сохраняется при значении 50%).
 	void ApplyPlayerSettings();
 
+	// --- Глава 2 (правки Рината 25.10.2026 вечер) ---
+
+	// Детектор-локатор на месте стика: «левый стик превращался в некое подобие локатора… сам стик
+	// чернел… Сам стик на время поисков сделай чуть больше». Подложка стика прячется (под ней
+	// рисует локатор слой главы 2), стик и «шляпка» увеличиваются в Scale раз, компас на стике
+	// на это время прячется. Управление движением не меняется: ход «шляпки» растёт вместе со
+	// стиком. Повторный вызов с теми же значениями ничего не делает.
+	void SetLocatorMode(bool bOn, float Scale);
+	bool IsLocatorMode() const { return bLocatorMode; }
+
+	// Где стик на экране прямо сейчас (с увеличением): центр и радиус в абсолютных точках.
+	// false — подложки стика нет либо она ещё не разложена.
+	bool GetStickCircleAbsolute(FVector2D& OutCenter, float& OutRadius) const;
+
+	// Стекло маски на экране: «Сделай так, что бы кнопки проглядывали сквозь эту маску». Под
+	// стеклом прозрачность кнопок в покое не ниже UnderMaskMinOpacity — тёмный край стекла их
+	// не гасит. Сняли маску — возвращается прозрачность из настроек игрока.
+	void SetUnderMaskGlass(bool bOn);
+	bool IsUnderMaskGlass() const { return bUnderMaskGlass; }
+
+	// Прозрачность кнопок в покое, пока надета маска (не ниже настройки игрока).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Touch Controls|Chapter2", meta = (ClampMin = "0.0", ClampMax = "1.0",
+		DisplayName = "Прозрачность кнопок под стеклом маски"))
+	float UnderMaskMinOpacity = 0.9f;
+
 
 	// Во сколько раз кнопка СУМКА вырастает на пике мигания-подсказки (1 — не растёт).
 	float GetInventoryBlinkScale() const { return FMath::Max(1.0f, InventoryBlinkScale); }
@@ -561,6 +586,15 @@ private:
 	// поворот стрелки на север (угол — проекцией NorthWorldDirection через камеру).
 	// Зовётся каждый кадр вне модалок; поворот применяется только при заметной смене угла.
 	void UpdateCompass();
+
+	// Глава 2: стик-локатор и стекло маски (см. SetLocatorMode / SetUnderMaskGlass).
+	bool bLocatorMode = false;
+	float LocatorScale = 1.0f;
+	bool bUnderMaskGlass = false;
+	TArray<ESlateVisibility> CompassVisibilityBeforeLocator;
+
+	// Прозрачность подложки стика в покое с учётом локатора (под локатором её не видно).
+	float GetStickBaseIdleOpacity() const { return bLocatorMode ? 0.0f : Config.IdleOpacity; }
 
 	// Гейт поворота стрелки (1e6 = угол ещё не считался).
 	float LastCompassAngleDeg = 1.0e6f;

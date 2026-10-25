@@ -17,6 +17,7 @@
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h" // карта КПК открывается по мере исследования
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h" // глава 2: аппарат, воздух, образцы, наёмник
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h"  // [235] сюжетный предмет нельзя продать или выбросить
 #include "ContrarySurvivor/Components/MeleeSectorIndicatorComponent.h" // Build 1.1: подсветка сектора ножа
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
@@ -1306,9 +1307,30 @@ void APlayerCharacter::Inv_UseBackpackItem(AMasterInventoryItem* Item)
     }
 }
 
+bool APlayerCharacter::RefuseStoryItem(const AMasterInventoryItem* Item) const
+{
+    if (!Item || !Item->bStoryItem)
+    {
+        return false;
+    }
+    const FText& Message = UChapter2Settings::Get()->StoryItemLockedText;
+    UE_LOG(LogQA, Display, TEXT("QA: story item '%s' - продать или выбросить нельзя"), *Item->ItemName);
+    if (Onboarding)
+    {
+        Onboarding->ShowTransientHint(Message);
+    }
+    return true;
+}
+
 void APlayerCharacter::Inv_DropItem(AMasterInventoryItem* Item)
 {
     if (!Item || !Inventory)
+    {
+        return;
+    }
+
+    // Снаряжение учёных и прочие сюжетные предметы не выбрасываются (правка Рината 25.10).
+    if (RefuseStoryItem(Item))
     {
         return;
     }
@@ -2058,6 +2080,10 @@ void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSe
     {
         return;
     }
+    if (RefuseStoryItem(Item))
+    {
+        return; // сюжетный предмет торговцу не продаётся (окно торговли проверяет раньше)
+    }
 
     // Build 1.2.1 (блок Г, патч cpp): ЛЮБОЙ стак-предмет (патроны, шкуры, тушёнка,
     // аптечки — поля стака в базе AMasterInventoryItem с a4252ba) продаётся по Qty штук
@@ -2094,6 +2120,10 @@ void APlayerCharacter::Shop_SellItemQty(AMasterInventoryItem* Item, float UnitSe
 void APlayerCharacter::Shop_SellItem(AMasterInventoryItem* Item, float SellPrice)
 {
     if (!Item || !Inventory || !Stats)
+    {
+        return;
+    }
+    if (RefuseStoryItem(Item))
     {
         return;
     }

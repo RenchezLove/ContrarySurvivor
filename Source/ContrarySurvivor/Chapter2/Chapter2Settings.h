@@ -81,6 +81,51 @@ public:
 		DisplayName = "Громкость писка"))
 	float BeepVolume = 0.6f;
 
+	// Детектор-локатор вместо левого стика (правка Рината 25.10 вечер). Виден, пока задание
+	// взято, образцы собраны не все и герой в низине или не дальше этого расстояния от её края.
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "0.0", DisplayPriority = "6",
+		DisplayName = "Локатор: показывать, когда до края низины не больше (см)"))
+	float LocatorShowDistance = 1500.0f;
+
+	// Через сколько секунд без подобранного образца на локаторе появляется полупрозрачная
+	// стрелка на ближайший образец. Отсчёт идёт, пока локатор на экране; подбор образца
+	// начинает его заново.
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "0.0", DisplayPriority = "7",
+		DisplayName = "Локатор: стрелка-подсказка через (секунды)"))
+	float LocatorHintArrowDelay = 60.0f;
+
+	// Во сколько раз стик больше обычного, пока он локатор («Сам стик на время поисков сделай
+	// чуть больше»).
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "1.0", ClampMax = "2.0", DisplayPriority = "8",
+		DisplayName = "Локатор: увеличение стика"))
+	float LocatorStickScale = 1.25f;
+
+	// Радиус локатора, когда экранного стика нет (ПК без сенсорного слоя): круг рисуется на
+	// месте стика внизу слева. Точки раскладки экрана высотой 1080.
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "40.0", DisplayPriority = "9",
+		DisplayName = "Локатор без стика: радиус"))
+	float LocatorFallbackRadius = 140.0f;
+
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "10",
+		DisplayName = "Локатор без стика: центр от левого нижнего угла"))
+	FVector2D LocatorFallbackOffset = FVector2D(240.0f, 240.0f);
+
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "11", DisplayName = "Локатор: цвет волн и линии"))
+	FLinearColor LocatorColor = FLinearColor(0.3f, 1.0f, 0.35f, 1.0f);
+
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "12", DisplayName = "Локатор: цвет сигналов образцов"))
+	FLinearColor LocatorSignalColor = FLinearColor(0.75f, 1.0f, 0.3f, 1.0f);
+
+	// Сколько секунд занимает один оборот линии локатора.
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "0.3", DisplayPriority = "13",
+		DisplayName = "Локатор: оборот линии (секунды)"))
+	float LocatorSweepSeconds = 2.0f;
+
+	// Прозрачность стрелки-подсказки (0 — не видна, 1 — сплошная).
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "14",
+		DisplayName = "Локатор: прозрачность стрелки"))
+	float LocatorArrowOpacity = 0.45f;
+
 	// --- Картинки ---
 
 	// Стекло маски поверх экрана (слегка запотевшее и поцарапанное). Пусто — игра сама берёт
@@ -94,22 +139,38 @@ public:
 		DisplayName = "Фотография героя и Веры"))
 	TSoftObjectPtr<UTexture2D> PhotoTexture;
 
-	// Размер фотографии на экране (в точках раскладки 1920x1080) и её центр в долях экрана.
+	// Наибольший размер фотографии на экране (в точках раскладки 1920x1080). Место игра
+	// выбирает сама: в свободной части экрана рядом с окном разговора, чтобы фотография не
+	// заходила на реплику и кнопки (правка Рината 25.10 вечер); где места меньше, она
+	// уменьшается, сохраняя пропорции.
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "3",
-		DisplayName = "Размер фотографии на экране"))
+		DisplayName = "Наибольший размер фотографии на экране"))
 	FVector2D PhotoSize = FVector2D(640.0f, 427.0f);
 
-	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "4",
-		DisplayName = "Центр фотографии (доли экрана)"))
-	FVector2D PhotoCenter = FVector2D(0.5f, 0.32f);
+	// Просвет между фотографией, краем экрана и окном разговора.
+	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "0.0", DisplayPriority = "4",
+		DisplayName = "Отступ фотографии от окна разговора и края экрана"))
+	float PhotoMargin = 24.0f;
 
-	// Значок слева от надписи «Воздух» [220]. Пусто — /Game/UI/Chapter2/T_IconAir; нет и его —
-	// шкала без значка.
+	// Насколько непрозрачно стекло маски (1 — как картинка, меньше — сквозь края видно больше).
+	// Стекло лежит под всеми кнопками и окнами и нажатий не ловит.
+	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayPriority = "8",
+		DisplayName = "Непрозрачность стекла маски"))
+	float MaskGlassOpacity = 0.85f;
+
+	// Сторона картинок баллона и детектора в записи задания на смартфоне.
+	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "16.0", DisplayPriority = "9",
+		DisplayName = "Размер картинок снаряжения в смартфоне"))
+	float PdaGearImageSize = 96.0f;
+
+	// Значок слева от надписи «Воздух» [220], он же картинка баллона в сумке и в смартфоне.
+	// Пусто — /Game/UI/Chapter2/T_IconAir; нет и его — без значка.
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "5",
 		DisplayName = "Значок шкалы воздуха"))
 	TSoftObjectPtr<UTexture2D> AirIconTexture;
 
-	// Значок слева от надписи «Детектор» [225]. Пусто — /Game/UI/Chapter2/T_IconDetector.
+	// Картинка детектора (значок предмета в сумке и фото в смартфоне). Пусто —
+	// /Game/UI/Chapter2/T_IconDetector.
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "6",
 		DisplayName = "Значок детектора"))
 	TSoftObjectPtr<UTexture2D> DetectorIconTexture;
@@ -127,14 +188,15 @@ public:
 
 	// --- Шкалы на экране ---
 
-	// Верх-центр экрана, ниже строки задания. Смещение — в точках раскладки 1920x1080.
+	// Верх-центр экрана. Смещение — в точках раскладки 1920x1080 (правка Рината 25.10 вечер:
+	// «Интерфейс балона подними чуть выше» — было 170).
 	UPROPERTY(config, EditAnywhere, Category = "Шкалы", meta = (DisplayPriority = "1",
 		DisplayName = "Якорь шкал (доли экрана)"))
 	FVector2D BarsAnchor = FVector2D(0.5f, 0.0f);
 
 	UPROPERTY(config, EditAnywhere, Category = "Шкалы", meta = (DisplayPriority = "2",
 		DisplayName = "Смещение шкал от якоря"))
-	FVector2D BarsOffset = FVector2D(0.0f, 170.0f);
+	FVector2D BarsOffset = FVector2D(0.0f, 110.0f);
 
 	UPROPERTY(config, EditAnywhere, Category = "Шкалы", meta = (ClampMin = "60.0", DisplayPriority = "3",
 		DisplayName = "Ширина шкалы"))
@@ -142,9 +204,6 @@ public:
 
 	UPROPERTY(config, EditAnywhere, Category = "Шкалы", meta = (DisplayPriority = "4", DisplayName = "Цвет шкалы воздуха"))
 	FLinearColor AirBarColor = FLinearColor(0.35f, 0.75f, 1.0f, 1.0f);
-
-	UPROPERTY(config, EditAnywhere, Category = "Шкалы", meta = (DisplayPriority = "5", DisplayName = "Цвет шкалы детектора"))
-	FLinearColor DetectorBarColor = FLinearColor(0.45f, 1.0f, 0.35f, 1.0f);
 
 	// --- Надписи (дословно из РЕПЛИКИ.txt) ---
 
@@ -173,7 +232,32 @@ public:
 	FText DetectorLabelText = NSLOCTEXT("Chapter2", "DetectorLabel", "Детектор");
 
 	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[253] Экран конца главы"))
-	FText ChapterEndText = NSLOCTEXT("Chapter2", "ChapterEnd", "Конец второй главы. Продолжение следует…");
+	FText ChapterEndText = NSLOCTEXT("Chapter2", "ChapterEnd", "Конец первой главы. Продолжение следует…");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[230] Цель: учёный передал героя Вере"))
+	FText TalkToVeraText = NSLOCTEXT("Chapter2", "TalkToVera", "Поговорить с Верой");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[231] Предмет: название баллона"))
+	FText AirTankNameText = NSLOCTEXT("Chapter2", "AirTankName", "Баллон с воздухом");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[232] Предмет: описание баллона"))
+	FText AirTankDescriptionText = NSLOCTEXT("Chapter2", "AirTankDescription",
+		"Баллон и маска от учёных. Нужны, чтобы дышать в отравленной низине. Пустой баллон заправляют в лагере учёных.");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[233] Предмет: название детектора"))
+	FText DetectorNameText = NSLOCTEXT("Chapter2", "DetectorName", "Детектор");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[234] Предмет: описание детектора"))
+	FText DetectorDescriptionText = NSLOCTEXT("Chapter2", "DetectorDescription",
+		"Прибор учёных. Ловит сигналы аномальных образований и показывает, откуда они идут.");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[235] Снаряжение нельзя продать или выбросить"))
+	FText StoryItemLockedText = NSLOCTEXT("Chapter2", "StoryItemLocked", "Это снаряжение учёных: его нельзя продать или выбросить.");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[236] Смартфон: инструкция к заданию «Образцы из аномалий»"))
+	FText SamplesGuideText = NSLOCTEXT("Chapter2", "SamplesGuide",
+		"Отравленная низина лежит к востоку от лагеря учёных. Перед входом наденьте маску и следите за запасом воздуха: когда он кончится, начнёт убывать здоровье. Пустой баллон заправят в лагере.\n"
+		"В низине левый стик превращается в детектор. Идите туда, откуда приходят сигналы. Соберите три образца и отнесите их Вере.");
 
 	// Картинка: поле, если задано; иначе файл по ожидаемому пути, если он есть в проекте.
 	// Нет ни того, ни другого — null (картинки нет, игра не падает).

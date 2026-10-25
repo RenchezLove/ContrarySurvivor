@@ -70,6 +70,60 @@ void UPlayerStatsWidget::UpdateHealthAttentionVisual(float DeltaTime)
 	HealthBlinkRemaining = FMath::Max(0.0f, HealthBlinkRemaining);
 }
 
+void UPlayerStatsWidget::NoteHealthForDamageFlash(float Health)
+{
+	if (IsHealthLoss(LastSeenHealth, Health) && HealthDamageFlashDuration > 0.0f)
+	{
+		HealthFlashRemaining = HealthDamageFlashDuration;
+	}
+	LastSeenHealth = Health;
+}
+
+void UPlayerStatsWidget::UpdateHealthDamageFlash(float DeltaTime)
+{
+	if (HealthFlashRemaining > 0.0f)
+	{
+		if (!bHealthFlashVisualActive)
+		{
+			// Цвета покоя снимаем с кубиков перед вспышкой — это значения владельца окна.
+			if (HealthBar)
+			{
+				HealthBarIdleStyle = HealthBar->GetWidgetStyle();
+				HealthBarIdleFill = HealthBar->GetFillColorAndOpacity();
+				FProgressBarStyle Flash = HealthBarIdleStyle;
+				Flash.FillImage.TintColor = FSlateColor(HealthDamageFlashColor);
+				HealthBar->SetWidgetStyle(Flash);
+				HealthBar->SetFillColorAndOpacity(FLinearColor::White);
+			}
+			if (HealthText)
+			{
+				HealthTextIdleColor = HealthText->GetColorAndOpacity();
+				HealthText->SetColorAndOpacity(FSlateColor(HealthDamageFlashColor));
+			}
+			bHealthFlashVisualActive = true;
+		}
+		HealthFlashRemaining -= DeltaTime;
+		if (HealthFlashRemaining > 0.0f)
+		{
+			return;
+		}
+	}
+	HealthFlashRemaining = 0.0f;
+	if (bHealthFlashVisualActive)
+	{
+		if (HealthBar)
+		{
+			HealthBar->SetWidgetStyle(HealthBarIdleStyle);
+			HealthBar->SetFillColorAndOpacity(HealthBarIdleFill);
+		}
+		if (HealthText)
+		{
+			HealthText->SetColorAndOpacity(HealthTextIdleColor);
+		}
+		bHealthFlashVisualActive = false;
+	}
+}
+
 void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
@@ -105,6 +159,8 @@ void UPlayerStatsWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 		HealthText->SetText(FText::Format(HealthFormat, Args));
 	}
 	UpdateHealthAttentionVisual(InDeltaTime);
+	NoteHealthForDamageFlash(Stats->GetHealth());
+	UpdateHealthDamageFlash(InDeltaTime);
 	if (HungerBar)
 	{
 		HungerBar->SetPercent(FMath::Clamp(Stats->GetHunger() / SurvivalMax, 0.0f, 1.0f));

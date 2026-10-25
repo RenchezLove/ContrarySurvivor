@@ -330,6 +330,9 @@ public:
 	// по этому текст подсказки прокрутки магазина: «свайп» против «колесо» (G2).
 	bool HasTouchLayer() const { return TouchControlsLayer != nullptr; }
 
+	// Сенсорный слой (стик и кнопки) — главе 2 для детектора-локатора на месте стика. null — слоя нет.
+	UTouchControlsWidget* GetTouchControlsLayer() const { return TouchControlsLayer; }
+
 	// Чистое правило «показывать ли главное меню при этом запуске» (ADR-062, покрыто
 	// автотестом ContrarySurvivor.MainMenu): меню открывается со второго запуска после
 	// установки ЛИБО при найденном сейве (сейв сам доказывает прошлый запуск).

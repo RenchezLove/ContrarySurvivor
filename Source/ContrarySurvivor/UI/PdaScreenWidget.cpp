@@ -17,6 +17,15 @@
 #include "ContrarySurvivor/UI/PdaMapMath.h"
 #include "ContrarySurvivor/UI/QuestObjectiveText.h"
 #include "ContrarySurvivor/UI/QuestTargets.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Rules.h"    // задание «Образцы из аномалий»
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h" // инструкция [236] и картинки снаряжения
+#include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
+#include "Components/HorizontalBox.h"
+#include "Components/PanelWidget.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/SizeBox.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/ButtonSlot.h"
@@ -1219,6 +1228,99 @@ bool UPdaScreenWidget::TrackQuest(FName QuestId)
 	return true;
 }
 
+FText UPdaScreenWidget::UpdateQuestGuide(const FQuest& Quest)
+{
+	const bool bSamples = (Quest.QuestId == Chapter2Ids::SamplesQuest);
+	if (!bSamples)
+	{
+		if (QuestGuideBox.IsValid())
+		{
+			QuestGuideBox->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return Quest.Description;
+	}
+
+	const UChapter2Settings* S = UChapter2Settings::Get();
+	UScrollBox* DescScroll = DetailDescriptionText ? Cast<UScrollBox>(DetailDescriptionText->GetParent()) : nullptr;
+	if (!QuestGuideBox.IsValid() && DescScroll && WidgetTree)
+	{
+		// Две карточки рядом: картинка и подпись под ней ([231] баллон, [233] детектор).
+		UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("QuestGuideGear"));
+		const FSlateFontInfo CaptionFont = DetailDescriptionText->GetFont();
+		const FLinearColor CaptionColor = DetailDescriptionText->GetColorAndOpacity().GetSpecifiedColor();
+		const TPair<const TCHAR*, FText> Gear[] = {
+			{ Chapter2Ids::AirTankKey, S->AirTankNameText },
+			{ Chapter2Ids::DetectorKey, S->DetectorNameText } };
+		for (const TPair<const TCHAR*, FText>& Item : Gear)
+		{
+			UVerticalBox* Card = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+			if (UTexture2D* Picture = AScientistGearItem::ResolveGearIcon(Item.Key))
+			{
+				USizeBox* PictureBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+				PictureBox->SetWidthOverride(S->PdaGearImageSize);
+				PictureBox->SetHeightOverride(S->PdaGearImageSize);
+				UImage* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
+				Image->SetBrushFromTexture(Picture);
+				PictureBox->SetContent(Image);
+				if (UVerticalBoxSlot* PictureSlot = Card->AddChildToVerticalBox(PictureBox))
+				{
+					PictureSlot->SetHorizontalAlignment(HAlign_Center);
+				}
+			}
+			UTextBlock* Caption = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+			Caption->SetText(Item.Value);
+			FSlateFontInfo SmallFont = CaptionFont;
+			SmallFont.Size = FMath::Max(10, FMath::RoundToInt(CaptionFont.Size * 0.85f));
+			Caption->SetFont(SmallFont);
+			Caption->SetColorAndOpacity(FSlateColor(CaptionColor));
+			Caption->SetJustification(ETextJustify::Center);
+			if (UVerticalBoxSlot* CaptionSlot = Card->AddChildToVerticalBox(Caption))
+			{
+				CaptionSlot->SetHorizontalAlignment(HAlign_Center);
+			}
+			if (UHorizontalBoxSlot* CardSlot = Row->AddChildToHorizontalBox(Card))
+			{
+				CardSlot->SetPadding(FMargin(0.0f, 0.0f, 24.0f, 0.0f));
+			}
+		}
+		if (UScrollBoxSlot* RowSlot = Cast<UScrollBoxSlot>(DescScroll->AddChild(Row)))
+		{
+			RowSlot->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
+			RowSlot->SetHorizontalAlignment(HAlign_Left);
+		}
+		Row->SetVisibility(ESlateVisibility::HitTestInvisible); // прокрутку пальцем не перехватывает
+		QuestGuideBox = Row;
+	}
+	if (QuestGuideBox.IsValid())
+	{
+		QuestGuideBox->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	return S->SamplesGuideText;
+}
+
+FText UPdaScreenWidget::GetDetailDescriptionForTest() const
+{
+	return DetailDescriptionText ? DetailDescriptionText->GetText() : FText::GetEmpty();
+}
+
+int32 UPdaScreenWidget::GetQuestGuideImageCountForTest() const
+{
+	const UPanelWidget* Box = Cast<UPanelWidget>(QuestGuideBox.Get());
+	if (!Box || !WidgetTree || Box->GetVisibility() == ESlateVisibility::Collapsed || Box->GetVisibility() == ESlateVisibility::Hidden)
+	{
+		return 0;
+	}
+	int32 Count = 0;
+	WidgetTree->ForEachWidget([&Count, Box](UWidget* Widget)
+	{
+		if (Cast<UImage>(Widget) && Widget->IsChildOf(const_cast<UPanelWidget*>(Box)))
+		{
+			++Count;
+		}
+	});
+	return Count;
+}
+
 FText UPdaScreenWidget::BuildRewardText(const FQuest& Quest) const
 {
 	TArray<FText> Parts;
@@ -1268,6 +1370,10 @@ void UPdaScreenWidget::RefreshDetails()
 		SetOrClear(DetailTitleText, FText::GetEmpty());
 		SetOrClear(DetailGiverText, FText::GetEmpty());
 		SetOrClear(DetailDescriptionText, FText::GetEmpty());
+		if (QuestGuideBox.IsValid())
+		{
+			QuestGuideBox->SetVisibility(ESlateVisibility::Collapsed);
+		}
 		SetOrClear(DetailObjectivesText, FText::GetEmpty());
 		SetOrClear(DetailRewardText, FText::GetEmpty());
 		if (TrackButton)
@@ -1306,14 +1412,16 @@ void UPdaScreenWidget::RefreshDetails()
 
 	// Новое описание читается с начала; то же описание при обновлении целей не сбрасывает
 	// прокрутку, до которой дочитал игрок. Положение и размер блока код не трогает.
-	if (DetailDescriptionText && !DetailDescriptionText->GetText().EqualTo(Quest->Description))
+	// У задания главы 2 вместо реплики Веры — инструкция [236] и картинки снаряжения.
+	const FText Description = UpdateQuestGuide(*Quest);
+	if (DetailDescriptionText && !DetailDescriptionText->GetText().EqualTo(Description))
 	{
 		if (UScrollBox* DescScroll = Cast<UScrollBox>(DetailDescriptionText->GetParent()))
 		{
 			DescScroll->ScrollToStart();
 		}
 	}
-	SetOrClear(DetailDescriptionText, Quest->Description);
+	SetOrClear(DetailDescriptionText, Description);
 
 	// Цели с прогрессом — тем же сборщиком, что строка задания на экране.
 	{

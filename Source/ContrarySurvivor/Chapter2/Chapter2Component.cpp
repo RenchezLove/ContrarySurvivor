@@ -5,7 +5,12 @@
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
 #include "ContrarySurvivor/Chapter2/PoisonZone.h"
 #include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
+#include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
+#include "ContrarySurvivor/Actors/ScientistNPCs.h" // метка учёного, передавшего героя Вере
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
+#include "UInventoryComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"
@@ -79,12 +84,14 @@ UChapter2Component::FEnv UChapter2Component::GatherEnv() const
 	}
 	const FVector Loc = Owner->GetActorLocation();
 	const float EdgeDistance = UChapter2Settings::Get()->MaskButtonEdgeDistance;
+	Env.HeroLocation = Loc;
 
 	for (TActorIterator<APoisonZone> It(World); It; ++It)
 	{
 		const float Dist = It->DistanceTo(Loc);
 		Env.bInZone |= (Dist <= 0.0f);
 		Env.bNearZone |= (Dist <= EdgeDistance);
+		Env.ZoneDistance = (Env.ZoneDistance < 0.0f) ? Dist : FMath::Min(Env.ZoneDistance, Dist);
 	}
 	for (TActorIterator<AAirRefillZone> It(World); It; ++It)
 	{
@@ -96,6 +103,7 @@ UChapter2Component::FEnv UChapter2Component::GatherEnv() const
 		{
 			continue;
 		}
+		Env.SampleLocations.Add(It->GetActorLocation());
 		const float Dist = FVector::Dist(Loc, It->GetActorLocation());
 		if (Env.NearestSampleDistance < 0.0f || Dist < Env.NearestSampleDistance)
 		{
@@ -113,6 +121,7 @@ void UChapter2Component::Step(float Dt, const FEnv& Env)
 	UStatsComponent* Stats = Player ? Player->GetStats() : nullptr;
 	const bool bAlive = Stats && !Stats->IsDead();
 
+	SyncStoryState();
 	RefreshSampleActors();
 
 	// Заправка на базе учёных: на входе баллон полон и [224] — один раз за вход; пока герой
@@ -167,11 +176,19 @@ void UChapter2Component::Step(float Dt, const FEnv& Env)
 		DamageAccum = 0.0f;
 	}
 
-	// Детектор: пока задание идёт и рядом есть не подобранный образец.
+	// Детектор-локатор (правка Рината 25.10 вечер): на месте левого стика, пока задание идёт,
+	// образцы собраны не все и герой в низине или рядом с ней. Писк — как раньше: чем ближе
+	// образец, тем чаще.
 	const bool bQuestActive = IsSamplesQuestActive();
 	SignalStrength = bQuestActive ? Chapter2Rules::SignalStrength(Env.NearestSampleDistance, S->DetectorRange) : 0.0f;
-	bDetectorShown = bQuestActive && Env.NearestSampleDistance >= 0.0f
-		&& (Env.bInZone || Env.bNearZone || SignalStrength > 0.0f);
+	const int32 SamplesLeft = bQuestActive ? FMath::Max(0, GetSamplesTotal() - GetSamplesDone()) : 0;
+	bDetectorShown = bApparatusGiven && Chapter2Rules::ShouldShowLocator(bQuestActive, SamplesLeft,
+		Env.bInZone, Env.bNearZone ? 0.0f : Env.ZoneDistance, S->LocatorShowDistance);
+	if (bDetectorShown)
+	{
+		// Отсчёт до стрелки-подсказки идёт, пока локатор на экране; находка начинает его заново.
+		LocatorSecondsWithoutPickup += FMath::Max(0.0f, Dt);
+	}
 	const float Interval = Chapter2Rules::BeepInterval(SignalStrength, S->BeepIntervalNear, S->BeepIntervalFar);
 	if (Interval > 0.0f && bAlive)
 	{
@@ -310,6 +327,7 @@ bool UChapter2Component::CollectSample(FName SampleId)
 		return false;
 	}
 	PickedSamples.Add(SampleId);
+	LocatorSecondsWithoutPickup = 0.0f; // нашёл — стрелка-подсказка снова ждёт своё время
 	if (UQuestComponent* Quests = GetQuests())
 	{
 		Quests->NotifyObjectiveEvent(Chapter2Ids::SampleObjectiveTag); // ход задания пишет сохранение сам
@@ -332,6 +350,169 @@ void UChapter2Component::RefreshSampleActors()
 	{
 		It->SetSampleVisible(bQuestActive && !IsSamplePicked(It->GetSampleId()));
 	}
+}
+
+FQuest UChapter2Component::MakeTalkToVeraQuest()
+{
+	const UChapter2Settings* S = UChapter2Settings::Get();
+	FQuest Q;
+	Q.QuestId = Chapter2Ids::TalkToVeraQuest;
+	// [230] — и название, и цель: задание одно-единственное «подойти и поговорить».
+	Q.Title = S->TalkToVeraText;
+	Q.Type = EQuestType::Deliver;
+	Q.Kind = EQuestKind::Main; // сюжет: оранжевая метка, как у остальных основных заданий
+	Q.KillTargetTag = Chapter2Ids::TalkToVeraQuest; // цель засчитывает только взятие задания Веры
+	Q.TargetCount = 1;
+	Q.KillObjectiveLabel = S->TalkToVeraText;
+	Q.ObjectiveFormatOverride = S->TalkToVeraText;
+	// Метка ведёт к самой Вере: у неё такая же обычная метка актора (AVeraNPC).
+	Q.MapMarkerTag = Chapter2Ids::VeraTag;
+	Q.GiverNpcTag = ScientistBaseTags::QuestScientist; // «Выдал: Учёный» — он и отправил к Вере
+	Q.TurnInNpcTag = Chapter2Ids::VeraTag;
+	Q.RewardMoney = 0.0f;
+	return Q;
+}
+
+void UChapter2Component::SyncStoryState()
+{
+	UQuestComponent* Quests = GetQuests();
+	if (!Quests)
+	{
+		return;
+	}
+	const FQuest* Samples = FindSamplesQuest();
+
+	// 1) «Поговорить с Верой» [230]: ноутбук сдан учёному, а задание Веры ещё не взято.
+	const bool bLaptopDone = Quests->IsQuestTurnedIn(ContraryQuestIds::DeliverLaptopToScientists);
+	const bool bWantTalk = bLaptopDone && (!Samples || Samples->State == EQuestState::NotStarted);
+	const bool bHasTalk = Quests->FindQuest(Chapter2Ids::TalkToVeraQuest) != nullptr;
+	if (bWantTalk && !bHasTalk)
+	{
+		Quests->AddActiveQuest(MakeTalkToVeraQuest());
+	}
+	else if (!bWantTalk && bHasTalk)
+	{
+		Quests->RemoveQuest(Chapter2Ids::TalkToVeraQuest);
+	}
+
+	// 2) Снаряжение учёных: в сумке, пока задание идёт; сдано — Вера забирает его обратно.
+	Samples = FindSamplesQuest(); // журнал мог поменяться выше
+	if (bApparatusGiven && Samples && Samples->State == EQuestState::TurnedIn)
+	{
+		bApparatusGiven = false;
+		bMaskOn = false;
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 задание сдано — Вера забрала баллон и детектор"));
+	}
+	SyncGearInBag(bApparatusGiven && Samples && UQuestComponent::IsInActivePhase(*Samples));
+}
+
+int32 UChapter2Component::CountGearInBag() const
+{
+	const APlayerCharacter* Player = GetPlayer();
+	const UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	if (!Inventory)
+	{
+		return 0;
+	}
+	int32 Count = 0;
+	for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+	{
+		if (IsValid(Item) && AScientistGearItem::IsGearKey(Item->ItemName))
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
+void UChapter2Component::SyncGearInBag(bool bWant)
+{
+	APlayerCharacter* Player = GetPlayer();
+	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	UWorld* World = GetWorld();
+	if (!Inventory || !World)
+	{
+		return;
+	}
+
+	bool bHasAir = false;
+	bool bHasDetector = false;
+	for (AMasterInventoryItem* Item : Inventory->GetInventoryItems()) // копия списка
+	{
+		if (!IsValid(Item) || !AScientistGearItem::IsGearKey(Item->ItemName))
+		{
+			continue;
+		}
+		if (!bWant)
+		{
+			// Сюжет забирает своё — мимо запрета «выбросить нельзя».
+			Inventory->RemoveItem(Item);
+			Item->Destroy();
+			continue;
+		}
+		const bool bAir = Item->ItemName.Equals(Chapter2Ids::AirTankKey, ESearchCase::CaseSensitive);
+		bHasAir |= bAir;
+		bHasDetector |= !bAir;
+	}
+	if (!bWant)
+	{
+		return;
+	}
+
+	const FTransform SpawnTM(Player->GetActorRotation(), Player->GetActorLocation());
+	for (const TCHAR* Key : { Chapter2Ids::AirTankKey, Chapter2Ids::DetectorKey })
+	{
+		const bool bAir = (Key == Chapter2Ids::AirTankKey);
+		if (bAir ? bHasAir : bHasDetector)
+		{
+			continue;
+		}
+		const FString KeyString(Key);
+		AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, AScientistGearItem::StaticClass(), SpawnTM, Player,
+			[&KeyString](AMasterInventoryItem& It) { It.ItemName = KeyString; });
+		if (!Item)
+		{
+			continue;
+		}
+		// Предмет сумки — данные, а не объект сцены.
+		Item->SetActorHiddenInGame(true);
+		Item->SetActorEnableCollision(false);
+		Inventory->AddItem(Item);
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 в сумку положено снаряжение учёных '%s'"), *KeyString);
+	}
+}
+
+void UChapter2Component::ResetMercenaryEncounters()
+{
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AMercenaryEncounter> It(World); It; ++It)
+		{
+			It->ResetEncounter();
+		}
+	}
+}
+
+bool UChapter2Component::IsHintArrowShown() const
+{
+	FVector Unused;
+	return bDetectorShown && GetNearestSampleLocation(Unused)
+		&& Chapter2Rules::ShouldShowHintArrow(LocatorSecondsWithoutPickup, UChapter2Settings::Get()->LocatorHintArrowDelay);
+}
+
+bool UChapter2Component::GetNearestSampleLocation(FVector& OutLocation) const
+{
+	double BestSq = -1.0;
+	for (const FVector& Location : LastEnv.SampleLocations)
+	{
+		const double DistSq = FVector::DistSquared2D(Location, LastEnv.HeroLocation);
+		if (BestSq < 0.0 || DistSq < BestSq)
+		{
+			BestSq = DistSq;
+			OutLocation = Location;
+		}
+	}
+	return BestSq >= 0.0;
 }
 
 bool UChapter2Component::ShouldSpawnMercenary() const
@@ -366,13 +547,13 @@ void UChapter2Component::StartChapterEnd()
 	UE_LOG(LogQA, Display, TEXT("QA: chapter2 конец главы"));
 	if (APlayerCharacter* Player = GetPlayer())
 	{
-		Player->RequestAutoSave(TEXT("конец второй главы"));
+		Player->RequestAutoSave(TEXT("конец главы"));
 	}
 }
 
 void UChapter2Component::FinishChapterEndCard()
 {
-	// После экрана «Конец второй главы» — прежнее сообщение о конце сюжета текущей версии
+	// После экрана «Конец первой главы» — прежнее сообщение о конце сюжета текущей версии
 	// ([123]) со своей задержкой и правилом «один раз за сохранение».
 	const APlayerCharacter* Player = GetPlayer();
 	if (const APlayerController* PC = Player ? Cast<APlayerController>(Player->GetController()) : nullptr)
@@ -465,7 +646,9 @@ void UChapter2Component::ResetForNewGame()
 	BeepTimer = 0.0f;
 	SignalStrength = 0.0f;
 	bDetectorShown = false;
+	LocatorSecondsWithoutPickup = 0.0f;
 	bPhotoShown = false;
 	ChapterEndCardRemaining = 0.0f;
+	ResetMercenaryEncounters();
 	RefreshSampleActors();
 }

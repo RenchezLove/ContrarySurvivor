@@ -8,6 +8,7 @@
 
 class AEnemyCharacter;
 class UMaterialInterface;
+class UBillboardComponent;
 
 /**
  * Встреча с наёмником Куратора (поправка Рината 25.10.2026: «По дороге назад после квеста
@@ -21,6 +22,13 @@ class UMaterialInterface;
  *
  * Сама точка — невидимый собеседник: разговор идёт в том же окне, что с остальными
  * персонажами. Подсказки «поговорить» у неё нет, разговор открывается сам.
+ *
+ * МЕСТО ПОЯВЛЕНИЯ НАЁМНИКА = этот актор (правка Рината 25.10 вечер: «Я могу передвинуть место
+ * спавна?»). На уровне он называется «Наёмник_Куратора» (папка Chapter2), в редакторе его видно
+ * по значку человечка — двигать мышью. В игре он невидим.
+ *
+ * Бой на базе учёных не начинается (там же): пока герой внутри зоны заправки воздуха (она
+ * накрывает базу), наёмник за ним не идёт — возвращается к месту появления и ждёт.
  */
 UCLASS(Blueprintable)
 class CONTRARYSURVIVOR_API AMercenaryEncounter : public ATalkerNPC
@@ -45,6 +53,16 @@ public:
 
 	// Начать бой: наёмник оживает (его мозги до этого стоят).
 	void StartFight();
+
+	// Встреча к исходному состоянию: наёмник убирается, разговора и боя не было (новая игра,
+	// точки сюжета меню отладки).
+	void ResetEncounter();
+
+	// Ждёт ли наёмник у места появления, потому что герой укрылся на базе учёных.
+	bool IsHoldingOffBase() const { return bHoldingOffBase; }
+
+	// С какого расстояния до наёмника открывается разговор (меню отладки ставит героя чуть дальше).
+	float GetTalkDistance() const { return TalkDistance; }
 
 	// Класс наёмника на время автопроверки (иначе берётся чертёж бандита из поля).
 	void SetMercenaryClassForTest(TSubclassOf<AEnemyCharacter> InClass) { TestClass = InClass; }
@@ -83,6 +101,10 @@ protected:
 		DisplayName = "Расстояние начала разговора (см)"))
 	float TalkDistance = 700.0f;
 
+	// Значок места появления в редакторе (в игре его нет).
+	UPROPERTY(VisibleAnywhere, Category = "Наёмник")
+	TObjectPtr<UBillboardComponent> SpawnMarkerSprite;
+
 	// --- Реплики (дословно из РЕПЛИКИ.txt) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Наёмник", meta = (DisplayPriority = "8", MultiLine = "true",
@@ -106,6 +128,7 @@ private:
 	void FreezeMercenary(bool bFrozen);
 
 	TWeakObjectPtr<AEnemyCharacter> Mercenary;
+	bool bHoldingOffBase = false;
 	TSubclassOf<AEnemyCharacter> TestClass;
 	bool bMercenarySpawned = false;
 	bool bTalkDone = false;

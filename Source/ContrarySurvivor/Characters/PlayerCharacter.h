@@ -1002,6 +1002,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Inventory")
     void Inv_DropItem(AMasterInventoryItem* Item);
 
+    // Сюжетный предмет (AMasterInventoryItem::bStoryItem: снаряжение учёных главы 2) продать,
+    // выбросить и переложить в чужое хранилище нельзя. true — это сюжетный предмет: действие
+    // отменяется, игрок видит сообщение [235]. Его зовут все пути выброса и продажи.
+    bool RefuseStoryItem(const AMasterInventoryItem* Item) const;
+
     // Снять броню из слота (клик по слоту paper-doll): UnequipArmor + вернуть предмет в рюкзак
     // (как неэкипированный), чтобы его было видно/можно надеть заново.
     UFUNCTION(BlueprintCallable, Category = "Inventory")

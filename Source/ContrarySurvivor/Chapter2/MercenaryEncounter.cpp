@@ -12,6 +12,11 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/BillboardComponent.h"
+#include "ContrarySurvivor/Chapter2/PoisonZone.h" // зона заправки = территория базы учёных
+#include "Engine/Texture2D.h"
+#include "EngineUtils.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 
@@ -28,7 +33,7 @@ AMercenaryEncounter::AMercenaryEncounter()
 
 	// [241]–[244]. Вторая кнопка окна («уйти») тоже начинает бой — уйти от наёмника нельзя.
 	MeetText = NSLOCTEXT("Chapter2", "MercenaryMeet",
-		"Ну наконец-то, Седьмой. Куратор очень хотел, чтобы ты вернулся. Пойдёшь сам — или тебя донести?");
+		"Ну наконец-то, Сыч. Куратор очень хотел, чтобы ты вернулся. Пойдёшь сам — или тебя донести?");
 	MeetReplyText = NSLOCTEXT("Chapter2", "MercenaryMeetReply", "Я тебя не знаю.");
 	ThreatText = NSLOCTEXT("Chapter2", "MercenaryThreat",
 		"Зато мы тебя знаем. Лучше, чем ты сам себя помнишь. Значит, по-плохому.");
@@ -49,6 +54,23 @@ AMercenaryEncounter::AMercenaryEncounter()
 		InteractTrigger->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		InteractTrigger->SetGenerateOverlapEvents(false);
 	}
+
+	// Значок места появления в редакторе: Ринат двигает его мышью (в игре значка нет).
+#if WITH_EDITORONLY_DATA
+	SpawnMarkerSprite = CreateEditorOnlyDefaultSubobject<UBillboardComponent>(TEXT("SpawnMarkerSprite"));
+	if (SpawnMarkerSprite)
+	{
+		SpawnMarkerSprite->SetupAttachment(GetRootComponent());
+		SpawnMarkerSprite->SetRelativeLocation(FVector(0.0f, 0.0f, 120.0f));
+		SpawnMarkerSprite->SetRelativeScale3D(FVector(2.0f));
+		SpawnMarkerSprite->bIsScreenSizeScaled = true;
+		if (!IsRunningCommandlet())
+		{
+			static ConstructorHelpers::FObjectFinderOptional<UTexture2D> SpriteTexture(TEXT("/Engine/EditorResources/S_Player"));
+			SpawnMarkerSprite->Sprite = SpriteTexture.Get();
+		}
+	}
+#endif
 }
 
 void AMercenaryEncounter::Tick(float DeltaSeconds)
@@ -84,6 +106,27 @@ void AMercenaryEncounter::UpdateEncounter(APlayerCharacter* Player)
 	}
 	if (bFightStarted)
 	{
+		// Бой на базе учёных не начинается (правка Рината 25.10 вечер): пока герой внутри зоны
+		// заправки (она накрывает базу), наёмник возвращается к месту появления и ждёт.
+		bool bHeroInBase = false;
+		for (TActorIterator<AAirRefillZone> It(GetWorld()); It && !bHeroInBase; ++It)
+		{
+			bHeroInBase = It->IsInside(Player->GetActorLocation());
+		}
+		if (bHeroInBase != bHoldingOffBase)
+		{
+			bHoldingOffBase = bHeroInBase;
+			FreezeMercenary(bHeroInBase);
+			if (bHeroInBase)
+			{
+				if (AAIController* AI = Cast<AAIController>(Merc->GetController()))
+				{
+					AI->MoveToLocation(GetActorLocation(), /*AcceptanceRadius=*/50.0f);
+				}
+			}
+			UE_LOG(LogQA, Display, TEXT("QA: chapter2 наёмник %s"),
+				bHeroInBase ? TEXT("ждёт у места появления: герой на базе учёных") : TEXT("снова в бою"));
+		}
 		return;
 	}
 
@@ -193,6 +236,24 @@ void AMercenaryEncounter::StartFight()
 	bTalkDone = true;
 	FreezeMercenary(false);
 	UE_LOG(LogQA, Display, TEXT("QA: chapter2 бой с наёмником"));
+}
+
+void AMercenaryEncounter::ResetEncounter()
+{
+	if (AEnemyCharacter* Merc = Mercenary.Get())
+	{
+		if (AController* MercController = Merc->GetController())
+		{
+			MercController->Destroy();
+		}
+		Merc->Destroy();
+	}
+	Mercenary.Reset();
+	bMercenarySpawned = false;
+	bTalkDone = false;
+	bFightStarted = false;
+	bHoldingOffBase = false;
+	TalkStep = 0;
 }
 
 void AMercenaryEncounter::OnTalkOpened(APlayerCharacter* Player)

@@ -29,7 +29,7 @@ enum class EVeraTalkStage : uint8
  * Говорит только после того, как ноутбук сдан квестовому учёному ([037], [038]). Задание
  * «Образцы из аномалий» — обычное задание журнала героя; при взятии Вера выдаёт дыхательный
  * аппарат. Сдача: [228] → ответ героя [229] → [250] с фотографией → ответ [251] → [252] →
- * экран «Конец второй главы» ([253]).
+ * экран «Конец первой главы» ([253]).
  *
  * Все реплики — дословно из РЕПЛИКИ.txt, в полях чертежа (правятся без кода).
  */
@@ -40,6 +40,9 @@ class CONTRARYSURVIVOR_API AVeraNPC : public ATalkerNPC
 
 public:
 	AVeraNPC();
+
+	// Своя метка (NpcTag) и обычной меткой актора: на неё ведёт цель «Поговорить с Верой» [230].
+	virtual void PostInitializeComponents() override;
 
 	virtual void BuildTalkView(APlayerCharacter* Player, FNpcTalkView& OutView) const override;
 	virtual bool HandleTalkPrimary(APlayerCharacter* Player) override;

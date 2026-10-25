@@ -13,8 +13,59 @@
 #include "Components/CanvasPanel.h"     // корневая канва — крестик закрытия кодом (ADR-076 п.3)
 #include "Components/CanvasPanelSlot.h" // геометрия кнопок: размер/позиция/Size to content
 #include "Components/ScrollBox.h"       // длинная реплика прокручивается (23.10.2026)
+#include "Components/PanelWidget.h"     // подложка окна для фотографии главы 2
 #include "Blueprint/WidgetTree.h"       // ConstructWidget (крестик без правки ассета)
 #include "Styling/CoreStyle.h"          // шрифт знака крестика
+
+FBox2D UDialogScreenWidget::GetOccupiedAbsoluteBox() const
+{
+	FBox2D Box(ForceInit);
+	const UWidget* Root = WidgetTree ? WidgetTree->RootWidget.Get() : nullptr;
+	const FVector2D Screen = GetCachedGeometry().GetAbsoluteSize();
+	const double ScreenArea = FMath::Max(1.0, Screen.X * Screen.Y);
+
+	auto RectOf = [](const UWidget* Widget, FSlateRect& OutRect) -> bool
+	{
+		if (!Widget || !Widget->IsVisible())
+		{
+			return false;
+		}
+		OutRect = Widget->GetCachedGeometry().GetRenderBoundingRect();
+		return OutRect.GetSize().X >= 1.0f && OutRect.GetSize().Y >= 1.0f;
+	};
+	auto AddRect = [&Box](const FSlateRect& Rect)
+	{
+		Box += FVector2D(Rect.Left, Rect.Top);
+		Box += FVector2D(Rect.Right, Rect.Bottom);
+	};
+
+	const UWidget* Elements[] = { NPCNameText.Get(), ReplicaText.Get(), AcceptButton.Get(), DeclineButton.Get(),
+		TurnInButton.Get(), CloseButton.Get(), DialogCloseCrossButton.Get() };
+	for (const UWidget* Element : Elements)
+	{
+		FSlateRect Rect;
+		if (!RectOf(Element, Rect))
+		{
+			continue;
+		}
+		AddRect(Rect);
+
+		// Панель, в которой элемент лежит (подложка окна): верхний предок под корнем окна.
+		// Панель на весь экран не считается — иначе фотографии негде было бы встать.
+		const UWidget* Panel = Element;
+		while (Panel->GetParent() && Panel->GetParent() != Root)
+		{
+			Panel = Panel->GetParent();
+		}
+		FSlateRect PanelRect;
+		if (Panel != Element && RectOf(Panel, PanelRect)
+			&& static_cast<double>(PanelRect.GetArea()) < 0.9 * ScreenArea)
+		{
+			AddRect(PanelRect);
+		}
+	}
+	return Box;
+}
 
 void UDialogScreenWidget::NativeOnInitialized()
 {

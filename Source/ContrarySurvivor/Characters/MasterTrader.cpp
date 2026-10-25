@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "MasterTrader.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h" // [235] сюжетный предмет не продаётся
 #include "Components/SphereComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "PlayerCharacter.h" // APlayerCharacter (тот же каталог Characters/) — для каста overlap'а
@@ -308,6 +309,12 @@ bool AMasterTrader::IsSellLockedByQuest(const FString& ItemKey, const UQuestComp
 bool AMasterTrader::CanBuyFromPlayer(const AMasterInventoryItem* Item, const APlayerCharacter* Seller,
 	FText& OutReason) const
 {
+	// Сюжетный предмет (снаряжение учёных главы 2) торговец не берёт никогда — [235].
+	if (Item && Item->bStoryItem)
+	{
+		OutReason = UChapter2Settings::Get()->StoryItemLockedText;
+		return false;
+	}
 	if (Item && IsSellLockedByQuest(Item->ItemName, Seller ? Seller->GetQuests() : nullptr))
 	{
 		OutReason = SellLockedReasonText;

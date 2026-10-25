@@ -101,8 +101,9 @@ namespace QuestTargets
 
 	float GetMarkerZOffset(const FQuest& Quest, const AActor* Target, float DefaultZOffset)
 	{
-		// К сдаче метка висит над собеседником ВЫШЕ его зелёного ромба (чтобы не сливались).
-		if (LeadsToReceiver(Quest))
+		// К сдаче метка висит над собеседником ВЫШЕ его зелёного ромба (чтобы не сливались). Так
+		// же — когда сама цель задания собеседник (глава 2: «Поговорить с Верой»).
+		if (LeadsToReceiver(Quest) || Cast<ATalkerNPC>(Target))
 		{
 			if (const IInteractableNPCInterface* NPC = Cast<IInteractableNPCInterface>(Target))
 			{
@@ -121,6 +122,15 @@ namespace QuestTargets
 		if (UQuestComponent::IsPrepStepShown(Quest))
 		{
 			return UQuestComponent::GetPrepObjectiveText(Quest).ToString(); // «Купи пистолет у торговца»
+		}
+		// У задания своя строка цели (глава 2: «Найти в отравленной низине образцы (1 из 3)»,
+		// «Поговорить с Верой») — метка говорит ею же, что и строка задания на экране.
+		if (!Quest.ObjectiveFormatOverride.IsEmpty() && Quest.TargetCount > 0 && Quest.Progress < Quest.TargetCount)
+		{
+			FFormatNamedArguments Args;
+			Args.Add(TEXT("Done"), FText::AsNumber(Quest.Progress));
+			Args.Add(TEXT("Total"), FText::AsNumber(Quest.TargetCount));
+			return FText::Format(Quest.ObjectiveFormatOverride, Args).ToString();
 		}
 		// Текст метки = ПЕРВАЯ невыполненная цель квеста (фидбек Рината 07-06), меняется по
 		// ходу: «Перебить бандитов (1/3)» -> «Забрать ноутбук». Порядок целей kill -> item —

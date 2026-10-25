@@ -155,8 +155,11 @@ void UTouchControlsWidget::ApplyPlayerSettings()
 	// В ПОКОЕ; активный элемент светлее в том же соотношении, что было зашито раньше
 	// (0.5 в покое / 0.85 под пальцем), поэтому при значении по умолчанию вид не меняется.
 	const float IdleFromSettings = UContrarySurvivorGameUserSettings::GetTouchButtonsOpacitySafe();
-	Config.IdleOpacity = IdleFromSettings;
-	Config.ActiveOpacity = FMath::Clamp(IdleFromSettings * 1.7f, IdleFromSettings, 1.0f);
+	// Под стеклом маски (глава 2) кнопки не бледнее UnderMaskMinOpacity — тёмный край стекла
+	// иначе их почти гасит.
+	const float IdleEffective = bUnderMaskGlass ? FMath::Max(IdleFromSettings, UnderMaskMinOpacity) : IdleFromSettings;
+	Config.IdleOpacity = IdleEffective;
+	Config.ActiveOpacity = FMath::Clamp(IdleEffective * 1.7f, IdleEffective, 1.0f);
 
 	// Прозрачность применяем к уже созданным кубикам: настройка обязана действовать сразу,
 	// без пересоздания слоя. Кубики могут быть пустыми (WBP без них) — молча пропускаем.
@@ -184,6 +187,11 @@ void UTouchControlsWidget::ApplyPlayerSettings()
 	ApplyIdle(CompassSText);
 	ApplyIdle(CompassWText);
 	ApplyIdle(CompassArrowImage);
+	// Под локатором (глава 2) подложки стика не видно — её место занимает экран локатора.
+	if (StickBase && bLocatorMode)
+	{
+		StickBase->SetRenderOpacity(0.0f);
+	}
 	// Кнопка БЕГ в режиме «бег включён» светится активной прозрачностью — её не гасим.
 	if (SprintButton && !bSprintOn)
 	{
@@ -654,8 +662,100 @@ void UTouchControlsWidget::CreateFrameTimeTextInCanvas(UCanvasPanel* Canvas)
 	}
 }
 
+void UTouchControlsWidget::SetLocatorMode(bool bOn, float Scale)
+{
+	const float NewScale = bOn ? FMath::Clamp(Scale, 1.0f, 2.0f) : 1.0f;
+	if (bOn == bLocatorMode && FMath::IsNearlyEqual(NewScale, LocatorScale))
+	{
+		return;
+	}
+	const bool bWasOn = bLocatorMode;
+	bLocatorMode = bOn;
+	LocatorScale = NewScale;
+
+	// Стик и «шляпка» крупнее (масштаб отрисовки: место в раскладке не меняется, нажатия
+	// ловятся по увеличенному кругу — движок проверяет попадание по отрисованной геометрии).
+	UWidget* StickParts[] = { StickBase.Get(), StickThumb.Get() };
+	for (UWidget* Part : StickParts)
+	{
+		if (Part)
+		{
+			Part->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+			Part->SetRenderScale(FVector2D(NewScale, NewScale));
+		}
+	}
+	if (StickBase)
+	{
+		StickBase->SetRenderOpacity(bOn ? 0.0f : Config.IdleOpacity);
+	}
+
+	// Компас на стике на время локатора прячется, потом возвращается как был.
+	UWidget* CompassParts[] = { CompassNText.Get(), CompassEText.Get(), CompassSText.Get(),
+		CompassWText.Get(), CompassArrowImage.Get() };
+	if (bOn && !bWasOn)
+	{
+		CompassVisibilityBeforeLocator.Reset();
+		for (UWidget* Part : CompassParts)
+		{
+			CompassVisibilityBeforeLocator.Add(Part ? Part->GetVisibility() : ESlateVisibility::Collapsed);
+			if (Part)
+			{
+				Part->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+	}
+	else if (!bOn && bWasOn)
+	{
+		for (int32 Index = 0; Index < static_cast<int32>(UE_ARRAY_COUNT(CompassParts)); ++Index)
+		{
+			if (CompassParts[Index] && CompassVisibilityBeforeLocator.IsValidIndex(Index))
+			{
+				CompassParts[Index]->SetVisibility(CompassVisibilityBeforeLocator[Index]);
+			}
+		}
+		LastCompassAngleDeg = 1.0e6f; // стрелку компаса повернуть заново
+	}
+
+	// Палец уже держит стик — «шляпка» встанет по новому радиусу при следующем движении; сам
+	// ввод не сбрасываем, чтобы герой не остановился на ровном месте.
+	UE_LOG(LogQA, Display, TEXT("QA: стик %s (масштаб %.2f)"), bOn ? TEXT("стал локатором") : TEXT("снова обычный"), NewScale);
+}
+
+bool UTouchControlsWidget::GetStickCircleAbsolute(FVector2D& OutCenter, float& OutRadius) const
+{
+	if (!StickBase)
+	{
+		return false;
+	}
+	const FGeometry& BaseGeo = StickBase->GetCachedGeometry();
+	const FVector2D LocalSize = BaseGeo.GetLocalSize();
+	if (LocalSize.X < 1.0 || LocalSize.Y < 1.0)
+	{
+		return false;
+	}
+	OutCenter = BaseGeo.LocalToAbsolute(LocalSize * 0.5);
+	OutRadius = static_cast<float>((BaseGeo.LocalToAbsolute(FVector2D(LocalSize.X, LocalSize.Y * 0.5)) - OutCenter).Size());
+	return OutRadius > 0.5f;
+}
+
+void UTouchControlsWidget::SetUnderMaskGlass(bool bOn)
+{
+	if (bOn == bUnderMaskGlass)
+	{
+		return;
+	}
+	bUnderMaskGlass = bOn;
+	ApplyPlayerSettings(); // прозрачность кнопок пересчитывается с учётом стекла
+}
+
 void UTouchControlsWidget::UpdateCompass()
 {
+	// Под локатором главы 2 компас спрятан (SetLocatorMode) — видимость не трогаем.
+	if (bLocatorMode)
+	{
+		return;
+	}
+
 	// П.0 ADR-077: слоты кубиков — ДИЗАЙНЕРСКИЕ, код их не двигает. Здесь только:
 	// видимость по галке bShowCompass и поворот стрелки на север.
 	UWidget* CompassParts[] = { CompassNText.Get(), CompassEText.Get(), CompassSText.Get(),
@@ -1349,9 +1449,9 @@ float UTouchControlsWidget::GetStickRadiusPx() const
 	if (bDesignerTree && StickBase)
 	{
 		// Полширины подложки, как её растянул Ринат (минимум 1 — защита от нулевой геометрии).
-		return FMath::Max(1.0f, StickBase->GetCachedGeometry().GetLocalSize().X * 0.5f);
+		return FMath::Max(1.0f, StickBase->GetCachedGeometry().GetLocalSize().X * 0.5f) * (bLocatorMode ? LocatorScale : 1.0f);
 	}
-	return Config.StickRadius;
+	return Config.StickRadius * (bLocatorMode ? LocatorScale : 1.0f);
 }
 
 void UTouchControlsWidget::UpdateStickFromPointer(const FGeometry& Geo, const FPointerEvent& Ev)
@@ -1427,7 +1527,7 @@ void UTouchControlsWidget::ResetStick()
 	}
 	if (StickBase && !bDesignerTree)
 	{
-		StickBase->SetRenderOpacity(Config.IdleOpacity);
+		StickBase->SetRenderOpacity(GetStickBaseIdleOpacity());
 	}
 }
 
@@ -1447,7 +1547,7 @@ FReply UTouchControlsWidget::HandlePointerDown(const FGeometry& Geo, const FPoin
 	if (!bDesignerTree)
 	{
 		// Кодовый стиль: активная прозрачность под пальцем. WBP-кубики не трогаем.
-		if (StickBase)  { StickBase->SetRenderOpacity(Config.ActiveOpacity); }
+		if (StickBase)  { StickBase->SetRenderOpacity(bLocatorMode ? 0.0f : Config.ActiveOpacity); }
 		if (StickThumb) { StickThumb->SetRenderOpacity(Config.ActiveOpacity); }
 	}
 	// Захват указателя: движения приходят и за пределами подложки, пока палец/кнопка не отпущены.
