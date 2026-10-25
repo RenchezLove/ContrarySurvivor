@@ -29,6 +29,16 @@ namespace QuestObjectiveText
 
 		TArray<FText> Parts;
 
+		// У задания своя строка цели (глава 2, реплика написана целиком) — она и есть цель.
+		if (!Quest.ObjectiveFormatOverride.IsEmpty())
+		{
+			const bool bKill = Quest.TargetCount > 0;
+			return MakeOne(bKill ? Quest.KillObjectiveLabel : Quest.ItemObjectiveLabel,
+				bKill ? Quest.Progress : Quest.ItemProgress,
+				bKill ? Quest.TargetCount : Quest.RequiredItemCount,
+				Quest.ObjectiveFormatOverride);
+		}
+
 		// Цель на убийство: человеческая подпись, служебный тег — только как откат.
 		if (Quest.TargetCount > 0)
 		{

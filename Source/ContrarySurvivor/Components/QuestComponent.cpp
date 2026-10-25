@@ -334,6 +334,26 @@ void UQuestComponent::NotifyKill(FName TargetTag)
 	}
 }
 
+void UQuestComponent::NotifyObjectiveEvent(FName ObjectiveTag)
+{
+	if (ObjectiveTag.IsNone())
+	{
+		return;
+	}
+	for (FQuest& Q : Quests)
+	{
+		if (Q.State != EQuestState::Active || Q.TargetCount <= 0 || Q.KillTargetTag != ObjectiveTag)
+		{
+			continue;
+		}
+		Q.Progress = FMath::Min(Q.Progress + 1, Q.TargetCount);
+		UE_LOG(LogQA, Display, TEXT("QA: quest %s objective %s progress %d/%d"),
+			*Q.QuestId.ToString(), *ObjectiveTag.ToString(), Q.Progress, Q.TargetCount);
+		RecomputeState(Q);
+		OnQuestChanged.Broadcast(Q);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Подготовительный шаг задания (11.10.2026)
 // ---------------------------------------------------------------------------
@@ -517,6 +537,7 @@ void UQuestComponent::RefreshDefinitionTexts(const FQuest& Definition, FQuest& I
 	InJournal.TurnInReplyText = Definition.TurnInReplyText;
 	InJournal.CloseReplyText = Definition.CloseReplyText;
 	InJournal.TurnInHintText = Definition.TurnInHintText;
+	InJournal.ObjectiveFormatOverride = Definition.ObjectiveFormatOverride;
 	InJournal.LowHealthWarnThreshold = Definition.LowHealthWarnThreshold;
 	InJournal.LowHealthWarnText = Definition.LowHealthWarnText;
 	InJournal.RewardEquipItemRow = Definition.RewardEquipItemRow;

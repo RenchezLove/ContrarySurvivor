@@ -308,6 +308,14 @@ struct FQuest
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest|Подготовка")
 	float PrepDebt = 0.0f;
 
+	// --- Глава 2 (25.10.2026): своя строка цели задания ---
+
+	// Своя строка цели вместо общего формата «{Objective} {Done} из {Total}» — когда реплика
+	// цели написана целиком («Найти в отравленной низине образцы ({Done} из {Total})»).
+	// Можно вставить {Done} и {Total}. Пусто — общий формат, как у остальных заданий.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest", meta = (MultiLine = "true"))
+	FText ObjectiveFormatOverride;
+
 	// Сколько монет герой получит при сдаче: награда минус долг, не меньше нуля.
 	float GetPayoutMoney() const { return FMath::Max(0.0f, RewardMoney - FMath::Max(0.0f, PrepDebt)); }
 
@@ -377,6 +385,11 @@ public:
 	// (TargetCount>0) и совпадающим KillTargetTag инкрементит Progress; пересчитывает завершённость.
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void NotifyKill(FName TargetTag);
+
+	// Засчитать событие цели, которое не убийство (глава 2: подобран аномальный образец).
+	// Счётчик тот же, что у убийств (Progress/TargetCount), но тег обязан совпасть точно:
+	// задания с пустым тегом («любая цель») такие события НЕ считают. Пустой тег — ничего.
+	void NotifyObjectiveEvent(FName ObjectiveTag);
 
 	// Пересчитать ITEM-прогресс Active/Completed квестов по содержимому рюкзака игрока
 	// (считает предметы с ItemName == RequiredItemName). Вызывается реактивно (контроллер в Tick).

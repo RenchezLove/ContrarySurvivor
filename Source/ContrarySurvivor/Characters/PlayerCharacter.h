@@ -32,6 +32,7 @@ class UNavigationInvokerComponent;
 class UDailyRewardComponent;
 class UOnboardingComponent;
 class UMapExplorationComponent;
+class UChapter2Component;
 class UMeleeSectorIndicatorComponent;
 class APickup;
 struct FShopEntry;
@@ -271,6 +272,11 @@ protected:
     // должно быть видно, кроме деревни»). Пишется в сохранение вместе с журналом заданий.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pda", meta = (AllowPrivateAccess = "true"))
     UMapExplorationComponent* MapExploration;
+
+    // Глава 2 «Вера» (25.10.2026): дыхательный аппарат, воздух, детектор, подобранные образцы,
+    // наёмник и конец главы. Пишется в то же сохранение, что журнал заданий.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest", meta = (AllowPrivateAccess = "true"))
+    UChapter2Component* Chapter2;
 
     // Ежедневная награда за вход (Этап F2, ADR-044 п.4). Проверка даты/начисление/окно — в
     // компоненте; числа (база/шаг/потолок) настраиваются на нём в редакторе.
@@ -639,6 +645,8 @@ public:
     UQuestComponent* GetQuests() const { return Quests; }
 
     UMapExplorationComponent* GetMapExploration() const { return MapExploration; }
+
+    UChapter2Component* GetChapter2() const { return Chapter2; }
 
     // ADR-063: сдан ли хотя бы один квест. «Первый квест выполнен» читаем существующим
     // сигналом журнала (GetTurnedInQuestCount — квест сдан старосте, награда получена).

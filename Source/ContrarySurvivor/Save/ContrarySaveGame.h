@@ -346,6 +346,29 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|World")
 	TArray<FSavedEnemyBaseState> EnemyBaseStates;
 
+	// --- Глава 2 «Вера» (25.10.2026). Пишет UChapter2Component в каждом SaveGame(); старые
+	// сохранения читают поля как «аппарата нет, ничего не подобрано». ---
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	bool bChapter2ApparatusGiven = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	bool bChapter2MaskOn = false;
+
+	// Сколько секунд воздуха в баллоне.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	float Chapter2AirSeconds = 0.0f;
+
+	// Имена подобранных образцов (AAnomalySample::GetSampleId).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	TArray<FName> Chapter2PickedSamples;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	bool bChapter2MercenaryDefeated = false;
+
+	// Последний разговор главы с Верой пройден, экран «Конец второй главы» показан.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	bool bChapter2EndShown = false;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

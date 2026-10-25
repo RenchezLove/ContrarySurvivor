@@ -36,6 +36,7 @@
 #include "ContrarySurvivor/UI/ShopScreenWidget.h"      // ADR-082: окно-напарник режима Trade
 #include "ContrarySurvivor/Actors/Pickup.h"
 #include "ContrarySurvivor/Actors/StashChest.h"          // личный сундук (Ринат 09.10.2026)
+#include "ContrarySurvivor/Chapter2/Chapter2Component.h"  // глава 2: кнопка дыхательного аппарата
 #include "ContrarySurvivor/Components/MapExplorationComponent.h" // отметка района южного логова после разговора со старостой
 #include "ContrarySurvivor/Actors/VillageZone.h"          // ADR-074: граница деревни для подсказки о сохранении
 #include "ContrarySurvivor/Characters/WolfCharacter.h"   // QA: спавн тест-волка (клавиша B)
@@ -2908,6 +2909,18 @@ void AContrarySurvivorPlayerController::OnInteract()
 			}
 			break;
 		}
+		case EInteractKind::BreathingMask:
+		{
+			// Глава 2: надеть или снять дыхательный аппарат ([218] / [219]).
+			if (APlayerCharacter* PlayerChar = Cast<APlayerCharacter>(GetPawn()))
+			{
+				if (UChapter2Component* Chapter2 = PlayerChar->GetChapter2())
+				{
+					Chapter2->ToggleMask();
+				}
+			}
+			break;
+		}
 		default:
 			UE_LOG(LogTemp, Log, TEXT("Interact: nothing nearby"));
 			break;
@@ -3900,6 +3913,19 @@ void AContrarySurvivorPlayerController::UpdateNearbyInteractable()
 		}
 	}
 
+	// Глава 2: у края отравленной низины — «Надеть дыхательный аппарат», вне её с надетым —
+	// «Снять». Уступает любому предмету и собеседнику рядом. Подсказка висит над героем.
+	if (CurrentInteractKind == EInteractKind::None)
+	{
+		const APlayerCharacter* MaskPlayer = Cast<APlayerCharacter>(ControlledPawn);
+		const UChapter2Component* Chapter2 = MaskPlayer ? MaskPlayer->GetChapter2() : nullptr;
+		if (Chapter2 && Chapter2->CanToggleMask())
+		{
+			CurrentInteractActor = ControlledPawn;
+			CurrentInteractKind = EInteractKind::BreathingMask;
+		}
+	}
+
 	// Группа под одно нажатие (издатель 11.08.2026 п.3.1 + ADR-076 п.2): считается ОТ
 	// ПОДСВЕЧЕННОГО объекта, а не от игрока. Якорем может быть и ТЕЛО, и МЕШОК с окном
 	// обыска (кейс Рината «в лагере два мешка») — мешки добираются реестром пикапов внутри
@@ -4058,6 +4084,13 @@ FText AContrarySurvivorPlayerController::GetInteractActionText(EInteractKind Kin
 			// Подсказку называет сам собеседник («Поговорить с охранником»).
 			const ATalkerNPC* Talker = Cast<ATalkerNPC>(CurrentInteractActor);
 			return Talker ? Talker->GetInteractPromptAction() : FText::GetEmpty();
+		}
+		case EInteractKind::BreathingMask:
+		{
+			// [218] «Надеть дыхательный аппарат» / [219] «Снять дыхательный аппарат».
+			const APlayerCharacter* MaskPlayer = Cast<APlayerCharacter>(GetPawn());
+			const UChapter2Component* Chapter2 = MaskPlayer ? MaskPlayer->GetChapter2() : nullptr;
+			return Chapter2 ? Chapter2->GetMaskActionText() : FText::GetEmpty();
 		}
 		default:                    return FText::GetEmpty();
 	}

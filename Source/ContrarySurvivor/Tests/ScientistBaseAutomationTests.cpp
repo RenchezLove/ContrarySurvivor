@@ -416,7 +416,7 @@ bool FScientistThirdQuestTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Сдача ноутбука учёному — задание, которым кончается сюжет"), AQuestGiverNPC::IsStoryEndingQuest(*Done));
 	}
 	TestFalse(TEXT("Второе задание старосты сюжет не заканчивает"), AQuestGiverNPC::IsStoryEndingQuest(Q2Done));
-	TestTrue(TEXT("После приёма ноутбука закрытие разговора объявляет конец сюжета"), Scientist->ShouldAnnounceStoryEndOnClose());
+	TestFalse(TEXT("Сюжет продолжается второй главой: приём ноутбука конец сюжета не объявляет"), Scientist->ShouldAnnounceStoryEndOnClose());
 	Scientist->OnTalkClosed(Player);
 	TestFalse(TEXT("Конец сюжета объявляется один раз"), Scientist->ShouldAnnounceStoryEndOnClose());
 
@@ -1473,7 +1473,7 @@ bool FScientistWholeStoryWalkthroughTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("С ноутбуком у учёного есть кнопка сдачи"), View.PrimaryLabel.IsEmpty());
 	Scientist->HandleTalkPrimary(Player);
 	TestEqual(TEXT("Третье задание сдано учёному"), ScientistTest::StateOf(Player, Q3), EQuestState::TurnedIn);
-	TestTrue(TEXT("После приёма ноутбука объявляется конец сюжета"), Scientist->ShouldAnnounceStoryEndOnClose());
+	TestFalse(TEXT("После приёма ноутбука конец сюжета не объявляется (дальше глава 2)"), Scientist->ShouldAnnounceStoryEndOnClose());
 	Scientist->OnTalkClosed(Player);
 	ExpectBarrier(true, TEXT("Ноутбук сдан"));
 

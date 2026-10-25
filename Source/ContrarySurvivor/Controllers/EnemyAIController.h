@@ -108,6 +108,15 @@ public:
 	// пешка меняет скорость через него: кэш обновляется, действующее замедление сохраняется.
 	void SetBaseWalkSpeed(float NewBaseSpeed);
 
+	// Свои числа боя для особого врага (наёмник главы 2, 25.10.2026): урон вблизи, урон выстрела
+	// и шанс попадания. Остальное поведение — как у обычного бандита.
+	void ApplyCombatOverride(float InMeleeDamage, float InRangedDamage, float InRangedHitChance)
+	{
+		AttackDamage = FMath::Max(0.0f, InMeleeDamage);
+		RangedAttackDamage = FMath::Max(0.0f, InRangedDamage);
+		RangedHitChance = FMath::Clamp(InRangedHitChance, 0.0f, 1.0f);
+	}
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;

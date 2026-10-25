@@ -45,6 +45,7 @@
 #include "Engine/Texture2D.h" // иконки слотов брони (ADR-043)
 #include "TimerManager.h"     // таймер задержки сообщения конца сюжета
 #include "UObject/ConstructorHelpers.h" // Д2: мягкий FClassFinder WBP_EndOfStory
+#include "ContrarySurvivor/Chapter2/Chapter2ScreenWidget.h" // глава 2: стекло маски, шкалы, фотография, конец главы
 
 AContrarySurvivorHUD::AContrarySurvivorHUD()
 {
@@ -104,6 +105,26 @@ void AContrarySurvivorHUD::BeginPlay()
 		if (IntroObjectiveWidgetInstance)
 		{
 			ContraryUI::AddToGameScreen(IntroObjectiveWidgetInstance, /*ZOrder=*/5);
+		}
+	}
+
+	// Глава 2 (25.10.2026): стекло маски — над миром, но под панелями (Z=4); шкалы воздуха и
+	// детектора — с постоянными панелями (Z=6); фотография из ноутбука и экран конца главы —
+	// поверх окна разговора (Z=30) и экрана смерти (Z=35).
+	if (Chapter2ScreenWidgets.Num() == 0)
+	{
+		const TPair<EChapter2ScreenLayer, int32> Chapter2Layers[] = {
+			{ EChapter2ScreenLayer::MaskGlass, 4 },
+			{ EChapter2ScreenLayer::Bars, 6 },
+			{ EChapter2ScreenLayer::Story, 36 } };
+		for (const TPair<EChapter2ScreenLayer, int32>& Entry : Chapter2Layers)
+		{
+			if (UChapter2ScreenWidget* Screen = CreateWidget<UChapter2ScreenWidget>(PC, UChapter2ScreenWidget::StaticClass()))
+			{
+				Screen->InitLayer(Entry.Key);
+				ContraryUI::AddToGameScreen(Screen, Entry.Value);
+				Chapter2ScreenWidgets.Add(Screen);
+			}
 		}
 	}
 }
@@ -1965,10 +1986,10 @@ void AContrarySurvivorHUD::MaybeScheduleEndOfStoryFromSave(APlayerCharacter* Pla
 
 	if (const UContrarySaveGame* Save = Player->LoadOrCreateSaveObject())
 	{
-		// 10.10.2026: сюжет кончается не сценкой про ноутбук у старосты, а сдачей ноутбука
-		// квестовому учёному — смотрим журнал заданий из сохранения. Кто сообщение уже видел,
+		// 25.10.2026: сюжет текущей версии кончается второй главой — последним разговором с Верой
+		// (раньше, с 10.10.2026, — сдачей ноутбука квестовому учёному). Кто сообщение уже видел,
 		// второй раз его не увидит (признак bEndOfStoryShown прежний).
-		ScheduleEndOfStoryMessage(AQuestGiverNPC::IsStoryEndingQuestTurnedIn(Save->Quests), Save->bEndOfStoryShown);
+		ScheduleEndOfStoryMessage(Save->bChapter2EndShown, Save->bEndOfStoryShown);
 	}
 }
 

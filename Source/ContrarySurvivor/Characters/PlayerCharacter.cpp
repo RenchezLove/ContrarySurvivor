@@ -16,6 +16,7 @@
 #include "ContrarySurvivor/Components/StatsComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h" // карта КПК открывается по мере исследования
+#include "ContrarySurvivor/Chapter2/Chapter2Component.h" // глава 2: аппарат, воздух, образцы, наёмник
 #include "ContrarySurvivor/Components/MeleeSectorIndicatorComponent.h" // Build 1.1: подсветка сектора ножа
 #include "ContrarySurvivor/Retention/DailyRewardComponent.h" // Этап F2: ежедневная награда
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"  // Этап F1: онбординг-подсказки
@@ -128,6 +129,9 @@ APlayerCharacter::APlayerCharacter()
 
     // Какую часть карты герой уже видел (КПК, 10.10.2026). C++-сабобъект, как журнал заданий.
     MapExploration = CreateDefaultSubobject<UMapExplorationComponent>(TEXT("MapExplorationComponent"));
+
+    // Глава 2 «Вера» (25.10.2026). C++-сабобъект, как журнал заданий.
+    Chapter2 = CreateDefaultSubobject<UChapter2Component>(TEXT("Chapter2Component"));
 
     // Этап F: удержание — ежедневная награда (F2) и онбординг-подсказки (F1).
     // C++-сабобъекты (как Stats/Quests): работают и без правок BP игрока.
@@ -264,6 +268,10 @@ void APlayerCharacter::BeginPlay()
         if (MapExploration)
         {
             MapExploration->RestoreFromSave(PlaySave);    // открытая часть карты КПК
+        }
+        if (Chapter2)
+        {
+            Chapter2->RestoreFromSave(PlaySave);          // глава 2: аппарат, воздух, образцы, наёмник
         }
     }
     if (UWorld* PlayWorld = GetWorld())
@@ -2545,6 +2553,10 @@ bool APlayerCharacter::SaveGame()
     {
         MapExploration->WriteToSave(Save);
     }
+    if (Chapter2)
+    {
+        Chapter2->WriteToSave(Save);
+    }
 
     // Этап F: поля удержания (серия ежедневной награды + флаги подсказок) живут в ЭТОМ ЖЕ
     // слоте, но заполняются компонентами удержания, а не здесь. Объект Save создан свежим —
@@ -2831,6 +2843,10 @@ bool APlayerCharacter::LoadGameForContinue()
     {
         MapExploration->RestoreFromSave(Save);
     }
+    if (Chapter2)
+    {
+        Chapter2->RestoreFromSave(Save);
+    }
 
     bRestoringSaveState = false;
 
@@ -2897,6 +2913,10 @@ void APlayerCharacter::ResetToNewGame()
     if (MapExploration)
     {
         MapExploration->ResetToVillage();
+    }
+    if (Chapter2)
+    {
+        Chapter2->ResetForNewGame();
     }
 
     // Костра возрождения в новой игре ещё нет — до первого сохранения у костра это костёр старта.
