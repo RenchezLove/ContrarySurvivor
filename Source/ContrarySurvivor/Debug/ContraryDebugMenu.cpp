@@ -46,6 +46,7 @@
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SDPIScaler.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
@@ -771,18 +772,78 @@ void SContraryDebugMenu::Construct(const FArguments& InArgs)
 	Controller = InArgs._Controller;
 	SlideAnimation = FCurveSequence(0.0f, 0.18f, ECurveEaseFunction::QuadOut);
 
-	TSharedRef<SBox> Panel = SNew(SBox)
-		.WidthOverride(DebugMenuWidth)
+	// Раскладка под палец (телефон) — тот же набор кубиков, увеличенный масштабатором целиком:
+	// ширина, шрифт, отметки тумблеров и полоса прокрутки растут вместе.
+	TSharedRef<SDPIScaler> Panel = SNew(SDPIScaler)
+		.DPIScale(this, &SContraryDebugMenu::GetPanelScale)
 		[
-			SNew(SBorder)
-			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-			.BorderBackgroundColor(FLinearColor(0.02f, 0.02f, 0.02f, 0.88f))
-			.Padding(FMargin(12.0f))
+			SNew(SBox)
+			.WidthOverride(DebugMenuWidth)
 			[
-				SNew(SScrollBox)
-				+ SScrollBox::Slot()
+				SNew(SBorder)
+				.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+				.BorderBackgroundColor(FLinearColor(0.02f, 0.02f, 0.02f, 0.88f))
+				.Padding(FMargin(12.0f))
 				[
-					SAssignNew(ContentBox, SVerticalBox)
+					SNew(SVerticalBox)
+
+					// Шапка вне прокрутки: заголовок и кнопка «Закрыть» видны всегда.
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("ОТЛАДКА")))
+							.Font(DebugMenuFont(13, /*bBold=*/true))
+							.ColorAndOpacity(FLinearColor::White)
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						[
+							SNew(SBox)
+							.MinDesiredHeight_Lambda([this]() { return bTouchLayout ? FOptionalSize(TouchRowMinHeight) : FOptionalSize(); })
+							.MinDesiredWidth(96.0f)
+							[
+								SNew(SButton)
+								.IsFocusable(false)
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								.OnClicked(this, &SContraryDebugMenu::HandleCloseClicked)
+								[
+									SNew(STextBlock)
+									.Text(FText::FromString(TEXT("Закрыть")))
+									.Font(DebugMenuFont(12, /*bBold=*/true))
+								]
+							]
+						]
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 2.0f)
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("Открыть и закрыть: клавиша «ъ» или касание экрана тремя пальцами")))
+						.Font(DebugMenuFont(10))
+						.AutoWrapText(true)
+						.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f))
+					]
+
+					// Длинный список листается пальцем (прокрутка касанием включена у SScrollBox
+					// по умолчанию); полоса шире обычной, чтобы было видно, что список длиннее.
+					+ SVerticalBox::Slot()
+					.FillHeight(1.0f)
+					[
+						SNew(SScrollBox)
+						.ScrollBarThickness(FVector2D(8.0, 8.0))
+						+ SScrollBox::Slot()
+						[
+							SAssignNew(ContentBox, SVerticalBox)
+						]
+					]
 				]
 			]
 		];
@@ -810,9 +871,10 @@ APlayerCharacter* SContraryDebugMenu::GetPlayer() const
 
 TOptional<FSlateRenderTransform> SContraryDebugMenu::GetSlideTransform() const
 {
-	// 0 — панель целиком за правым краем, 1 — на месте.
+	// 0 — панель целиком за правым краем, 1 — на месте. Сдвиг — в единицах родителя, поэтому
+	// ширина панели берётся уже увеличенной.
 	const float Alpha = SlideAnimation.GetLerp();
-	return FSlateRenderTransform(FVector2f((1.0f - Alpha) * DebugMenuWidth, 0.0f));
+	return FSlateRenderTransform(FVector2f((1.0f - Alpha) * DebugMenuWidth * GetPanelScale(), 0.0f));
 }
 
 EVisibility SContraryDebugMenu::GetPanelVisibility() const
@@ -820,7 +882,29 @@ EVisibility SContraryDebugMenu::GetPanelVisibility() const
 	return (bOpen || SlideAnimation.IsPlaying()) ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
 }
 
-void SContraryDebugMenu::SetOpen(bool bInOpen)
+float SContraryDebugMenu::GetPanelScale() const
+{
+	return bTouchLayout ? TouchLayoutScale : 1.0f;
+}
+
+FReply SContraryDebugMenu::HandleCloseClicked()
+{
+	// Закрываем через контроллер — он же вернёт игровой режим ввода.
+	if (AContrarySurvivorPlayerController* PC = Controller.Get())
+	{
+		if (PC->IsDebugMenuOpen())
+		{
+			PC->OnQAToggleDebugMenu();
+		}
+	}
+	else
+	{
+		SetOpen(false);
+	}
+	return FReply::Handled();
+}
+
+void SContraryDebugMenu::SetOpen(bool bInOpen, bool bInTouchLayout)
 {
 	if (bOpen == bInOpen)
 	{
@@ -829,6 +913,8 @@ void SContraryDebugMenu::SetOpen(bool bInOpen)
 	bOpen = bInOpen;
 	if (bOpen)
 	{
+		// Раскладку меняем только при показе: на уезжающей панели она не должна прыгать.
+		bTouchLayout = bInTouchLayout;
 		RebuildContent();
 		SlideAnimation.Play(AsShared());
 	}
@@ -860,35 +946,54 @@ void SContraryDebugMenu::RebuildContent()
 		];
 	};
 
-	auto AddToggle = [Box](const TCHAR* Text, TFunction<bool()> IsOn, TFunction<void(bool)> Set)
+	// Раскладка под палец: строка не ниже TouchRowMinHeight (до увеличения масштабатором).
+	// PreciseTap — нажатие засчитывается, только если палец не повели: иначе это прокрутка
+	// списка, а не нажатие (SlateEnums.h, EButtonTouchMethod).
+	const FOptionalSize RowMinHeight = bTouchLayout ? FOptionalSize(TouchRowMinHeight) : FOptionalSize();
+
+	auto AddToggle = [Box, RowMinHeight](const TCHAR* Text, TFunction<bool()> IsOn, TFunction<void(bool)> Set)
 	{
 		Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
 		[
-			SNew(SCheckBox)
-			.IsFocusable(false)
-			.IsChecked_Lambda([IsOn]() { return IsOn() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-			.OnCheckStateChanged_Lambda([Set](ECheckBoxState State) { Set(State == ECheckBoxState::Checked); })
+			SNew(SBox)
+			.MinDesiredHeight(RowMinHeight)
+			.VAlign(VAlign_Center)
 			[
-				SNew(STextBlock)
-				.Text(FText::FromString(Text))
-				.Font(DebugMenuFont(12))
-				.ColorAndOpacity(FLinearColor::White)
+				SNew(SCheckBox)
+				.IsFocusable(false)
+				.TouchMethod(EButtonTouchMethod::PreciseTap)
+				.IsChecked_Lambda([IsOn]() { return IsOn() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+				.OnCheckStateChanged_Lambda([Set](ECheckBoxState State) { Set(State == ECheckBoxState::Checked); })
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(Text))
+					.Font(DebugMenuFont(12))
+					.ColorAndOpacity(FLinearColor::White)
+				]
 			]
 		];
 	};
 
-	auto AddButton = [Box](const FString& Text, TFunction<void()> OnClick)
+	auto AddButton = [Box, RowMinHeight](const FString& Text, TFunction<void()> OnClick)
 	{
 		Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
 		[
-			SNew(SButton)
-			.IsFocusable(false)
-			.HAlign(HAlign_Center)
-			.OnClicked_Lambda([OnClick]() { OnClick(); return FReply::Handled(); })
+			SNew(SBox)
+			.MinDesiredHeight(RowMinHeight)
 			[
-				SNew(STextBlock)
-				.Text(FText::FromString(Text))
-				.Font(DebugMenuFont(12))
+				SNew(SButton)
+				.IsFocusable(false)
+				.TouchMethod(EButtonTouchMethod::PreciseTap)
+				.HAlign(HAlign_Center)
+				.VAlign(VAlign_Center)
+				.OnClicked_Lambda([OnClick]() { OnClick(); return FReply::Handled(); })
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(Text))
+					.Font(DebugMenuFont(12))
+					.AutoWrapText(true)
+					.Justification(ETextJustify::Center)
+				]
 			]
 		];
 	};
@@ -897,14 +1002,6 @@ void SContraryDebugMenu::RebuildContent()
 	{
 		return PC.IsValid() ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
 	};
-
-	Box->AddSlot().AutoHeight()
-	[
-		SNew(STextBlock)
-		.Text(FText::FromString(TEXT("ОТЛАДКА  (клавиша «ъ» — закрыть)")))
-		.Font(DebugMenuFont(13, /*bBold=*/true))
-		.ColorAndOpacity(FLinearColor::White)
-	];
 
 	// --- Тумблеры ---
 	AddHeader(TEXT("Режимы"));

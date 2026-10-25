@@ -52,6 +52,8 @@
 #include "Misc/Paths.h"        // QA screenshot (G): запасная папка снимков
 #include "ContrarySurvivor/Debug/ContraryDebugCamera.h" // F1: наш cheat-manager с тихой свободной камерой
 #include "ContrarySurvivor/Debug/ContraryDebugMenu.h"   // «]» / «ъ»: выезжающее меню отладки (пусто в Shipping)
+#include "ContrarySurvivor/Debug/ContraryDebugMenuGesture.h" // три пальца на телефоне: меню отладки (пусто в Shipping)
+#include "Framework/Application/SlateApplication.h"   // регистрация обработчика жеста меню отладки
 #include "Engine/GameViewportClient.h"                  // меню отладки: слой поверх игрового окна
 #if CONTRARY_WITH_QA_CHEATS && PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -138,6 +140,23 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	// в игровом потоке — LaunchAndroid.cpp, APP_EVENT_RUN_CALLBACK).
 	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
 	FCoreDelegates::GetApplicationWillTerminateDelegate().AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
+
+#if CONTRARY_WITH_QA_CHEATS
+	// Телефон (Ринат 25.10.2026): касание тремя пальцами разом открывает и закрывает меню отладки.
+	// Обработчик видит касания раньше экранных кнопок; держит слабую ссылку на контроллер.
+	if (IsLocalController() && GetLocalPlayer() && FSlateApplication::IsInitialized() && !DebugMenuTouchProcessor.IsValid())
+	{
+		TWeakObjectPtr<AContrarySurvivorPlayerController> WeakThis(this);
+		DebugMenuTouchProcessor = MakeShared<FContraryDebugMenuTouchProcessor>([WeakThis]()
+		{
+			if (AContrarySurvivorPlayerController* PC = WeakThis.Get())
+			{
+				PC->OnQADebugMenuTouchGesture();
+			}
+		});
+		FSlateApplication::Get().RegisterInputPreProcessor(DebugMenuTouchProcessor);
+	}
+#endif
 
 	// На каком уровне мы оказались — узнаём ОДИН раз и запоминаем (ADR-067 п.5). Имя карты
 	// берём без служебной приставки редактора, иначе запуск из редактора не узнал бы сам себя.
@@ -278,6 +297,14 @@ void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPl
 
 #if CONTRARY_WITH_QA_CHEATS
 	// Меню отладки снимаем с экрана вместе с контроллером.
+	if (DebugMenuTouchProcessor.IsValid())
+	{
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().UnregisterInputPreProcessor(DebugMenuTouchProcessor);
+		}
+		DebugMenuTouchProcessor.Reset();
+	}
 	if (DebugMenuWidget.IsValid())
 	{
 		if (UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
@@ -2279,8 +2306,26 @@ void AContrarySurvivorPlayerController::OnToggleDebugCamera()
 
 void AContrarySurvivorPlayerController::OnQAToggleDebugMenu()
 {
-	// «]» / «ъ»: показать или спрятать меню отладки. Панель создаётся при первом нажатии и
-	// живёт до конца контроллера (EndPlay снимает её с экрана).
+	// «]» / «ъ» и кнопка «Закрыть» панели: показать или спрятать меню отладки. На телефоне
+	// панель всегда в крупной раскладке под палец.
+	ToggleDebugMenu(/*bTouchLayout=*/PLATFORM_ANDROID || PLATFORM_IOS);
+}
+
+void AContrarySurvivorPlayerController::OnQADebugMenuTouchGesture()
+{
+	// Первые два пальца жеста игра уже получила: если они попали на стик или огонь, отпускаем,
+	// чтобы герой не шёл и не стрелял, пока открыто меню.
+	if (TouchControlsLayer)
+	{
+		TouchControlsLayer->CancelHeldPointerInput();
+	}
+	UE_LOG(LogQA, Display, TEXT("QA: меню отладки — касание тремя пальцами"));
+	ToggleDebugMenu(/*bTouchLayout=*/true);
+}
+
+void AContrarySurvivorPlayerController::ToggleDebugMenu(bool bTouchLayout)
+{
+	// Панель создаётся при первом вызове и живёт до конца контроллера (EndPlay снимает её с экрана).
 	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
 	if (!ViewportClient)
 	{
@@ -2293,7 +2338,7 @@ void AContrarySurvivorPlayerController::OnQAToggleDebugMenu()
 	}
 
 	bDebugMenuOpen = !bDebugMenuOpen;
-	DebugMenuWidget->SetOpen(bDebugMenuOpen);
+	DebugMenuWidget->SetOpen(bDebugMenuOpen, bTouchLayout);
 
 	if (bDebugMenuOpen)
 	{

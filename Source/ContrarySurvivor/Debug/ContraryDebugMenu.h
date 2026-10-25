@@ -18,7 +18,8 @@
  *  - ContraryDebugTools — действия меню без интерфейса (точки телепорта, телепорт, выдача
  *    оружия, убийство врагов рядом). Их же проверяют автотесты;
  *  - SContraryDebugMenu — сама выезжающая панель. Создаёт и показывает её контроллер игрока
- *    (AContrarySurvivorPlayerController::OnQAToggleDebugMenu, клавиша «]» — она же русская «ъ»).
+ *    (AContrarySurvivorPlayerController::OnQAToggleDebugMenu, клавиша «]» — она же русская «ъ»;
+ *    на телефоне — касание экрана тремя пальцами разом, Debug/ContraryDebugMenuGesture.h).
  */
 #if CONTRARY_WITH_QA_CHEATS
 
@@ -140,9 +141,17 @@ public:
 
 	// Показать (панель выезжает справа) или спрятать (уезжает обратно). При показе список
 	// точек телепорта собирается заново — уровень мог смениться.
-	void SetOpen(bool bInOpen);
+	// bInTouchLayout (телефон, 25.10.2026) — крупная раскладка под палец: панель и шрифт
+	// увеличены в TouchLayoutScale раз, строки не ниже TouchRowMinHeight; берётся при показе.
+	void SetOpen(bool bInOpen, bool bInTouchLayout = false);
 
 	bool IsOpen() const { return bOpen; }
+	bool IsTouchLayout() const { return bTouchLayout; }
+
+	// Во сколько раз крупнее панель в раскладке под палец и минимальная высота строки
+	// (кнопки, тумблера) до увеличения.
+	static constexpr float TouchLayoutScale = 2.0f;
+	static constexpr float TouchRowMinHeight = 52.0f;
 
 private:
 	// Пересобирает содержимое панели (тумблеры, кнопки, точки телепорта).
@@ -153,11 +162,16 @@ private:
 	// Сдвиг панели за правый край экрана по ходу анимации.
 	TOptional<FSlateRenderTransform> GetSlideTransform() const;
 	EVisibility GetPanelVisibility() const;
+	float GetPanelScale() const;
+
+	// Кнопка «Закрыть» вверху панели (над прокруткой — видна всегда).
+	FReply HandleCloseClicked();
 
 	TWeakObjectPtr<AContrarySurvivorPlayerController> Controller;
 	TSharedPtr<SVerticalBox> ContentBox;
 	FCurveSequence SlideAnimation;
 	bool bOpen = false;
+	bool bTouchLayout = false;
 };
 
 #endif // CONTRARY_WITH_QA_CHEATS

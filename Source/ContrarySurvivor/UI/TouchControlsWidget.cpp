@@ -149,6 +149,17 @@ void UTouchControlsWidget::SetLayerEnabled(bool bEnabled)
 	}
 }
 
+void UTouchControlsWidget::CancelHeldPointerInput()
+{
+	if (bStickActive)
+	{
+		CancelledStickPointerIndex = StickPointerIndex;
+	}
+	ResetStick();
+	bFireHeld = false;
+	bReloadQueued = false;
+}
+
 void UTouchControlsWidget::ApplyPlayerSettings()
 {
 	// Прозрачность экранных кнопок (спека, раздел «Управление»). Ползунок задаёт прозрачность
@@ -1566,6 +1577,12 @@ FReply UTouchControlsWidget::HandlePointerMove(const FGeometry& Geo, const FPoin
 
 FReply UTouchControlsWidget::HandlePointerUp(const FGeometry& Geo, const FPointerEvent& Ev)
 {
+	// Палец, у которого стик отобрал жест меню отладки: только снимаем захват подложки.
+	if (CancelledStickPointerIndex != INDEX_NONE && Ev.GetPointerIndex() == CancelledStickPointerIndex)
+	{
+		CancelledStickPointerIndex = INDEX_NONE;
+		return FReply::Handled().ReleaseMouseCapture();
+	}
 	if (!bStickActive || Ev.GetPointerIndex() != StickPointerIndex)
 	{
 		return FReply::Unhandled();

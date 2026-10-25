@@ -1031,6 +1031,15 @@ protected:
 	TSharedPtr<class SContraryDebugMenu> DebugMenuWidget;
 	bool bDebugMenuOpen = false;
 
+	// Телефон (Ринат 25.10.2026): касание экрана тремя пальцами разом — то же, что «]».
+	// Жест ловит обработчик ввода Slate (Debug/ContraryDebugMenuGesture.h), его регистрирует
+	// BeginPlay локального контроллера и снимает EndPlay. Перед открытием отпускаем стик и
+	// огонь, которые могли зажать первые два пальца жеста; меню открывается в крупной раскладке
+	// под палец.
+	void OnQADebugMenuTouchGesture();
+	void ToggleDebugMenu(bool bTouchLayout);
+	TSharedPtr<class FContraryDebugMenuTouchProcessor> DebugMenuTouchProcessor;
+
 public:
 	// Заморозка врагов для автотеста меню отладки (сам обработчик защищён).
 	void ApplyQAFreezeEnemiesForQA(bool bFreeze) { ApplyQAFreezeEnemies(bFreeze); }
