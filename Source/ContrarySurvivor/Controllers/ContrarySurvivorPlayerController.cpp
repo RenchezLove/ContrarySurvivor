@@ -137,7 +137,7 @@ void AContrarySurvivorPlayerController::BeginPlay()
 	// Уход приложения в фон и закрытие: записать ход игры (на Android эти события приходят
 	// в игровом потоке — LaunchAndroid.cpp, APP_EVENT_RUN_CALLBACK).
 	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
-	FCoreDelegates::ApplicationWillTerminateDelegate.AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
+	FCoreDelegates::GetApplicationWillTerminateDelegate().AddUObject(this, &AContrarySurvivorPlayerController::HandleAppGoingAway);
 
 	// На каком уровне мы оказались — узнаём ОДИН раз и запоминаем (ADR-067 п.5). Имя карты
 	// берём без служебной приставки редактора, иначе запуск из редактора не узнал бы сам себя.
@@ -270,7 +270,7 @@ void AContrarySurvivorPlayerController::BeginPlay()
 void AContrarySurvivorPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	FCoreDelegates::ApplicationWillEnterBackgroundDelegate.RemoveAll(this);
-	FCoreDelegates::ApplicationWillTerminateDelegate.RemoveAll(this);
+	FCoreDelegates::GetApplicationWillTerminateDelegate().RemoveAll(this);
 	if (EndPlayReason == EEndPlayReason::Quit)
 	{
 		HandleAppGoingAway(); // окно игры закрыли на ПК

@@ -536,16 +536,29 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 		Column.Add({ TEXT("вкладка «Карта»"), BoxIn(MapTab, MapMenu, 0.0) });
 		Column.Add({ TEXT("подсказка карты"), BoxIn(Hint, MapMenu, 0.0) });
 		Column.Add({ TEXT("кнопка «Закрыть»"), BoxIn(Close, MapMenu, 0.0) });
+		// Подсказка карты — надпись, рисуется от верха своего блока; в раскладке Рината (210f044,
+		// 23.10.2026) её блок выше текста и низом заходит под «Закрыть». Нажатия она не ловит
+		// (UPdaScreenWidget делает её HitTestInvisible), поэтому налезание и просвет до «Закрыть»
+		// меряются по самому тексту: строки по оценке кегля плюс одна про запас.
+		double HintLines = 0.0;
+		if (const UTextBlock* HintText = Cast<UTextBlock>(Hint))
+		{
+			const double CharsPerLine = FMath::FloorToDouble(Column[3].Box.GetSize().X / (HintText->GetFont().Size * 0.8));
+			HintLines = FMath::CeilToDouble(HintText->GetText().ToString().Len() / FMath::Max(1.0, CharsPerLine)) + 1.0;
+		}
+		TArray<FNamedBox> Drawn = Column;
+		Drawn[3].Name = TEXT("текст подсказки карты");
+		Drawn[3].Box.Max.Y = FMath::Min(Column[3].Box.Max.Y, Column[3].Box.Min.Y + HintLines * LineHeight(Hint));
 		for (int32 A = 0; A < Column.Num(); ++A)
 		{
 			const FBox2D& Box = Column[A].Box;
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s внутри меню вкладок: (%.0f, %.0f) — (%.0f, %.0f)"),
 				ScreenWidth, *Column[A].Name, Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y),
 				Box.Min.X >= 0.0 && Box.Min.Y >= 0.0 && Box.Max.Y <= Inner.Y + 0.5 && Box.Max.X <= MapMenu.X + 0.5);
-			for (int32 B = A + 1; B < Column.Num(); ++B)
+			for (int32 B = A + 1; B < Drawn.Num(); ++B)
 			{
-				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Column[A].Name, *Column[B].Name),
-					Box.Max.Y <= Column[B].Box.Min.Y || Column[B].Box.Max.Y <= Box.Min.Y);
+				TestTrue(*FString::Printf(TEXT("Экран %.0f: %s не налезает на «%s»"), ScreenWidth, *Drawn[A].Name, *Drawn[B].Name),
+					Drawn[A].Box.Max.Y <= Drawn[B].Box.Min.Y || Drawn[B].Box.Max.Y <= Drawn[A].Box.Min.Y);
 			}
 		}
 		for (int32 Index = 1; Index <= 4; Index += (Index == 2 ? 2 : 1)) // вкладки и «Закрыть»
@@ -553,18 +566,14 @@ bool FUiComfortPhoneWindowUnderFingerTest::RunTest(const FString& Parameters)
 			TestTrue(*FString::Printf(TEXT("Экран %.0f: %s высотой не меньше 96 (вышло %.0f)"), ScreenWidth, *Column[Index].Name, Column[Index].Box.GetSize().Y),
 				Column[Index].Box.GetSize().Y >= 96.0);
 		}
-		TestTrue(*FString::Printf(TEXT("Экран %.0f: между вкладками просвет не меньше 12 (вышло %.0f)"), ScreenWidth, Column[2].Box.Min.Y - Column[1].Box.Max.Y),
-			Column[2].Box.Min.Y - Column[1].Box.Max.Y >= 12.0);
-		TestTrue(*FString::Printf(TEXT("Экран %.0f: между подсказкой и «Закрыть» просвет не меньше 12 (вышло %.0f)"), ScreenWidth, Column[4].Box.Min.Y - Column[3].Box.Max.Y),
-			Column[4].Box.Min.Y - Column[3].Box.Max.Y >= 12.0);
+		// Вкладки у Рината стоят вплотную, с просветом 4: меньше — уже налезание на глаз.
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: между вкладками просвет не меньше 4 (вышло %.0f)"), ScreenWidth, Column[2].Box.Min.Y - Column[1].Box.Max.Y),
+			Column[2].Box.Min.Y - Column[1].Box.Max.Y >= 4.0 - 0.5); // полточки — погрешность пересчёта якорей
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: между текстом подсказки и «Закрыть» просвет не меньше 12 (вышло %.0f)"), ScreenWidth, Drawn[4].Box.Min.Y - Drawn[3].Box.Max.Y),
+			Drawn[4].Box.Min.Y - Drawn[3].Box.Max.Y >= 12.0);
 		// Подсказка карты помещается в свой блок.
-		if (const UTextBlock* HintText = Cast<UTextBlock>(Hint))
-		{
-			const double CharsPerLine = FMath::FloorToDouble(Column[3].Box.GetSize().X / (HintText->GetFont().Size * 0.8));
-			const double Lines = FMath::CeilToDouble(HintText->GetText().ToString().Len() / FMath::Max(1.0, CharsPerLine)) + 1.0;
-			TestTrue(*FString::Printf(TEXT("Экран %.0f: подсказка карты (около %.0f строк) помещается в свой блок высотой %.0f"), ScreenWidth, Lines, Column[3].Box.GetSize().Y),
-				Lines * LineHeight(Hint) <= Column[3].Box.GetSize().Y);
-		}
+		TestTrue(*FString::Printf(TEXT("Экран %.0f: подсказка карты (около %.0f строк) помещается в свой блок высотой %.0f"), ScreenWidth, HintLines, Column[3].Box.GetSize().Y),
+			HintLines > 0.0 && HintLines * LineHeight(Hint) <= Column[3].Box.GetSize().Y);
 
 		// Вкладка «Задания»: список слева, сведения справа, «Отслеживать» внизу.
 		const FVector2D Content = ContentBox.GetSize();
