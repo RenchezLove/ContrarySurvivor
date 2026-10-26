@@ -7,6 +7,7 @@
 #include "ContrarySurvivor/Chapter2/AnomalySample.h"
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
 #include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h" // метка учёного, передавшего героя Вере
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
@@ -86,12 +87,24 @@ UChapter2Component::FEnv UChapter2Component::GatherEnv() const
 	const float EdgeDistance = UChapter2Settings::Get()->MaskButtonEdgeDistance;
 	Env.HeroLocation = Loc;
 
+	const APoisonZone* NearestZone = nullptr;
 	for (TActorIterator<APoisonZone> It(World); It; ++It)
 	{
 		const float Dist = It->DistanceTo(Loc);
 		Env.bInZone |= (Dist <= 0.0f);
 		Env.bNearZone |= (Dist <= EdgeDistance);
-		Env.ZoneDistance = (Env.ZoneDistance < 0.0f) ? Dist : FMath::Min(Env.ZoneDistance, Dist);
+		if (Env.ZoneDistance < 0.0f || Dist < Env.ZoneDistance)
+		{
+			Env.ZoneDistance = Dist;
+			NearestZone = *It;
+		}
+	}
+	// Свои числа ближайшей низины (урон, дальность детектора) — настройки её экземпляра.
+	if (NearestZone)
+	{
+		Env.DamageNoMaskPerSecond = NearestZone->GetDamageNoMaskOverride();
+		Env.DamageNoAirPerSecond = NearestZone->GetDamageNoAirOverride();
+		Env.DetectorRange = NearestZone->GetDetectorRangeOverride();
 	}
 	for (TActorIterator<AAirRefillZone> It(World); It; ++It)
 	{
@@ -158,7 +171,8 @@ void UChapter2Component::Step(float Dt, const FEnv& Env)
 
 	// Урон в низине — раз в секунду (решение лида 23.10).
 	const float Dps = Chapter2Rules::ZoneDamagePerSecond(Env.bInZone, bMaskOn, AirSeconds,
-		S->ZoneDamageNoMaskPerSecond, S->ZoneDamageNoAirPerSecond);
+		Env.DamageNoMaskPerSecond >= 0.0f ? Env.DamageNoMaskPerSecond : S->ZoneDamageNoMaskPerSecond,
+		Env.DamageNoAirPerSecond >= 0.0f ? Env.DamageNoAirPerSecond : S->ZoneDamageNoAirPerSecond);
 	if (Dps > 0.0f && bAlive)
 	{
 		DamageAccum += FMath::Max(0.0f, Dt);
@@ -180,7 +194,8 @@ void UChapter2Component::Step(float Dt, const FEnv& Env)
 	// образцы собраны не все и герой в низине или рядом с ней. Писк — как раньше: чем ближе
 	// образец, тем чаще.
 	const bool bQuestActive = IsSamplesQuestActive();
-	SignalStrength = bQuestActive ? Chapter2Rules::SignalStrength(Env.NearestSampleDistance, S->DetectorRange) : 0.0f;
+	const float DetectorRange = Env.DetectorRange > 0.0f ? Env.DetectorRange : S->DetectorRange;
+	SignalStrength = bQuestActive ? Chapter2Rules::SignalStrength(Env.NearestSampleDistance, DetectorRange) : 0.0f;
 	const int32 SamplesLeft = bQuestActive ? FMath::Max(0, GetSamplesTotal() - GetSamplesDone()) : 0;
 	bDetectorShown = bApparatusGiven && Chapter2Rules::ShouldShowLocator(bQuestActive, SamplesLeft,
 		Env.bInZone, Env.bNearZone ? 0.0f : Env.ZoneDistance, S->LocatorShowDistance);
@@ -352,6 +367,65 @@ void UChapter2Component::RefreshSampleActors()
 	}
 }
 
+int32 UChapter2Component::GetZoneSampleTotal(const UWorld* World)
+{
+	int32 Total = 0;
+	if (World)
+	{
+		for (TActorIterator<APoisonZone> It(World); It; ++It)
+		{
+			Total += It->GetSampleCount();
+		}
+	}
+	return Total;
+}
+
+void UChapter2Component::SyncSamplesTarget()
+{
+	UQuestComponent* Quests = GetQuests();
+	const FQuest* Samples = FindSamplesQuest();
+	const int32 Total = GetZoneSampleTotal(GetWorld());
+	if (!Quests || !Samples || Total <= 0 || Samples->TargetCount == Total)
+	{
+		return;
+	}
+	// Готовое к сдаче и сданное задание не трогаем: их счёт уже засчитан (сохранение, где
+	// собраны три образца, не должно стать «2 из 5» после правки низины).
+	if (Samples->State != EQuestState::NotStarted && Samples->State != EQuestState::Active)
+	{
+		return;
+	}
+	if (Quests->SetObjectiveTarget(Chapter2Ids::SamplesQuest, Total))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 цель задания образцов — %d (по низинам уровня)"), Total);
+	}
+}
+
+bool UChapter2Component::AddNote(FName NoteId, bool bAnnounce)
+{
+	if (NoteId.IsNone() || Notes.Contains(NoteId))
+	{
+		return false;
+	}
+	Notes.Add(NoteId);
+	UE_LOG(LogQA, Display, TEXT("QA: chapter2 заметка '%s' добавлена в смартфон (всего %d)"), *NoteId.ToString(), Notes.Num());
+	if (bAnnounce && NoteId == StoryNoteIds::MercenaryNote)
+	{
+		ShowMessage(UChapter2Settings::Get()->MercenaryNotePickupText);
+	}
+	// Найденная заметка переживает «Продолжить» сразу, не дожидаясь следующей записи.
+	if (APlayerCharacter* Player = GetPlayer())
+	{
+		Player->RequestAutoSave(TEXT("заметка"));
+	}
+	return true;
+}
+
+void UChapter2Component::NotePhotoSeen()
+{
+	AddNote(StoryNoteIds::VeraPhoto, /*bAnnounce=*/false);
+}
+
 FQuest UChapter2Component::MakeTalkToVeraQuest()
 {
 	const UChapter2Settings* S = UChapter2Settings::Get();
@@ -395,7 +469,10 @@ void UChapter2Component::SyncStoryState()
 		Quests->RemoveQuest(Chapter2Ids::TalkToVeraQuest);
 	}
 
-	// 2) Снаряжение учёных: в сумке, пока задание идёт; сдано — Вера забирает его обратно.
+	// 2) Цель задания образцов — по числу образцов низин уровня.
+	SyncSamplesTarget();
+
+	// 3) Снаряжение учёных: в сумке, пока задание идёт; сдано — Вера забирает его обратно.
 	Samples = FindSamplesQuest(); // журнал мог поменяться выше
 	if (bApparatusGiven && Samples && Samples->State == EQuestState::TurnedIn)
 	{
@@ -543,6 +620,7 @@ void UChapter2Component::StartChapterEnd()
 		return;
 	}
 	bChapterEndShown = true;
+	NotePhotoSeen(); // фото из ноутбука показано в разговоре — оно в «Заметках»
 	ChapterEndCardRemaining = FMath::Max(1.0f, UChapter2Settings::Get()->ChapterEndCardSeconds);
 	UE_LOG(LogQA, Display, TEXT("QA: chapter2 конец главы"));
 	if (APlayerCharacter* Player = GetPlayer())
@@ -606,6 +684,7 @@ void UChapter2Component::WriteToSave(UContrarySaveGame* Save) const
 	Save->Chapter2PickedSamples = PickedSamples;
 	Save->bChapter2MercenaryDefeated = bMercenaryDefeated;
 	Save->bChapter2EndShown = bChapterEndShown;
+	Save->StoryNotes = Notes;
 }
 
 void UChapter2Component::RestoreFromSave(const UContrarySaveGame* Save)
@@ -622,6 +701,17 @@ void UChapter2Component::RestoreFromSave(const UContrarySaveGame* Save)
 	PickedSamples = Save->Chapter2PickedSamples;
 	bMercenaryDefeated = Save->bChapter2MercenaryDefeated;
 	bChapterEndShown = Save->bChapter2EndShown;
+	Notes = Save->StoryNotes;
+	// Сохранение записано до заметок (или наёмник побеждён, а тело с запиской уже исчезло —
+	// тела в сохранение не пишутся): записка всё равно у героя, фото — после конца главы.
+	if (bMercenaryDefeated && !Notes.Contains(StoryNoteIds::MercenaryNote))
+	{
+		Notes.Add(StoryNoteIds::MercenaryNote);
+	}
+	if (bChapterEndShown && !Notes.Contains(StoryNoteIds::VeraPhoto))
+	{
+		Notes.Add(StoryNoteIds::VeraPhoto);
+	}
 	bLowAirWarned = AirSeconds <= UChapter2Settings::Get()->AirLowThresholdSeconds;
 	bWasInZone = false;
 	bWasInRefill = false;
@@ -639,6 +729,7 @@ void UChapter2Component::ResetForNewGame()
 	PickedSamples.Reset();
 	bMercenaryDefeated = false;
 	bChapterEndShown = false;
+	Notes.Reset();
 	bWasInZone = false;
 	bWasInRefill = false;
 	bLowAirWarned = false;

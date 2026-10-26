@@ -15,6 +15,7 @@ class UBorder;
 class UWidget;
 class UChapter2Component;
 class UTouchControlsWidget;
+class UDialogScreenWidget;
 
 /** Какой слой экрана главы 2 рисует этот виджет (у каждого своя высота над миром). */
 UENUM()
@@ -92,6 +93,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UBorder> EndCard;
+
+	// Окно разговора, поджатое под фотографию (вернуть к виду из файла, когда фотографии нет).
+	TWeakObjectPtr<UDialogScreenWidget> SqueezedDialog;
 
 	// Картинки ищутся один раз (поле настроек или файл по ожидаемому пути).
 	bool bGlassResolved = false;

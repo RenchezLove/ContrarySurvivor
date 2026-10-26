@@ -42,10 +42,14 @@ struct FCorpseLootTakenSummary
 	// Хоть один предмет рюкзак не принял (п.3.4): тело осталось полным, в землю не ушло.
 	bool bBackpackRefused = false;
 
+	// Взята записка (правка Рината 26.10.2026): она ушла не в рюкзак, а в «Заметки» смартфона;
+	// сообщение [245] уезжает хвостом той же строки (два сообщения подряд запрещены п.3.3).
+	bool bNoteTaken = false;
+
 	// Складывает одинаковые названия в одну запись («Шкура волка» ×4).
 	void AddItem(const FText& Name, int32 Count);
 
-	bool IsEmpty() const { return Items.Num() == 0 && Money <= 0; }
+	bool IsEmpty() const { return Items.Num() == 0 && Money <= 0 && !bNoteTaken; }
 };
 
 /**

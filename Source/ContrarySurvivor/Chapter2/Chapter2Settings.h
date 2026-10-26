@@ -139,13 +139,14 @@ public:
 		DisplayName = "Фотография героя и Веры"))
 	TSoftObjectPtr<UTexture2D> PhotoTexture;
 
-	// Наибольший размер фотографии на экране (в точках раскладки 1920x1080). Место игра
-	// выбирает сама: в свободной части экрана рядом с окном разговора, чтобы фотография не
-	// заходила на реплику и кнопки (правка Рината 25.10 вечер); где места меньше, она
-	// уменьшается, сохраняя пропорции.
-	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "3",
-		DisplayName = "Наибольший размер фотографии на экране"))
-	FVector2D PhotoSize = FVector2D(640.0f, 427.0f);
+	// Фотография стоит крупно по центру в верхней свободной части экрана, над окном разговора
+	// (правка Рината 26.10: «Фото теперь вообще маленькое сбоку появляется»; решение лида):
+	// высота — всё свободное место над окном минус отступы, но не меньше этой доли высоты
+	// экрана. Если над окном места меньше, окно разговора на время показа фотографии
+	// становится ниже. Пропорции фотографии сохраняются.
+	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "0.1", ClampMax = "0.8", DisplayPriority = "3",
+		DisplayName = "Фотография: наименьшая высота (доля высоты экрана)"))
+	float PhotoMinHeightFraction = 0.35f;
 
 	// Просвет между фотографией, краем экрана и окном разговора.
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "0.0", DisplayPriority = "4",
@@ -179,6 +180,42 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "8.0", DisplayPriority = "7",
 		DisplayName = "Размер значка у шкалы"))
 	float BarIconSize = 28.0f;
+
+	// --- Заметки в смартфоне (правка Рината 26.10.2026) ---
+
+	// Картинка записки наёмника: помятая бумага, к ней скрепкой приложена фотография героя
+	// (в правом верхнем углу). Пусто — /Game/UI/Chapter2/T_MercenaryNote, если такой файл
+	// есть; нет и его — записка рисуется светлой бумагой без картинки.
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (DisplayPriority = "1",
+		DisplayName = "Картинка записки наёмника"))
+	TSoftObjectPtr<UTexture2D> MercenaryNoteTexture;
+
+	// Где на картинке записки лежит текст: отступы от краёв картинки в долях её ширины и
+	// высоты (слева, сверху, справа, снизу). Сверху отступ больше — там фотография и скрепка. По умолчанию — свободная область картинки note_mercenary_v3 (768 на 1152): 7 %, 31 %, 7 %, 6 %.
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (DisplayPriority = "2",
+		DisplayName = "Отступы текста записки от краёв картинки (доли)"))
+	FMargin NoteTextMargins = FMargin(0.07f, 0.31f, 0.07f, 0.06f);
+
+	// Пропорции картинки записки (ширина к высоте; у note_mercenary_v3 — 768 к 1152), пока картинки нет или её размер ещё не
+	// известен.
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (ClampMin = "0.2", ClampMax = "3.0", DisplayPriority = "3",
+		DisplayName = "Пропорции записки без картинки (ширина к высоте)"))
+	float NoteFallbackAspect = 0.6667f;
+
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (DisplayPriority = "4",
+		DisplayName = "Цвет текста записки"))
+	FLinearColor NoteTextColor = FLinearColor(0.09f, 0.075f, 0.06f, 1.0f);
+
+	// В точках листа шириной 600; лист целиком уменьшается под место во вкладке, поэтому кегль крупнее обычного.
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (ClampMin = "8", ClampMax = "48", DisplayPriority = "5",
+		DisplayName = "Кегль текста записки"))
+	int32 NoteTextSize = 22;
+
+	// Шрифт «от руки». Рукописного шрифта в проекте пока нет: пусто — наклонный шрифт
+	// интерфейса.
+	UPROPERTY(config, EditAnywhere, Category = "Заметки", meta = (DisplayPriority = "6",
+		DisplayName = "Шрифт записки (пусто — наклонный обычный)"))
+	TSoftObjectPtr<UObject> NoteFont;
 
 	// --- Экран конца главы ---
 
@@ -259,6 +296,28 @@ public:
 		"Отравленная низина лежит к востоку от лагеря учёных. Перед входом наденьте маску и следите за запасом воздуха: когда он кончится, начнёт убывать здоровье. Пустой баллон заправят в лагере.\n"
 		"В низине левый стик превращается в детектор. Идите туда, откуда приходят сигналы. Соберите три образца и отнесите их Вере.");
 
+	// Заметки (правка Рината 26.10.2026): вкладка смартфона, записка наёмника и фото с Верой.
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[237] Смартфон: вкладка с записками"))
+	FText NotesTabText = NSLOCTEXT("Chapter2", "NotesTab", "Заметки");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[238] Название записки наёмника"))
+	FText MercenaryNoteTitleText = NSLOCTEXT("Chapter2", "MercenaryNoteTitle", "Записка наёмника");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[239] Текст записки наёмника"))
+	FText MercenaryNoteBodyText = NSLOCTEXT("Chapter2", "MercenaryNoteBody",
+		"Сыч объявился у лагеря учёных. Брать только живым и целым: он мне нужен с головой, а не без неё.\n"
+		"Память ему отшибло, он не помнит, от кого бежал. Пусть так и остаётся: никаких разговоров с ним, про то, где он был раньше, — ни слова.\n"
+		"Учёных пока не трогать. Они сами носят нам образцы, хоть и не знают об этом.\n"
+		"Фото прилагаю, чтобы не обознался.\n"
+		"— К.");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[245] Записка подобрана у наёмника"))
+	FText MercenaryNotePickupText = NSLOCTEXT("Chapter2", "MercenaryNotePickup",
+		"Найдена записка. Прочитать её можно в смартфоне, во вкладке «Заметки».");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[246] Название заметки с фото из ноутбука"))
+	FText VeraPhotoNoteTitleText = NSLOCTEXT("Chapter2", "VeraPhotoNoteTitle", "Фото из ноутбука");
+
 	// Картинка: поле, если задано; иначе файл по ожидаемому пути, если он есть в проекте.
 	// Нет ни того, ни другого — null (картинки нет, игра не падает).
 	static UTexture2D* ResolveTexture(const TSoftObjectPtr<UTexture2D>& Field, const TCHAR* ExpectedPackage);
@@ -267,4 +326,5 @@ public:
 	static constexpr const TCHAR* ExpectedPhotoPath = TEXT("/Game/UI/Chapter2/T_PhotoHeroVera");
 	static constexpr const TCHAR* ExpectedAirIconPath = TEXT("/Game/UI/Chapter2/T_IconAir");
 	static constexpr const TCHAR* ExpectedDetectorIconPath = TEXT("/Game/UI/Chapter2/T_IconDetector");
+	static constexpr const TCHAR* ExpectedMercenaryNotePath = TEXT("/Game/UI/Chapter2/T_MercenaryNote");
 };

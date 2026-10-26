@@ -165,16 +165,13 @@ void UChapter2ScreenWidget::BuildTree()
 			PhotoImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("Photo"));
 			if (UCanvasPanelSlot* PhotoSlot = Root->AddChildToCanvas(PhotoImage))
 			{
-				// Место и размер ставит TickPhoto: в свободной части экрана рядом с окном разговора.
+				// Место и размер ставит TickPhoto: крупно по центру над окном разговора.
 				PhotoSlot->SetAnchors(FAnchors(0.0f, 0.0f));
 				PhotoSlot->SetAlignment(FVector2D(0.0f, 0.0f));
-				PhotoSlot->SetSize(S->PhotoSize);
+				PhotoSlot->SetSize(FVector2D(640.0f, 427.0f));
 			}
 			PhotoImage->SetVisibility(ESlateVisibility::Collapsed);
-			if (S->PhotoSize.Y > 1.0f)
-			{
-				PhotoAspect = S->PhotoSize.X / S->PhotoSize.Y;
-			}
+			PhotoAspect = 1.5f; // до загрузки картинки — пропорции обычной фотографии
 
 			// «Конец первой главы. Продолжение следует…» — тёмный экран с крупной надписью.
 			EndCard = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChapterEndCard"));
@@ -337,20 +334,21 @@ void UChapter2ScreenWidget::TickLocator(const FGeometry& MyGeometry, float InDel
 			: static_cast<float>(PC->GetControlRotation().Yaw);
 	}
 	const UChapter2Component::FEnv& Env = Chapter2->GetLastEnv();
+	const float DetectorRange = Env.DetectorRange > 0.0f ? Env.DetectorRange : S->DetectorRange; // своя дальность низины
 	LocatorSignals.Reset();
 	NearestStrength = 0.0f;
 	for (const FVector& SampleLocation : Env.SampleLocations)
 	{
 		const FVector2D Delta(SampleLocation.X - Env.HeroLocation.X, SampleLocation.Y - Env.HeroLocation.Y);
 		const float Distance = static_cast<float>(Delta.Size());
-		const float Strength = Chapter2Rules::SignalStrength(Distance, S->DetectorRange);
+		const float Strength = Chapter2Rules::SignalStrength(Distance, DetectorRange);
 		if (Strength <= 0.0f)
 		{
 			continue; // сигнал не долетает — локатор его не ловит
 		}
 		FLocatorSignal Signal;
 		Signal.Dir = Chapter2Rules::LocatorScreenDir(Delta, CameraYaw);
-		Signal.Range01 = FMath::Clamp(Distance / FMath::Max(1.0f, S->DetectorRange), 0.0f, 1.0f);
+		Signal.Range01 = FMath::Clamp(Distance / FMath::Max(1.0f, DetectorRange), 0.0f, 1.0f);
 		Signal.Strength = Strength;
 		NearestStrength = FMath::Max(NearestStrength, Strength);
 		LocatorSignals.Add(Signal);
@@ -396,34 +394,56 @@ void UChapter2ScreenWidget::TickPhoto(const FGeometry& MyGeometry, const UChapte
 			}
 		}
 	}
+	// Окно разговора, поджатое под фотографию, возвращается к виду из файла, как только
+	// фотографии нет (даже если само окно уже закрыто).
+	auto ReleaseDialog = [this]()
+	{
+		if (UDialogScreenWidget* Squeezed = SqueezedDialog.Get())
+		{
+			Squeezed->SetPhotoSqueezeTop(0.0);
+		}
+		SqueezedDialog.Reset();
+	};
 	if (!bPhoto || !bHasPhoto || !PhotoImage)
 	{
 		SetShown(PhotoImage, false);
+		ReleaseDialog();
 		return;
 	}
 
-	// Фотография — в свободной части экрана рядом с окном разговора (правка Рината 25.10 вечер:
-	// «фотография частично перекрывает область диалога (реплики и кнопки)»), при любых
-	// пропорциях экрана.
-	FBox2D Occupied(ForceInit);
+	// Фотография — крупно по центру в верхней свободной части экрана над окном разговора
+	// (правка Рината 26.10: «Фото теперь вообще маленькое сбоку появляется»; решение лида).
+	// Раньше место искалось вокруг ВСЕГО занятого окном (с крестиком закрытия в углу экрана),
+	// и сверху места не оставалось — фотография уходила крошечной в полосу сбоку.
+	FBox2D DialogBox(ForceInit);
 	const APlayerController* PC = GetOwningPlayer();
 	const AContrarySurvivorHUD* CSHUD = PC ? PC->GetHUD<AContrarySurvivorHUD>() : nullptr;
-	if (const UDialogScreenWidget* Dialog = CSHUD ? CSHUD->GetDialogWidgetOnScreen() : nullptr)
+	UDialogScreenWidget* Dialog = CSHUD ? CSHUD->GetDialogWidgetOnScreen() : nullptr;
+	FBox2D PanelAbs(ForceInit);
+	if (Dialog && Dialog->GetPanelFileBoxAbsolute(PanelAbs))
 	{
-		const FBox2D Abs = Dialog->GetOccupiedAbsoluteBox();
-		if (Abs.bIsValid)
-		{
-			const FVector2D LocalMin = MyGeometry.AbsoluteToLocal(Abs.Min);
-			const FVector2D LocalMax = MyGeometry.AbsoluteToLocal(Abs.Max);
-			Occupied += LocalMin;
-			Occupied += LocalMax;
-		}
+		DialogBox += MyGeometry.AbsoluteToLocal(PanelAbs.Min);
+		DialogBox += MyGeometry.AbsoluteToLocal(PanelAbs.Max);
 	}
-	const FBox2D Fit = Chapter2Rules::FitPhoto(MyGeometry.GetLocalSize(), Occupied, PhotoAspect, S->PhotoSize, S->PhotoMargin);
+	const Chapter2Rules::FPhotoPlacement Place = Chapter2Rules::PlacePhotoAboveDialog(MyGeometry.GetLocalSize(), DialogBox,
+		PhotoAspect, S->PhotoMinHeightFraction, S->PhotoMargin);
+	const FBox2D Fit = Place.Photo;
 	if (!Fit.bIsValid)
 	{
 		SetShown(PhotoImage, false);
+		ReleaseDialog();
 		return;
+	}
+	// Места над окном не хватило — окно разговора на это время ниже (низ на месте).
+	if (Dialog)
+	{
+		if (SqueezedDialog.Get() != Dialog)
+		{
+			ReleaseDialog();
+		}
+		Dialog->SetPhotoSqueezeTop(Place.DialogTop > 0.0
+			? MyGeometry.LocalToAbsolute(FVector2D(0.0, Place.DialogTop)).Y : 0.0);
+		SqueezedDialog = Dialog;
 	}
 	if (UCanvasPanelSlot* PhotoSlot = Cast<UCanvasPanelSlot>(PhotoImage->Slot))
 	{

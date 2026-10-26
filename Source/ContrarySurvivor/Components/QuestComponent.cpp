@@ -723,6 +723,22 @@ bool UQuestComponent::AddActiveQuest(const FQuest& Quest)
 	return true;
 }
 
+bool UQuestComponent::SetObjectiveTarget(FName QuestId, int32 NewTargetCount)
+{
+	FQuest* Quest = FindQuestMutable(QuestId);
+	const int32 Target = FMath::Max(1, NewTargetCount);
+	if (!Quest || Quest->TargetCount == Target)
+	{
+		return false;
+	}
+	Quest->TargetCount = Target;
+	Quest->Progress = FMath::Clamp(Quest->Progress, 0, Target);
+	RecomputeState(*Quest);
+	UE_LOG(LogQA, Display, TEXT("QA: quest TARGET (%s) -> %d"), *QuestId.ToString(), Target);
+	OnQuestChanged.Broadcast(*Quest);
+	return true;
+}
+
 bool UQuestComponent::RemoveQuest(FName QuestId)
 {
 	const int32 Index = QuestId.IsNone() ? INDEX_NONE

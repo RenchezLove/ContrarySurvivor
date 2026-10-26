@@ -17,6 +17,135 @@
 #include "Blueprint/WidgetTree.h"       // ConstructWidget (крестик без правки ассета)
 #include "Styling/CoreStyle.h"          // шрифт знака крестика
 
+UWidget* UDialogScreenWidget::FindMainPanel() const
+{
+	const UWidget* Root = WidgetTree ? WidgetTree->RootWidget.Get() : nullptr;
+	UWidget* Panel = ReplicaText ? static_cast<UWidget*>(ReplicaText.Get())
+		: (AcceptButton ? static_cast<UWidget*>(AcceptButton.Get()) : nullptr);
+	if (!Panel || !Root || Panel == Root)
+	{
+		return nullptr;
+	}
+	while (Panel->GetParent() && Panel->GetParent() != Root)
+	{
+		Panel = Panel->GetParent();
+	}
+	return Panel->GetParent() == Root ? Panel : nullptr;
+}
+
+namespace
+{
+	// Верх и низ панели в холсте-родителе высотой ParentH по месту и размеру из файла.
+	bool PanelLocalSpan(const UCanvasPanelSlot* PanelSlot, const FVector2D& Position, const FVector2D& Size,
+		double ParentH, double& OutTop, double& OutBottom)
+	{
+		const FAnchors Anchors = PanelSlot->GetAnchors();
+		if (!FMath::IsNearlyEqual(Anchors.Minimum.Y, Anchors.Maximum.Y) || PanelSlot->GetAutoSize())
+		{
+			return false; // растянута якорями или по содержимому — поджимать нечего
+		}
+		OutTop = Anchors.Minimum.Y * ParentH + Position.Y - PanelSlot->GetAlignment().Y * Size.Y;
+		OutBottom = OutTop + Size.Y;
+		return true;
+	}
+}
+
+bool UDialogScreenWidget::GetPanelFileBoxAbsolute(FBox2D& OutBox) const
+{
+	const UWidget* Panel = FindMainPanel();
+	const UCanvasPanelSlot* PanelSlot = Panel ? Cast<UCanvasPanelSlot>(Panel->Slot) : nullptr;
+	const UWidget* Parent = Panel ? Panel->GetParent() : nullptr;
+	if (!PanelSlot || !Parent)
+	{
+		return false;
+	}
+	const FGeometry& ParentGeometry = Parent->GetCachedGeometry();
+	const FVector2D ParentSize = ParentGeometry.GetLocalSize();
+	if (ParentSize.Y < 1.0)
+	{
+		return false;
+	}
+	const FVector2D Position = bPhotoSqueezed ? SqueezeFilePosition : PanelSlot->GetPosition();
+	const FVector2D Size = bPhotoSqueezed ? SqueezeFileSize : PanelSlot->GetSize();
+	double Top = 0.0;
+	double Bottom = 0.0;
+	if (!PanelLocalSpan(PanelSlot, Position, Size, ParentSize.Y, Top, Bottom))
+	{
+		return false;
+	}
+	const FAnchors Anchors = PanelSlot->GetAnchors();
+	const double Left = Anchors.Minimum.X * ParentSize.X + Position.X - PanelSlot->GetAlignment().X * Size.X;
+	OutBox = FBox2D(ForceInit);
+	OutBox += ParentGeometry.LocalToAbsolute(FVector2D(Left, Top));
+	OutBox += ParentGeometry.LocalToAbsolute(FVector2D(Left + Size.X, Bottom));
+	return true;
+}
+
+void UDialogScreenWidget::SetPhotoSqueezeTop(double AbsTop)
+{
+	UWidget* Panel = SqueezedPanel.IsValid() ? SqueezedPanel.Get() : FindMainPanel();
+	UCanvasPanelSlot* PanelSlot = Panel ? Cast<UCanvasPanelSlot>(Panel->Slot) : nullptr;
+	const UWidget* Parent = Panel ? Panel->GetParent() : nullptr;
+	if (!PanelSlot || !Parent)
+	{
+		return;
+	}
+	auto Restore = [this, PanelSlot]()
+	{
+		if (bPhotoSqueezed)
+		{
+			PanelSlot->SetPosition(SqueezeFilePosition);
+			PanelSlot->SetSize(SqueezeFileSize);
+			bPhotoSqueezed = false;
+			SqueezedPanel.Reset();
+			UE_LOG(LogQA, Display, TEXT("QA: dialog окно разговора снова как в файле (фотография убрана)"));
+		}
+	};
+	const FGeometry& ParentGeometry = Parent->GetCachedGeometry();
+	const double ParentH = ParentGeometry.GetLocalSize().Y;
+	if (AbsTop <= 0.0 || ParentH < 1.0)
+	{
+		Restore();
+		return;
+	}
+
+	const FVector2D FilePosition = bPhotoSqueezed ? SqueezeFilePosition : PanelSlot->GetPosition();
+	const FVector2D FileSize = bPhotoSqueezed ? SqueezeFileSize : PanelSlot->GetSize();
+	double Top = 0.0;
+	double Bottom = 0.0;
+	if (!PanelLocalSpan(PanelSlot, FilePosition, FileSize, ParentH, Top, Bottom))
+	{
+		Restore();
+		return;
+	}
+	const double LimitTop = ParentGeometry.AbsoluteToLocal(FVector2D(0.0, AbsTop)).Y;
+	// Ниже какой-то высоты окно не сжимается: имя, строка реплики и кнопки должны остаться.
+	const double MinHeight = FMath::Min(static_cast<double>(FileSize.Y), 260.0);
+	const double Shift = FMath::Clamp(LimitTop - Top, 0.0, FMath::Max(0.0, FileSize.Y - MinHeight));
+	if (Shift < 0.5)
+	{
+		Restore();
+		return;
+	}
+	// Верх опускается на Shift, низ остаётся на месте (при любом выравнивании панели).
+	const double AlignY = PanelSlot->GetAlignment().Y;
+	const FVector2D NewSize(FileSize.X, FileSize.Y - Shift);
+	const FVector2D NewPosition(FilePosition.X, FilePosition.Y + (1.0 - AlignY) * Shift);
+	if (!bPhotoSqueezed)
+	{
+		bPhotoSqueezed = true;
+		SqueezeFilePosition = FilePosition;
+		SqueezeFileSize = FileSize;
+		SqueezedPanel = Panel;
+		UE_LOG(LogQA, Display, TEXT("QA: dialog окно разговора ниже на %.0f под фотографию"), Shift);
+	}
+	if (!PanelSlot->GetSize().Equals(NewSize, 0.5) || !PanelSlot->GetPosition().Equals(NewPosition, 0.5))
+	{
+		PanelSlot->SetSize(NewSize);
+		PanelSlot->SetPosition(NewPosition);
+	}
+}
+
 FBox2D UDialogScreenWidget::GetOccupiedAbsoluteBox() const
 {
 	FBox2D Box(ForceInit);
@@ -134,6 +263,7 @@ void UDialogScreenWidget::BindCloseCross()
 
 void UDialogScreenWidget::InitDialog(AElderNPC* InElder, APlayerCharacter* InPlayer)
 {
+	SetPhotoSqueezeTop(0.0); // окно открывается таким, как в файле
 	Elder = InElder;
 	Talker = nullptr; // окно одно на всех: прошлый разговор мог быть с собеседником базы учёных
 	Player = InPlayer;
@@ -169,6 +299,7 @@ void UDialogScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 
 void UDialogScreenWidget::InitTalk(ATalkerNPC* InTalker, APlayerCharacter* InPlayer)
 {
+	SetPhotoSqueezeTop(0.0); // окно открывается таким, как в файле
 	Talker = InTalker;
 	Elder = nullptr;
 	Player = InPlayer;

@@ -10,6 +10,11 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/CollisionProfile.h"
+#include "Math/RandomStream.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace Chapter2Volumes
@@ -56,6 +61,152 @@ namespace
 	}
 }
 
+// ===========================================================================
+// Область тумана
+// ===========================================================================
+
+namespace
+{
+	// Метка слоёв тумана: по ней находятся и убираются слои, пересобираемые кодом.
+	const FName FogLayerTag(TEXT("PoisonFogLayer"));
+
+	// Плоскость движка /Engine/BasicShapes/Plane — 100 на 100 см.
+	constexpr float PlaneMeshSize = 100.0f;
+}
+
+UPoisonFogAreaComponent::UPoisonFogAreaComponent()
+{
+	InitBoxExtent(AreaHalfSize);
+	ShapeColor = FColor(150, 230, 90);
+	SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SetGenerateOverlapEvents(false);
+	SetHiddenInGame(true);
+	SetCanEverAffectNavigation(false);
+	bAutoActivate = true;
+}
+
+float UPoisonFogAreaComponent::LayerOpacity(float InDensity, int32 InLayerCount)
+{
+	// Сквозь N слоёв с прозрачностью a видно (1 - a)^N фона: плотность D в середине —
+	// это 1 - (1 - a)^N, отсюда a = 1 - (1 - D)^(1/N).
+	const float D = FMath::Clamp(InDensity, 0.0f, 0.99f);
+	const int32 N = FMath::Max(1, InLayerCount);
+	return 1.0f - FMath::Pow(1.0f - D, 1.0f / static_cast<float>(N));
+}
+
+void UPoisonFogAreaComponent::OnRegister()
+{
+	BoxExtent = AreaHalfSize.ComponentMax(FVector(1.0f));
+	Super::OnRegister();
+	RebuildLayers();
+}
+
+void UPoisonFogAreaComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+	// Область удалили кнопкой — её слои уходят с ней (при удалении всей низины движок убирает
+	// все компоненты сам).
+	if (!bDestroyingHierarchy)
+	{
+		for (UStaticMeshComponent* Layer : Layers)
+		{
+			if (IsValid(Layer))
+			{
+				Layer->DestroyComponent();
+			}
+		}
+		Layers.Reset();
+	}
+	Super::OnComponentDestroyed(bDestroyingHierarchy);
+}
+
+#if WITH_EDITOR
+void UPoisonFogAreaComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	BoxExtent = AreaHalfSize.ComponentMax(FVector(1.0f));
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	if (IsRegistered())
+	{
+		RebuildLayers();
+	}
+}
+#endif
+
+void UPoisonFogAreaComponent::RebuildLayers()
+{
+	// Прежние слои — прочь (и те, что остались от копии низины: их узнаём по метке).
+	for (UStaticMeshComponent* Layer : Layers)
+	{
+		if (IsValid(Layer))
+		{
+			Layer->DestroyComponent();
+		}
+	}
+	Layers.Reset();
+	TArray<USceneComponent*> Children;
+	GetChildrenComponents(/*bIncludeAllDescendants=*/false, Children);
+	for (USceneComponent* Child : Children)
+	{
+		if (IsValid(Child) && Child->ComponentHasTag(FogLayerTag))
+		{
+			Child->DestroyComponent();
+		}
+	}
+
+	AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+	const APoisonZone* Zone = Cast<APoisonZone>(Owner);
+	if (!Zone || !World || IsTemplate() || Zone->IsTemplate() || World->GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	UMaterialInterface* Material = Zone->GetFogMaterial();
+	UStaticMesh* Mesh = Zone->GetFogLayerMesh();
+	if (!Material || !Mesh)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: chapter2 низина %s: нет материала тумана или плоскости — область %s без тумана"),
+			*Zone->GetName(), *GetName());
+		return;
+	}
+
+	const int32 Count = FMath::Clamp(LayerCount, 1, 6);
+	const float Opacity = LayerOpacity(Density, Count);
+	const FVector Half = AreaHalfSize.ComponentMax(FVector(1.0f));
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		// Слои ровно по высоте области, снизу вверх; верхние чуть меньше нижних.
+		const float Up = (Count == 1) ? 0.0f : static_cast<float>(Index) / static_cast<float>(Count - 1);
+		const float Z = -Half.Z + 2.0f * Half.Z * (static_cast<float>(Index) + 0.5f) / static_cast<float>(Count);
+		const float Shrink = FMath::Lerp(1.0f, FMath::Clamp(TopLayerScale, 0.3f, 1.0f), Up);
+
+		UStaticMeshComponent* Layer = NewObject<UStaticMeshComponent>(Owner, NAME_None,
+			RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+		Layer->ComponentTags.Add(FogLayerTag);
+		Layer->SetStaticMesh(Mesh);
+		Layer->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Layer->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+		Layer->SetGenerateOverlapEvents(false);
+		Layer->SetCastShadow(false);
+		Layer->SetCanEverAffectNavigation(false);
+		Layer->SetReceivesDecals(false);
+		Layer->SetupAttachment(this);
+		Layer->SetRelativeLocation(FVector(0.0f, 0.0f, Z));
+		Layer->SetRelativeScale3D(FVector(2.0f * Half.X * Shrink / PlaneMeshSize, 2.0f * Half.Y * Shrink / PlaneMeshSize, 1.0f));
+
+		UMaterialInstanceDynamic* Fog = UMaterialInstanceDynamic::Create(Material, Layer);
+		Fog->SetVectorParameterValue(TEXT("FogColor"), FogColor);
+		Fog->SetScalarParameterValue(TEXT("MaxOpacity"), Opacity);
+		Fog->SetScalarParameterValue(TEXT("EdgeFalloff"), EdgeSoftness);
+		Fog->SetScalarParameterValue(TEXT("DepthFadeDistance"), GroundSoftness);
+		Layer->SetMaterial(0, Fog);
+		Layer->RegisterComponent();
+		Layers.Add(Layer);
+	}
+}
+
+// ===========================================================================
+// Низина
+// ===========================================================================
+
 APoisonZone::APoisonZone()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -78,6 +229,19 @@ APoisonZone::APoisonZone()
 		Spot->SampleId = FName(*FString::Printf(TEXT("Sample%d"), Index + 1));
 		*Spots[Index] = Spot;
 	}
+
+	// Первая область тумана — у земли низины (коробка низины стоит серединой на 300 над землёй),
+	// во всю её ширину; цвет — нынешний зеленоватый.
+	FogArea1 = CreateDefaultSubobject<UPoisonFogAreaComponent>(TEXT("FogArea1"));
+	FogArea1->SetupAttachment(Volume);
+	FogArea1->SetRelativeLocation(FVector(0.0f, 0.0f, -180.0f));
+
+	// Материал тумана и плоскость слоя (оба лежат в папках, которые всегда попадают в сборку:
+	// Config/DefaultGame.ini, DirectoriesToAlwaysCook).
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FogMaterialFinder(TEXT("/Game/Environment/Chapter2/M_PoisonFog.M_PoisonFog"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneFinder(TEXT("/Engine/BasicShapes/Plane.Plane"));
+	FogMaterial = FogMaterialFinder.Object;
+	FogLayerMesh = PlaneFinder.Object;
 
 #if WITH_EDITORONLY_DATA
 	// Значки мест образцов в редакторе (в игре их нет). Как у движковых AInfo: компонент
@@ -117,6 +281,72 @@ void APoisonZone::BeginPlay()
 	SpawnSamplesAtSpots();
 }
 
+TArray<UPoisonFogAreaComponent*> APoisonZone::GetFogAreas() const
+{
+	TArray<UPoisonFogAreaComponent*> Areas;
+	GetComponents<UPoisonFogAreaComponent>(Areas);
+	return Areas;
+}
+
+void APoisonZone::AddFogArea()
+{
+#if WITH_EDITOR
+	if (IsTemplate())
+	{
+		return; // в самом чертеже кнопка ничего не делает: области добавляются экземпляру на уровне
+	}
+	Modify();
+
+	// Новая область — копия последней, сдвинутая вбок на половину её длины (чтобы было видно,
+	// что она появилась); дальше её двигают мышью и настраивают как первую.
+	const TArray<UPoisonFogAreaComponent*> Areas = GetFogAreas();
+	const UPoisonFogAreaComponent* Source = Areas.Num() > 0 ? Areas.Last() : FogArea1.Get();
+	int32 Number = 2;
+	while (FindObjectFast<UObject>(this, FName(*FString::Printf(TEXT("FogArea%d"), Number))))
+	{
+		++Number;
+	}
+	UPoisonFogAreaComponent* Area = NewObject<UPoisonFogAreaComponent>(this, FName(*FString::Printf(TEXT("FogArea%d"), Number)), RF_Transactional);
+	if (Source)
+	{
+		Area->AreaHalfSize = Source->AreaHalfSize;
+		Area->Density = Source->Density;
+		Area->FogColor = Source->FogColor;
+		Area->LayerCount = Source->LayerCount;
+		Area->EdgeSoftness = Source->EdgeSoftness;
+		Area->GroundSoftness = Source->GroundSoftness;
+		Area->TopLayerScale = Source->TopLayerScale;
+		Area->SetRelativeLocation(Source->GetRelativeLocation() + FVector(Source->AreaHalfSize.X, 0.0f, 0.0f));
+	}
+	Area->CreationMethod = EComponentCreationMethod::Instance;
+	Area->SetupAttachment(Volume);
+	AddInstanceComponent(Area);
+	Area->RegisterComponent();
+	UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s: добавлена область тумана %s (всего %d)"),
+		*GetName(), *Area->GetName(), GetFogAreas().Num());
+#endif
+}
+
+void APoisonZone::RemoveLastFogArea()
+{
+#if WITH_EDITOR
+	// Удаляется последняя добавленная кнопкой; первая область (FogArea1) остаётся всегда.
+	const TArray<UActorComponent*>& Added = GetInstanceComponents();
+	for (int32 Index = Added.Num() - 1; Index >= 0; --Index)
+	{
+		if (UPoisonFogAreaComponent* Area = Cast<UPoisonFogAreaComponent>(Added[Index]))
+		{
+			Modify();
+			RemoveInstanceComponent(Area);
+			Area->DestroyComponent();
+			UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s: область тумана удалена (осталось %d)"),
+				*GetName(), GetFogAreas().Num());
+			return;
+		}
+	}
+#endif
+}
+
 FName APoisonZone::ResolveSpotSampleId(const UAnomalySampleSpotComponent* Spot, int32 Index)
 {
 	if (Spot && !Spot->SampleId.IsNone())
@@ -124,6 +354,70 @@ FName APoisonZone::ResolveSpotSampleId(const UAnomalySampleSpotComponent* Spot, 
 		return Spot->SampleId;
 	}
 	return FName(*FString::Printf(TEXT("Sample%d"), Index + 1));
+}
+
+void APoisonZone::ComputeSamplePlaces(TArray<FVector>& OutLocations, TArray<FName>& OutIds) const
+{
+	OutLocations.Reset();
+	OutIds.Reset();
+	const int32 Count = GetSampleCount();
+
+	TArray<UAnomalySampleSpotComponent*> Spots;
+	GetComponents<UAnomalySampleSpotComponent>(Spots);
+	// Порядок мест — по имени компонента (SampleSpot1, SampleSpot2…): номер для пустого имени
+	// образца не зависит от порядка создания компонентов в чертеже.
+	Spots.Sort([](const UAnomalySampleSpotComponent& A, const UAnomalySampleSpotComponent& B)
+		{ return A.GetName() < B.GetName(); });
+	for (int32 Index = 0; Index < Spots.Num() && OutLocations.Num() < Count; ++Index)
+	{
+		OutLocations.Add(Spots[Index]->GetComponentLocation());
+		OutIds.Add(ResolveSpotSampleId(Spots[Index], Index));
+	}
+	if (OutLocations.Num() >= Count || !Volume)
+	{
+		return;
+	}
+
+	// Недостающие — случайные точки в коробке низины (по числу-зерну: одни и те же при каждом
+	// запуске, иначе подбор в сохранении указывал бы на другие места). Из нескольких проб —
+	// та, что дальше всех от уже стоящих образцов.
+	FRandomStream Random(RandomPlacesSeed);
+	const FTransform& Xform = Volume->GetComponentTransform();
+	const FVector Extent = Volume->GetUnscaledBoxExtent();
+	const double MinDistSq = FMath::Square(static_cast<double>(FMath::Max(0.0f, RandomPlacesMinDistance)));
+	while (OutLocations.Num() < Count)
+	{
+		FVector Best = Xform.GetLocation();
+		double BestDistSq = -1.0;
+		for (int32 Try = 0; Try < 24; ++Try)
+		{
+			const FVector Local(Random.FRandRange(-0.85f, 0.85f) * Extent.X, Random.FRandRange(-0.85f, 0.85f) * Extent.Y, 0.0f);
+			const FVector Candidate = Xform.TransformPosition(Local);
+			double Nearest = TNumericLimits<double>::Max();
+			for (const FVector& Taken : OutLocations)
+			{
+				Nearest = FMath::Min(Nearest, FVector::DistSquared2D(Taken, Candidate));
+			}
+			if (Nearest > BestDistSq)
+			{
+				BestDistSq = Nearest;
+				Best = Candidate;
+			}
+			if (Nearest >= MinDistSq)
+			{
+				break;
+			}
+		}
+		// Имя — следующее по номеру и не занятое местом-компонентом.
+		int32 Number = OutLocations.Num() + 1;
+		FName Id = FName(*FString::Printf(TEXT("Sample%d"), Number));
+		while (OutIds.Contains(Id))
+		{
+			Id = FName(*FString::Printf(TEXT("Sample%d"), ++Number));
+		}
+		OutLocations.Add(Best);
+		OutIds.Add(Id);
+	}
 }
 
 int32 APoisonZone::SpawnSamplesAtSpots()
@@ -134,12 +428,9 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 		return 0;
 	}
 
-	TArray<UAnomalySampleSpotComponent*> Spots;
-	GetComponents<UAnomalySampleSpotComponent>(Spots);
-	// Порядок мест — по имени компонента (SampleSpot1, SampleSpot2…): номер для пустого имени
-	// образца не зависит от порядка создания компонентов в чертеже.
-	Spots.Sort([](const UAnomalySampleSpotComponent& A, const UAnomalySampleSpotComponent& B)
-		{ return A.GetName() < B.GetName(); });
+	TArray<FVector> Places;
+	TArray<FName> Ids;
+	ComputeSamplePlaces(Places, Ids);
 
 	// Образцы, которые уже стоят на уровне (старая расстановка или повторный вызов): второй
 	// образец с тем же именем считал бы подбор дважды.
@@ -151,15 +442,15 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 
 	UClass* Class = SampleClass ? SampleClass.Get() : AAnomalySample::StaticClass();
 	int32 Spawned = 0;
-	for (int32 Index = 0; Index < Spots.Num(); ++Index)
+	for (int32 Index = 0; Index < Places.Num(); ++Index)
 	{
-		const FName Id = ResolveSpotSampleId(Spots[Index], Index);
+		const FName Id = Ids[Index];
 		if (Existing.Contains(Id))
 		{
 			continue;
 		}
 
-		FVector Location = Spots[Index]->GetComponentLocation();
+		FVector Location = Places[Index];
 		if (bSnapSamplesToGround)
 		{
 			FHitResult Hit;
@@ -188,7 +479,7 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 	}
 	if (Spawned > 0)
 	{
-		UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s поставила образцов: %d"), *GetName(), Spawned);
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s поставила образцов: %d (всего в низине %d)"), *GetName(), Spawned, GetSampleCount());
 	}
 	return Spawned;
 }

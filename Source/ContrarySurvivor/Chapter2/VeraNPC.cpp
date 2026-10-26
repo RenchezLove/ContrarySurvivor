@@ -124,6 +124,10 @@ void AVeraNPC::OnTalkOpened(APlayerCharacter* Player)
 	if (bLaptop && Quests)
 	{
 		Quests->OfferQuest(Definition);
+		if (Chapter2)
+		{
+			Chapter2->SyncSamplesTarget(); // сколько образцов — решает низина на уровне
+		}
 	}
 
 	Stage = ComputeOpeningStage(bLaptop, Quests ? Quests->FindQuest(SamplesQuest.QuestId) : nullptr,
@@ -238,6 +242,7 @@ bool AVeraNPC::HandleTalkPrimary(APlayerCharacter* Player)
 			if (Chapter2)
 			{
 				Chapter2->SetPhotoShown(false);
+				Chapter2->NotePhotoSeen(); // фото из ноутбука уходит в «Заметки» смартфона [246]
 			}
 			return false;
 		default:

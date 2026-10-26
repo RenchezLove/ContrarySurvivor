@@ -10,6 +10,9 @@
 #include "ContrarySurvivor/Retention/OnboardingComponent.h" // ADR-063: всплывашка «Подобрано: …»
 #include "AMasterInventoryItem.h"
 #include "ARangedWeapon.h" // ADR-063: детект огнестрела в луте трупа
+#include "ContrarySurvivor/Chapter2/Chapter2Component.h" // записка уходит в «Заметки» смартфона
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "UInventoryComponent.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -502,6 +505,27 @@ bool UCorpseLootWidget::TakeItemToBackpack(AMasterInventoryItem* TakenItem,
 		return false;
 	}
 
+	// Записка (правка Рината 26.10.2026) в рюкзак не ложится: она сразу уходит во вкладку
+	// «Заметки» смартфона — продать, выбросить или потерять её нельзя.
+	if (const AStoryNoteItem* Note = Cast<AStoryNoteItem>(TakenItem))
+	{
+		UChapter2Component* Chapter2 = Player ? Player->GetChapter2() : nullptr;
+		if (!Chapter2 || !Holder->TakeItem(TakenItem))
+		{
+			return false;
+		}
+		const FName NoteId = Note->NoteId;
+		// Одиночный забор — сообщение [245] сразу; групповой — хвостом общей строки.
+		Chapter2->AddNote(NoteId, /*bAnnounce=*/OutSummary == nullptr);
+		if (OutSummary)
+		{
+			OutSummary->bNoteTaken = true;
+		}
+		TakenItem->Destroy();
+		UE_LOG(LogQA, Display, TEXT("QA: CORPSE записка '%s' ушла в заметки смартфона"), *NoteId.ToString());
+		return true;
+	}
+
 	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
 	if (!Inventory)
 	{
@@ -675,6 +699,13 @@ FText UCorpseLootWidget::BuildTakenSummaryText(const FCorpseLootTakenSummary& Su
 		return Summary.bBackpackRefused ? BackpackFullHint : FText::GetEmpty();
 	}
 
+	// Взята только записка — строка одна: [245].
+	const FText NoteLine = UChapter2Settings::Get()->MercenaryNotePickupText;
+	if (Summary.bNoteTaken && Summary.Items.Num() == 0 && Summary.Money <= 0 && !Summary.bBackpackRefused)
+	{
+		return NoteLine;
+	}
+
 	const FString Separator = TakenSummarySeparator.ToString();
 	FString List;
 
@@ -725,6 +756,12 @@ FText UCorpseLootWidget::BuildTakenSummaryText(const FCorpseLootTakenSummary& Su
 		FFormatNamedArguments FullArgs;
 		FullArgs.Add(TEXT("Summary"), Line);
 		Line = FText::Format(BackpackFullWithSummaryFormat, FullArgs);
+	}
+
+	// Записка ушла в «Заметки» — [245] хвостом той же строки.
+	if (Summary.bNoteTaken && !NoteLine.IsEmpty())
+	{
+		Line = FText::FromString(Line.ToString() + TEXT(" ") + NoteLine.ToString());
 	}
 	return Line;
 }

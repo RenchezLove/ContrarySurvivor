@@ -575,10 +575,12 @@ bool FPdaLayoutCodeKeepsOwnerLayoutTest::RunTest(const FString& Parameters)
 	int32 Arrangers = 0;
 	Window->WidgetTree->ForEachWidget([&Arrangers, this](UWidget* Widget)
 	{
-		// Список заданий и строки в нём строит код (живые данные) — их не считаем.
+		// Список заданий и строки в нём строит код (живые данные) — их не считаем. Так же —
+		// содержимое вкладки «Заметки» (список заметок и записка, 26.10.2026): его строит код.
 		for (const UWidget* Up = Widget; Up; Up = Up->GetParent())
 		{
-			if (Up->GetFName() == TEXT("QuestList") || Up->GetFName() == TEXT("MapArea"))
+			if (Up->GetFName() == TEXT("QuestList") || Up->GetFName() == TEXT("MapArea")
+				|| Up->GetFName() == TEXT("NotesList") || Up->GetFName() == TEXT("NoteView"))
 			{
 				return;
 			}

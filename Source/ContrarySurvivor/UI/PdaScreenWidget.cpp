@@ -20,6 +20,11 @@
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"    // задание «Образцы из аномалий»
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h" // инструкция [236] и картинки снаряжения
 #include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Component.h" // заметки героя (вкладка «Заметки»)
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
+#include "Components/ScaleBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/PanelWidget.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -691,6 +696,7 @@ bool UPdaScreenWidget::FillEmptyIcons(UWidgetTree* Tree)
 	{
 		{ TEXT("QuestsTabIcon"),    &Settings->QuestsTabIcon, 0.85f },
 		{ TEXT("MapTabIcon"),       &Settings->MapTabIcon,    1.0f },
+		{ TEXT("NotesTabIcon"),     &Settings->NotesTabIcon,  1.0f },
 		{ TEXT("CloseIcon"),        &Settings->CloseIcon,     0.85f },
 		{ TEXT("TitleSignalIcon"),  &Settings->SignalIcon,    1.0f },
 		{ TEXT("TitleBatteryIcon"), &Settings->BatteryIcon,   1.0f },
@@ -742,7 +748,7 @@ void UPdaScreenWidget::ApplySkin()
 
 	// Вид кнопок из файла окна запоминается один раз, до первой подмены: к нему окно
 	// возвращается, если картинки в настройках нет.
-	UButton* const MenuButtons[] = { QuestsTabButton.Get(), MapTabButton.Get(), CloseButton.Get() };
+	UButton* const MenuButtons[] = { QuestsTabButton.Get(), MapTabButton.Get(), CloseButton.Get(), NotesTabButtonRef.Get() };
 	UButton* const MapButtons[] = { MapZoomInButton.Get(), MapZoomOutButton.Get(), MapFindHeroButton.Get() };
 	for (UButton* Button : MenuButtons)
 	{
@@ -767,6 +773,7 @@ void UPdaScreenWidget::ApplySkin()
 	const FButtonStyle MenuPicture = Plate ? PictureButtonStyle(Plate, Settings->MenuButtonPlateMargin) : FButtonStyle();
 	QuestsTabIdleStyle = Plate ? MenuPicture : FileStyle(QuestsTabButton);
 	MapTabIdleStyle = Plate ? MenuPicture : FileStyle(MapTabButton);
+	NotesTabIdleStyle = Plate ? MenuPicture : FileStyle(NotesTabButtonRef.Get());
 	ActiveTabStyle = PlateActive ? PictureButtonStyle(PlateActive, Settings->MenuButtonPlateMargin) : MakeFallbackMenuStyle(true);
 	if (CloseButton)
 	{
@@ -784,7 +791,7 @@ void UPdaScreenWidget::ApplySkin()
 
 	// Значки: картинка из настроек встаёт в пустой значок; значок без картинки спрятан.
 	FillEmptyIcons(WidgetTree);
-	for (UImage* Icon : { QuestsTabIcon.Get(), MapTabIcon.Get(), CloseIcon.Get(), TitleSignalIcon.Get(), TitleBatteryIcon.Get() })
+	for (UImage* Icon : { QuestsTabIcon.Get(), MapTabIcon.Get(), CloseIcon.Get(), TitleSignalIcon.Get(), TitleBatteryIcon.Get(), NotesTabIconRef.Get() })
 	{
 		if (Icon)
 		{
@@ -800,14 +807,20 @@ void UPdaScreenWidget::ApplyTabPlates()
 	{
 		return;
 	}
-	// Выбранная вкладка — яркой плашкой, вторая — обычной.
+	// Выбранная вкладка — яркой плашкой, остальные — обычной.
+	const bool bQuestsShown = !bMapTab && !bNotesTab;
+	const bool bMapShown = bMapTab && !bNotesTab;
 	if (QuestsTabButton)
 	{
-		QuestsTabButton->SetStyle(bMapTab ? QuestsTabIdleStyle : ActiveTabStyle);
+		QuestsTabButton->SetStyle(bQuestsShown ? ActiveTabStyle : QuestsTabIdleStyle);
 	}
 	if (MapTabButton)
 	{
-		MapTabButton->SetStyle(bMapTab ? ActiveTabStyle : MapTabIdleStyle);
+		MapTabButton->SetStyle(bMapShown ? ActiveTabStyle : MapTabIdleStyle);
+	}
+	if (UButton* NotesButton = NotesTabButtonRef.Get())
+	{
+		NotesButton->SetStyle(bNotesTab ? ActiveTabStyle : NotesTabIdleStyle);
 	}
 }
 
@@ -874,6 +887,9 @@ void UPdaScreenWidget::EnsureSetup()
 	{
 		MapFindHeroButton->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleFindHeroClicked);
 	}
+	// Вкладка «Заметки» (правка Рината 26.10.2026): элементы файла либо свои — до плашек, чтобы
+	// её кнопка получила тот же вид, что остальные вкладки.
+	EnsureNotesTab();
 	// Плашки кнопок и значки по настройкам (образец Рината 20.10.2026).
 	ApplySkin();
 	// Приближенная карта больше своего поля — лишнее обрезается по его краям.
@@ -952,6 +968,7 @@ void UPdaScreenWidget::InitPda(APlayerCharacter* InPlayer)
 	}
 
 	RefreshNow();
+	RebuildNotes();
 	RefreshTabLook();
 }
 
@@ -968,23 +985,43 @@ void UPdaScreenWidget::RefreshNow()
 void UPdaScreenWidget::ShowTab(bool bMap)
 {
 	bMapTab = bMap;
+	bNotesTab = false;
 	RefreshTabLook();
+}
+
+void UPdaScreenWidget::ShowNotesTab()
+{
+	bNotesTab = true;
+	bMapTab = false;
+	RebuildNotes();
+	RefreshTabLook();
+}
+
+void UPdaScreenWidget::HandleNotesTabClicked()
+{
+	ShowNotesTab();
 }
 
 void UPdaScreenWidget::RefreshTabLook()
 {
+	const bool bQuestsShown = !bMapTab && !bNotesTab;
+	const bool bMapShown = bMapTab && !bNotesTab;
 	if (QuestsPanel)
 	{
-		QuestsPanel->SetVisibility(bMapTab ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+		QuestsPanel->SetVisibility(bQuestsShown ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	if (MapPanel)
 	{
-		MapPanel->SetVisibility(bMapTab ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+		MapPanel->SetVisibility(bMapShown ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	if (UCanvasPanel* NotesPanel = NotesPanelRef.Get())
+	{
+		NotesPanel->SetVisibility(bNotesTab ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	// Подсказка карты стоит в левом столбце — видна только с картой.
 	if (MapHintText)
 	{
-		MapHintText->SetVisibility(bMapTab ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		MapHintText->SetVisibility(bMapShown ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	// Открытая вкладка — своей яркой плашкой (образец Рината 20.10.2026); подписи обеих вкладок
 	// белые, их цвет задаёт файл окна.
@@ -2185,6 +2222,11 @@ void UPdaScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	{
 		RefreshNow();
 	}
+	// Заметок стало больше, пока окно открыто, — список перестраивается.
+	if (ComputeNotesStamp() != LastNotesStamp)
+	{
+		RebuildNotes();
+	}
 	if (bMapTab)
 	{
 		if (MapPanel)
@@ -2365,3 +2407,374 @@ int32 UPdaScreenWidget::NativePaint(const FPaintArgs& Args, const FGeometry& All
 	return ArrowLayer + 1;
 }
 
+
+// ===========================================================================
+// Вкладка «Заметки» (правка Рината 26.10.2026)
+// ===========================================================================
+
+namespace
+{
+	// Лист записки в своих единицах: ширина постоянная, высота — по пропорциям картинки. Рамка
+	// вкладки масштабирует лист целиком под своё место (пропорции и поля текста сохраняются).
+	constexpr float NoteSheetWidth = 600.0f;
+
+	// Светлая «бумага», пока картинки записки нет в проекте.
+	const FLinearColor NotePaperColor(0.86f, 0.82f, 0.71f, 1.0f);
+
+	// Место элемента в холсте (как стоит в файле): для кнопки «Заметки», копирующей «Карту».
+	struct FCanvasPlace
+	{
+		FAnchors Anchors;
+		FMargin Offsets;
+		FVector2D Alignment = FVector2D::ZeroVector;
+		bool bAutoSize = false;
+		int32 ZOrder = 0;
+	};
+
+	bool ReadCanvasPlace(const UWidget* Widget, FCanvasPlace& Out)
+	{
+		const UCanvasPanelSlot* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+		if (!CanvasSlot)
+		{
+			return false;
+		}
+		Out.Anchors = CanvasSlot->GetAnchors();
+		Out.Offsets = CanvasSlot->GetOffsets();
+		Out.Alignment = CanvasSlot->GetAlignment();
+		Out.bAutoSize = CanvasSlot->GetAutoSize();
+		Out.ZOrder = CanvasSlot->GetZOrder();
+		return true;
+	}
+
+	void ApplyCanvasPlace(UCanvasPanelSlot* CanvasSlot, const FCanvasPlace& Place)
+	{
+		if (!CanvasSlot)
+		{
+			return;
+		}
+		CanvasSlot->SetAnchors(Place.Anchors);
+		CanvasSlot->SetOffsets(Place.Offsets);
+		CanvasSlot->SetAlignment(Place.Alignment);
+		CanvasSlot->SetAutoSize(Place.bAutoSize);
+		CanvasSlot->SetZOrder(Place.ZOrder);
+	}
+
+	// Шрифт записки: «от руки» из настроек, иначе наклонный шрифт интерфейса.
+	FSlateFontInfo NoteFont(const UChapter2Settings* S)
+	{
+		const int32 Size = FMath::Clamp(S->NoteTextSize, 8, 48);
+		if (!S->NoteFont.IsNull())
+		{
+			if (UObject* Font = S->NoteFont.LoadSynchronous())
+			{
+				return FSlateFontInfo(Font, Size);
+			}
+		}
+		return PdaFont(Size, TEXT("Italic"));
+	}
+}
+
+UWidget* UPdaScreenWidget::GetNotesPanelForTest() const
+{
+	return NotesPanelRef.Get();
+}
+
+void UPdaScreenWidget::EnsureNotesTab()
+{
+	if (!WidgetTree || NotesTabButtonRef.IsValid())
+	{
+		return;
+	}
+	const UChapter2Settings* S = UChapter2Settings::Get();
+
+	// 1) Кнопка вкладки: элемент владельца из файла окна либо своя — копия «Карты».
+	UButton* Button = Cast<UButton>(WidgetTree->FindWidget(TEXT("NotesTabButton")));
+	if (Button)
+	{
+		NotesTabTextRef = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("NotesTabText")));
+		NotesTabIconRef = Cast<UImage>(WidgetTree->FindWidget(TEXT("NotesTabIcon")));
+		// Подпись владельца не перезаписывается; пустую заполняем словом [237].
+		if (UTextBlock* Caption = NotesTabTextRef.Get(); Caption && Caption->GetText().IsEmpty())
+		{
+			Caption->SetText(S->NotesTabText);
+		}
+	}
+	else if (MapTabButton)
+	{
+		UCanvasPanel* Menu = Cast<UCanvasPanel>(MapTabButton->GetParent());
+		FCanvasPlace MapPlace;
+		if (Menu && ReadCanvasPlace(MapTabButton, MapPlace))
+		{
+			UCanvasPanel* Content = nullptr;
+			Button = NewButtonWithCanvas(WidgetTree, TEXT("NotesTabButton"), TEXT("NotesTabContent"), MapTabButton->GetStyle(), Content);
+			bNotesTabFromCode = true;
+
+			// Место: того же размера, что «Карта», над «Закрыть» с тем же просветом, что между
+			// «Заданиями» и «Картой» (между «Картой» и «Закрыть» в меню владельца лежит подсказка
+			// карты — её начало не закрываем). «Закрыть» не в этом меню — сразу под «Картой».
+			FCanvasPlace Place = MapPlace;
+			const double MapTop = MapPlace.Offsets.Top;
+			const double MapH = MapPlace.Offsets.Bottom;
+			double Gap = 12.0;
+			FCanvasPlace QuestsPlace;
+			if (QuestsTabButton && QuestsTabButton->GetParent() == Menu && ReadCanvasPlace(QuestsTabButton, QuestsPlace))
+			{
+				Gap = FMath::Max(0.0, MapTop - (QuestsPlace.Offsets.Top + QuestsPlace.Offsets.Bottom));
+			}
+			double Top = MapTop + MapH + Gap;
+			FCanvasPlace ClosePlace;
+			if (CloseButton && CloseButton->GetParent() == Menu && ReadCanvasPlace(CloseButton, ClosePlace)
+				&& ClosePlace.Anchors.Minimum == MapPlace.Anchors.Minimum)
+			{
+				const double AboveClose = ClosePlace.Offsets.Top - Gap - MapH;
+				if (AboveClose >= Top)
+				{
+					Top = AboveClose;
+				}
+			}
+			Place.Offsets.Top = static_cast<float>(Top);
+			ApplyCanvasPlace(Menu->AddChildToCanvas(Button), Place);
+
+			// На кнопке — значок и подпись на тех же местах, что у «Карты».
+			FCanvasPlace IconPlace;
+			if (MapTabIcon && ReadCanvasPlace(MapTabIcon, IconPlace))
+			{
+				UImage* Icon = NewIcon(WidgetTree, TEXT("NotesTabIcon"), FVector2D(MapTabIcon->GetBrush().ImageSize));
+				ApplyCanvasPlace(Content->AddChildToCanvas(Icon), IconPlace);
+				NotesTabIconRef = Icon;
+			}
+			FCanvasPlace TextPlace;
+			if (MapTabText && ReadCanvasPlace(MapTabText, TextPlace))
+			{
+				UTextBlock* Caption = NewText(WidgetTree, TEXT("NotesTabText"), S->NotesTabText, PdaTextColor, MenuCaptionFontSize, TEXT("Bold"));
+				Caption->SetFont(MapTabText->GetFont());
+				Caption->SetColorAndOpacity(MapTabText->GetColorAndOpacity());
+				Caption->SetJustification(ETextJustify::Left);
+				Caption->SetAutoWrapText(MapTabText->GetAutoWrapText());
+				Caption->SetVisibility(ESlateVisibility::HitTestInvisible);
+				ApplyCanvasPlace(Content->AddChildToCanvas(Caption), TextPlace);
+				NotesTabTextRef = Caption;
+			}
+		}
+	}
+	if (!Button)
+	{
+		UE_LOG(LogQA, Warning, TEXT("PdaScreenWidget: вкладку «Заметки» некуда поставить (в окне нет ни NotesTabButton, ни кнопки «Карта»)"));
+		return;
+	}
+	NotesTabButtonRef = Button;
+	Button->OnClicked.AddUniqueDynamic(this, &UPdaScreenWidget::HandleNotesTabClicked);
+
+	// 2) Холст вкладки: элемент владельца либо свой — на месте вкладки «Задания».
+	UCanvasPanel* Panel = Cast<UCanvasPanel>(WidgetTree->FindWidget(TEXT("NotesPanel")));
+	if (!Panel && QuestsPanel)
+	{
+		UCanvasPanel* Parent = Cast<UCanvasPanel>(QuestsPanel->GetParent());
+		FCanvasPlace QuestsPlace;
+		if (Parent && ReadCanvasPlace(QuestsPanel, QuestsPlace))
+		{
+			Panel = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("NotesPanel"));
+			ApplyCanvasPlace(Parent->AddChildToCanvas(Panel), QuestsPlace);
+		}
+	}
+	if (!Panel)
+	{
+		return;
+	}
+	NotesPanelRef = Panel;
+	Panel->SetVisibility(ESlateVisibility::Collapsed);
+
+	// 3) Содержимое вкладки: слева список заметок (той же ширины, что список заданий), справа —
+	// записка, вписанная в оставшееся место.
+	float ListW = 260.0f;
+	if (const UCanvasPanelSlot* ListSlot = QuestList ? Cast<UCanvasPanelSlot>(QuestList->Slot) : nullptr)
+	{
+		ListW = FMath::Max(120.0f, static_cast<float>(ListSlot->GetSize().X));
+	}
+	UScrollBox* List = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("NotesList"));
+	PlaceStretch(Panel, List, FAnchors(0.0f, 0.0f, 0.0f, 1.0f), FMargin(0.0f, 0.0f, ListW, 0.0f));
+	NotesListRef = List;
+
+	UScaleBox* View = WidgetTree->ConstructWidget<UScaleBox>(UScaleBox::StaticClass(), TEXT("NoteView"));
+	View->SetStretch(EStretch::ScaleToFit);
+	View->SetStretchDirection(EStretchDirection::Both);
+	PlaceStretch(Panel, View, FAnchors(0.0f, 0.0f, 1.0f, 1.0f), FMargin(ListW + 16.0f, 0.0f, 0.0f, 0.0f));
+	NoteViewRef = View;
+}
+
+uint32 UPdaScreenWidget::ComputeNotesStamp() const
+{
+	const UChapter2Component* Chapter2 = Player.IsValid() ? Player->GetChapter2() : nullptr;
+	if (!Chapter2)
+	{
+		return 0;
+	}
+	uint32 Stamp = GetTypeHash(Chapter2->GetNotes().Num());
+	for (const FName& Id : Chapter2->GetNotes())
+	{
+		Stamp = HashCombine(Stamp, GetTypeHash(Id));
+	}
+	return Stamp;
+}
+
+void UPdaScreenWidget::RebuildNotes()
+{
+	LastNotesStamp = ComputeNotesStamp();
+	NoteRowCount = 0;
+	UScrollBox* List = NotesListRef.Get();
+	if (!List || !WidgetTree)
+	{
+		return;
+	}
+	List->ClearChildren();
+
+	// Заметки, которые игра знает, — новые сверху.
+	TArray<FStoryNoteView> Views;
+	if (const UChapter2Component* Chapter2 = Player.IsValid() ? Player->GetChapter2() : nullptr)
+	{
+		const TArray<FName>& Notes = Chapter2->GetNotes();
+		for (int32 Index = Notes.Num() - 1; Index >= 0; --Index)
+		{
+			FStoryNoteView View;
+			if (StoryNotes::Describe(Notes[Index], View))
+			{
+				Views.Add(View);
+			}
+		}
+	}
+	if (!Views.ContainsByPredicate([this](const FStoryNoteView& V) { return V.Id == SelectedNoteId; }))
+	{
+		SelectedNoteId = Views.Num() > 0 ? Views[0].Id : NAME_None;
+	}
+
+	for (const FStoryNoteView& View : Views)
+	{
+		const bool bSelected = (View.Id == SelectedNoteId);
+		UPdaQuestButton* Row = WidgetTree->ConstructWidget<UPdaQuestButton>(UPdaQuestButton::StaticClass());
+		Row->QuestId = View.Id;
+		Row->BindPick();
+		Row->OnPicked.BindUObject(this, &UPdaScreenWidget::SelectNote);
+		const FLinearColor RowColor = bSelected
+			? FLinearColor(0.22f, 0.24f, 0.29f, 1.0f) : FLinearColor(0.11f, 0.12f, 0.15f, 1.0f);
+		Row->SetStyle(FlatButtonStyle(RowColor, RowColor * 1.25f, RowColor * 0.8f));
+		UTextBlock* Title = NewText(WidgetTree, NAME_None, View.Title, PdaTextColor, 17, TEXT("Bold"));
+		Title->SetAutoWrapText(true);
+		Row->SetContent(Title);
+		if (UButtonSlot* TitleSlot = Cast<UButtonSlot>(Title->Slot))
+		{
+			TitleSlot->SetHorizontalAlignment(HAlign_Left);
+			TitleSlot->SetPadding(QuestRowPadding);
+		}
+		List->AddChild(Row);
+		if (UScrollBoxSlot* RowSlot = Cast<UScrollBoxSlot>(Row->Slot))
+		{
+			RowSlot->SetPadding(FMargin(0.0f, QuestRowGap * 0.5f, 8.0f, QuestRowGap * 0.5f));
+		}
+		++NoteRowCount;
+	}
+	RebuildNoteView();
+}
+
+void UPdaScreenWidget::SelectNote(FName NoteId)
+{
+	SelectedNoteId = NoteId;
+	RebuildNoteView();
+	// Подсветку строк перерисуем на следующем кадре: сейчас мы внутри нажатия на строку списка.
+	LastNotesStamp = 0;
+}
+
+void UPdaScreenWidget::RebuildNoteView()
+{
+	UScaleBox* View = Cast<UScaleBox>(NoteViewRef.Get());
+	NoteTextRef.Reset();
+	NoteImageRef.Reset();
+	if (!View || !WidgetTree)
+	{
+		return;
+	}
+	View->ClearChildren();
+	FStoryNoteView Note;
+	if (SelectedNoteId.IsNone() || !StoryNotes::Describe(SelectedNoteId, Note))
+	{
+		return;
+	}
+	const UChapter2Settings* S = UChapter2Settings::Get();
+	if (Note.Image)
+	{
+		LoadedNoteTextures.AddUnique(Note.Image);
+	}
+
+	// Лист: ширина постоянная, высота — по пропорциям картинки.
+	double Aspect = Note.FallbackAspect > 0.05f ? Note.FallbackAspect : 1.0f;
+	const FIntPoint PictureSize = PdaMap::GetPictureSize(Note.Image);
+	if (PictureSize.X > 0 && PictureSize.Y > 0)
+	{
+		Aspect = static_cast<double>(PictureSize.X) / PictureSize.Y;
+	}
+	const FVector2D Sheet(NoteSheetWidth, NoteSheetWidth / Aspect);
+
+	USizeBox* SheetBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), NAME_None);
+	SheetBox->SetWidthOverride(Sheet.X);
+	SheetBox->SetHeightOverride(Sheet.Y);
+	View->SetContent(SheetBox);
+	UOverlay* Layers = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), NAME_None);
+	SheetBox->SetContent(Layers);
+
+	// Картинка записки (бумага со скрепкой и фото) либо светлая бумага, пока картинки нет.
+	UWidget* Picture = nullptr;
+	if (Note.Image)
+	{
+		UImage* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), NAME_None);
+		Image->SetBrushFromTexture(Note.Image);
+		Picture = Image;
+	}
+	else if (Note.bPaper)
+	{
+		UBorder* Paper = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), NAME_None);
+		Paper->SetBrush(RoundedBrush(NotePaperColor, 6.0f));
+		Picture = Paper;
+	}
+	if (Picture)
+	{
+		Picture->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UOverlaySlot* PictureSlot = Layers->AddChildToOverlay(Picture))
+		{
+			PictureSlot->SetHorizontalAlignment(HAlign_Fill);
+			PictureSlot->SetVerticalAlignment(VAlign_Fill);
+		}
+		NoteImageRef = Picture;
+	}
+
+	// Текст поверх бумаги — в свободной части листа (отступы — доли листа из настроек); длинный
+	// прокручивается пальцем и колесом.
+	if (!Note.Body.IsEmpty())
+	{
+		UScrollBox* TextScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), NAME_None);
+		TextScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), NAME_None);
+		Text->SetText(Note.Body);
+		Text->SetFont(NoteFont(S));
+		Text->SetColorAndOpacity(FSlateColor(S->NoteTextColor));
+		Text->SetAutoWrapText(true);
+		TextScroll->AddChild(Text);
+		const FMargin& M = S->NoteTextMargins;
+		if (UOverlaySlot* TextSlot = Layers->AddChildToOverlay(TextScroll))
+		{
+			TextSlot->SetHorizontalAlignment(HAlign_Fill);
+			TextSlot->SetVerticalAlignment(VAlign_Fill);
+			TextSlot->SetPadding(FMargin(M.Left * Sheet.X, M.Top * Sheet.Y, M.Right * Sheet.X, M.Bottom * Sheet.Y));
+		}
+		NoteTextRef = Text;
+	}
+}
+
+FText UPdaScreenWidget::GetShownNoteTextForTest() const
+{
+	const UTextBlock* Text = NoteTextRef.Get();
+	return Text ? Text->GetText() : FText::GetEmpty();
+}
+
+bool UPdaScreenWidget::IsNoteImageShownForTest() const
+{
+	return NoteImageRef.IsValid();
+}

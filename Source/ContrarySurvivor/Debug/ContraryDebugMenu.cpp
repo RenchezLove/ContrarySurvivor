@@ -17,6 +17,7 @@
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
 #include "ContrarySurvivor/Chapter2/PoisonZone.h"
 #include "ContrarySurvivor/Chapter2/VeraNPC.h"
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Components/MapExplorationComponent.h"
 #include "ContrarySurvivor/Components/QuestComponent.h"
@@ -519,7 +520,7 @@ FString GetChapter2DebugPointLabel(EChapter2DebugPoint Point)
 	{
 		case EChapter2DebugPoint::TalkToVera:        return TEXT("Глава 2: ноутбук сдан учёному — идти к Вере");
 		case EChapter2DebugPoint::SamplesTaken:      return TEXT("Глава 2: задание Веры взято (у края низины)");
-		case EChapter2DebugPoint::SamplesCollected:  return TEXT("Глава 2: три образца собраны (перед наёмником)");
+		case EChapter2DebugPoint::SamplesCollected:  return TEXT("Глава 2: все образцы собраны (перед наёмником)");
 		case EChapter2DebugPoint::MercenaryDefeated: return TEXT("Глава 2: наёмник побеждён (сдать задание Вере)");
 	}
 	return FString();
@@ -659,6 +660,7 @@ bool SetStoryChapter2(APlayerCharacter* Player, EChapter2DebugPoint Point)
 		Quests->OfferQuest(Vera->GetSamplesQuest());
 		bOk &= Quests->AcceptQuest(Chapter2Ids::SamplesQuest);
 		Chapter2->GiveApparatus();
+		Chapter2->SyncSamplesTarget(); // сколько образцов — решает низина на уровне
 	}
 	if (Point == EChapter2DebugPoint::SamplesCollected || Point == EChapter2DebugPoint::MercenaryDefeated)
 	{
@@ -688,6 +690,9 @@ bool SetStoryChapter2(APlayerCharacter* Player, EChapter2DebugPoint Point)
 	if (Point == EChapter2DebugPoint::MercenaryDefeated)
 	{
 		Chapter2->NotifyMercenaryDefeated();
+		// Записка из добычи наёмника — сразу в «Заметках» (правка Рината 26.10.2026): тела в этой
+		// точке нет, обыскивать некого.
+		Chapter2->AddNote(StoryNoteIds::MercenaryNote, /*bAnnounce=*/false);
 	}
 	Chapter2->SyncStoryState(); // цель [230] и снаряжение в сумке — по новому журналу
 	Chapter2->RefreshSampleActors();

@@ -264,7 +264,33 @@ public:
 
 	// Показать вкладку: false — «Задания», true — «Карта».
 	void ShowTab(bool bMap);
-	bool IsMapTabShown() const { return bMapTab; }
+	bool IsMapTabShown() const { return bMapTab && !bNotesTab; }
+
+	// --- Вкладка «Заметки» (правка Рината 26.10.2026: «помимо вкладки "задания" и "карта" -
+	// добавить вкладку "заметки". В этой вкладке можно будет прочитать записку наемника
+	// куратора») ---
+	//
+	// Файл окна WBP_Pda раскладывает владелец, код его элементы не двигает. Поэтому: если в файле
+	// есть элементы с именами NotesTabButton (внутри холст с NotesTabIcon и NotesTabText) и
+	// NotesPanel (холст на месте вкладки) — берутся они, как их поставил владелец. Нет — код
+	// добавляет свои: кнопку того же вида и размера, что «Карта», в то же меню над «Закрыть», и
+	// холст вкладки на месте вкладки «Задания». Содержимое вкладки (список заметок слева,
+	// записка справа) код строит сам внутри холста вкладки.
+	void ShowNotesTab();
+	bool IsNotesTabShown() const { return bNotesTab; }
+
+	// Выбрать заметку в списке (записка справа).
+	void SelectNote(FName NoteId);
+	FName GetSelectedNoteId() const { return SelectedNoteId; }
+
+	// Для автопроверок.
+	int32 GetNoteRowCount() const { return NoteRowCount; }
+	FText GetShownNoteTextForTest() const;
+	bool IsNoteImageShownForTest() const;
+	UButton* GetNotesTabButtonForTest() const { return NotesTabButtonRef.Get(); }
+	UWidget* GetNotesPanelForTest() const;
+	// Создана ли кнопка вкладки кодом (в файле окна её нет).
+	bool IsNotesTabFromCodeForTest() const { return bNotesTabFromCode; }
 
 	// Выбрать задание в списке (сведения справа).
 	void SelectQuest(FName QuestId);
@@ -425,7 +451,44 @@ protected:
 	UFUNCTION()
 	void HandleTrackClicked();
 
+	UFUNCTION()
+	void HandleNotesTabClicked();
+
 private:
+	// --- Вкладка «Заметки» ---
+
+	// Найти элементы вкладки в файле окна или добавить свои (один раз, из EnsureSetup).
+	void EnsureNotesTab();
+	// Перестроить список заметок и записку справа (при открытии вкладки и когда заметок стало
+	// больше).
+	void RebuildNotes();
+	void RebuildNoteView();
+	uint32 ComputeNotesStamp() const;
+
+	// Элементы вкладки: из файла окна по имени либо добавленные кодом. Не поля-элементы окна:
+	// поля обязаны быть в файле владельца (проверка Pda.DesignerAssetBindsToCode).
+	TWeakObjectPtr<UButton> NotesTabButtonRef;
+	TWeakObjectPtr<UTextBlock> NotesTabTextRef;
+	TWeakObjectPtr<UImage> NotesTabIconRef;
+	TWeakObjectPtr<UCanvasPanel> NotesPanelRef;
+	TWeakObjectPtr<UScrollBox> NotesListRef;
+	TWeakObjectPtr<UPanelWidget> NoteViewRef;   // место записки (рамка, масштабирующая лист)
+	TWeakObjectPtr<UTextBlock> NoteTextRef;     // текст записки (пусто — у заметки только картинка)
+	TWeakObjectPtr<UWidget> NoteImageRef;       // картинка заметки (или бумага без картинки)
+
+	bool bNotesTab = false;
+	bool bNotesTabFromCode = false;
+	FName SelectedNoteId = NAME_None;
+	uint32 LastNotesStamp = 0;
+	int32 NoteRowCount = 0;
+
+	UPROPERTY(Transient)
+	FButtonStyle NotesTabIdleStyle;
+
+	// Картинки заметок, пока окно живо.
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTexture2D>> LoadedNoteTextures;
+
 	// Достроить дерево кодом, если его нет, привязать элементы и кнопки. Повторный вызов
 	// бесплатен. Зовётся и из NativeOnInitialized, и из InitPda: в прогонах автопроверок
 	// NativeOnInitialized движок не зовёт (нет живого игрока — UserWidget.cpp:160).

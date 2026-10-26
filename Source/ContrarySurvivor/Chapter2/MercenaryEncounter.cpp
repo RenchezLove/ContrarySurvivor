@@ -14,6 +14,9 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/BillboardComponent.h"
 #include "ContrarySurvivor/Chapter2/PoisonZone.h" // зона заправки = территория базы учёных
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h" // записка наёмника в добыче тела
+#include "ContrarySurvivor/Components/CorpseLootComponent.h"
+#include "ContrarySurvivor/Data/ContraryItemLibrary.h"
 #include "Engine/Texture2D.h"
 #include "EngineUtils.h"
 #include "UObject/ConstructorHelpers.h"
@@ -82,8 +85,13 @@ void AMercenaryEncounter::Tick(float DeltaSeconds)
 void AMercenaryEncounter::UpdateEncounter(APlayerCharacter* Player)
 {
 	UChapter2Component* Chapter2 = Player ? Player->GetChapter2() : nullptr;
-	if (!Chapter2 || Chapter2->IsMercenaryDefeated())
+	if (!Chapter2)
 	{
+		return;
+	}
+	if (Chapter2->IsMercenaryDefeated())
+	{
+		CheckNoteFallback(Chapter2);
 		return;
 	}
 
@@ -93,6 +101,7 @@ void AMercenaryEncounter::UpdateEncounter(APlayerCharacter* Player)
 
 	if (bMercenarySpawned && !bAlive)
 	{
+		PlaceNoteOnCorpse(Merc, Chapter2);
 		Chapter2->NotifyMercenaryDefeated();
 		return;
 	}
@@ -144,6 +153,53 @@ void AMercenaryEncounter::UpdateEncounter(APlayerCharacter* Player)
 		{
 			PC->OpenTalk(this);
 		}
+	}
+}
+
+void AMercenaryEncounter::PlaceNoteOnCorpse(AEnemyCharacter* Corpse, UChapter2Component* Chapter2)
+{
+	if (bNotePlaced || !Chapter2 || Chapter2->HasNote(StoryNoteIds::MercenaryNote))
+	{
+		return;
+	}
+	bNotePlaced = true;
+	// Добычу тела враг уложил при смерти (AEnemyCharacter::DropLoot -> InitLoot); записка
+	// докладывается к ней. Тела уже нет — записка сразу у героя.
+	UCorpseLootComponent* Loot = Corpse ? Corpse->FindComponentByClass<UCorpseLootComponent>() : nullptr;
+	UWorld* World = GetWorld();
+	AMasterInventoryItem* Note = (Loot && World)
+		? ContraryItems::SpawnItem(World, AStoryNoteItem::StaticClass(), FTransform(Corpse->GetActorLocation()), nullptr,
+			[](AMasterInventoryItem& Item)
+			{
+				if (AStoryNoteItem* AsNote = Cast<AStoryNoteItem>(&Item))
+				{
+					AsNote->NoteId = StoryNoteIds::MercenaryNote;
+				}
+				Item.ItemName = AStoryNoteItem::MakeItemKey(StoryNoteIds::MercenaryNote);
+			})
+		: nullptr;
+	if (!Note)
+	{
+		UE_LOG(LogQA, Warning, TEXT("QA: chapter2 записку наёмника некуда положить (нет тела или добычи) — она сразу в заметках"));
+		Chapter2->AddNote(StoryNoteIds::MercenaryNote, /*bAnnounce=*/true);
+		return;
+	}
+	// Предмет добычи — данные, а не объект сцены (тот же приём, что у добычи врага).
+	Note->SetActorHiddenInGame(true);
+	Note->SetActorEnableCollision(false);
+	Loot->AddLoot(0.0f, { Note }, /*bRegisterSearchable=*/true);
+	NoteItem = Note;
+	UE_LOG(LogQA, Display, TEXT("QA: chapter2 записка наёмника лежит в добыче тела '%s'"), *Corpse->GetName());
+}
+
+void AMercenaryEncounter::CheckNoteFallback(UChapter2Component* Chapter2)
+{
+	// Записку не взяли, а тело с ней исчезло (непрочитанная добыча уничтожается вместе с
+	// телом): сюжетная записка не теряется — она уходит в «Заметки» с сообщением [245].
+	if (bNotePlaced && !NoteItem.IsValid() && Chapter2 && !Chapter2->HasNote(StoryNoteIds::MercenaryNote))
+	{
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 тело наёмника исчезло вместе с запиской — записка в заметках"));
+		Chapter2->AddNote(StoryNoteIds::MercenaryNote, /*bAnnounce=*/true);
 	}
 }
 
@@ -249,6 +305,8 @@ void AMercenaryEncounter::ResetEncounter()
 		Merc->Destroy();
 	}
 	Mercenary.Reset();
+	NoteItem.Reset();
+	bNotePlaced = false;
 	bMercenarySpawned = false;
 	bTalkDone = false;
 	bFightStarted = false;

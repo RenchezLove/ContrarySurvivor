@@ -47,6 +47,7 @@
 // Правки Рината 25.10.2026 вечер.
 #include "ContrarySurvivor/Chapter2/Chapter2ScreenWidget.h"
 #include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
+#include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "ContrarySurvivor/Debug/QADebug.h"           // CONTRARY_WITH_QA_CHEATS
 #include "ContrarySurvivor/Debug/ContraryDebugMenu.h" // точки главы 2 в меню отладки
 #include "ContrarySurvivor/Actors/ElderNPC.h"
@@ -587,32 +588,12 @@ bool FChapter2FixesRulesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Стрелка полупрозрачная"), S->LocatorArrowOpacity > 0.0f && S->LocatorArrowOpacity < 1.0f);
 	TestTrue(TEXT("Стик-локатор чуть больше обычного"), S->LocatorStickScale > 1.0f && S->LocatorStickScale <= 1.5f);
 
-	// Фотография не заходит на окно разговора ни на ПК (16:9), ни на вытянутом телефоне (20:9).
-	struct FPhotoCase { const TCHAR* Name; FVector2D Screen; FBox2D Dialog; };
-	const FVector2D Pc(1920.0, 1080.0);
-	const FVector2D Phone(2400.0, 1080.0);
-	const FPhotoCase Cases[] = {
-		{ TEXT("ПК, окно разговора снизу"), Pc, FBox2D(FVector2D(192.0, 590.0), FVector2D(1728.0, 1080.0)) },
-		{ TEXT("Телефон, окно разговора снизу"), Phone, FBox2D(FVector2D(240.0, 590.0), FVector2D(2160.0, 1080.0)) },
-		{ TEXT("ПК, высокое окно разговора по центру"), Pc, FBox2D(FVector2D(560.0, 120.0), FVector2D(1360.0, 1040.0)) },
-		{ TEXT("Телефон, окно разговора справа"), Phone, FBox2D(FVector2D(1100.0, 60.0), FVector2D(2400.0, 1060.0)) } };
-	for (const FPhotoCase& Case : Cases)
+	// Фотография — крупно над окном разговора (правка 26.10; подробно — Chapter2.Notes2610.PhotoAboveDialog).
 	{
-		const FBox2D Fit = Chapter2Rules::FitPhoto(Case.Screen, Case.Dialog, 1.5f, S->PhotoSize, S->PhotoMargin);
-		if (!TestTrue(FString::Printf(TEXT("%s: фотографии нашлось место"), Case.Name), Fit.bIsValid))
-		{
-			continue;
-		}
-		const bool bApart = Fit.Max.X <= Case.Dialog.Min.X + 0.01 || Fit.Min.X >= Case.Dialog.Max.X - 0.01
-			|| Fit.Max.Y <= Case.Dialog.Min.Y + 0.01 || Fit.Min.Y >= Case.Dialog.Max.Y - 0.01;
-		TestTrue(FString::Printf(TEXT("%s: фотография не заходит на реплику и кнопки"), Case.Name), bApart);
-		TestTrue(FString::Printf(TEXT("%s: фотография целиком на экране"), Case.Name),
-			Fit.Min.X >= -0.01 && Fit.Min.Y >= -0.01 && Fit.Max.X <= Case.Screen.X + 0.01 && Fit.Max.Y <= Case.Screen.Y + 0.01);
-		const FVector2D Size = Fit.GetSize();
-		TestTrue(FString::Printf(TEXT("%s: пропорции фотографии сохранены"), Case.Name),
-			Size.Y > 1.0 && FMath::IsNearlyEqual(Size.X / Size.Y, 1.5, 0.01));
-		TestTrue(FString::Printf(TEXT("%s: фотография не больше заданного"), Case.Name),
-			Size.X <= S->PhotoSize.X + 0.01 && Size.Y <= S->PhotoSize.Y + 0.01);
+		const FVector2D Pc(1920.0, 1080.0);
+		const FBox2D Dialog(FVector2D(165.0, 431.0), FVector2D(1755.0, 1031.0));
+		const Chapter2Rules::FPhotoPlacement Place = Chapter2Rules::PlacePhotoAboveDialog(Pc, Dialog, 1.5f, S->PhotoMinHeightFraction, S->PhotoMargin);
+		TestTrue(TEXT("Фотографии нашлось место над окном разговора"), Place.Photo.bIsValid && Place.Photo.Max.Y <= Dialog.Min.Y + 0.01);
 	}
 
 	// Вспышка здоровья: любое уменьшение.
@@ -989,6 +970,8 @@ bool FChapter2DebugPointsTest::RunTest(const FString& Parameters)
 	// --- Точка 4: наёмник побеждён, герой у Веры ---
 	TestTrue(TEXT("Точка «наёмник побеждён» отработала"), SetStoryChapter2(Player, EChapter2DebugPoint::MercenaryDefeated));
 	TestTrue(TEXT("Наёмник побеждён"), C->IsMercenaryDefeated());
+	TestTrue(TEXT("Точка «наёмник побеждён» даёт записку наёмника в заметки"), C->HasNote(StoryNoteIds::MercenaryNote));
+	TestFalse(TEXT("Фото из ноутбука в этой точке ещё нет"), C->HasNote(StoryNoteIds::VeraPhoto));
 	TestNull(TEXT("Наёмника прошлой точки на уровне нет"), Encounter->GetMercenary());
 	TestEqual(TEXT("Задание готово к сдаче"), Chapter2Test::StateOf(Player, QId), EQuestState::Completed);
 	TestTrue(TEXT("Герой у Веры"), FVector::Dist2D(Player->GetActorLocation(), Vera->GetActorLocation()) <= 700.0f);

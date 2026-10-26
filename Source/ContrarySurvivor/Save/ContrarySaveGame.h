@@ -369,6 +369,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
 	bool bChapter2EndShown = false;
 
+	// Найденные заметки смартфона (StoryNoteIds: записка наёмника, фото из ноутбука) в порядке
+	// находки (правка Рината 26.10.2026). Старые сохранения — пусто.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
+	TArray<FName> StoryNotes;
+
 	// Переносит поля удержания из From в To (для SaveGame(), который создаёт свежий объект).
 	static void CopyRetentionData(const UContrarySaveGame* From, UContrarySaveGame* To);
 };

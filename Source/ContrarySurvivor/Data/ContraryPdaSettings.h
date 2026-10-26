@@ -160,6 +160,11 @@ public:
 		DisplayName = "Значок вкладки «Карта»"))
 	TSoftObjectPtr<UTexture2D> MapTabIcon;
 
+	// Значок вкладки «Заметки» (правка Рината 26.10.2026). Пусто — без значка.
+	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
+		DisplayName = "Значок вкладки «Заметки»"))
+	TSoftObjectPtr<UTexture2D> NotesTabIcon;
+
 	UPROPERTY(config, EditAnywhere, Category = "Смартфон: кнопки", meta = (
 		DisplayName = "Значок кнопки «Закрыть»"))
 	TSoftObjectPtr<UTexture2D> CloseIcon;

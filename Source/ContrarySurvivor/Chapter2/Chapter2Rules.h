@@ -124,60 +124,65 @@ namespace Chapter2Rules
 		return SecondsWithoutPickup >= FMath::Max(0.0f, ArrowDelay);
 	}
 
-	/**
-	 * Где поставить фотографию из ноутбука, чтобы она не заходила на окно разговора (правка
-	 * Рината 25.10 вечер: «фотография частично перекрывает область диалога (реплики и кнопки)»).
-	 * Screen — размер экрана, Occupied — прямоугольник, занятый окном разговора (пустой — окна
-	 * нет). Из свободных полос сверху, снизу, слева и справа от окна берётся та, где фотография
-	 * выходит крупнее всего; в полосе она стоит по центру, с отступом Margin от краёв полосы,
-	 * своих пропорций (Aspect = ширина / высота) и не больше MaxSize.
-	 */
-	inline FBox2D FitPhoto(const FVector2D& Screen, const FBox2D& Occupied, float Aspect, const FVector2D& MaxSize, float Margin)
+	/** Где стоит фотография из ноутбука и докуда должно опуститься окно разговора. */
+	struct FPhotoPlacement
 	{
-		const double SafeAspect = Aspect > 0.01f ? static_cast<double>(Aspect) : 1.5;
-		auto FitInto = [&](const FBox2D& Region) -> FBox2D
-		{
-			const FVector2D Size = Region.GetSize() - FVector2D(2.0 * Margin, 2.0 * Margin);
-			if (Size.X <= 1.0 || Size.Y <= 1.0)
-			{
-				return FBox2D(ForceInit);
-			}
-			double W = FMath::Min(Size.X, MaxSize.X);
-			double H = W / SafeAspect;
-			if (H > FMath::Min(Size.Y, MaxSize.Y))
-			{
-				H = FMath::Min(Size.Y, MaxSize.Y);
-				W = H * SafeAspect;
-			}
-			const FVector2D Center = Region.GetCenter();
-			return FBox2D(Center - FVector2D(W, H) * 0.5, Center + FVector2D(W, H) * 0.5);
-		};
+		FBox2D Photo = FBox2D(ForceInit); // место фотографии (пустое — ставить некуда)
+		double DialogTop = 0.0;           // верх окна разговора не выше этого (0 — окно не трогать)
+	};
 
-		if (!Occupied.bIsValid)
+	/**
+	 * Фотография из ноутбука (правка Рината 26.10.2026: «Фото теперь вообще маленькое сбоку
+	 * появляется»; решение лида): пока она показана, она крупно стоит по центру В ВЕРХНЕЙ
+	 * свободной части экрана над окном разговора. Высота — всё место над окном минус отступы
+	 * Margin, но не меньше MinHeightFraction высоты экрана; если места над окном меньше, окно
+	 * разговора на это время опускается (DialogTop — новый верх окна). Пропорции фотографии
+	 * сохраняются (Aspect = ширина / высота); шире экрана она не бывает.
+	 * Screen — размер экрана, DialogBox — окно разговора (пустой — окна нет: фотография по
+	 * центру экрана).
+	 */
+	inline FPhotoPlacement PlacePhotoAboveDialog(const FVector2D& Screen, const FBox2D& DialogBox, float Aspect,
+		float MinHeightFraction, float Margin)
+	{
+		FPhotoPlacement Result;
+		const double SafeAspect = Aspect > 0.01f ? static_cast<double>(Aspect) : 1.5;
+		const double M = FMath::Max(0.0, static_cast<double>(Margin));
+		const double MinH = FMath::Clamp(static_cast<double>(MinHeightFraction), 0.05, 0.9) * Screen.Y;
+		const double MaxW = Screen.X - 2.0 * M;
+		if (Screen.X <= 1.0 || Screen.Y <= 1.0 || MaxW <= 1.0)
 		{
-			return FitInto(FBox2D(FVector2D::ZeroVector, Screen));
+			return Result;
 		}
-		const FBox2D Regions[] = {
-			FBox2D(FVector2D(0.0, 0.0), FVector2D(Screen.X, Occupied.Min.Y)),        // сверху
-			FBox2D(FVector2D(0.0, Occupied.Max.Y), FVector2D(Screen.X, Screen.Y)),   // снизу
-			FBox2D(FVector2D(0.0, 0.0), FVector2D(Occupied.Min.X, Screen.Y)),        // слева
-			FBox2D(FVector2D(Occupied.Max.X, 0.0), FVector2D(Screen.X, Screen.Y)) }; // справа
-		FBox2D Best(ForceInit);
-		double BestArea = 0.0;
-		for (const FBox2D& Region : Regions)
+
+		double H;
+		if (DialogBox.bIsValid)
 		{
-			if (Region.Min.X >= Region.Max.X || Region.Min.Y >= Region.Max.Y)
-			{
-				continue;
-			}
-			const FBox2D Fit = FitInto(Region);
-			const double Area = Fit.bIsValid ? Fit.GetArea() : 0.0;
-			if (Area > BestArea)
-			{
-				BestArea = Area;
-				Best = Fit;
-			}
+			const double Free = DialogBox.Min.Y - 2.0 * M; // место над окном разговора
+			H = FMath::Max(Free, MinH);
 		}
-		return Best;
+		else
+		{
+			H = Screen.Y - 2.0 * M;
+		}
+		H = FMath::Min(H, Screen.Y - 2.0 * M);
+		double W = H * SafeAspect;
+		if (W > MaxW)
+		{
+			W = MaxW;
+			H = W / SafeAspect;
+		}
+		if (H <= 1.0)
+		{
+			return Result;
+		}
+
+		const double Top = DialogBox.bIsValid ? M : (Screen.Y - H) * 0.5;
+		const double Left = (Screen.X - W) * 0.5;
+		Result.Photo = FBox2D(FVector2D(Left, Top), FVector2D(Left + W, Top + H));
+		if (DialogBox.bIsValid && Top + H + M > DialogBox.Min.Y)
+		{
+			Result.DialogTop = Top + H + M; // окно разговора опускается под фотографию
+		}
+		return Result;
 	}
 }

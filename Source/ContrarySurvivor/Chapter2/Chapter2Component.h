@@ -51,6 +51,11 @@ public:
 		float ZoneDistance = -1.0f;    // до края ближайшей низины (0 — внутри); < 0 — низины нет
 		FVector HeroLocation = FVector::ZeroVector;
 		TArray<FVector> SampleLocations; // не подобранные образцы, которые сейчас видны
+		// Свои числа низины, в которой (или у которой) стоит герой (настройки экземпляра на уровне);
+		// меньше нуля — как в настройках проекта.
+		float DamageNoMaskPerSecond = -1.0f;
+		float DamageNoAirPerSecond = -1.0f;
+		float DetectorRange = -1.0f;
 	};
 
 	virtual void BeginPlay() override;
@@ -103,6 +108,23 @@ public:
 	// Показать образцы, пока задание идёт, и спрятать подобранные.
 	void RefreshSampleActors();
 
+	// Сколько образцов ждут низины уровня (сумма настройки «Сколько образцов» всех низин).
+	// 0 — низин на уровне нет (тогда число берётся из самого задания Веры).
+	static int32 GetZoneSampleTotal(const UWorld* World);
+
+	// Цель задания [216] «({Done} из {Total})» берёт число из низины (правка Рината 26.10):
+	// задание ещё не сдано и не собрано целиком — его цель приводится к числу образцов низин.
+	void SyncSamplesTarget();
+
+	// --- Заметки смартфона (правка Рината 26.10.2026) ---
+
+	// Положить заметку в список (StoryNoteIds). bAnnounce — сообщение [245] о находке.
+	// false — такая заметка уже есть.
+	bool AddNote(FName NoteId, bool bAnnounce);
+	bool HasNote(FName NoteId) const { return Notes.Contains(NoteId); }
+	// В порядке находки (первая найденная — первая в списке).
+	const TArray<FName>& GetNotes() const { return Notes; }
+
 	// --- Наёмник ---
 
 	bool ShouldSpawnMercenary() const;
@@ -126,6 +148,9 @@ public:
 	// --- Фотография и конец главы ---
 
 	void SetPhotoShown(bool bShown) { bPhotoShown = bShown; }
+
+	// Герой увидел фотографию из ноутбука в разговоре с Верой — она уходит в «Заметки» [246].
+	void NotePhotoSeen();
 	bool IsPhotoShown() const { return bPhotoShown; }
 
 	// Последний разговор с Верой закрыт: экран «Конец первой главы» и запись в сохранение.
@@ -161,6 +186,7 @@ private:
 	TArray<FName> PickedSamples;
 	bool bMercenaryDefeated = false;
 	bool bChapterEndShown = false;
+	TArray<FName> Notes;
 
 	// Живое (в сохранение не пишется).
 	FEnv LastEnv;

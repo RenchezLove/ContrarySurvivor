@@ -9,6 +9,8 @@
 class AEnemyCharacter;
 class UMaterialInterface;
 class UBillboardComponent;
+class UChapter2Component;
+class AMasterInventoryItem;
 
 /**
  * Встреча с наёмником Куратора (поправка Рината 25.10.2026: «По дороге назад после квеста
@@ -126,6 +128,13 @@ protected:
 private:
 	void SpawnMercenary();
 	void FreezeMercenary(bool bFrozen);
+
+	// Записка наёмника (правка Рината 26.10.2026): кладётся в добычу его тела; тело исчезло, а
+	// записку не взяли, — она всё равно уходит в «Заметки» (сюжет не теряется).
+	void PlaceNoteOnCorpse(AEnemyCharacter* Corpse, UChapter2Component* Chapter2);
+	void CheckNoteFallback(UChapter2Component* Chapter2);
+	TWeakObjectPtr<AMasterInventoryItem> NoteItem;
+	bool bNotePlaced = false;
 
 	TWeakObjectPtr<AEnemyCharacter> Mercenary;
 	bool bHoldingOffBase = false;

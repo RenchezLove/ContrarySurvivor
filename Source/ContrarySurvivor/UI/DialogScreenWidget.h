@@ -54,6 +54,18 @@ public:
 	// разложено.
 	FBox2D GetOccupiedAbsoluteBox() const;
 
+	// Главная панель окна (подложка, в которой лежат реплика и кнопки) в абсолютных точках —
+	// так, как она стоит в файле окна, без временного поджатия под фотографию. Крестик
+	// закрытия в углу экрана сюда не входит. false — панели нет или она растянута якорями.
+	bool GetPanelFileBoxAbsolute(FBox2D& OutBox) const;
+
+	// Глава 2 (правка Рината 26.10.2026, решение лида): пока на экране фотография из ноутбука,
+	// окно разговора может стать ниже — его верх опускается до AbsTop (абсолютные точки), низ
+	// остаётся на месте; реплика в окне прокручивается. AbsTop <= 0 или выше верха панели —
+	// окно возвращается к виду из файла. Как только фотографию убрали, окно снова как в файле.
+	void SetPhotoSqueezeTop(double AbsTop);
+	bool IsSqueezedForPhoto() const { return bPhotoSqueezed; }
+
 	// QA-доступ (паттерн *ForQA): автопроверка проходит первую встречу со старостой настоящим
 	// окном, без кнопок на экране. В игровом коде не вызывается.
 	void PressPrimaryForQA() { HandleAcceptClicked(); }
@@ -225,6 +237,15 @@ protected:
 	void SetReplica(const FText& Text);
 
 private:
+
+	// Главная панель окна: верхний предок реплики (или кнопки) под корнем окна.
+	UWidget* FindMainPanel() const;
+
+	// Временное поджатие окна под фотографию: место и размер панели из файла и сдвиг верха.
+	bool bPhotoSqueezed = false;
+	FVector2D SqueezeFilePosition = FVector2D::ZeroVector;
+	FVector2D SqueezeFileSize = FVector2D::ZeroVector;
+	TWeakObjectPtr<UWidget> SqueezedPanel;
 
 	UPROPERTY()
 	TObjectPtr<AElderNPC> Elder;
