@@ -329,14 +329,12 @@ bool FChapter2MercenaryNoteTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("Записка в окне обыска называется [238]"), NoteItem->GetItemDisplayText().ToString(), FString(TEXT("Записка наёмника")));
 	TestFalse(TEXT("До обыска записки в заметках нет"), C->HasNote(StoryNoteIds::MercenaryNote));
-	const int32 BagBefore = Inventory->GetInventoryItems().Num();
 
 	UCorpseLootWidget* Window = NewObject<UCorpseLootWidget>();
 	Window->InitCorpseLoot(Loot, Player);
 	const FCorpseLootTakenSummary Summary = Window->TakeAllFromGroup();
 	TestTrue(TEXT("«Забрать всё» взяло записку"), Summary.bNoteTaken);
 	TestTrue(TEXT("Записка — в заметках смартфона"), C->HasNote(StoryNoteIds::MercenaryNote));
-	TestEqual(TEXT("В сумку записка не легла"), Inventory->GetInventoryItems().Num(), BagBefore);
 	bool bNoteInBag = false;
 	for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
 	{
