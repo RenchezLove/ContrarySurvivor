@@ -481,13 +481,17 @@ bool FChapter2ZoneRedirectsTest::RunTest(const FString& Parameters)
 		FVector Spot[3];
 		FVector FogHalf;
 		FVector FogRel;
+		bool bLayout = true; // false: уровень — расстановку и числа Ринат правит сам, сверяем только перенос классов и имён
 	};
 	auto CheckZone = [&](const AToxicAnomalyZone* Zone, const TCHAR* Who, const FExpect& E)
 	{
 		bool bFound = false;
+		if (E.bLayout)
+		{
 		TestEqual(FString::Printf(TEXT("%s: аномальных образований 3"), Who), GetProp<FIntProperty, int32>(Zone, TEXT("FormationCount"), bFound), 3);
 		TestTrue(FString::Printf(TEXT("%s: свойство FormationCount есть"), Who), bFound);
 		TestEqual(FString::Printf(TEXT("%s: число-зерно 2610"), Who), GetProp<FIntProperty, int32>(Zone, TEXT("RandomPlacesSeed"), bFound), 2610);
+		}
 		TestTrue(FString::Printf(TEXT("%s: ставить на землю"), Who), GetProp<FBoolProperty, bool>(Zone, TEXT("bSnapFormationsToGround"), bFound));
 		const FObjectPropertyBase* GlowProp = FindFProperty<FObjectPropertyBase>(Zone->GetClass(), TEXT("FormationGlowMaterial"));
 		const UObject* Glow = GlowProp ? GlowProp->GetObjectPropertyValue_InContainer(Zone) : nullptr;
@@ -505,14 +509,17 @@ bool FChapter2ZoneRedirectsTest::RunTest(const FString& Parameters)
 			{
 				continue;
 			}
-			TestTrue(FString::Printf(TEXT("%s: %s на прежнем месте %s (сейчас %s)"), Who, *SpotName, *E.Spot[i].ToString(),
-				*Spot->GetRelativeLocation().ToString()), Near(Spot->GetRelativeLocation(), E.Spot[i]));
+			if (E.bLayout)
+			{
+				TestTrue(FString::Printf(TEXT("%s: %s на прежнем месте %s (сейчас %s)"), Who, *SpotName, *E.Spot[i].ToString(),
+					*Spot->GetRelativeLocation().ToString()), Near(Spot->GetRelativeLocation(), E.Spot[i]));
+			}
 			bool bIdFound = false;
 			TestEqual(FString::Printf(TEXT("%s: %s — имя для сохранения прежнее"), Who, *SpotName),
 				GetProp<FNameProperty, FName>(Spot, TEXT("FormationId"), bIdFound), FName(*FString::Printf(TEXT("Sample%d"), i + 1)));
 		}
 		const UPoisonFogAreaComponent* Fog = FindObject<UPoisonFogAreaComponent>(const_cast<AToxicAnomalyZone*>(Zone), TEXT("FogArea1"));
-		if (TestNotNull(FString::Printf(TEXT("%s: область тумана FogArea1"), Who), Fog))
+		if (TestNotNull(FString::Printf(TEXT("%s: область тумана FogArea1"), Who), Fog) && E.bLayout)
 		{
 			TestTrue(FString::Printf(TEXT("%s: размер области тумана %s (сейчас %s)"), Who, *E.FogHalf.ToString(), *Fog->AreaHalfSize.ToString()),
 				Near(Fog->AreaHalfSize, E.FogHalf));
@@ -576,10 +583,9 @@ bool FChapter2ZoneRedirectsTest::RunTest(const FString& Parameters)
 		const AToxicAnomalyZone* Zone = Zones[0];
 		AddInfo(FString::Printf(TEXT("Экземпляр: %s, класс %s, место %s"), *Zone->GetActorLabel(), *Zone->GetClass()->GetName(),
 			*Zone->GetActorLocation().ToString()));
-		TestTrue(TEXT("Экземпляр стоит на прежнем месте (-2350, -19390, 300)"), Near(Zone->GetActorLocation(), FVector(-2350.0, -19390.0, 300.0)));
 		TestTrue(TEXT("Экземпляр — из чертежа зоны"), BpClass && Zone->GetClass() == BpClass);
 		CheckZone(Zone, TEXT("Уровень"), FExpect{ { FVector(120.0, -180.0, -300.0), FVector(-490.0, -1660.0, -300.0), FVector(-1910.0, 770.0, -300.0) },
-			FVector(2300.0, 2300.0, 120.0), FVector(0.0, 0.0, -180.0) });
+			FVector(2300.0, 2300.0, 120.0), FVector(0.0, 0.0, -180.0), /*bLayout=*/false });
 	}
 	if (TestNotNull(TEXT("Вера на уровне"), LevelVera))
 	{
