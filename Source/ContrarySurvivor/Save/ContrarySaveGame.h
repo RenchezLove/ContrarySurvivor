@@ -358,7 +358,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
 	float Chapter2AirSeconds = 0.0f;
 
-	// Имена подобранных образцов (AAnomalySample::GetSampleId).
+	// Имена подобранных образцов (AAnomalyFormation::GetFormationId).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Save|Chapter2")
 	TArray<FName> Chapter2PickedSamples;
 

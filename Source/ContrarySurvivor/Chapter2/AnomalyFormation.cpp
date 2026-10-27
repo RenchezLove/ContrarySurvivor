@@ -1,7 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h"
+#include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
 #include "ContrarySurvivor/Retention/OnboardingComponent.h"
 #include "Components/SphereComponent.h"
@@ -12,7 +13,7 @@
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
 
-AAnomalySample::AAnomalySample()
+AAnomalyFormation::AAnomalyFormation()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
@@ -22,19 +23,19 @@ AAnomalySample::AAnomalySample()
 	TouchSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	TouchSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	TouchSphere->SetGenerateOverlapEvents(true);
-	TouchSphere->OnComponentBeginOverlap.AddDynamic(this, &AAnomalySample::OnTouchBegin);
+	TouchSphere->OnComponentBeginOverlap.AddDynamic(this, &AAnomalyFormation::OnTouchBegin);
 	RootComponent = TouchSphere;
 
-	// Меш и светящийся материал задаются на чертеже. Столкновений и тени у образца нет.
-	// Пока своего меша нет — небольшой шар из движка, чтобы образец был виден на уровне.
+	// Меш и светящийся материал задаются на чертеже. Столкновений и тени нет.
+	// Пока своего меша нет — небольшой шар из движка, чтобы образование было видно на уровне.
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetupAttachment(TouchSphere);
 	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Mesh->SetCastShadow(false);
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultSampleMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-	if (DefaultSampleMesh.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (DefaultMesh.Succeeded())
 	{
-		Mesh->SetStaticMesh(DefaultSampleMesh.Object);
+		Mesh->SetStaticMesh(DefaultMesh.Object);
 		Mesh->SetRelativeLocation(FVector(0.0f, 0.0f, 35.0f));
 		Mesh->SetRelativeScale3D(FVector(0.35f));
 	}
@@ -50,15 +51,15 @@ AAnomalySample::AAnomalySample()
 	Glow->LightColor = FColor(120, 255, 90);
 }
 
-void AAnomalySample::BeginPlay()
+void AAnomalyFormation::BeginPlay()
 {
 	Super::BeginPlay();
 	if (TouchSphere)
 	{
 		TouchSphere->SetSphereRadius(TouchRadius);
 	}
-	// Пока задание не взято, образцов не видно; дальше видимостью правит состояние героя.
-	SetSampleVisible(false);
+	// Пока задание не взято, образований не видно; дальше видимостью правит состояние героя.
+	SetFormationVisible(false);
 	if (APlayerCharacter* Player = Cast<APlayerCharacter>(UGameplayStatics::GetPlayerPawn(this, 0)))
 	{
 		if (UChapter2Component* Chapter2 = Player->GetChapter2())
@@ -68,27 +69,27 @@ void AAnomalySample::BeginPlay()
 	}
 }
 
-void AAnomalySample::InitSample(FName InSampleId, UMaterialInterface* GlowMaterial)
+void AAnomalyFormation::InitFormation(FName InFormationId, UMaterialInterface* GlowMaterial)
 {
-	SampleId = InSampleId;
+	FormationId = InFormationId;
 	if (GlowMaterial && Mesh)
 	{
 		Mesh->SetMaterial(0, GlowMaterial);
 	}
 }
 
-FName AAnomalySample::GetSampleId() const
+FName AAnomalyFormation::GetFormationId() const
 {
-	return SampleId.IsNone() ? GetFName() : SampleId;
+	return FormationId.IsNone() ? GetFName() : FormationId;
 }
 
-void AAnomalySample::SetSampleVisible(bool bVisible)
+void AAnomalyFormation::SetFormationVisible(bool bVisible)
 {
-	if (bSampleVisible == bVisible)
+	if (bFormationVisible == bVisible)
 	{
 		return;
 	}
-	bSampleVisible = bVisible;
+	bFormationVisible = bVisible;
 	SetActorHiddenInGame(!bVisible);
 	if (TouchSphere)
 	{
@@ -96,22 +97,23 @@ void AAnomalySample::SetSampleVisible(bool bVisible)
 	}
 }
 
-bool AAnomalySample::TryCollect(APlayerCharacter* Player)
+bool AAnomalyFormation::TryCollect(APlayerCharacter* Player)
 {
 	UChapter2Component* Chapter2 = Player ? Player->GetChapter2() : nullptr;
-	if (!Chapter2 || !bSampleVisible || !Chapter2->CollectSample(GetSampleId()))
+	// CollectSample сам кладёт предмет «Аномальное образование» в сумку.
+	if (!Chapter2 || !bFormationVisible || !Chapter2->CollectSample(GetFormationId()))
 	{
 		return false;
 	}
-	SetSampleVisible(false);
+	SetFormationVisible(false);
 	if (UOnboardingComponent* Hints = Player->GetOnboarding())
 	{
-		Hints->ShowTransientHint(DisplayName);
+		Hints->ShowTransientHint(UChapter2Settings::Get()->FormationNameText); // [226]
 	}
 	return true;
 }
 
-void AAnomalySample::OnTouchBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+void AAnomalyFormation::OnTouchBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	TryCollect(Cast<APlayerCharacter>(OtherActor));

@@ -60,11 +60,11 @@ AVeraNPC::AVeraNPC()
 	SamplesQuest.Kind = EQuestKind::Main; // сюжет главы 2
 	SamplesQuest.KillTargetTag = Chapter2Ids::SampleObjectiveTag;
 	SamplesQuest.TargetCount = 3;
-	SamplesQuest.KillObjectiveLabel = NSLOCTEXT("Quest", "SamplesObjectiveLabel", "Найти в отравленной низине образцы");
-	// [216]
-	SamplesQuest.ObjectiveFormatOverride = NSLOCTEXT("Quest", "SamplesObjective", "Найти в отравленной низине образцы ({Done} из {Total})");
-	// [217]
-	SamplesQuest.TurnInHintText = NSLOCTEXT("Quest", "SamplesTurnInHint", "Отнести образцы Вере");
+	SamplesQuest.KillObjectiveLabel = NSLOCTEXT("Quest", "SamplesObjectiveLabel", "Собрать в отравленной низине аномальные образования");
+	// [216] (изменена 27.10.2026)
+	SamplesQuest.ObjectiveFormatOverride = NSLOCTEXT("Quest", "SamplesObjective", "Собрать в отравленной низине аномальные образования ({Done} из {Total})");
+	// [217] (изменена 27.10.2026)
+	SamplesQuest.TurnInHintText = NSLOCTEXT("Quest", "SamplesTurnInHint", "Отнести аномальные образования Вере");
 	SamplesQuest.MapMarkerTag = Chapter2Ids::LowlandMarkerTag;
 	SamplesQuest.RequiredItemCount = 0;
 	SamplesQuest.RewardMoney = 0.0f; // плата — расшифровка ноутбука
@@ -73,6 +73,28 @@ AVeraNPC::AVeraNPC()
 	SamplesQuest.TurnInReplyText = NSLOCTEXT("Quest", "SamplesTurnIn", "По дороге сюда меня ждал человек Куратора. Он знал меня.");
 	SamplesQuest.GiverNpcTag = Chapter2Ids::VeraTag;
 	SamplesQuest.TurnInNpcTag = Chapter2Ids::VeraTag;
+}
+
+void AVeraNPC::RefreshJournalTexts(UQuestComponent* Quests) const
+{
+	const FQuest* InLog = Quests ? Quests->FindQuest(SamplesQuest.QuestId) : nullptr;
+	if (!InLog)
+	{
+		return;
+	}
+	auto Same = [](const FText& A, const FText& B) { return A.ToString().Equals(B.ToString(), ESearchCase::CaseSensitive); };
+	if (Same(InLog->ObjectiveFormatOverride, SamplesQuest.ObjectiveFormatOverride) && Same(InLog->TurnInHintText, SamplesQuest.TurnInHintText)
+		&& Same(InLog->KillObjectiveLabel, SamplesQuest.KillObjectiveLabel))
+	{
+		return;
+	}
+	// Повтор предложения взятого задания ничего не сбрасывает — только переписывает тексты
+	// (UQuestComponent::OfferQuest -> RefreshDefinitionTexts), как при разговоре с Верой.
+	FQuest Definition = SamplesQuest;
+	Definition.GiverNpcTag = NpcTag;
+	Definition.TurnInNpcTag = NpcTag;
+	Quests->OfferQuest(Definition);
+	UE_LOG(LogQA, Display, TEXT("QA: chapter2 тексты задания образований в журнале обновлены по Вере"));
 }
 
 void AVeraNPC::PostInitializeComponents()

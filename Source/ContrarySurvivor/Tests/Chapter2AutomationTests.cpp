@@ -23,12 +23,12 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "SaveTestPlayerCharacter.h"
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
-#include "ContrarySurvivor/Chapter2/PoisonZone.h"
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h"
 #include "ContrarySurvivor/Chapter2/VeraNPC.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Characters/EnemyCharacter.h"
@@ -220,7 +220,7 @@ bool FChapter2ZoneAndAirTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	ASaveTestPlayerCharacter* Player = Chapter2Test::Spawn<ASaveTestPlayerCharacter>(World, FVector(0.0f, 0.0f, 100.0f));
-	APoisonZone* Zone = Chapter2Test::Spawn<APoisonZone>(World, FVector(10000.0f, 0.0f, 0.0f));
+	AToxicAnomalyZone* Zone = Chapter2Test::Spawn<AToxicAnomalyZone>(World, FVector(10000.0f, 0.0f, 0.0f));
 	UChapter2Component* C = Player ? Player->GetChapter2() : nullptr;
 	UStatsComponent* Stats = Player ? Player->GetStats() : nullptr;
 	if (!Player || !Zone || !C || !Stats)
@@ -310,10 +310,10 @@ bool FChapter2QuestFlowTest::RunTest(const FString& Parameters)
 	AVeraNPC* Vera = Chapter2Test::Spawn<AVeraNPC>(World, FVector(500.0f, 0.0f, 100.0f));
 	AScientistQuestNPC* Scientist = Chapter2Test::Spawn<AScientistQuestNPC>(World, FVector(800.0f, 0.0f, 100.0f));
 	AMercenaryEncounter* Encounter = Chapter2Test::Spawn<AMercenaryEncounter>(World, FVector(3000.0f, 0.0f, 100.0f));
-	TArray<AAnomalySample*> Samples;
+	TArray<AAnomalyFormation*> Samples;
 	for (int32 i = 0; i < 3; ++i)
 	{
-		Samples.Add(Chapter2Test::Spawn<AAnomalySample>(World, FVector(10000.0f + i * 500.0f, 0.0f, 50.0f)));
+		Samples.Add(Chapter2Test::Spawn<AAnomalyFormation>(World, FVector(10000.0f + i * 500.0f, 0.0f, 50.0f)));
 	}
 	UChapter2Component* C = Player ? Player->GetChapter2() : nullptr;
 	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
@@ -361,7 +361,7 @@ bool FChapter2QuestFlowTest::RunTest(const FString& Parameters)
 
 	// До взятия образцов не видно и подобрать их нельзя.
 	C->RefreshSampleActors();
-	TestFalse(TEXT("До взятия задания образцов не видно"), Samples[0]->IsSampleVisible());
+	TestFalse(TEXT("До взятия задания образцов не видно"), Samples[0]->IsFormationVisible());
 	TestFalse(TEXT("До взятия задания образец не подбирается"), Samples[0]->TryCollect(Player));
 
 	TestFalse(TEXT("Взятие не закрывает разговор"), Vera->HandleTalkPrimary(Player));
@@ -375,13 +375,13 @@ bool FChapter2QuestFlowTest::RunTest(const FString& Parameters)
 	if (const FQuest* InLog = Quests->FindQuest(QId))
 	{
 		const FText Line = QuestObjectiveText::BuildObjectives(*InLog, INVTEXT("{Objective} {Done} из {Total}"), INVTEXT(", "));
-		TestEqual(TEXT("Строка цели [216]"), Line.ToString(), FString(TEXT("Найти в отравленной низине образцы (0 из 3)")));
-		TestEqual(TEXT("[217] — куда нести собранное"), InLog->TurnInHintText.ToString(), FString(TEXT("Отнести образцы Вере")));
+		TestEqual(TEXT("Строка цели [216]"), Line.ToString(), FString(TEXT("Собрать в отравленной низине аномальные образования (0 из 3)")));
+		TestEqual(TEXT("[217] — куда нести собранное"), InLog->TurnInHintText.ToString(), FString(TEXT("Отнести аномальные образования Вере")));
 	}
 
 	// Образцы видны и подбираются касанием; детектор слышит ближайший.
 	C->RefreshSampleActors();
-	TestTrue(TEXT("После взятия образцы видны"), Samples[0]->IsSampleVisible());
+	TestTrue(TEXT("После взятия образцы видны"), Samples[0]->IsFormationVisible());
 	C->Step(0.1f, Chapter2Test::Env(true, true, false, 400.0f));
 	TestTrue(TEXT("Рядом с образцом детектор на экране"), C->IsDetectorShown());
 	TestTrue(TEXT("Рядом с образцом есть сигнал"), C->GetSignalStrength() > 0.0f);
@@ -403,7 +403,7 @@ bool FChapter2QuestFlowTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("Первый образец подобран"), Samples[0]->TryCollect(Player));
 	TestFalse(TEXT("Подобранный образец второй раз не считается"), Samples[0]->TryCollect(Player));
-	TestFalse(TEXT("Подобранный образец спрятан"), Samples[0]->IsSampleVisible());
+	TestFalse(TEXT("Подобранный образец спрятан"), Samples[0]->IsFormationVisible());
 	TestTrue(TEXT("Второй образец подобран"), Samples[1]->TryCollect(Player));
 	TestEqual(TEXT("Два из трёх"), C->GetSamplesDone(), 2);
 
@@ -489,7 +489,7 @@ bool FChapter2QuestFlowTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Аппарат возвращён Вере — и в сохранении тоже"), C->HasApparatus());
 	TestEqual(TEXT("Воздух пережил сохранение"), C->GetAirSeconds(), Air);
 	TestEqual(TEXT("Подобранные образцы пережили сохранение"), C->GetPickedCount(), 3);
-	TestTrue(TEXT("Образец по имени помнится подобранным"), C->IsSamplePicked(Samples[1]->GetSampleId()));
+	TestTrue(TEXT("Образец по имени помнится подобранным"), C->IsSamplePicked(Samples[1]->GetFormationId()));
 	TestTrue(TEXT("Победа над наёмником пережила сохранение"), C->IsMercenaryDefeated());
 	TestTrue(TEXT("Конец главы пережил сохранение"), C->IsChapterEndShown());
 
@@ -896,7 +896,7 @@ bool FChapter2DebugPointsTest::RunTest(const FString& Parameters)
 	AScientistQuestNPC* Scientist = Chapter2Test::Spawn<AScientistQuestNPC>(World, FVector(3000.0f, 0.0f, 100.0f));
 	AScientistGuardNPC* Guard = Chapter2Test::Spawn<AScientistGuardNPC>(World, FVector(2500.0f, 800.0f, 100.0f));
 	AVeraNPC* Vera = Chapter2Test::Spawn<AVeraNPC>(World, FVector(3500.0f, 0.0f, 100.0f));
-	APoisonZone* Zone = Chapter2Test::Spawn<APoisonZone>(World, FVector(12000.0f, 0.0f, 300.0f));
+	AToxicAnomalyZone* Zone = Chapter2Test::Spawn<AToxicAnomalyZone>(World, FVector(12000.0f, 0.0f, 300.0f));
 	AMercenaryEncounter* Encounter = Chapter2Test::Spawn<AMercenaryEncounter>(World, FVector(6000.0f, 0.0f, 100.0f));
 	UChapter2Component* C = Player ? Player->GetChapter2() : nullptr;
 	UQuestComponent* Quests = Player ? Player->GetQuests() : nullptr;
@@ -921,7 +921,7 @@ bool FChapter2DebugPointsTest::RunTest(const FString& Parameters)
 		Loc.Z = Zone->GetActorLocation().Z;
 		return Zone->DistanceTo(Loc);
 	};
-	TestEqual(TEXT("Низина сама поставила три образца на свои места"), Zone->GetSpawnedSamples().Num(), 3);
+	TestEqual(TEXT("Низина сама поставила три образца на свои места"), Zone->GetSpawnedFormations().Num(), 3);
 
 	// --- Точка 1: ноутбук сдан учёному — идти к Вере ---
 	TestTrue(TEXT("Точка «ноутбук сдан — к Вере» отработала"), SetStoryChapter2(Player, EChapter2DebugPoint::TalkToVera));
@@ -952,9 +952,9 @@ bool FChapter2DebugPointsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Задание готово к сдаче"), Chapter2Test::StateOf(Player, QId), EQuestState::Completed);
 	TestEqual(TEXT("Собраны три образца"), C->GetSamplesDone(), 3);
 	bool bAllLevelSamplesPicked = true;
-	for (const TWeakObjectPtr<AAnomalySample>& Sample : Zone->GetSpawnedSamples())
+	for (const TWeakObjectPtr<AAnomalyFormation>& Sample : Zone->GetSpawnedFormations())
 	{
-		bAllLevelSamplesPicked &= Sample.IsValid() && C->IsSamplePicked(Sample->GetSampleId());
+		bAllLevelSamplesPicked &= Sample.IsValid() && C->IsSamplePicked(Sample->GetFormationId());
 	}
 	TestTrue(TEXT("Подобраны именно образцы уровня"), bAllLevelSamplesPicked);
 	TestFalse(TEXT("Наёмник ещё не побеждён"), C->IsMercenaryDefeated());

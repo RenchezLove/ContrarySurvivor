@@ -312,7 +312,7 @@ bool AMasterTrader::CanBuyFromPlayer(const AMasterInventoryItem* Item, const APl
 	// Сюжетный предмет (снаряжение учёных главы 2) торговец не берёт никогда — [235].
 	if (Item && Item->bStoryItem)
 	{
-		OutReason = UChapter2Settings::Get()->StoryItemLockedText;
+		OutReason = UChapter2Settings::StoryItemLockedTextFor(Item->ItemName);
 		return false;
 	}
 	if (Item && IsSellLockedByQuest(Item->ItemName, Seller ? Seller->GetQuests() : nullptr))

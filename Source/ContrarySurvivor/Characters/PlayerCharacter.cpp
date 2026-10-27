@@ -1313,7 +1313,7 @@ bool APlayerCharacter::RefuseStoryItem(const AMasterInventoryItem* Item) const
     {
         return false;
     }
-    const FText& Message = UChapter2Settings::Get()->StoryItemLockedText;
+    const FText& Message = UChapter2Settings::StoryItemLockedTextFor(Item->ItemName);
     UE_LOG(LogQA, Display, TEXT("QA: story item '%s' - продать или выбросить нельзя"), *Item->ItemName);
     if (Onboarding)
     {

@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "ContrarySurvivor/Chapter2/PoisonZone.h"
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
 #include "ContrarySurvivor/ContrarySurvivor.h" // LogQA
 #include "Components/BillboardComponent.h"
@@ -154,7 +154,7 @@ void UPoisonFogAreaComponent::RebuildLayers()
 
 	AActor* Owner = GetOwner();
 	UWorld* World = GetWorld();
-	const APoisonZone* Zone = Cast<APoisonZone>(Owner);
+	const AToxicAnomalyZone* Zone = Cast<AToxicAnomalyZone>(Owner);
 	if (!Zone || !World || IsTemplate() || Zone->IsTemplate() || World->GetNetMode() == NM_DedicatedServer)
 	{
 		return;
@@ -207,26 +207,26 @@ void UPoisonFogAreaComponent::RebuildLayers()
 // Низина
 // ===========================================================================
 
-APoisonZone::APoisonZone()
+AToxicAnomalyZone::AToxicAnomalyZone()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	Volume = MakeVolume(this, FVector(2000.0f, 2000.0f, 600.0f));
 	Volume->ShapeColor = FColor(80, 200, 60);
 	RootComponent = Volume;
 
-	SampleClass = AAnomalySample::StaticClass();
+	FormationClass = AAnomalyFormation::StaticClass();
 
-	// Три места образцов вразнобой по низине (Ринат двигает их мышью в чертеже или на уровне).
+	// Три места аномальных образований вразнобой по зоне (Ринат двигает их мышью в чертеже или на уровне).
 	// Коробка стоит серединой на высоте 300 над землёй — места опущены к земле.
 	const FVector SpotOffsets[] = { FVector(-900.0f, 700.0f, -300.0f), FVector(800.0f, 500.0f, -300.0f), FVector(-100.0f, -900.0f, -300.0f) };
-	TObjectPtr<UAnomalySampleSpotComponent>* Spots[] = { &SampleSpot1, &SampleSpot2, &SampleSpot3 };
+	TObjectPtr<UAnomalyFormationSpotComponent>* Spots[] = { &FormationSpot1, &FormationSpot2, &FormationSpot3 };
 	for (int32 Index = 0; Index < 3; ++Index)
 	{
-		UAnomalySampleSpotComponent* Spot = CreateDefaultSubobject<UAnomalySampleSpotComponent>(
+		UAnomalyFormationSpotComponent* Spot = CreateDefaultSubobject<UAnomalyFormationSpotComponent>(
 			*FString::Printf(TEXT("SampleSpot%d"), Index + 1));
 		Spot->SetupAttachment(Volume);
 		Spot->SetRelativeLocation(SpotOffsets[Index]);
-		Spot->SampleId = FName(*FString::Printf(TEXT("Sample%d"), Index + 1));
+		Spot->FormationId = FName(*FString::Printf(TEXT("Sample%d"), Index + 1));
 		*Spots[Index] = Spot;
 	}
 
@@ -244,7 +244,7 @@ APoisonZone::APoisonZone()
 	FogLayerMesh = PlaneFinder.Object;
 
 #if WITH_EDITORONLY_DATA
-	// Значки мест образцов в редакторе (в игре их нет). Как у движковых AInfo: компонент
+	// Значки мест образований в редакторе (в игре их нет). Как у движковых AInfo: компонент
 	// создаётся всегда (набор подобъектов не зависит от режима запуска), картинка грузится
 	// только не в служебной программе.
 	for (int32 Index = 0; Index < 3; ++Index)
@@ -268,27 +268,27 @@ APoisonZone::APoisonZone()
 #endif
 }
 
-void APoisonZone::PostInitializeComponents()
+void AToxicAnomalyZone::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 	// На эту метку ведёт метка задания «Образцы из аномалий».
 	Tags.AddUnique(Chapter2Ids::LowlandMarkerTag);
 }
 
-void APoisonZone::BeginPlay()
+void AToxicAnomalyZone::BeginPlay()
 {
 	Super::BeginPlay();
-	SpawnSamplesAtSpots();
+	SpawnFormationsAtSpots();
 }
 
-TArray<UPoisonFogAreaComponent*> APoisonZone::GetFogAreas() const
+TArray<UPoisonFogAreaComponent*> AToxicAnomalyZone::GetFogAreas() const
 {
 	TArray<UPoisonFogAreaComponent*> Areas;
 	GetComponents<UPoisonFogAreaComponent>(Areas);
 	return Areas;
 }
 
-void APoisonZone::AddFogArea()
+void AToxicAnomalyZone::AddFogArea()
 {
 #if WITH_EDITOR
 	if (IsTemplate())
@@ -327,7 +327,7 @@ void APoisonZone::AddFogArea()
 #endif
 }
 
-void APoisonZone::RemoveLastFogArea()
+void AToxicAnomalyZone::RemoveLastFogArea()
 {
 #if WITH_EDITOR
 	// Удаляется последняя добавленная кнопкой; первая область (FogArea1) остаётся всегда.
@@ -347,31 +347,31 @@ void APoisonZone::RemoveLastFogArea()
 #endif
 }
 
-FName APoisonZone::ResolveSpotSampleId(const UAnomalySampleSpotComponent* Spot, int32 Index)
+FName AToxicAnomalyZone::ResolveSpotFormationId(const UAnomalyFormationSpotComponent* Spot, int32 Index)
 {
-	if (Spot && !Spot->SampleId.IsNone())
+	if (Spot && !Spot->FormationId.IsNone())
 	{
-		return Spot->SampleId;
+		return Spot->FormationId;
 	}
 	return FName(*FString::Printf(TEXT("Sample%d"), Index + 1));
 }
 
-void APoisonZone::ComputeSamplePlaces(TArray<FVector>& OutLocations, TArray<FName>& OutIds) const
+void AToxicAnomalyZone::ComputeFormationPlaces(TArray<FVector>& OutLocations, TArray<FName>& OutIds) const
 {
 	OutLocations.Reset();
 	OutIds.Reset();
-	const int32 Count = GetSampleCount();
+	const int32 Count = GetFormationCount();
 
-	TArray<UAnomalySampleSpotComponent*> Spots;
-	GetComponents<UAnomalySampleSpotComponent>(Spots);
+	TArray<UAnomalyFormationSpotComponent*> Spots;
+	GetComponents<UAnomalyFormationSpotComponent>(Spots);
 	// Порядок мест — по имени компонента (SampleSpot1, SampleSpot2…): номер для пустого имени
 	// образца не зависит от порядка создания компонентов в чертеже.
-	Spots.Sort([](const UAnomalySampleSpotComponent& A, const UAnomalySampleSpotComponent& B)
+	Spots.Sort([](const UAnomalyFormationSpotComponent& A, const UAnomalyFormationSpotComponent& B)
 		{ return A.GetName() < B.GetName(); });
 	for (int32 Index = 0; Index < Spots.Num() && OutLocations.Num() < Count; ++Index)
 	{
 		OutLocations.Add(Spots[Index]->GetComponentLocation());
-		OutIds.Add(ResolveSpotSampleId(Spots[Index], Index));
+		OutIds.Add(ResolveSpotFormationId(Spots[Index], Index));
 	}
 	if (OutLocations.Num() >= Count || !Volume)
 	{
@@ -380,7 +380,7 @@ void APoisonZone::ComputeSamplePlaces(TArray<FVector>& OutLocations, TArray<FNam
 
 	// Недостающие — случайные точки в коробке низины (по числу-зерну: одни и те же при каждом
 	// запуске, иначе подбор в сохранении указывал бы на другие места). Из нескольких проб —
-	// та, что дальше всех от уже стоящих образцов.
+	// та, что дальше всех от уже стоящих образований.
 	FRandomStream Random(RandomPlacesSeed);
 	const FTransform& Xform = Volume->GetComponentTransform();
 	const FVector Extent = Volume->GetUnscaledBoxExtent();
@@ -420,7 +420,7 @@ void APoisonZone::ComputeSamplePlaces(TArray<FVector>& OutLocations, TArray<FNam
 	}
 }
 
-int32 APoisonZone::SpawnSamplesAtSpots()
+int32 AToxicAnomalyZone::SpawnFormationsAtSpots()
 {
 	UWorld* World = GetWorld();
 	if (!World)
@@ -430,17 +430,17 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 
 	TArray<FVector> Places;
 	TArray<FName> Ids;
-	ComputeSamplePlaces(Places, Ids);
+	ComputeFormationPlaces(Places, Ids);
 
 	// Образцы, которые уже стоят на уровне (старая расстановка или повторный вызов): второй
 	// образец с тем же именем считал бы подбор дважды.
 	TSet<FName> Existing;
-	for (TActorIterator<AAnomalySample> It(World); It; ++It)
+	for (TActorIterator<AAnomalyFormation> It(World); It; ++It)
 	{
-		Existing.Add(It->GetSampleId());
+		Existing.Add(It->GetFormationId());
 	}
 
-	UClass* Class = SampleClass ? SampleClass.Get() : AAnomalySample::StaticClass();
+	UClass* Class = FormationClass ? FormationClass.Get() : AAnomalyFormation::StaticClass();
 	int32 Spawned = 0;
 	for (int32 Index = 0; Index < Places.Num(); ++Index)
 	{
@@ -451,10 +451,10 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 		}
 
 		FVector Location = Places[Index];
-		if (bSnapSamplesToGround)
+		if (bSnapFormationsToGround)
 		{
 			FHitResult Hit;
-			FCollisionQueryParams Params(SCENE_QUERY_STAT(PoisonZoneSampleGround), /*bTraceComplex=*/false, this);
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(ToxicZoneFormationGround), /*bTraceComplex=*/false, this);
 			if (World->LineTraceSingleByChannel(Hit, Location + FVector(0.0f, 0.0f, 600.0f), Location - FVector(0.0f, 0.0f, 3000.0f),
 				ECC_Visibility, Params))
 			{
@@ -466,30 +466,30 @@ int32 APoisonZone::SpawnSamplesAtSpots()
 		SpawnParams.Owner = this;
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		SpawnParams.bDeferConstruction = true;
-		AAnomalySample* Sample = World->SpawnActor<AAnomalySample>(Class, FTransform(FRotator::ZeroRotator, Location), SpawnParams);
-		if (!Sample)
+		AAnomalyFormation* Formation = World->SpawnActor<AAnomalyFormation>(Class, FTransform(FRotator::ZeroRotator, Location), SpawnParams);
+		if (!Formation)
 		{
 			continue;
 		}
-		Sample->InitSample(Id, SampleGlowMaterial);
-		Sample->FinishSpawning(FTransform(FRotator::ZeroRotator, Location));
-		SpawnedSamples.Add(Sample);
+		Formation->InitFormation(Id, FormationGlowMaterial);
+		Formation->FinishSpawning(FTransform(FRotator::ZeroRotator, Location));
+		SpawnedFormations.Add(Formation);
 		Existing.Add(Id);
 		++Spawned;
 	}
 	if (Spawned > 0)
 	{
-		UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s поставила образцов: %d (всего в низине %d)"), *GetName(), Spawned, GetSampleCount());
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 низина %s поставила аномальных образований: %d (всего в низине %d)"), *GetName(), Spawned, GetFormationCount());
 	}
 	return Spawned;
 }
 
-bool APoisonZone::IsInside(const FVector& WorldPoint) const
+bool AToxicAnomalyZone::IsInside(const FVector& WorldPoint) const
 {
 	return Chapter2Volumes::IsInsideBox(Volume, WorldPoint);
 }
 
-float APoisonZone::DistanceTo(const FVector& WorldPoint) const
+float AToxicAnomalyZone::DistanceTo(const FVector& WorldPoint) const
 {
 	return Chapter2Volumes::DistanceToBox(Volume, WorldPoint);
 }

@@ -10,12 +10,12 @@
 #include "ContrarySurvivor/Actors/QuestBarrier.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
 #include "ContrarySurvivor/Actors/VillageZone.h"
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
-#include "ContrarySurvivor/Chapter2/PoisonZone.h"
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h"
 #include "ContrarySurvivor/Chapter2/VeraNPC.h"
 #include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "ContrarySurvivor/Characters/PlayerCharacter.h"
@@ -479,7 +479,7 @@ namespace
 	// видна кнопка «Надеть дыхательный аппарат», а урона ещё нет.
 	bool PoisonZoneEdgeSpot(UWorld* World, const FVector& Toward, FVector& OutLocation)
 	{
-		const APoisonZone* Zone = FirstActorOf<APoisonZone>(World);
+		const AToxicAnomalyZone* Zone = FirstActorOf<AToxicAnomalyZone>(World);
 		const UBoxComponent* Box = Zone ? Zone->GetVolume() : nullptr;
 		if (!Box)
 		{
@@ -554,7 +554,7 @@ bool FindChapter2DebugSpot(UWorld* World, EChapter2DebugPoint Point, FVector& Ou
 			// Чуть дальше расстояния разговора от места появления наёмника, со стороны низины:
 			// наёмник появляется сразу (герой вне низины), разговор — через пару шагов.
 			const AMercenaryEncounter* Encounter = FirstActorOf<AMercenaryEncounter>(World);
-			const APoisonZone* Zone = FirstActorOf<APoisonZone>(World);
+			const AToxicAnomalyZone* Zone = FirstActorOf<AToxicAnomalyZone>(World);
 			if (Encounter)
 			{
 				const FVector From = Encounter->GetActorLocation();
@@ -667,9 +667,9 @@ bool SetStoryChapter2(APlayerCharacter* Player, EChapter2DebugPoint Point)
 		// Образцы уровня — по их именам (подбор пишется в сохранение по имени); не хватает
 		// образцов на уровне — недостающие засчитываются под запасными именами.
 		TArray<FName> Ids;
-		for (TActorIterator<AAnomalySample> It(World); It; ++It)
+		for (TActorIterator<AAnomalyFormation> It(World); It; ++It)
 		{
-			Ids.AddUnique(It->GetSampleId());
+			Ids.AddUnique(It->GetFormationId());
 		}
 		Ids.Sort(FNameLexicalLess());
 		for (int32 Index = 1; Index <= Chapter2->GetSamplesTotal(); ++Index)

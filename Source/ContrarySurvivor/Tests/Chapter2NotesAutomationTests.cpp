@@ -21,12 +21,12 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "SaveTestPlayerCharacter.h"
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
-#include "ContrarySurvivor/Chapter2/PoisonZone.h"
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h"
 #include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
 #include "ContrarySurvivor/Chapter2/VeraNPC.h"
 #include "ContrarySurvivor/Actors/ScientistNPCs.h"
@@ -602,16 +602,16 @@ bool FChapter2PoisonZoneSettingsTest::RunTest(const FString& Parameters)
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	Params.bDeferConstruction = true;
 	const FTransform ZoneXform(FVector(20000.0f, 0.0f, 300.0f));
-	APoisonZone* Zone = World->SpawnActor<APoisonZone>(APoisonZone::StaticClass(), ZoneXform, Params);
+	AToxicAnomalyZone* Zone = World->SpawnActor<AToxicAnomalyZone>(AToxicAnomalyZone::StaticClass(), ZoneXform, Params);
 	if (!TestNotNull(TEXT("Низина поставлена"), Zone))
 	{
 		Destroy(World);
 		return false;
 	}
-	TestEqual(TEXT("По умолчанию в низине три образца"), Zone->GetSampleCount(), 3);
-	TestTrue(TEXT("Число образцов — настройка экземпляра"), SetProp<FIntProperty>(Zone, TEXT("SampleCount"), 5));
+	TestEqual(TEXT("По умолчанию в низине три образца"), Zone->GetFormationCount(), 3);
+	TestTrue(TEXT("Число образцов — настройка экземпляра"), SetProp<FIntProperty>(Zone, TEXT("FormationCount"), 5));
 	Zone->FinishSpawning(ZoneXform);
-	TestEqual(TEXT("Настройка «Сколько образцов» — 5"), Zone->GetSampleCount(), 5);
+	TestEqual(TEXT("Настройка «Сколько образцов» — 5"), Zone->GetFormationCount(), 5);
 
 	// --- Туман: одна область по умолчанию, слои с её цветом и плотностью ---
 	TArray<UPoisonFogAreaComponent*> Areas = Zone->GetFogAreas();
@@ -683,8 +683,8 @@ bool FChapter2PoisonZoneSettingsTest::RunTest(const FString& Parameters)
 	// --- Образцы: пять мест (три места-компонента и две случайные точки по зерну) ---
 	TArray<FVector> Places, PlacesAgain;
 	TArray<FName> Ids, IdsAgain;
-	Zone->ComputeSamplePlaces(Places, Ids);
-	Zone->ComputeSamplePlaces(PlacesAgain, IdsAgain);
+	Zone->ComputeFormationPlaces(Places, Ids);
+	Zone->ComputeFormationPlaces(PlacesAgain, IdsAgain);
 	TestEqual(TEXT("Мест столько, сколько образцов"), Places.Num(), 5);
 	TestTrue(TEXT("Имена первых трёх — как у старых сохранений (Sample1–Sample3)"),
 		Ids.Num() >= 3 && Ids[0] == TEXT("Sample1") && Ids[1] == TEXT("Sample2") && Ids[2] == TEXT("Sample3"));
@@ -703,7 +703,7 @@ bool FChapter2PoisonZoneSettingsTest::RunTest(const FString& Parameters)
 		bInside &= Zone->IsInside(Flat);
 	}
 	TestTrue(TEXT("Все места — внутри низины"), bInside);
-	TestEqual(TEXT("Низина поставила пять образцов"), Zone->GetSpawnedSamples().Num(), 5);
+	TestEqual(TEXT("Низина поставила пять образцов"), Zone->GetSpawnedFormations().Num(), 5);
 	TestEqual(TEXT("Образцов низин на уровне — пять"), UChapter2Component::GetZoneSampleTotal(World), 5);
 
 	// --- Цель задания [216] берёт число из низины ---
@@ -727,7 +727,7 @@ bool FChapter2PoisonZoneSettingsTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("Задание взято"), Q))
 		{
 			const FText Line = QuestObjectiveText::BuildObjectives(*Q, INVTEXT("{Objective} {Done} из {Total}"), INVTEXT(", "));
-			TestEqual(TEXT("Строка цели [216] — с числом из низины"), Line.ToString(), FString(TEXT("Найти в отравленной низине образцы (0 из 5)")));
+			TestEqual(TEXT("Строка цели [216] — с числом из низины"), Line.ToString(), FString(TEXT("Собрать в отравленной низине аномальные образования (0 из 5)")));
 		}
 		// Сохранение, где задание взято на три образца: цель приводится к пяти, собранное не теряется.
 		Quests->SetObjectiveTarget(Chapter2Ids::SamplesQuest, 3);

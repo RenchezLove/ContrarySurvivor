@@ -32,6 +32,10 @@ namespace Chapter2Ids
 	// Служебные ключи снаряжения учёных (AMasterInventoryItem::ItemName): баллон и детектор.
 	inline const TCHAR* const AirTankKey = TEXT("ScientistAirTank");
 	inline const TCHAR* const DetectorKey = TEXT("ScientistDetector");
+
+	// Служебный ключ предмета «Аномальное образование» (правка Рината 27.10.2026): подобранное
+	// образование лежит в сумке, пока задание не сдано Вере.
+	inline const TCHAR* const FormationItemKey = TEXT("AnomalyFormation");
 }
 
 namespace Chapter2Rules

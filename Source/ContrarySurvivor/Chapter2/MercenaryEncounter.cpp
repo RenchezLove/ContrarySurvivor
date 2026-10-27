@@ -13,7 +13,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/BillboardComponent.h"
-#include "ContrarySurvivor/Chapter2/PoisonZone.h" // зона заправки = территория базы учёных
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h" // зона заправки = территория базы учёных
 #include "ContrarySurvivor/Chapter2/StoryNoteItem.h" // записка наёмника в добыче тела
 #include "ContrarySurvivor/Components/CorpseLootComponent.h"
 #include "ContrarySurvivor/Data/ContraryItemLibrary.h"

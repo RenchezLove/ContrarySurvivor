@@ -113,7 +113,7 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "11", DisplayName = "Локатор: цвет волн и линии"))
 	FLinearColor LocatorColor = FLinearColor(0.3f, 1.0f, 0.35f, 1.0f);
 
-	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "12", DisplayName = "Локатор: цвет сигналов образцов"))
+	UPROPERTY(config, EditAnywhere, Category = "Детектор", meta = (DisplayPriority = "12", DisplayName = "Локатор: цвет сигналов аномальных образований"))
 	FLinearColor LocatorSignalColor = FLinearColor(0.75f, 1.0f, 0.3f, 1.0f);
 
 	// Сколько секунд занимает один оборот линии локатора.
@@ -180,6 +180,12 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (ClampMin = "8.0", DisplayPriority = "7",
 		DisplayName = "Размер значка у шкалы"))
 	float BarIconSize = 28.0f;
+
+	// Значок предмета «Аномальное образование» в сумке (правка Рината 27.10.2026). Пусто —
+	// /Game/UI/Chapter2/T_IconFormation; нет и его — плитка без картинки (с названием).
+	UPROPERTY(config, EditAnywhere, Category = "Картинки", meta = (DisplayPriority = "10",
+		DisplayName = "Значок аномального образования"))
+	TSoftObjectPtr<UTexture2D> FormationIconTexture;
 
 	// --- Заметки в смартфоне (правка Рината 26.10.2026) ---
 
@@ -294,7 +300,7 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[236] Смартфон: инструкция к заданию «Образцы из аномалий»"))
 	FText SamplesGuideText = NSLOCTEXT("Chapter2", "SamplesGuide",
 		"Отравленная низина лежит к востоку от лагеря учёных. Перед входом наденьте маску и следите за запасом воздуха: когда он кончится, начнёт убывать здоровье. Пустой баллон заправят в лагере.\n"
-		"В низине левый стик превращается в детектор. Идите туда, откуда приходят сигналы. Соберите три образца и отнесите их Вере.");
+		"В низине левый стик превращается в детектор. Идите туда, откуда приходят сигналы. Соберите аномальные образования и отнесите их Вере.");
 
 	// Заметки (правка Рината 26.10.2026): вкладка смартфона, записка наёмника и фото с Верой.
 	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[237] Смартфон: вкладка с записками"))
@@ -318,6 +324,24 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[246] Название заметки с фото из ноутбука"))
 	FText VeraPhotoNoteTitleText = NSLOCTEXT("Chapter2", "VeraPhotoNoteTitle", "Фото из ноутбука");
 
+	// Аномальное образование — предмет в сумке (правка Рината 27.10.2026: «Сами аномальные
+	// образования сделай предметом. Этот предмет попадает в инвентарь, когда игрок берёт его»).
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "[226] Название предмета: аномальное образование"))
+	FText FormationNameText = NSLOCTEXT("Chapter2", "FormationName", "Аномальное образование");
+
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (MultiLine = "true", DisplayName = "[247] Предмет: описание аномального образования"))
+	FText FormationDescriptionText = NSLOCTEXT("Chapter2", "FormationDescription",
+		"Светящийся нарост из отравленной низины. Учёные Веры ждут такие образцы для исследований.");
+
+	// СВОЯ НАДПИСЬ (в РЕПЛИКИ.txt такой нет; [235] говорит про снаряжение учёных и к образованию
+	// не подходит): попытка продать, выбросить или переложить аномальное образование.
+	UPROPERTY(config, EditAnywhere, Category = "Надписи", meta = (DisplayName = "Аномальное образование нельзя продать или выбросить (своя надпись, в РЕПЛИКИ.txt нет)"))
+	FText FormationLockedText = NSLOCTEXT("Chapter2", "FormationLocked", "Аномальные образования нужно отнести Вере: их нельзя продать или выбросить.");
+
+	// Чем объяснить отказ продать или выбросить сюжетный предмет с этим служебным ключом:
+	// аномальное образование — своей надписью, снаряжение учёных и прочее — [235].
+	static const FText& StoryItemLockedTextFor(const FString& ItemKey);
+
 	// Картинка: поле, если задано; иначе файл по ожидаемому пути, если он есть в проекте.
 	// Нет ни того, ни другого — null (картинки нет, игра не падает).
 	static UTexture2D* ResolveTexture(const TSoftObjectPtr<UTexture2D>& Field, const TCHAR* ExpectedPackage);
@@ -327,4 +351,5 @@ public:
 	static constexpr const TCHAR* ExpectedAirIconPath = TEXT("/Game/UI/Chapter2/T_IconAir");
 	static constexpr const TCHAR* ExpectedDetectorIconPath = TEXT("/Game/UI/Chapter2/T_IconDetector");
 	static constexpr const TCHAR* ExpectedMercenaryNotePath = TEXT("/Game/UI/Chapter2/T_MercenaryNote");
+	static constexpr const TCHAR* ExpectedFormationIconPath = TEXT("/Game/UI/Chapter2/T_IconFormation");
 };

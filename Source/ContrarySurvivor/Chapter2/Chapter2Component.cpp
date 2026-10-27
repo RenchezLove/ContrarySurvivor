@@ -3,8 +3,10 @@
 #include "ContrarySurvivor/Chapter2/Chapter2Component.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Rules.h"
 #include "ContrarySurvivor/Chapter2/Chapter2Settings.h"
-#include "ContrarySurvivor/Chapter2/PoisonZone.h"
-#include "ContrarySurvivor/Chapter2/AnomalySample.h"
+#include "ContrarySurvivor/Chapter2/ToxicAnomalyZone.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormation.h"
+#include "ContrarySurvivor/Chapter2/AnomalyFormationItem.h"
+#include "ContrarySurvivor/Chapter2/VeraNPC.h"
 #include "ContrarySurvivor/Chapter2/MercenaryEncounter.h"
 #include "ContrarySurvivor/Chapter2/ScientistGearItem.h"
 #include "ContrarySurvivor/Chapter2/StoryNoteItem.h"
@@ -51,9 +53,9 @@ void UChapter2Component::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 		if (APlayerCharacter* Player = GetPlayer())
 		{
 			const FVector Loc = Player->GetActorLocation();
-			for (TActorIterator<AAnomalySample> It(GetWorld()); It; ++It)
+			for (TActorIterator<AAnomalyFormation> It(GetWorld()); It; ++It)
 			{
-				if (It->IsSampleVisible() && FVector::Dist2D(Loc, It->GetActorLocation()) <= It->GetTouchRadius()
+				if (It->IsFormationVisible() && FVector::Dist2D(Loc, It->GetActorLocation()) <= It->GetTouchRadius()
 					&& FMath::Abs(Loc.Z - It->GetActorLocation().Z) <= 300.0f)
 				{
 					It->TryCollect(Player);
@@ -87,8 +89,8 @@ UChapter2Component::FEnv UChapter2Component::GatherEnv() const
 	const float EdgeDistance = UChapter2Settings::Get()->MaskButtonEdgeDistance;
 	Env.HeroLocation = Loc;
 
-	const APoisonZone* NearestZone = nullptr;
-	for (TActorIterator<APoisonZone> It(World); It; ++It)
+	const AToxicAnomalyZone* NearestZone = nullptr;
+	for (TActorIterator<AToxicAnomalyZone> It(World); It; ++It)
 	{
 		const float Dist = It->DistanceTo(Loc);
 		Env.bInZone |= (Dist <= 0.0f);
@@ -110,9 +112,9 @@ UChapter2Component::FEnv UChapter2Component::GatherEnv() const
 	{
 		Env.bInRefill |= It->IsInside(Loc);
 	}
-	for (TActorIterator<AAnomalySample> It(World); It; ++It)
+	for (TActorIterator<AAnomalyFormation> It(World); It; ++It)
 	{
-		if (!It->IsSampleVisible() || IsSamplePicked(It->GetSampleId()))
+		if (!It->IsFormationVisible() || IsSamplePicked(It->GetFormationId()))
 		{
 			continue;
 		}
@@ -347,6 +349,8 @@ bool UChapter2Component::CollectSample(FName SampleId)
 	{
 		Quests->NotifyObjectiveEvent(Chapter2Ids::SampleObjectiveTag); // ход задания пишет сохранение сам
 	}
+	// Подобранное образование сразу лежит в сумке предметом (правка Рината 27.10.2026).
+	SyncFormationsInBag();
 	UE_LOG(LogQA, Display, TEXT("QA: chapter2 образец %s подобран (%d из %d)"),
 		*SampleId.ToString(), GetSamplesDone(), GetSamplesTotal());
 	RefreshSampleActors();
@@ -361,9 +365,9 @@ void UChapter2Component::RefreshSampleActors()
 		return;
 	}
 	const bool bQuestActive = IsSamplesQuestActive();
-	for (TActorIterator<AAnomalySample> It(World); It; ++It)
+	for (TActorIterator<AAnomalyFormation> It(World); It; ++It)
 	{
-		It->SetSampleVisible(bQuestActive && !IsSamplePicked(It->GetSampleId()));
+		It->SetFormationVisible(bQuestActive && !IsSamplePicked(It->GetFormationId()));
 	}
 }
 
@@ -372,9 +376,9 @@ int32 UChapter2Component::GetZoneSampleTotal(const UWorld* World)
 	int32 Total = 0;
 	if (World)
 	{
-		for (TActorIterator<APoisonZone> It(World); It; ++It)
+		for (TActorIterator<AToxicAnomalyZone> It(World); It; ++It)
 		{
-			Total += It->GetSampleCount();
+			Total += It->GetFormationCount();
 		}
 	}
 	return Total;
@@ -481,6 +485,23 @@ void UChapter2Component::SyncStoryState()
 		UE_LOG(LogQA, Display, TEXT("QA: chapter2 задание сдано — Вера забрала баллон и детектор"));
 	}
 	SyncGearInBag(bApparatusGiven && Samples && UQuestComponent::IsInActivePhase(*Samples));
+
+	// 4) Аномальные образования в сумке — столько, сколько собрано; сдано — Вера их забрала.
+	SyncFormationsInBag();
+
+	// 5) Тексты задания в журнале — как у Веры (сохранение могло быть записано до правки
+	//    текстов [216]/[217] 27.10.2026; обычно это одна сверка строк).
+	if (Samples)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			for (TActorIterator<AVeraNPC> It(World); It; ++It)
+			{
+				It->RefreshJournalTexts(Quests);
+				break;
+			}
+		}
+	}
 }
 
 int32 UChapter2Component::CountGearInBag() const
@@ -557,6 +578,95 @@ void UChapter2Component::SyncGearInBag(bool bWant)
 		Inventory->AddItem(Item);
 		UE_LOG(LogQA, Display, TEXT("QA: chapter2 в сумку положено снаряжение учёных '%s'"), *KeyString);
 	}
+}
+
+int32 UChapter2Component::GetWantedFormationsInBag() const
+{
+	const FQuest* Samples = FindSamplesQuest();
+	if (!Samples || !UQuestComponent::IsInActivePhase(*Samples))
+	{
+		return 0; // не взято или уже сдано Вере
+	}
+	return FMath::Max(0, GetSamplesDone());
+}
+
+int32 UChapter2Component::CountFormationsInBag() const
+{
+	const APlayerCharacter* Player = GetPlayer();
+	const UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	int32 Count = 0;
+	if (Inventory)
+	{
+		for (const AMasterInventoryItem* Item : Inventory->GetInventoryItems())
+		{
+			if (IsValid(Item) && AAnomalyFormationItem::IsFormationKey(Item->ItemName))
+			{
+				Count += FMath::Max(0, Item->StackCount);
+			}
+		}
+	}
+	return Count;
+}
+
+void UChapter2Component::SyncFormationsInBag()
+{
+	APlayerCharacter* Player = GetPlayer();
+	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
+	UWorld* World = GetWorld();
+	if (!Inventory || !World)
+	{
+		return;
+	}
+	const int32 Want = GetWantedFormationsInBag();
+	int32 Have = CountFormationsInBag();
+	if (Have == Want)
+	{
+		return;
+	}
+
+	// Лишние (задание сдано — Вера забрала; или сохранение дало больше, чем собрано) — прочь.
+	// Сюжет забирает своё мимо запрета «выбросить нельзя».
+	if (Have > Want)
+	{
+		int32 Extra = Have - Want;
+		for (AMasterInventoryItem* Item : Inventory->GetInventoryItems()) // копия списка
+		{
+			if (Extra <= 0)
+			{
+				break;
+			}
+			if (!IsValid(Item) || !AAnomalyFormationItem::IsFormationKey(Item->ItemName))
+			{
+				continue;
+			}
+			const int32 Take = FMath::Min(Extra, FMath::Max(0, Item->StackCount));
+			Item->StackCount -= Take;
+			Extra -= Take;
+			if (Item->StackCount <= 0)
+			{
+				Inventory->RemoveItem(Item);
+				Item->Destroy();
+			}
+		}
+		UE_LOG(LogQA, Display, TEXT("QA: chapter2 аномальных образований в сумке %d (было %d)"), CountFormationsInBag(), Have);
+		return;
+	}
+
+	// Недостающие — одной стопкой (AddItem сам сольёт её с уже лежащей). В сумке нет предела
+	// по числу вещей, поэтому сюжетный предмет помещается всегда.
+	const int32 Missing = Want - Have;
+	const FTransform SpawnTM(Player->GetActorRotation(), Player->GetActorLocation());
+	AMasterInventoryItem* Item = ContraryItems::SpawnItem(World, AAnomalyFormationItem::StaticClass(), SpawnTM, Player,
+		[Missing](AMasterInventoryItem& It) { It.ItemName = Chapter2Ids::FormationItemKey; It.StackCount = Missing; });
+	if (!Item)
+	{
+		return;
+	}
+	// Предмет сумки — данные, а не объект сцены.
+	Item->SetActorHiddenInGame(true);
+	Item->SetActorEnableCollision(false);
+	Inventory->AddItem(Item);
+	UE_LOG(LogQA, Display, TEXT("QA: chapter2 в сумку положено аномальных образований: %d (всего %d)"), Missing, CountFormationsInBag());
 }
 
 void UChapter2Component::ResetMercenaryEncounters()

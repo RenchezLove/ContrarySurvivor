@@ -56,6 +56,10 @@ public:
 	EVeraTalkStage GetStage() const { return Stage; }
 	const FQuest& GetSamplesQuest() const { return SamplesQuest; }
 
+	// Журнал хранит копию текстов задания: сохранение, записанное до правки текстов [216]/[217]
+	// (27.10.2026), показывало бы старые до первого разговора с Верой. Зовёт глава 2 героя.
+	void RefreshJournalTexts(UQuestComponent* Quests) const;
+
 	// Сдано ли задание учёным, после которого с героем говорит Вера.
 	static bool IsLaptopTurnedIn(const APlayerCharacter* Player);
 
